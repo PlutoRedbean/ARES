@@ -1,6 +1,6 @@
 # 支持RV32IM Mundus 前端架构设计文档
 
-> **Version**: Draft 1.1
+> **Version**: Draft 1.2
 > **目标架构**：
 > Overview: 采用一个Composer+多个子预测器的三级流水线结构
 >
@@ -30,76 +30,58 @@
 ## 2. 总体前端架构
 
 ```text
-                  BPU
-                   │
-       ┌───────────┼───────────┐
-       ▼           ▼           ▼
- Direction       Target      Special
- Predictor      Predictor     Predictor
-       │           │           │
-      TAGE      uBTB/mBTB    RAS/Loop
-       │
-       ▼
-      SC
-       │
-       └──────────────┐
-                      ▼
-               Prediction Result
-                      │
-                      ▼
-                    IFU
+                         BPU
+                          │
+          ┌───────────────┼────────────────┐
+          │               │                │
+          ▼               ▼                ▼
+    Direction          Target           Special
+    Predictor         Predictor         Predictor
+          │               │                │
+   ┌──────┴──────┐   ┌────┴────┐      ┌───┴────┐
+   │             │   │         │      │        │
+ Bimodal       Gshare uBTB    mBTB    RAS     Loop
+   │             │   │         │      │        │
+   └──────┬──────┘   │         │      │        │
+          ▼          │         │      │        │
+      Tournament     │         │      │        │
+      Selector       │         │      │        │
+          │          │         │      │        │
+          └──────────┴─────────┴──────┴────────┘
+                          │
+                          ▼
+                 Prediction Result
+                          │
+                          ▼
+                         IFU
 ```
 
 其中多个子预测器的置信度排列如下：
 
 ```text
-从上到下置信度依次降低
-        Direction Override Priority
+从上到下置信度排序（高 → 低）：
+             Direction Override Priority
 
-        ┌──────────────────────┐
-        │    Loop / RAS        │
-        │   特殊 CFI override  │
-        └──────────┬───────────┘
-                   ▼
-        ┌──────────────────────┐
-        │      TAGE + SC       │
-        │  主方向预测 + 修正   │
-        └──────────┬───────────┘
-                   ▼
-        ┌──────────────────────┐
-        │       Bimodal        │
-        │     基础方向预测     │
-        └──────────┬───────────┘
-                   ▼
-        ┌──────────────────────┐
-        │      uBTB hint       │
-        │    快速预测 fallback │
-        └──────────┬───────────┘
-                   ▼
-        ┌──────────────────────┐
-        │   Always Not Taken   │
-        └──────────────────────┘
-
-    -------- Target Prediction --------
-
-        ┌──────────────────────┐
-        │       RAS / Loop     │
-        │    特殊 CFI target   │
-        └──────────┬───────────┘
-                   ▼
-        ┌──────────────────────┐
-        │        mBTB          │
-        │   高精度 target      │
-        └──────────┬───────────┘
-                   ▼
-        ┌──────────────────────┐
-        │        uBTB          │
-        │   低延迟 target      │
-        └──────────┬───────────┘
-                   ▼
-        ┌──────────────────────┐
-        │     PC + 4 / target  │
-        └──────────────────────┘
+        ┌─────────────────────────────┐
+        │       Loop Predictor        │
+        │                             │
+        │  High confidence → Override │
+        │  Low confidence  → Ignore   │
+        └──────────────┬──────────────┘
+                       │
+                       ▼
+        ┌─────────────────────────────┐
+        │    Bimodal + Gshare         │
+        │       Tournament            │
+        │                             │
+        │   Selected base predictor   │
+        └──────────────┬──────────────┘
+                       │
+                       ▼
+        ┌─────────────────────────────┐
+        │        Fallback             │
+        │     Always Not Taken        │
+        └─────────────────────────────┘
 ```
 
 ## 3. BPU 架构设计
@@ -218,31 +200,38 @@ parameter int unsigned mBTB_NumEntries = 4096;
 parameter int unsigned mBTB_NumWays    = 4;
 ```
 
+##### btb entry设计说明
+
 其中uBTB采用fully associative，通过寄存器实现，mBTB采用set-associative，通过SRAM实现。
-BTB的每项entry包含：
+BTB的每项entry的设计如下：
 
 ```systemverilog
-typedef struct packed {
-    logic [1:0] useful_cnt; // 借鉴XiangShan kunminghu-v3 中的useful counter
-    logic [PC_WIDTH - 1:$clog2(FETCH_WIDTH * INST_BYTES)] tag;
+    typedef struct packed {
+        logic [ADDR_WIDTH-1:0]    start_pc;
+        logic [ADDR_WIDTH-1:0]    target_pc;
+        // CFI Information
+        cfi_type_t                cfi_type;
+        logic [FETCH_WIDTH - 1:0] cfi_offset;  // CFI 在 fetch block 中的 slot 位置
+    } btb_target_info_t;
 
-    // Information for fetch block
-    btb_targetInfo_t btb_targetInfo;
-} btb_entry_t;
+    // One CFI slot of a Fetch Block (multi-target BTB record)
+    typedef struct packed {
+        logic [FETCH_WIDTH - 1:0] cfi_offset;  // CFI 在 block 内的 slot 位置
+        cfi_type_t                cfi_type;
+        logic [ADDR_WIDTH-1:0]    target_pc;
+    } btb_cfi_t;
+
+    typedef struct packed {
+        logic [1:0] useful_cnt;  // 借鉴XiangShan kunminghu-v3 中的useful counter
+        logic [ADDR_WIDTH - 1:$clog2(FETCH_WIDTH * INST_BYTES)] tag;
+
+        // Information for fetch block (up to FETCH_WIDTH CFIs, block-relative)
+        logic [$clog2(FETCH_WIDTH + 1) - 1:0] cfi_count;
+        btb_cfi_t [FETCH_WIDTH - 1:0]         cfi;
+    } btb_entry_t;
 ```
 
-其中，每项的targetInfo定义如下：
-
-```systemverilog
-typedef struct packed {
-    logic valid;
-    logic [PC_WIDTH-1:0] start_pc;
-    logic [PC_WIDTH-1:0] target_pc;
-    // CFI Information
-    cfi_type_t           cfi_type;
-    logic [2:0]          cfi_offset; // 指示CFI在Fetch Block中的位置
-} btb_targetInfo_t;
-```
+##### btb 的替换策略
 
 > ubtb 采用 useful 计数器和替换算法结合的替换策略。每个表项有一个 useful 计数器，
 > 表示该表项的“有用”程度，计数器值越大表示越有用。替换时，首先选择 useful 计数器值为 0 的表项，
@@ -356,26 +345,26 @@ typedef struct packed {
 IF-ID通过一个8-entry的IQ来缓存指令块。
 
 ```systemverilog
-module if_id_iq #(
-  parameter int FETCH_W  = 4,     // IFU 每拍最多写入
-  parameter int DECODE_W = 2,     // IDU 每拍最多读出
-  parameter int IQ_DEPTH = 8
-)(
-  input  logic clk, rst_n,
+module iq #(
+    parameter int unsigned DECODE_W = 2,  // IDU 每拍最多读出
+    parameter int unsigned IQ_DEPTH = 8
+) (
+    input logic                              clk,
+    input logic                              rst,
 
-  // ---------- IFU Write Port ----------
-  input  logic                         wvalid,
-  input  iq_entry_t                    wdata [0:FETCH_W-1],
-  input  logic  [FETCH_W - 1:0]        wmask,      // Fetch Block中Branch后的指令置为无效
-  output logic                         wready,
+    // ---------- IFU Write Port ----------
+    input logic                              wvalid,
+    input npc_pkg::iq_entry_t                wdata[npc_pkg::FETCH_WIDTH],
+    input logic [npc_pkg::FETCH_WIDTH - 1:0] wmask,  // Fetch Block中Branch后的指令置为无效
+    output logic wready,
 
-  // ---------- IDU Read Port ----------
-  output logic  [DECODE_W - 1:0]      rvalid,     // HEAD中有效的指令槽
-  input  logic                        rready,
-  input  logic  [$clog2(DECODE_W+1) - 1:0]      raccept_cnt, // IDU实际消费的指令数
-  output iq_entry_t [DECODE_W - 1:0]  rbits,
+    // ---------- IDU Read Port ----------
+    output logic [DECODE_W - 1:0]            rvalid,  // HEAD中有效的指令槽
+    input logic rready,
+    input logic [$clog2(DECODE_W+1) - 1:0]   raccept_cnt,  // IDU实际消费的指令数
+    output npc_pkg::iq_entry_t               rbits[DECODE_W],
 
-  input  logic                        flush
+    input logic                              flush
 );
 ```
 
@@ -649,10 +638,10 @@ PredecodeCheck主要检查Fetch Block中是否存在CFI指令，如果有，并�
                               │
                               ├──────────► IQ
                               │
-                              └──► stall BPU/FTQ
+                              └──► 设置need_redirect = 1
                                        │
                                        ▼
-                                等待 BRU redirect
+                                  BRU 发出 redirect 请求
                                        │
                                        ▼
                                   actual target
@@ -668,6 +657,31 @@ PredecodeCheck主要检查Fetch Block中是否存在CFI指令，如果有，并�
 ```
 
 完成Predecode后，将Fetch Block中CFI指令后的指令置为无效(通过设置wmask)，并将Fetch Block送入IQ。
+
+下面是 PredChecker 模块对分支预测检查的错误类型：
+
+- jal 类型错误：预测块的范围内有 jal 指令，但是预测器没有对这条指令预测跳转；
+- ret 类型错误：预测块的范围内有 ret 指令，但是预测器没有对这条指令预测跳转；
+- 无效指令预测错误：预测器对一条无效的指令（不在预测块范围/是一条 32 位指令中间）进行了预测；
+- 非 CFI 指令预测错误：预测器对一条有效但是不是 CFI 的指令进行了预测；
+- 转移目标地址错误：预测器给出的转移目标地址不正确。
+
+若发现错误，**截断错误指令后把正确指令写入 IQ**，同时向前端发出 redirect 请求，重新从正确的 target 取指。
+
+例如
+
+```asm
+add  x1, x2, x3     # slot 0  correct path
+sub  x4, x5, x6     # slot 1  correct path
+jal  ra, target     # slot 2  correct path, but is predicted not taken(actually taken)
+xor  x7, x8, x9     # slot 3  wrong path
+```
+
+对于jal指令：
+
+- 正确路径上——必须执行；
+- 有副作用——要把返回地址写入 ra（x1）；
+因此需要送入iq，同时向前端发出重定向请求以及正确的target_pc。
 
 ## 7. ICache 设计
 
