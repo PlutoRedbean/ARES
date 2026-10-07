@@ -149,6 +149,8 @@ uBTB为处理器作出无空泡的基础预测以连续生成下一个推测 PC 
 | **uBTB** | 目标（快） | F1 | PC | target / cfi_type_t type / cfi_offset | 小容量，负责快速预测提供next_pc |
 | **mBTB** | 目标（中） | F2/F3 | PC | 同上 | 大容量精确预测target，2~3 latency |
 | **Bimodal** | 方向（快） | F1 | PC | taken | 2-bit 饱和计数器，作为 base 方向器 |
+| **Gshare** | 方向（精） | F1 | PC + GHR | taken | 全局历史异或的 2-bit 饱和计数器，作为主方向器 |
+| **Tournament** | 方向（选择） | F1 | PC | taken | 2-bit chooser，在 Gshare 与 Bimodal 间选择 |
 | **TAGE** | 方向（精） | F2 | PC + GHR | taken + meta | 多表长历史，provider/alternate，作为主方向器 |
 | **SC** | 方向（修正） | F3 | PC + GHR | taken | 统计校正器，修正 TAGE 的置信度 |
 | **Loop** | 特殊 | F3 | PC | 覆盖方向 | 循环次数精确匹配时翻转方向 |
@@ -189,16 +191,14 @@ endinterface
 
 #### uBTB / mBTB
 
-uBTB和mBTB的接口是一样的，区别在于容量和访问延迟不同。基本参数如下：
+uBTB / mBTB 负责预测分支指令的目标地址，uBTB为快速预测器，mBTB为精确预测器。
 
-```systemverilog
-parameter int unsigned FETCH_WIDTH     = 4;
-parameter int unsigned INST_BYTES      = 4;
-parameter int unsigned PC_WIDTH        = 32;
-parameter int unsigned uBTB_NumEntries = 32;
-parameter int unsigned mBTB_NumEntries = 4096;
-parameter int unsigned mBTB_NumWays    = 4;
-```
+uBTB采用fully associative，通过寄存器实现，mBTB采用set-associative，通过SRAM实现。
+
+| parameter | Value | description |
+| --- | --- | --- |
+| UBTB_ENTRIES | 16 | uBTB entry数 |
+| MBTB_ENTRIES | 1024(待测试) | mBTB entry数 |
 
 ##### btb entry设计说明
 
@@ -247,11 +247,99 @@ BTB的每项entry的设计如下：
 
 #### Bimodal
 
-TODO:
+Bimodal 是快速方向预测器，PHT 由 2-bit 饱和计数器组成，作为 tournament 的 base 方向器。
 
-#### TAGE+SC
+|Parameter|Value|
+|---|---|
+|PHT_WIDTH|10|
+|Entries|1 << PHT_WIDTH = 1024|
+|Counter|2-bit 饱和|
 
-TODO:
+- 每条指令对应一个 PHT 项，索引为 `pc[PHT_WIDTH+1:2]`；
+- 一次请求读出连续 `FETCH_WIDTH` 个 PHT 项，分别对应窗口的四个 slot，输出 `pred_taken_slots`；
+- 预测值取计数器高位：`taken = counter[1]`。
+
+计数器状态与复位：
+
+```text
+SNTK = 2'b00    WTK = 2'b10
+WNTK = 2'b01    STK = 2'b11
+```
+
+复位为 `WNTK`。仅在条件分支解析时训练（`update_en && is_branch`），按实际方向对对应项做 2-bit 饱和加减。
+
+预测为 1 级流水，`resp_valid` 与 BTB 响应对齐。
+
+#### Gshare
+
+Gshare 用全局历史 GHR 与 PC 异或索引 PHT：
+
+```text
+index = pc[PHT_WIDTH+1:2] ^ GHR
+```
+
+|Parameter|Value|
+|---|---|
+|PHT_WIDTH|10|
+|GHR_WIDTH|12|
+|Entries|1 << PHT_WIDTH = 1024|
+
+同样每指令一项、一次读出四个 slot 的方向，2-bit 饱和计数，1 级流水。
+
+由于前端是解耦的（预测远早于分支解析），GHR 需要维护两份：
+
+```text
+ghr_spec   // 推测历史，供预测使用
+ghr_commit // 已提交历史，用于 redirect 时修复 ghr_spec
+```
+
+- 一个 Fetch Block 预测完成并压入 FTQ 时，按预测路径推进推测历史：
+
+```text
+ghr_spec = (ghr_spec << spec_num) | spec_taken
+```
+
+其中 `spec_num` 为该块预测路径上的 CFI 数，`spec_taken` 为其中最后一条是否跳转。
+
+- 发生 redirect（flush）时丢弃推测历史，回滚到已提交历史并计入触发重定向的分支：
+
+```text
+ghr_spec = {ghr_commit[..], actual_taken}
+```
+
+- 已提交历史只在 CFI 解析时推进（`update_en`）。
+
+PHT 只在条件分支解析时训练（`is_branch`），索引取**预测时**捕获的 GHR，保证训练与预测使用同一索引。
+
+#### TOURNAMENT
+
+Tournament 在 Bimodal 与 Gshare 之间选择，维护每个 PC 的 2-bit chooser。
+
+|Parameter|Value|
+|---|---|
+|CHOOSER_WIDTH|10|
+|Entries|1 << CHOOSER_WIDTH = 1024|
+
+```text
+SBM = 2'b00  // 强偏好 Bimodal
+WBM = 2'b01  // 弱偏好 Bimodal
+WG  = 2'b10  // 弱偏好 Gshare
+SG  = 2'b11  // 强偏好 Gshare
+```
+
+- 按 `pc[CHOOSER_WIDTH+1:2]` 读出四个 slot 的 chooser；`SBM/WBM` 选 Bimodal，`WG/SG` 选 Gshare；
+- 两个分量方向器均为 1 级流水，与 chooser 对齐；
+- 复位为 `WBM`。
+
+更新规则（仅条件分支，读-改-写）：按两个分量各自是否正确，把 chooser 向正确的一方移动。
+
+```text
+两者都对 / 都错 : 保持
+Gshare 对、Bimodal 错 : 向 Gshare 移动
+Bimodal 对、Gshare 错 : 向 Bimodal 移动
+```
+
+预测时把两个分量的结果与 Gshare 使用的 GHR 一并写入 metadata（`chooser_meta`），训练时据此更新 chooser 和分量。
 
 #### RAS
 
@@ -261,70 +349,19 @@ TODO:
 
 TODO:
 
-### 3.3 预测流水线级行为
-
-#### pipeline携带的metadata说明
-
-```systemverilog
-typedef struct packed {
-    // decoupled valid/ready handshake
-    logic valid;
-    logic ready;
-
-    // Fetch information
-    logic [PC_WIDTH-1:0] fetch_pc;
-
-    // Update information
-    logic [$clog2(FTQ_NumEntries) - 1:0] ftq_idx;
-    logic [SEQ_W-1:0] ftq_seq; // TODO: It may be not necessary
-
-    // redirect signal
-    logic has_redirect; // 只有F2 F3阶段会发出redirect
-    // TODO: maybe need to add more metadata
-} bpu_pipeline_meta_t;
-```
-
-> ftq_seq可能并不需要：
->
-> - BPU 只有最后一级才输出最终 prediction
-> - 任何输入 FTQ 的 redirect 都直接 flush 整个 FTQ
-
 ### 3.4 训练方法
 
 BPU会在各个流水线内收集预测的metadata，最终组装为一个pred_meta，经FTQ最终送入IQ，以用于后端BRU的训练。
 
 ```systemverilog
 typedef struct packed {
-    // Prediction sources
-    logic                    ubtb_hit;
-    logic                    mbtb_hit;
-    logic                    tage_hit;
-    logic                    sc_hit;
-    logic                    ras_hit;
-    logic                    loop_hit;
+    logic [ADDR_WIDTH-1:0] pred_target;
+    logic                  pred_taken;
 
-    // Final provider
-    pred_source_e            pred_source;
-
-    // TAGE
-    logic [TAGE_IDX_W-1:0]   tage_idx;
-    logic [TAGE_IDX_W-1:0]   tage_alt_idx;
-
-    // SC
-    logic [SC_IDX_W-1:0]     sc_idx;
-
-    // mBTB
-    logic [MBTB_IDX_W-1:0]   mbtb_idx;
-    logic [MBTB_WAY_W-1:0]   mbtb_way;
-
-    // Loop
-    logic                    loop_used;
-    logic [LOOP_IDX_W-1:0]   loop_idx;
-
-    // RAS
-    logic                    ras_used;
-
-    // TODO: These are generated by AI. It may need to be verified later
+`ifdef TOURNAMENT_ON
+    chooser_meta_t chooser_meta;
+`endif
+    
 } pred_meta_t;
 ```
 
@@ -332,12 +369,16 @@ typedef struct packed {
 
 ```systemverilog
 typedef struct packed {
-    logic      bpu_update_valid
-    logic      bpu_update_pc       // CFI's source PC
-    logic      bpu_update_target
-    cfi_type_t bpu_update_type
-    logic      bpu_actual_taken
-} bpu_updateinfo_t;
+        // resolution of the CFI
+        logic [ADDR_WIDTH - 1:0] update_pc;
+        logic                    actual_taken;
+        logic                    is_branch;     // conditional branch (opcode 0x63)
+        btb_target_info_t        actual_info;
+
+        // the prediction that was made for this instruction; needed by the
+        // direction predictor to train the state it used at predict time
+        pred_meta_t pred_meta;
+} update_meta_t;
 ```
 
 ## 4. IFU-IDU接口设计(Instruction Queue)
@@ -447,20 +488,22 @@ head和tail使用独热码+左旋的方式实现。
 ### 4.3 IQ的entry设计说明
 
 ```systemverilog
-typedef struct packed {
-    
-    // BPU metadata
-    pred_meta_t pred_meta;
+    typedef struct packed {
+        // Instruction PC (needed by the multi-cycle NPC back-end)
+        logic [ADDR_WIDTH - 1:0] pc;
 
-    // Instruction
-    logic [31:0] inst;
-    logic        valid;      // 指令是否有效
+        // BPU metadata
+        pred_meta_t pred_meta;
 
-    logic need_redirect;     // 主要用于处理PredecodeCheck发现未被预测到的jalr指令后，
-                             //   需要交给BRU进行redirect(TODO:或许会有更好的设计？)
-    cfi_type_t   cfi_type;   // is_jal is_jalr is_branch is_call is_ret
-    logic        is_cfi;     // control flow instruction
-} iq_entry_t;
+        // Instruction
+        logic [31:0] inst;
+        logic        valid;  // 指令是否有效
+
+        logic need_redirect;     // 主要用于处理PredecodeCheck发现未被预测到的jalr指令后，
+                                 //   需要交给BRU进行redirect(TODO:或许会有更好的设计？)
+        cfi_type_t cfi_type;  // is_jal is_jalr is_branch is_call is_ret
+        logic is_cfi;  // control flow instruction
+    } iq_entry_t;
 ```
 
 ## 5. BPU-IFU接口设计(Fetch Target Queue)
