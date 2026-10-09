@@ -489,6 +489,7 @@ head和tail使用独热码+左旋的方式实现。
 
 ```systemverilog
     typedef struct packed {
+
         // Instruction PC (needed by the multi-cycle NPC back-end)
         logic [ADDR_WIDTH - 1:0] pc;
 
@@ -499,8 +500,6 @@ head和tail使用独热码+左旋的方式实现。
         logic [31:0] inst;
         logic        valid;  // 指令是否有效
 
-        logic need_redirect;     // 主要用于处理PredecodeCheck发现未被预测到的jalr指令后，
-                                 //   需要交给BRU进行redirect(TODO:或许会有更好的设计？)
         cfi_type_t cfi_type;  // is_jal is_jalr is_branch is_call is_ret
         logic is_cfi;  // control flow instruction
     } iq_entry_t;
