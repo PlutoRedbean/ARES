@@ -1,0 +1,13 @@
+AGENTS.md
+
+# Simulation / test build artefacts
+sim/build/
+sim/build_wave/
+tests/cpu-tests/build/
+tests/cpu-tests/Makefile.*
+tests/cpu-tests/.result
+tests/abstract-machine/am/build/
+tests/abstract-machine/klib/build/
+*.fst
+*.vcd
+waveform.fst
