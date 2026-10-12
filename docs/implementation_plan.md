@@ -1388,6 +1388,46 @@ make all           # 以上四项（C0 门禁）
 
 **出口**：`tb_backend` 契约断言全绿；随机 10k 周期无协议错误；每模块达模块级 DoD。
 
+**C1 执行状态（RTL 已落地，2026-10，待评审）**
+
+| C1 交付物 | 状态 | 证据 |
+|---|---|---|
+| 轨道 A 控制/存储（B02–B09、B17–B22、`be_top`） | ✅ | `rtl/backend/be_{decode,dispatch,producer_map,checkpoint,operand_read,issue_sched,completion,commit,flush,redirect,bpu_update,trap_ctrl}.sv`、`ciq.sv`、`be_gpr.sv`、`be_top.sv` |
+| 轨道 B 执行单元（B10–B16） | ✅ | `rtl/backend/fu_{alu,smul,mul,bru,div,csr}.sv`、`csr_file.sv` |
+| 单元/集成 TB | ✅ | `rtl/backend/test/unit/{tb_decode,tb_fu_exec,tb_bru_csr,tb_backend}.sv`、`fe_model.sv`；`rtl/backend/test/lsu_stub.sv` |
+| 门禁：lint 0 warning | ✅ | `make lint-backend`：13 个 top、`-Wall --assert`、0 warning（Verilator 5.046） |
+| 门禁：`tb_backend` 契约断言全绿 | ✅ | phase1+2：44 retires / 8 redirects（4 branch + 4 arch）/ 6 BPU events / 2 traps / 2 MRET；随机 10 轮 **10878 周期、4839 retires、9022 次 golden 比对 0 mismatch** |
+| 每模块 DoD（自检 TB + SVA） | ✅ | `tb_decode` 3106 checks、`tb_fu_exec` 224072 checks（含 `MUL_LATENCY=2/3`）、`tb_bru_csr` 10695 checks |
+| PPA 探针（§9.3 首条） | ❌ 未做 | 无器件/XDC/Vivado（SPEC-M10）；C1 出口按功能门禁判定，PPA 归 C4 |
+
+```bash
+make lint-backend     # 13 个后端 top，-Wall --assert，零 warning
+make unit             # tb_decode / tb_fu_exec / tb_bru_csr / tb_backend 自检
+make all              # C0 + C1 门禁（lint + lint-backend + 全部单元自检）
+```
+
+**集成期间发现并修复的 RTL 缺陷（自检 TB 的判别力证据）**
+
+1. `be_dispatch`：`iq_accept_count=2` 时 lane0 被误判为未接受（`acc0` 取错位），导致每条指令丢失 + CIQ 空洞；改为 `acc0 = |iq_accept_count`。
+2. `be_commit`：GPR 写使能未与 `commit_fire` 相与 —— 停在 Commit Head、尚未完成的指令每个周期都用默认 `result`（0）覆盖目的寄存器（架构状态破坏）；已在 `commit_rd_wen` 中加入 `commit_fire` 门控。
+3. `ciq`：`issue_ptr` 从不推进，导致首条指令提交后 Issue 永久停摆；改为按连续前缀 grant 数推进。
+4. `ciq`：依赖退休（§14.5）被 `issue_hit`/`w_hit` 优先级分支跳过，同周期发射的消费者保留 stale 依赖；已改为对所有 WAIT Entry 生效。
+5. `fu_alu`/`fu_smul`（子代理单元 TB 发现）：`op_valid` 只被 kill 清除 → 完成的操作重复产生 Completion。
+6. `fu_div`（子代理单元 TB 发现）：borrow-bit 数字选择在 `3×divisor > 2^33` 时选错商位。
+
+**实现选择与规范差异（需评审确认，均不改变外部契约）**
+
+1. `load_credit`/`store_credit` 位宽放宽为 3/4 bit：D-C0-05 的字面 `2'd4`/`3'd8` 无法表示「队列全空」的 credit 值（4 / 8）；语义不变（只做 `>0` 判定）。
+2. 新增后端子系统顶层 `be_top.sv`（plan §3.2/FREE-02 允许的文件组织），对外只暴露契约 §2–§4 与 backend.md §9.6 端口；`ares_core_top`（C3）只需实例化它 + Frontend + LSU。
+3. `be_top` 增加 `dbg_*` 只读观测端口（occupancy/指针/issue grant/`architectural_next_pc`），供 TB 断言与波形使用；不进架构状态。
+4. `fu_bru` 的 `recovery_valid` 不再与 `kill_mask` 相与（否则与 `be_flush` 构成组合环）；不变量由 `a_kill_priority` + 结构论证保证（恢复分支自身不在自己的 kill 集合内；被 kill 的 BRU op 在 kill 沿清除 `op_valid`；全队列 Flush 不可能与在途 BRU op 同周期）。
+
+**C1 遗留项（不阻塞 C3 开工）**
+
+1. `tb_backend` 的「中断恢复 PC」直接比对未开启（需要 `mepc` 观测口）；当前由 golden model 对恢复后的整条指令流逐条比对覆盖。C3 增加 CSR 观测口后补回直接断言。
+2. 尚未跑 synth-only 时序探针（SPEC-M10 缺失），C4 前必须补。
+3. 未做 ECC/覆盖率（transition coverage）统计；`tb_backend` 为定向 + 固定种子随机，覆盖率收集留到 C3 与 `--coverage` 一起。
+
 ### 9.4 C2 — LSU / Memory 全部单元（25–35 人日，P0-B，与 C1 并行）
 
 顺序：L02 AGU → L03 LQ → L04 SQ → L05 Store Forward → L12 Completion（Fast Path + FIFO）→ **L10 Line Adapter + TB 内存模型（先打通最小读写闭环：AGU → LQ → DCache hit → Completion）** → L07 Arrays → L06 DCache（C2/C3 跨周期校验 + 端口仲裁 + Hazard）→ L08 MSHR → L09 WB Buffer → L11 MMIO Bridge → L01 LSU Top 收敛。
