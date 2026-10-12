@@ -1,6 +1,6 @@
 # 支持RV32IM Mundus 前端架构设计文档
 
-> **Version**: Draft 1.2
+> **Version**: Draft 1.3
 > **目标架构**：
 > Overview: 采用一个Composer+多个子预测器的三级流水线结构
 >
@@ -266,7 +266,7 @@ SNTK = 2'b00    WTK = 2'b10
 WNTK = 2'b01    STK = 2'b11
 ```
 
-复位为 `WNTK`。仅在条件分支解析时训练（`update_en && is_branch`），按实际方向对对应项做 2-bit 饱和加减。
+复位为 `WNTK`。仅在条件分支**正常 Commit** 后由 BPU Update 训练，按实际方向对对应项做 2-bit 饱和加减。
 
 预测为 1 级流水，`resp_valid` 与 BTB 响应对齐。
 
@@ -296,20 +296,21 @@ ghr_commit // 已提交历史，用于 redirect 时修复 ghr_spec
 - 一个 Fetch Block 预测完成并压入 FTQ 时，按预测路径推进推测历史：
 
 ```text
-ghr_spec = (ghr_spec << spec_num) | spec_taken
+for each effective predicted CFI in program order:
+    ghr_spec = {ghr_spec[GHR_WIDTH-2:0], effective_pred_taken}
 ```
 
-其中 `spec_num` 为该块预测路径上的 CFI 数，`spec_taken` 为其中最后一条是否跳转。
+每次推进一条 CFI 的生效预测方向；首版 IFU 在首个有效 CFI 后截断 Fetch Block，必须为该 CFI 保存推进之前的 `ghr_before`。
 
-- 发生 redirect（flush）时丢弃推测历史，回滚到已提交历史并计入触发重定向的分支：
+- 发生 **BRU Recovery** 时，使用该 CFI 在预测时保存的 `pred_meta.ghr_before`（包含更老但未提交的正确历史）并追加 `actual_taken`，而非简单使用 `ghr_commit`：
 
 ```text
-ghr_spec = {ghr_commit[..], actual_taken}
+ghr_spec = {pred_meta.ghr_before 的低 GHR_WIDTH-1 位, actual_taken}
 ```
 
-- 已提交历史只在 CFI 解析时推进（`update_en`）。
+- `ghr_commit` 只在 CFI **正常 Commit** 的 BPU Update 事件被接受时按 lane0→lane1 顺序推进；BRU Completion 不推进。ECALL/MRET/IRQ 类架构重定向使用同周期 Commit 更新后的 `ghr_commit` 恢复 `ghr_spec`。详见 `frontend_backend_contract.md` 第 3–4 节。
 
-PHT 只在条件分支解析时训练（`is_branch`），索引取**预测时**捕获的 GHR，保证训练与预测使用同一索引。
+PHT 只对**正常 Commit** 的条件分支训练（`bpu_update_valid && actual_cfi_type == CFI_COND_BRANCH`），索引取预测时捕获的 GHR，保证训练与预测使用同一索引。
 
 #### TOURNAMENT
 
@@ -351,12 +352,14 @@ TODO:
 
 ### 3.4 训练方法
 
-BPU会在各个流水线内收集预测的metadata，最终组装为一个pred_meta，经FTQ最终送入IQ，以用于后端BRU的训练。
+BPU 收集原始预测的 metadata，经 FTQ/IQ 随 CFI 进入 Backend CIQ；BRU Completion 登记真实结果，最终在正常 Commit 时按 `bpu_update_t` 训练预测器。
 
 ```systemverilog
 typedef struct packed {
-    logic [ADDR_WIDTH-1:0] pred_target;
-    logic                  pred_taken;
+    logic [ADDR_WIDTH-1:0] pred_target; // 原始预测目标（未必为实际生效 pred_npc）
+    logic                  pred_taken;  // 原始预测方向
+    cfi_type_t             pred_type;   // 原始预测 CFI 类型
+    logic [GHR_WIDTH-1:0]  ghr_before;  // 逐 CFI 的预测前 GHR 快照
 
 `ifdef TOURNAMENT_ON
     chooser_meta_t chooser_meta;
@@ -365,21 +368,7 @@ typedef struct packed {
 } pred_meta_t;
 ```
 
-后端BRU需要提供这些信息
-
-```systemverilog
-typedef struct packed {
-        // resolution of the CFI
-        logic [ADDR_WIDTH - 1:0] update_pc;
-        logic                    actual_taken;
-        logic                    is_branch;     // conditional branch (opcode 0x63)
-        btb_target_info_t        actual_info;
-
-        // the prediction that was made for this instruction; needed by the
-        // direction predictor to train the state it used at predict time
-        pred_meta_t pred_meta;
-} update_meta_t;
-```
+后端 BRU 在 Completion 时向 CIQ 登记 `actual_npc/actual_taken/actual_target`，不直接修改 `ghr_commit` 或训练已提交预测器。后端在 **CFI 正常 Commit** 时，通过 `bpu_update_valid[1:0] / bpu_update[2]` 反馈 `bpu_update_t`（CFI PC、实际方向/目标/类型、原始 `pred_meta`），并按 `bpu_update_credit` 保证事件不丢失、顺序不变。完整接口定义见 `frontend_backend_contract.md` 第 4 节。
 
 ## 4. IFU-IDU接口设计(Instruction Queue)
 
@@ -401,11 +390,10 @@ module iq #(
 
     // ---------- IDU Read Port ----------
     output logic [DECODE_W - 1:0]            rvalid,  // HEAD中有效的指令槽
-    input logic rready,
-    input logic [$clog2(DECODE_W+1) - 1:0]   raccept_cnt,  // IDU实际消费的指令数
+    input logic [$clog2(DECODE_W+1) - 1:0]   raccept_cnt,  // 唯一消费条件：0/1/2
     output npc_pkg::iq_entry_t               rbits[DECODE_W],
 
-    input logic                              flush
+    input logic                              flush  // 仅 Backend Redirect/Reset 全队列清空；Local Redirect 保留正确 prefix
 );
 ```
 
@@ -469,7 +457,7 @@ Head 寄存器 → Decoder → Dependency Binding → CIQ 寄存器
 
 1. IQ为IDU提供 2bits 的rvalid，表示HEAD中有效的指令槽。如rvalid == 2'b11，则表示HEAD中slot0 slot1均有效；
 如rvalid == 2'b01，则表示HEAD中slot0有效，slot1无效；
-2. IDU根据rvalid选择HEAD中有效的指令槽，读取对应的rbits；写入CIQ后，拉高rready，并设置raccept_cnt，表示IDU实际消费的指令数；
+2. IDU 根据 `rvalid` 选择连续有效前缀，计算 `raccept_cnt=0/1/2`；在同一时钟沿将对应指令写入 CIQ、IQ 消费相同数量。`raccept_cnt` 是唯一消费条件，不再使用 `rready`。BE Redirect 当周期 `raccept_cnt=0`。
 
 > IFU -> IQ
 
@@ -492,15 +480,16 @@ head和tail使用独热码+左旋的方式实现。
         // Instruction PC (needed by the multi-cycle NPC back-end)
         logic [ADDR_WIDTH - 1:0] pc;
 
-        // BPU metadata
+        // BPU 原始预测/历史快照（Commit 训练和 BRU Recovery 用）
         pred_meta_t pred_meta;
+        // 经过前端 Predecode 修正后，该条指令生效的预测下一 PC
+        logic [ADDR_WIDTH-1:0] pred_npc;
 
         // Instruction
         logic [31:0] inst;
         logic        valid;  // 指令是否有效
 
-        logic need_redirect;     // 主要用于处理PredecodeCheck发现未被预测到的jalr指令后，
-                                 //   需要交给BRU进行redirect(TODO:或许会有更好的设计？)
+        logic need_redirect;     // 未预测目标的 JALR：暂停后续取指，并要求 BRU 强制 Redirect
         cfi_type_t cfi_type;  // is_jal is_jalr is_branch is_call is_ret
         logic is_cfi;  // control flow instruction
     } iq_entry_t;
@@ -547,8 +536,8 @@ IFU按照FIFO顺序读取FTQ中的预测结果，并据此进行取指。
 
 FIFO设计与IQ的BODY部分一致
 
-当IFU在Predecode阶段发现当前Fetch Block的预测错误，或者后端发送redirect信号时，
-前端需要清空当前FTQ中的所有未消费预测结果，并从新的PC重新开始取指。
+当 IFU 在 Predecode 阶段发现可立即修正的预测错误，或 Backend 发出 Redirect 时，
+FTQ 丢弃对应错误路径的未消费预测结果并从目标 PC 重新开始取指。**只有 Backend Redirect 才对 IQ 中尚未 Dispatch 的旧路径进行整体清空**；Frontend 本地修正应保留 IQ 中的正确较老指令和修正块有效前缀，详见 `frontend_backend_contract.md` 第 3.1 节。
 
 接口设计说明：
 
@@ -606,8 +595,8 @@ FTQ中的预测结果均是比当前IFU取指pc更年轻的Fetch Block，因此�
 
 FTQ存在两种冲刷来源：
 
-1. Predecode冲刷：IFU在Predecode阶段发现当前Fetch Block的BPU预测与实际CFI信息不一致时，向FTQ发送flush信号，并从实际目标PC重新开始取指。
-1. Backend冲刷：后端BRU产生redirect信号时，FTQ同样被整体冲刷，IFU从redirect_pc重新开始取指。
+1. **Frontend Local Redirect**：Predecode 仅对能确定下一 PC 的错误预测在前端局部修正，保留已入 IQ 的正确较老指令；未知目标 JALR 转交 BRU 强制恢复，条件分支的实际方向不由 Predecode 猜测。
+2. **Backend Redirect**：Backend 对 Branch/ECALL/MRET/IRQ 完成仲裁，Frontend 整体清除旧路径 IQ/FTQ/在途响应，从统一的 `backend_redirect_pc` 重新取指，且优先于同周期的 Local Redirect。
 
 ```text
 flush
@@ -660,9 +649,9 @@ PredecodeCheck主要检查Fetch Block中是否存在CFI指令，如果有，并�
 1. CFI指令 type 是否与预测结果一致
 2. Target 是否与预测结果一致(针对jal/branch指令)
 
-若predecodeCheck发现预测错误，则向BPU和FTQ发出redirect信号，FTQ flush，并将actual target写入PC。
+若 PredecodeCheck 发现预测错误，只有在能确定正确后继 PC（例如 JAL 立即数目标）时才在前端执行 Local Redirect；这不是 Backend CIQ Flush。不能从指令编码判断条件分支的实际 taken，也不能在 Predecode 求出 JALR 的寄存器目标。未预测到的条件分支按生效预测不跳转处理，并修复对应的推测 GHR。具体保留/取消范围见 `frontend_backend_contract.md` 第 3.1 节。
 
-> 若存在jalr指令，则根据BPU是否预测了该jalr指令走不同的通路，同时不对Target进行检查(jalr依赖于rf\[rs1\])
+> 若存在 JALR，则 Predecode 不核验其动态 Target（依赖 RF[rs1]）；未预测到可用目标时，在 IQ Entry 中置 `need_redirect=1`，并暂停该 JALR 之后的可见取指，等待 BRU 无条件恢复。
 
 ```text
                  PreDecode
@@ -681,7 +670,7 @@ PredecodeCheck主要检查Fetch Block中是否存在CFI指令，如果有，并�
                               │
                               ├──────────► IQ
                               │
-                              └──► 设置need_redirect = 1
+                              └──► 设置 need_redirect = 1，暂停后续取指
                                        │
                                        ▼
                                   BRU 发出 redirect 请求
@@ -709,7 +698,7 @@ PredecodeCheck主要检查Fetch Block中是否存在CFI指令，如果有，并�
 - 非 CFI 指令预测错误：预测器对一条有效但是不是 CFI 的指令进行了预测；
 - 转移目标地址错误：预测器给出的转移目标地址不正确。
 
-若发现错误，**截断错误指令后把正确指令写入 IQ**，同时向前端发出 redirect 请求，重新从正确的 target 取指。
+若发现可由 Predecode 确定下一 PC 的错误，**保留修正点及之前的正确指令作为有效前缀写入 IQ**，并对更年轻的前端路径执行 Local Redirect；条件分支与 JALR 的动态结果仍由 BRU 确认，不能把未确定的目标当作实际 Target。
 
 例如
 
@@ -900,3 +889,16 @@ Cycle N+2:
     Miss:
         → Refill
 ```
+
+---
+
+## 8. Frontend ↔ Backend 跨模块接口
+
+本章的**唯一规范性定义**见 [`frontend_backend_contract.md`](frontend_backend_contract.md)。
+
+- **Instruction**：`rvalid/rbits/raccept_cnt` 与 Backend 的 `iq_valid/iq_inst/iq_accept_count` 对应；`rvalid` 只允许 `00/01/11`，接受连续前缀，`raccept_cnt` 是唯一 IQ pop 条件。
+- **Prediction Metadata**：每条 CFI 的 `pred_npc` 为生效预测后继 PC；`pred_meta` 保留原始 BPU 预测和 `ghr_before`，随指令进入 CIQ。未预测目标的 JALR 使用 `need_redirect` 等待 BRU 强制恢复。
+- **Redirect**：统一接收 Backend 最终仲裁的 `backend_redirect_valid/pc/kind`；Branch Recovery 使用逐 CFI `ghr_before/actual_taken` 恢复推测历史，Trap/MRET/IRQ 使用 Commit 历史。FE 本地修正不清空正确的 IQ 旧 prefix。
+- **BPU Update**：接收正常 CFI Commit 的最多两个 `bpu_update` 事件，通过登记的 `bpu_update_credit` 预留事件缓冲；在接受沿更新 `ghr_commit`，预测表可按顺序延迟训练。
+
+Backend Redirect 与同周期 Local Redirect 冲突时，Backend 获胜；旧路径 ICache 响应不得重新进入 IQ。首版不支持深级预测器在某块指令入 IQ 后对该更老块进行无定位回滚。

@@ -1,6 +1,6 @@
 # RV32IM 后端微架构设计文档
 
-> **状态**：Draft v0.44
+> **状态**：Draft v0.45
 > **目标架构**：2-wide Decode / Centralized Issue Queue Instruction Queue / Strict In-order Up-to-4 Issue / Out-of-order Completion / In-order Commit
 
 ---
@@ -214,8 +214,13 @@ typedef struct packed {
   entry_state_t      state;
 
   logic [31:0]       pc;
-  logic [31:0]       pred_npc; // BRU only，Frontend 预测的下一 PC
+  logic [31:0]       pred_npc; // BRU：Frontend 修正后生效的预测下一 PC
+  npc_pkg::pred_meta_t pred_meta; // CFI：原始 BPU 预测/训练元数据及 ghr_before
+  logic              need_redirect; // CFI：未预测目标（JALR）强制恢复
+  npc_pkg::cfi_type_t actual_cfi_type; // CFI：Decode 确认的真实类别
   logic [31:0]       actual_npc; // BRU Completion 登记，供精确中断下一 PC 使用
+  logic              actual_taken; // BRU Completion 登记，供 BPU 更新/历史恢复
+  logic [31:0]       actual_target; // BRU Completion 登记，用于 BTB 训练
 
   fu_type_t          fu_type;
   op_t               op;
@@ -278,6 +283,8 @@ IB → Decode/Dispatch:
 Decode/Dispatch → IB:
   accept_count        // 本周期成功分配到 CIQ 的指令数：0 / 1 / 2
 ```
+
+实际连线统一使用 `iq_valid[1:0] / iq_inst[2] / iq_accept_count[1:0]`；`available_count` 由 `iq_valid` 求和，`iq_accept_count` 为唯一 pop 条件，不再使用独立的 `rready`。具体字段、Redirect 同周期仲裁见 `frontend_backend_contract.md` 第 2、5 节。
 
 分配必须是连续前缀：只允许不接收、仅接收 head0、同时接收 head0/head1。不能只接收 head1。
 
@@ -590,10 +597,10 @@ Issue 每周期最多选择 4 个物理端口。FU 在 guaranteed-accept 协议�
 BRU 独立支持 `BEQ/BNE/BLT/BGE/BLTU/BGEU/JAL/JALR`，定义为 `latency = 1, II = 1`，正常运行时 `can_accept = 1`。BRU 根据 `pc/src/imm` 计算 `actual_npc`，并使用：
 
 ```text
-mispredict = (actual_npc != pred_npc)
+mispredict = need_redirect || (actual_npc != pred_npc)
 ```
 
-`JAL/JALR` 的普通结果为 `pc + 4`。BRU Completion 同沿另登记该指令的 `actual_npc` 到 CIQ（独立于普通 `result`），供第 17 节精确中断的 `architectural_next_pc` 使用。第一版 BRU 不处理 instruction-address-misaligned；误预测通过第 15 节的 `recovery_valid / recovery_branch_tag / redirect_pc` sideband 直接触发恢复，不等待 Commit。
+`JAL/JALR` 的普通结果为 `pc + 4`。BRU Completion 同沿另登记 `actual_npc / actual_taken / actual_target` 到 CIQ，供精确中断与 BPU Commit 训练使用。`need_redirect=1`（未预测目标的 JALR）即使 `actual_npc == pred_npc` 也必须恢复前端取指。第一版 BRU 不处理 instruction-address-misaligned；恢复通过第 15 节的 `recovery_valid / recovery_branch_tag / redirect_pc` sideband 直接触发，不等待 Commit。跨模块 Redirect 见 `frontend_backend_contract.md`。
 
 ### 9.3 Short MUL（SMUL）
 
@@ -705,6 +712,7 @@ typedef struct packed {
   logic [31:0] imm;
   logic [31:0] pc;
   logic [31:0] pred_npc; // BRU only
+  logic        need_redirect; // BRU only：要求强制恢复的未预测 JALR
   logic [11:0] csr_addr;  // CSR only
   logic        csr_write_en; // CSR only；由编码中的 rs1/uimm 是否为零确定
 } fu_req_t;
@@ -896,7 +904,7 @@ Issue 侧 source 若仍带有指向正在 Commit producer 的有效 dependency t
 
 ### 14.5 Commit-time Dependency Retirement
 
-`commit0_fire / commit1_fire` 仅表示对应指令成功正常提交（非异常、非 squash，所需架构写入／副作用已被接受），不表示仅选中 Commit candidate。`commit1_fire` 必须以 `commit0_fire` 为前提；广播 tag 使用 4-bit CIQ slot `tag_t`。
+`commit0_fire / commit1_fire` 仅表示对应指令成功正常提交（非异常、非 squash，所需架构写入／副作用已被接受），不表示仅选中 Commit candidate。`commit1_fire` 必须以 `commit0_fire` 为前提；广播 tag 使用 4-bit CIQ slot `tag_t`。正常退休的 CFI 还需按 `frontend_backend_contract.md` 第 4 节预留 BPU Update credit，并在 `commit_fire` 同沿向 Frontend 发送训练事件；credit 不足只阻塞相应 CFI 及年轻 Commit，不影响较老可提交指令。
 
 对周期初所有有效 `WAIT` Entry 的两个 source，分别计算：
 
@@ -946,7 +954,7 @@ redirect_pc
 
 `recovery_valid` 必须由仍有效的 BRU operation 产生；被 Flush 取消的 BRU operation 此后不得产生有效 Recovery。该规则与 FU Completion 的 valid-only 生命周期协议一致。
 
-分支自身保留并正常完成，只清除所有比该分支年轻的指令。Frontend 同周期重定向并清空错误路径 IB；该周期 `accept_count = 0`，禁止继续 Dispatch 错误路径指令。更老的 DONE 指令仍可正常 Commit。
+分支自身保留并正常完成，只清除所有比该分支年轻的指令。Backend 统一 Redirect 接口携带目标 PC、Branch 类型、CIQ 保存的 `pred_meta.ghr_before` 与 BRU `actual_taken`；Frontend 同周期重定向并清空错误路径 IQ/FTQ，旧 ICache 响应不得再入队。该周期 `accept_count = 0`；更老的 DONE 指令仍可正常 Commit（见 `frontend_backend_contract.md` 第 3 节）。
 
 CIQ 中相对 `commit_ptr` 的循环距离定义为：
 
@@ -1144,3 +1152,15 @@ ECALL/IRQ Trap 及 MRET 通过统一 Frontend Redirect 清除错误路径 IB；E
 **验证最低集**：六种 Zicsr 写使能与 `rd=x0`、`mstatus/mie` 字段掩码、ECALL→M-mode Handler→MRET、计时器 MTIP 保持/清除、IRQ Drain 遇到未完成 DIV/Load/Branch、Branch 后 `architectural_next_pc`、MMIO Write Ack 之前的 CSR/IRQ Barrier、Flush 后 stale Completion/旧 MMIO Response。未实现的 Illegal Instruction/Bus Error/EBREAK/WFI 不作为硬件 Trap 测试目标。
 
 ---
+
+---
+
+## 18. Frontend ↔ Backend 跨模块接口
+
+本章的**唯一规范性定义**见 [`frontend_backend_contract.md`](frontend_backend_contract.md)。
+
+- **Instruction**：`iq_valid[1:0] / iq_inst[2] / iq_accept_count[1:0]`；连续前缀消费，`iq_accept_count` 是唯一消费依据。
+- **Redirect**：Backend 在 Reset/Trap/MRET/BRU/IRQ 优先级仲裁后输出唯一 `backend_redirect_valid/pc/kind`；Branch 同时传 `ghr_before/actual_taken`；Redirect 同周期停止 Dispatch，Frontend 丢弃旧路径 IQ/FTQ/在途请求。
+- **BPU Update**：Commit 按 lane0→lane1 顺序对已正常退休 CFI 输出最多两个事件；先以 BPU 已登记 `bpu_update_credit` 约束 Commit，Frontend 更新 `ghr_commit` 并将训练信息排队处理；BRU Completion 不直接推进已提交预测历史。
+
+Frontend 内部 Predecode 修正仅修正尚未进入后端的取指路径，不触发 CIQ Flush。`pred_npc` 为修正后生效的预测值，`pred_meta` 保留原始预测信息；`need_redirect` 要求未预测 JALR 在 BRU Resolution 无条件发起一次恢复，防止 Frontend 等待死锁。
