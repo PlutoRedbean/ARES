@@ -1,6 +1,11 @@
 AGENTS.md
 
 # Simulation / test build artefacts
+configs/build/
+
+# Python bytecode (configuration tool self-test)
+__pycache__/
+*.pyc
 sim/build/
 sim/build_wave/
 tests/cpu-tests/build/
