@@ -1,6 +1,7 @@
 # ARES RTL Implementation Plan
 
-> **Status**: v0.7 / **C0 closed, MC0 reached** (see `docs/c0_decisions.md`)
+> **Status**: v0.8 / **C0/MC0 closed，C1/MC1 closed，C2 M2a + C3 framework 已落地（MC3 达成：ISA 36/36）**
+> **v0.8 变更（C2 M2a + C3 执行）**：新增 `rtl/memory/LSU_INTERFACES.md`（M2a 接口冻结）、`rtl/common/lsu_pkg.sv`、LSU 模块 `lsu_agu/lq/sq/store_forward/lsu_completion/line_adapter/lsu_top` 与 7 个自检 TB（`rtl/memory/test/unit/`）、C3 的 `rtl/top/ares_core_top.sv` 与重写的 `sim/rtl/tb_ares_core.sv`；`make lint-lsu`/`make unit-lsu` 新门禁。**ISA 回归 36/36 PASS**（FE 桩）；执行状态、集成期缺陷与遗留项见 §9.4/§9.5。
 > **v0.7 变更（C0 评审结论）**：core 范围评审通过 —— **D-C0-01 不实现 illegal Trap**、**D-C0-03 `MUL_LATENCY` 默认改为 3**（时序余量优先，menuconfig 可退回 2）、**D-C0-13 新增（SPEC-A13 关闭）：`HAS_MISA/HAS_MTVAL/HAS_MCYCLE` 默认全部关闭**，其余 [C0] 条目按 `docs/c0_decisions.md` 冻结。C0 出口判据全部满足（`ares_pkg` 冻结、`make lint` 0 warning、`fe_stub` 可编译并自检、裁决项书面结论、TB 内存模型契约），**进入 C1/C2**。
 > **v0.6 变更（可配置参数 + 裁决确认）**：新增 Kconfig 风格配置机制（`configs/Kconfig` + `scripts/kconfig/ares_kconfig.py`，`make menuconfig`/`defconfig`/`oldconfig`/`savedefconfig`/`loaddefconfig`/`showconfig`/`test-config`），`MUL_LATENCY`（2/3，默认 2）与 `LINE_BYTES`（16/32/64，默认 32）改为菜单可配置并在 `ares_pkg.sv` 中读取（无配置时回退冻结默认）；`tb_ares_pkg` 每次运行校验并打印生效配置。**D-C0-01 已确认：不实现 illegal-instruction Trap**（方案 (c) 关闭），见 `docs/c0_decisions.md` D-C0-01/D-C0-12。
 > **v0.5 变更（C0 执行）**：C0 交付物已全部落地 —— `rtl/common/ares_pkg.sv`（core 共享包）冻结；`rtl/backend/test/fe_stub.sv`（F0 契约合规取指桩）+ `tb_fe_stub.sv` 自检；`sim/rtl/tb_mem_beat_if.sv`/`tb_mmio_if.sv`（TB 内存模型）+ `rtl/memory/test/tb_mem_model.sv` 自检；`sim/Makefile` 增加 `ARES_RTL=1` 分支、`lint`/`lint-all` 与单元 TB 目标；根目录新增 `Makefile`（`lint`/`lint-all`/`tb-fe-stub`/`tb-mem-model`/`isa`）。C0 的 core 侧 SPEC 裁决（A1/M17、A4、A3、A12、M15/M16、A7/A8/A9）书面化于 `docs/c0_decisions.md`，**待 core 范围评审确认**；D3/D11/D12 只登记、不阻塞 core。实测：`lint-all` 0 warning，`tb-fe-stub`/`tb-mem-model` 均 HIT GOOD TRAP。
@@ -1436,6 +1437,45 @@ make all              # C0 + C1 门禁（lint + lint-backend + 全部单元自�
 - 3-cycle Load Hit 目标时序在波形上确认（memory.md §6.2）；`lsu_mmio_order_idle` 与 MMIO Write Ack 从早期就加断言。
 
 **出口**：`tb_lsu` 下每个存活 Load/Store 恰好一次 Completion；§5.11–§5.14 断言全绿；内存镜像与参考模型一致。
+**C2 执行状态（M2a：RTL + 自检 TB 已落地，待评审）**
+
+M2a 范围（§9.4 顺序的前半）：**L02 AGU + L03 LQ + L04 SQ + L05 Store Forwarding + L12 Completion + L10 Line Adapter**，并让 **L01 `lsu_top` 具备最小读写闭环**；L06/L07 DCache、L08 MSHR、L09 WB、L11 MMIO Bridge 属 **M2b**。
+
+| C2 M2a 交付物 | 状态 | 证据 |
+|---|---|---|
+| 接口冻结（并行开发前置） | ✅ | `rtl/memory/LSU_INTERFACES.md`（§0 通用约定 + L02/L03/L04/L05/L12/L10/L01 端口逐字冻结 + §8 验证要求）；`rtl/common/lsu_pkg.sv`（LSU 内部 `lsu_size_t` 与 size/mask/align/merge 组合 helper；跨子系统类型仍只在 `ares_pkg`） |
+| L02 `lsu_agu` | ✅ | `rtl/memory/lsu_agu.sv` + `tb_lsu_agu`：**76 062 checks**（10k 固定种子随机、MMIO 窗口边界与参数覆盖、kill 优先、背靠背 II=1、4 个注入变体全部被检出） |
+| L03 `lq` | ✅ | `rtl/memory/lq.sv`（4 组 `store_forward` 实例、分配顺序表、MMIO Head 门控）+ `tb_lq`：**74 510 checks**（mask 快照/takeover 清位、全转发与部分转发、最老可服务仲裁、kill 与旧 fill 丢弃、12k 周期固定种子随机 vs 参考模型） |
+| L04 `sq` | ✅ | `rtl/memory/sq.sv` + `tb_sq`：**528 365 checks**（指针/计数不变量、2-wide commit 全部边界、同沿 a/c/t/k、takeover 不重发、MMIO pending、credit 不借用、12k 周期固定种子随机 vs 独立年龄队列模型；另有 `+negative_kill` 负向运行确认 `a_kill_suffix` 可被触发） |
+| L05 `store_forward` | ✅ | `rtl/memory/store_forward.sv` + `tb_store_forward`：**28 490 checks**（20k+8k 固定种子随机、环回绕下“最近较老 Store 胜出”） |
+| L12 `lsu_completion` | ✅ | `rtl/memory/lsu_completion.sv` + `tb_lsu_completion`：**258 613 checks**（20k 周期随机 vs 独立队列模型、三类 kill 定向、2 个变异体证明断言非空洞） |
+| L10 `line_adapter` | ✅ | `rtl/memory/line_adapter.sv` + `tb_line_adapter`：**228 783 / 265 190 / 292 635 checks**（`LINE_BYTES=16/32/64` 三档分别编译运行；refill 组装与 beat 地址序、WB 逐 beat + `be=FFFF`、单 outstanding、反压稳定、refill>beat_rd / wb>beat_wr 仲裁；5 个变异体全部被检出） |
+| L01 `lsu_top`（M2a 最小读写闭环） | ✅ | `rtl/memory/lsu_top.sv` + `tb_lsu`：**2 122 checks / 476 completions / 31 次 flush / 0 mismatch**——每个存活 Load/Store 恰好一次 Completion、全转发与部分转发合并扩展（LB/LH/LW/LBU/LHU）、2-wide Store Commit 握手 + drain、kill 抑制、**AGU 陈旧结果写回复用 slot 的冒险**、MMIO store/load 与 `lsu_mmio_order_idle`、结束时物理内存镜像 == 架构镜像 |
+| C3 集成（core 顶层与 TB 框架） | ✅ | `rtl/top/ares_core_top.sv` + `sim/rtl/tb_ares_core.sv`（见 §9.5） |
+| 门禁：lint 0 warning | ✅ | `make lint-lsu`：`store_forward/lsu_agu/lq/sq/lsu_completion/line_adapter/lsu_top/ares_core_top` 共 8 个 top，`-Wall --assert`，0 warning（Verilator 5.046）；`make lint`/`make lint-backend` 未回归 |
+| 门禁：单元自检 | ✅ | `make unit-lsu`：7 个自检 TB 全绿（76 062 + 28 490 + 528 365 + 74 510 + 258 613 + 266 536 + 2 122 checks；`line_adapter` 另在 16/64 档分别跑 228 783 / 292 635 checks） |
+| PPA 探针（§9.3 同样要求） | ❌ 未做 | 无器件/XDC/Vivado（SPEC-M10），归 C4 |
+
+**M2a staging 说明（需评审确认）**：L06–L09/L11 落地前，`lsu_top` 用 `line_adapter` 的**单 beat 端口**直连 TB 内存模型（cacheable Load = 一次 16B beat 读 + 按字选择；cacheable Store = 一次 16B beat 写 + byte enable），MMIO 单 outstanding 顺序逻辑暂置于 `lsu_top`（M2b 抽为 `mmio_bridge.sv`）。该路径**不改变**任何后端可见契约（`can_accept`/credit、恰好一次 Completion、Store Commit 握手、kill 优先、`lsu_mmio_order_idle`），只是“数据从哪来”的过渡实现；M2b 换成真 DCache/MSHR 后，LQ 的 `lookup_*`/`fill_*` 与 SQ 的 `drain_*` 接口保持不变。
+
+**集成期间发现并修复的缺陷（自检/TB 的判别力证据）**
+
+1. `store_forward`：逐 byte 命中未用 `load_byte_mask` 门控 → 对 LB/LH 报告了不需要的字节，违反冻结契约并触发模块自身断言（`tb_store_forward` P8 相位发现；已在命中条件加入 `load_byte_mask[b]`）。
+2. `lsu_top` × `be_issue_sched` 组合环：`lsu_can_accept` 组合依赖 `issue_req.op`，与后端 `issue_valid → issue_req` 成环（Verilator UNOPTFLAT）。改为 `can_accept = 存在任一队列空位`（只依赖寄存 credit）；类型 credit 仍由调度器按 op 检查（与 `be_issue_sched.c_credit_ok` 一致，memory.md §3）。
+3. `sq` × `be_commit` 组合环：`store_commit_ok` 与依赖 `commit_fire` 的 `commit_hit` 位于同一 `always_comb`，Verilator 整块依赖分析使 `store_commit_ok` 依赖 `commit_fire` → 与 `be_commit.commit_fire` 成环；拆成两个 `always_comb`（语义不变）。
+4. `sq` 断言过强：`commit_fire` 是**全局** Commit 事件，非 Store lane（Load）也会拉高而 `store_commit_ok=0`；原断言在 C3 冒烟第 48 拍误报。改为只对 `store_commit_valid` 命中的 lane 检查（plan §5.10「非 Store lane 不用对应 ok」）。
+5. `lsu_top` 断言错误：把“自然对齐”写成“字对齐”，SB/SH 必然误报（ISA 回归 8 个用例失败）；改为按 `addr[1:0]` 推导的自然对齐 byte mask 检查。
+6. `tb_ares_core`：decode error 在**推测路径**上 fatal。`fe_stub` 恒预测不跳转，任何 JAL 之后被取到的指令都在错误路径上，`0x0000_0000` 非法编码必然出现；改为只在**退休**指令上报告（D-C0-01 的语义是“仿真报错”，不是“预测路径报错”）。
+7. `sq`：多个“接口脉冲 + 同沿更新状态”的即时断言（写在 `always_comb` 中）会在边沿后的稳定过程中与仍被驱动的脉冲一起求值而误报（例如 `alloc_valid` 与已更新的 `occupancy`）。已改为**并发 SVA**（preponed 采样）——断言写法问题，不是 RTL 功能问题。
+
+**M2a 遗留项 / 已知限制**
+
+1. **M2b 未落地**：DCache/MSHR/WB/MMIO Bridge 未实现；`line_adapter` 的整行 refill/WB 端口在 M2a 未被使用（其单元 TB 已按 `LINE_BYTES=16/32/64` 验证），直连路径属 staging。
+2. **L12 FIFO 的“2 entry”在无输出反压契约下退化为 1 entry**：`pop_fire = !fifo_empty` 使占用恒 ≤1，第二条目只是余量；“FIFO 满且无出队 ⇒ `push_ready=0`”不可达（TB 逐周期校验公式与可达边界）。若期望可停顿的 `push_ready`，需规格补充出队条件。
+3. **`dep_ready` 只看 `sq_addr_valid`**（冻结公式）：依赖 LQ 维持 `older_store_mask = sq_occupied & ~sq_takeover` 不变量，否则可能长期阻塞。
+4. **PPA 未验证**（SPEC-M10）：C4 需补 synth → impl → `route_design`。
+5. 未做覆盖率（transition/line）统计；`--coverage` 与 §8.5 覆盖率门禁留到 C3/C4。
+
 
 ### 9.5 C3 — Core 集成与 ISA 回归（8–12 人日，P0-V）
 
@@ -1446,6 +1486,17 @@ make all              # C0 + C1 门禁（lint + lint-backend + 全部单元自�
 
 **出口**：35 用例全绿（FE 桩）；core 级断言全绿；无 stale Completion / 旧响应污染。
 **注意**：此出口**不需要前端**，也不需要 SoC。
+
+**C3 执行状态（framework + ISA 回归已达成）**
+
+| C3 交付物 | 状态 | 证据 |
+|---|---|---|
+| **S01 `ares_core_top`**（BE + LSU + 总线/MMIO/观测端口） | ✅ | `rtl/top/ares_core_top.sv`：实例化 `be_top` + `lsu_top`，FE 侧端口留在顶层（C3 由 `fe_stub` 驱动，C5 直接换真实 `frontend.sv`，本文件不变）；含 `RESET_MTVEC` 参数与对齐检查；修复了 `lsu_can_accept` / `store_commit_ok` 两处与后端形成的组合环（见 §9.4 集成缺陷） |
+| **`tb_ares_core`**（fe_stub + core + 128-bit 总线/MMIO 模型 + DPI 观测） | ✅ | `sim/rtl/tb_ares_core.sv`：`retire_event_enqueue`/`ebreak`/`interrupt_redirect`；decode error 只在**退休**指令上 `$fatal`（推测路径上的非法编码不得误报，这正是 `fe_stub` 恒预测不跳转时必然出现的场景） |
+| 门禁：ISA 回归（FE 桩，自检） | ✅ | `make -C tests/cpu-tests ARCH=riscv32-ares run` → **36/36 PASS**（35 个 cpu-tests + dummy） |
+| 门禁：core 级 lint | ✅ | `make lint`（C0）/ `make lint-backend`（C1）/ `make lint-lsu`（C2 + `ares_core_top`）全部 0 warning |
+
+**注（`unalign` 用例）**：v1 不实现真正的跨字 misaligned 语义（memory.md §1 / SPEC-A1 / D-C0-01：明确不在范围内）；M2a 直连路径把 32-bit 访问按“所在字”处理。`unalign` 用例对同一地址先写后读，因此**对称通过**，不能作为 misaligned 正确性的证据。是否实现真正的 misaligned 访问（或在验证中显式排除该用例）需架构裁决；在此之前不得声称支持 misaligned。
 
 ### 9.6 C4（P1）PPA 与 C5（P2）真实前端对接
 
@@ -1469,8 +1520,8 @@ make all              # C0 + C1 门禁（lint + lint-backend + 全部单元自�
 |---|---|---|
 | MC0 | core 契约/包/验证骨架就绪（✅ v0.7 达成） | C0 出口 |
 | MC1 | Backend 单元通过 | C1 出口（`tb_backend` 断言绿） |
-| MC2 | LSU 单元通过 | C2 出口（`tb_lsu` 断言绿） |
-| MC3 | **ISA 回归全绿（FE 桩）** | C3 出口（35/35 GOOD TRAP） |
+| MC2 | LSU 单元通过 | C2 出口（`tb_lsu` 断言绿） | **M2a 已达成**（L02/L03/L04/L05/L12/L10 + `lsu_top` 最小闭环：`make lint-lsu` + `make unit-lsu` + `tb_lsu` 全绿）；M2b（L06–L09/L11）待做 |
+| MC3 | **ISA 回归全绿（FE 桩）** | C3 出口（35/35 GOOD TRAP） | **已达成**：`ares_core_top` + `tb_ares_core` + ISA 回归 **36/36 PASS** |
 | MC4 | PPA 达标（>200 MHz 无违例） | C4 出口 |
 | MC5 | 真实前端联调通过 | C5 出口 |
 | MC6 | SoC/miniTensor 闭环 | C6 出口 |
