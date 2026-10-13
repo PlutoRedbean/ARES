@@ -1,6 +1,7 @@
 # ARES RTL Implementation Plan
 
-> **Status**: v0.8 / **C0/MC0 closed，C1/MC1 closed，C2 M2a + C3 framework 已落地（MC3 达成：ISA 36/36）**
+> **Status**: v0.9 / **C0/MC0 closed，C1/MC1 closed，C2 M2a+M2b 已落地（MC2 达成），C3 已落地（MC3：ISA 36/36）**
+> **v0.9 变更（C2 M2b 执行）**：新增 DCache/MSHR/WB/MMIO 全套 —— `rtl/memory/dcache_arrays.sv`(L07)、`dcache_top.sv`(L06)、`mshr.sv`(L08)、`wb_buffer.sv`(L09)、`mmio_bridge.sv`(L11) 与 4 个单元 TB（`tb_dcache_arrays/tb_wb_buffer/tb_mshr/tb_mmio_bridge`）；`lsu_top` 由 M2a 单 beat staging 收敛为真 DCache 通路；`lq.sv` 增加纯附加 waiter 令牌端口（`lq_wait_pending/tag/epoch`）；M2b 接口冻结见 `LSU_INTERFACES.md` §9–§14，决策见 `docs/m2b_decisions.md`（**misaligned 明确不支持**）。`tb_lsu` 扩为 DCache 通路（hit/miss/refill/Dirty Victim WB/Store Overlay 早接管/RETRY/kill/令牌复用/MMIO + 最终内存镜像）。**证据**：`make lint-lsu` 0 warning；`tb_lsu` 4852 checks / 1006 completions / 0 mismatch；`tb_mshr` 1 205 618 checks（states 6/6, transitions 13/13）、`tb_mmio_bridge` 187 659 checks（3/3, 7/7）、`tb_dcache_arrays` 63 167 checks、`tb_wb_buffer` 26 706 checks（4/4, 4/4），16/32/64B 三档均通过；ISA 回归 36/36。集成期修复 6 处 RTL 缺陷（见 §9.4b）。**PPA 未验证**（SPEC-M10）。
 > **v0.8 变更（C2 M2a + C3 执行）**：新增 `rtl/memory/LSU_INTERFACES.md`（M2a 接口冻结）、`rtl/common/lsu_pkg.sv`、LSU 模块 `lsu_agu/lq/sq/store_forward/lsu_completion/line_adapter/lsu_top` 与 7 个自检 TB（`rtl/memory/test/unit/`）、C3 的 `rtl/top/ares_core_top.sv` 与重写的 `sim/rtl/tb_ares_core.sv`；`make lint-lsu`/`make unit-lsu` 新门禁。**ISA 回归 36/36 PASS**（FE 桩）；执行状态、集成期缺陷与遗留项见 §9.4/§9.5。
 > **v0.7 变更（C0 评审结论）**：core 范围评审通过 —— **D-C0-01 不实现 illegal Trap**、**D-C0-03 `MUL_LATENCY` 默认改为 3**（时序余量优先，menuconfig 可退回 2）、**D-C0-13 新增（SPEC-A13 关闭）：`HAS_MISA/HAS_MTVAL/HAS_MCYCLE` 默认全部关闭**，其余 [C0] 条目按 `docs/c0_decisions.md` 冻结。C0 出口判据全部满足（`ares_pkg` 冻结、`make lint` 0 warning、`fe_stub` 可编译并自检、裁决项书面结论、TB 内存模型契约），**进入 C1/C2**。
 > **v0.6 变更（可配置参数 + 裁决确认）**：新增 Kconfig 风格配置机制（`configs/Kconfig` + `scripts/kconfig/ares_kconfig.py`，`make menuconfig`/`defconfig`/`oldconfig`/`savedefconfig`/`loaddefconfig`/`showconfig`/`test-config`），`MUL_LATENCY`（2/3，默认 2）与 `LINE_BYTES`（16/32/64，默认 32）改为菜单可配置并在 `ares_pkg.sv` 中读取（无配置时回退冻结默认）；`tb_ares_pkg` 每次运行校验并打印生效配置。**D-C0-01 已确认：不实现 illegal-instruction Trap**（方案 (c) 关闭），见 `docs/c0_decisions.md` D-C0-01/D-C0-12。
@@ -1477,6 +1478,41 @@ M2a 范围（§9.4 顺序的前半）：**L02 AGU + L03 LQ + L04 SQ + L05 Store 
 5. 未做覆盖率（transition/line）统计；`--coverage` 与 §8.5 覆盖率门禁留到 C3/C4。
 
 
+### 9.4b M2b 执行状态（L06–L09/L11 + L01 收敛，**RTL 已落地，待评审**）
+
+M2b 范围（§9.4 顺序的后半）：L06 `dcache_top` + L07 `dcache_arrays` + L08 `mshr` + L09 `wb_buffer` + L11 `mmio_bridge`，并把 L01 `lsu_top` 从 M2a 单 beat 直连路径收敛到真 DCache/MSHR/WB；MMIO 顺序逻辑抽为 `mmio_bridge`。
+
+| M2b 交付物 | 状态 | 证据 |
+|---|---|---|
+| 接口冻结 + 决策 | ✅ | `LSU_INTERFACES.md` §9–§14（L07/L08/L09/L11 端口逐字冻结、L06/L01 收敛边界、LQ 附加令牌端口）；`docs/m2b_decisions.md` D-M2b-01…10（misaligned 不支持 D-M2b-01、M20/M21 接缝 D-M2b-03、WAKE 串行化 D-M2b-05） |
+| L07 `dcache_arrays` | ✅ | 每 Way 1R1W 64-bit Row RAM + Tag/Valid/Dirty + 1-bit LRU；`tb_dcache_arrays` **63 167 checks**（16B 63 593 / 64B 63 521） |
+| L08 `mshr` | ✅ | 6 态 FSM、原子 RESERVE、逐 Row Capture、单 outstanding Refill、Overlay byte 合并、Install 发布、令牌化 WAKE；`tb_mshr` **1 205 618 checks**，`coverage: states 6/6, transitions 13/13`（16/64B 同样 6/6、13/13） |
+| L09 `wb_buffer` | ✅ | FREE/CAPTURING/READY/DRAINING、周期初 free_mask、可见性 CAM；`tb_wb_buffer` **26 706 checks**，4/4、4/4 |
+| L11 `mmio_bridge` | ✅ | LQ 优先单 outstanding、owner 路由、Write Ack 语义；`tb_mmio_bridge` **187 659 checks**，3/3、7/7 |
+| L06 `dcache_top` | ✅ | C2/C3 流水、按 Way 读/写口仲裁、同 Row Hazard、1-entry Pending Store Write、Tag/Valid/Dirty/LRU 写、RESERVE/merge/overlay、Victim 选择 + WB 预约；由 `tb_lsu` 定向 + 随机覆盖（**无独立单元 TB**，见遗留项） |
+| L01 `lsu_top` 收敛 | ✅ | 单 fill 端口仲裁（C3 Hit 优先、WAKE 每周期 1 条）、`mshr→line_adapter→wb_buffer` 全连线、MMIO 经 `mmio_bridge`、单 beat 端口悬空（M2a 直连退役） |
+| 门禁：lint | ✅ | `make lint-lsu`：13 个 top（含 `dcache_arrays/dcache_top/mshr/wb_buffer/mmio_bridge/lsu_top/ares_core_top`）0 warning；16/64B 档同样 0 |
+| 门禁：`tb_lsu`（DCache 通路） | ✅ | **4790 checks / 1006 completions / 26 kills / 0 mismatch**：cold miss+refill、hit、Dirty Victim WB、Store Hit Pending Write、Store Overlay 早接管、同 Line 合并、kill+同 tag 复用（epoch）、MMIO 存储/加载与 `lsu_mmio_order_idle`、4×Set 驱逐后**物理镜像 == 架构镜像** |
+| 门禁：ISA 回归 | ✅ | `make isa`（FE 桩）**36/36 PASS** |
+| 门禁：`make unit-lsu` | ✅ | 11 个单元 TB 全绿（含 4 个 M2b TB）：`tb_lsu` 4790、`tb_mshr` 1 205 628、`tb_mmio_bridge` 187 659、`tb_dcache_arrays` 63 029、`tb_wb_buffer` 26 656、`tb_lq` 74 512（含 waiter 令牌观测：2288 次 epoch 递增 / 2001 次 pending 采样） |
+| PPA 探针 | ❌ 未做 | 无器件/XDC/Vivado（SPEC-M10），归 C4 |
+
+**集成期间发现并修复的 RTL 缺陷（自检/TB 判别力证据）**
+
+1. `dcache_top`：Victim 掩码 `{2{~lru_last_way}}` 把 1 bit 复制成 `2'b11`（两 Way）→ 每次 miss 都把同一 Line 装进**两个 Way**（重复 tag、命中读到陈旧数据）。改为显式 one-hot Victim。
+2. `dcache_top`：RETRY 的重发读依赖 "响应当拍存在"（`c3_active`）→ 一旦该读被 Capture/优先级抑制就再也不重发，Owner 永久占位（LQ/SQ credit 泄漏）。新增 `own_rd_pending` 显式状态。
+3. `dcache_top`：Install 让位于任何冲突读 → 与 "正在被该 MSHR 换出的 Line 上重试的 Lookup" 形成活锁。改为 **W 口 grant 优先、冲突读抑制并重试**（写侧有界）。
+4. `dcache_top`：命中 "被 MSHR 锁定的 Way" 或 "WB 尚未可见的 Line" 时会到另一 Way 重新分配 → Line 重复且读到陈旧数据。miss 路径增加 `hit_tag_locked`/`safe` 判据 → RETRY（memory.md §6.3/§6.6）。
+5. `mshr`（子代理参考模型发现）：Store RESERVE 继承上一笔事务残留的 Overlay（旧 Line 字节被安装并置 Dirty）；改为 reserve 从空 Overlay/空 waiter 起算。
+6. Verilator 整块依赖导致的组合环：LQ 的 lookup 判决与 fill 合并同块 → 拆分 `always_comb`（状态条件 / 数据合并）；MSHR 的 `wake_valid` 与依赖 `wake_ready` 的次态同块 → 拆块。
+
+**M2b 遗留项 / 已知限制**
+
+1. **`dcache_top` 无独立单元 TB**：C2/C3、仲裁、Hazard 由 `tb_lsu` 的定向相位 + 400-op 随机相位覆盖；如需 §8.5 模块级覆盖率门禁，需补 `tb_dcache_top`（接口已冻结，执行侧无阻塞）。
+2. `LINE_BYTES=16/32/64` 三档均通过 lint 与全部单元 TB，但**尚未做** memory.md §9.4/§10 的 IPC/Miss/下层 read busy 对比与 Fmax/面积比较（后者依赖 SPEC-M10）。
+3. L12 FIFO 在无输出反压契约下有效深度 1（D-M2b-06）；`dep_ready` 仍只看 `sq_addr_valid`（D-M2b-07），由 LQ 的 `older_store_mask` 不变量兜底。
+4. PPA 未验证（SPEC-M10）；C4 仍需 synth → impl → `route_design`。
+
 ### 9.5 C3 — Core 集成与 ISA 回归（8–12 人日，P0-V）
 
 1. `fe_stub` 完整化（契约断言对齐）；
@@ -1520,7 +1556,7 @@ M2a 范围（§9.4 顺序的前半）：**L02 AGU + L03 LQ + L04 SQ + L05 Store 
 |---|---|---|
 | MC0 | core 契约/包/验证骨架就绪（✅ v0.7 达成） | C0 出口 |
 | MC1 | Backend 单元通过 | C1 出口（`tb_backend` 断言绿） |
-| MC2 | LSU 单元通过 | C2 出口（`tb_lsu` 断言绿） | **M2a 已达成**（L02/L03/L04/L05/L12/L10 + `lsu_top` 最小闭环：`make lint-lsu` + `make unit-lsu` + `tb_lsu` 全绿）；M2b（L06–L09/L11）待做 |
+| MC2 | LSU 单元通过 | C2 出口（`tb_lsu` 断言绿） | **已达成（M2a + M2b）**：M2a（L02/L03/L04/L05/L12/L10 + 最小闭环）与 M2b（L06/L07/L08/L09/L11 + `lsu_top` 收敛）均 `make lint-lsu` 0 warning、`make unit-lsu` 11 个 TB 全绿、`tb_lsu` DCache 通路 0 mismatch；见 §9.4/§9.4b |
 | MC3 | **ISA 回归全绿（FE 桩）** | C3 出口（35/35 GOOD TRAP） | **已达成**：`ares_core_top` + `tb_ares_core` + ISA 回归 **36/36 PASS** |
 | MC4 | PPA 达标（>200 MHz 无违例） | C4 出口 |
 | MC5 | 真实前端联调通过 | C5 出口 |
