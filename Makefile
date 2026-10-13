@@ -16,7 +16,9 @@
 #   make tb-mem-model   build + run the TB memory model test
 #   make lint-backend   backend lint (be_top, -Wall --assert, zero warnings)
 #   make unit           backend unit + integration self-tests (C1 gate)
-#   make all            lint + unit tests (C0 + C1 gate)
+#   make lint-lsu       LSU/memory lint + ares_core_top (C2/C3, zero warnings)
+#   make unit-lsu       LSU unit + integration self-tests (C2 gate)
+#   make all            lint + unit tests (C0 + C1 + C2 gate)
 #   make sim            build the default ARES top (tb_ares_core)
 #   make run PROGRAM=<image.bin>    run one image
 #   make wave PROGRAM=<image.bin>   same, with an FST waveform
@@ -33,11 +35,11 @@ KCONFIG   := python3 $(ARES_HOME)/scripts/kconfig/ares_kconfig.py
 
 PROGRAM ?=
 
-.PHONY: all lint lint-all lint-backend unit tb-ares-pkg tb-fe-stub tb-mem-model \
-        sim run wave isa lint-npc clean menuconfig defconfig oldconfig savedefconfig \
-        loaddefconfig showconfig test-config
+.PHONY: all lint lint-all lint-backend lint-lsu unit unit-lsu tb-ares-pkg tb-fe-stub \
+        tb-mem-model sim run wave isa lint-npc clean menuconfig defconfig oldconfig \
+        savedefconfig loaddefconfig showconfig test-config
 
-all: lint lint-backend tb-ares-pkg tb-fe-stub tb-mem-model unit
+all: lint lint-backend lint-lsu tb-ares-pkg tb-fe-stub tb-mem-model unit unit-lsu
 
 #-----------------------------------------------------------------------------
 # Backend (C1): lint the backend subsystem top and run the standalone
@@ -49,6 +51,18 @@ ARES_UNIT_TBS  := tb_decode tb_fu_exec tb_bru_csr tb_backend
 ARES_UNIT_SRCS := $(RTL_ROOT)/common/ares_pkg.sv $(wildcard $(RTL_ROOT)/backend/*.sv) \
                   $(RTL_ROOT)/backend/test/lsu_stub.sv \
                   $(wildcard $(RTL_ROOT)/backend/test/unit/*.sv)
+
+#-----------------------------------------------------------------------------
+# LSU / memory (C2): unit self-checking benches under rtl/memory/test/unit/.
+# The benches are their own top modules (own clock, no DPI model, no harness),
+# so they are built with "verilator --binary --timing" and are deliberately
+# outside the sim/Makefile VSRCS glob.
+#-----------------------------------------------------------------------------
+ARES_LSU_UNIT_TBS  := tb_lsu_agu tb_store_forward tb_sq tb_lq tb_lsu_completion \
+                      tb_line_adapter tb_lsu
+ARES_LSU_UNIT_SRCS := $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
+                      $(wildcard $(RTL_ROOT)/memory/*.sv) \
+                      $(wildcard $(RTL_ROOT)/memory/test/unit/*.sv)
 VERILATOR_LINT_FLAGS := --lint-only -Wall --assert -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
                         -DCONFIG_SIMULATION
 
@@ -60,6 +74,21 @@ lint-backend:
 	      $(RTL_ROOT)/common/ares_pkg.sv $(wildcard $(RTL_ROOT)/backend/*.sv) || exit 1; \
 	done
 
+# LSU / memory lint, including the C3 core top (ares_core_top needs both
+# subsystems, so it is linted together with the backend and memory sources).
+lint-lsu:
+	@for top in store_forward lsu_agu lq sq lsu_completion line_adapter lsu_top; do \
+	  echo "[lint] $$top"; \
+	  verilator $(VERILATOR_LINT_FLAGS) --top-module $$top \
+	      $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
+	      $(wildcard $(RTL_ROOT)/memory/*.sv) $(wildcard $(RTL_ROOT)/memory/test/*.sv) || exit 1; \
+	done
+	@echo "[lint] ares_core_top"; \
+	verilator $(VERILATOR_LINT_FLAGS) --top-module ares_core_top \
+	    $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
+	    $(wildcard $(RTL_ROOT)/backend/*.sv) $(wildcard $(RTL_ROOT)/memory/*.sv) \
+	    $(wildcard $(RTL_ROOT)/top/*.sv) || exit 1
+
 unit:
 	@set -e; for tb in $(ARES_UNIT_TBS); do \
 	  d=$(ARES_HOME)/sim/build/unit/$$tb; \
@@ -69,6 +98,21 @@ unit:
 	      -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD -DCONFIG_SIMULATION \
 	      --top-module $$tb --Mdir $$d -o $$d/$$tb $(ARES_UNIT_SRCS); \
 	  $$d/$$tb | tail -3; \
+	done
+
+unit-lsu:
+	@set -e; for tb in $(ARES_LSU_UNIT_TBS); do \
+	  d=$(ARES_HOME)/sim/build/unit/$$tb; \
+	  echo "[unit-lsu] $$tb"; \
+	  rm -rf $$d; mkdir -p $$d/ccache-tmp; \
+	  CCACHE_TEMPDIR=$$d/ccache-tmp verilator --binary --timing -sv --assert \
+	      -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD -DCONFIG_SIMULATION \
+	      --top-module $$tb --Mdir $$d -o $$d/$$tb $(ARES_LSU_UNIT_SRCS); \
+	  if $$d/$$tb > $$d/run.log 2>&1; then \
+	    grep -E "ALL TESTS PASSED" $$d/run.log | head -1; \
+	  else \
+	    echo "*** $$tb FAILED ***"; tail -20 $$d/run.log; exit 1; \
+	  fi; \
 	done
 
 #-----------------------------------------------------------------------------
