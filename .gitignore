@@ -11,3 +11,6 @@ tests/abstract-machine/klib/build/
 *.fst
 *.vcd
 waveform.fst
+
+vide.toml
+build/
