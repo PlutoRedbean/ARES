@@ -87,6 +87,7 @@ ifeq ($(ARES_RTL),1)
   VSRCS  += $(wildcard $(RTL_ROOT)/common/*/*.sv)
   VSRCS  += $(wildcard $(RTL_ROOT)/backend/*.sv) $(wildcard $(RTL_ROOT)/backend/*/*.sv)
   VSRCS  += $(wildcard $(RTL_ROOT)/memory/*.sv)  $(wildcard $(RTL_ROOT)/memory/*/*.sv)
+  VSRCS  += $(wildcard $(RTL_ROOT)/top/*.sv)
   VSRCS  += $(ARES_TBS)
 
   # Self-checking unit tops (docs/implementation_plan.md section 9.2).
