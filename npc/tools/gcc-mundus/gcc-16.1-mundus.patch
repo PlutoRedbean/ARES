@@ -1,0 +1,176 @@
+diff --git a/gcc/config/riscv/riscv-opts.h b/gcc/config/riscv/riscv-opts.h
+index 1c44bc4e..29ded408 100644
+--- a/gcc/config/riscv/riscv-opts.h
++++ b/gcc/config/riscv/riscv-opts.h
+@@ -54,6 +54,7 @@ extern enum riscv_isa_spec_class riscv_isa_spec;
+ /* Keep this list in sync with define_attr "tune" in riscv.md.  */
+ enum riscv_microarchitecture_type {
+   generic,
++  mundus,
+   sifive_7,
+   sifive_p400,
+   sifive_p600,
+diff --git a/gcc/config/riscv/riscv.md b/gcc/config/riscv/riscv.md
+index 3fe0ad0c..356d30bf 100644
+--- a/gcc/config/riscv/riscv.md
++++ b/gcc/config/riscv/riscv.md
+@@ -673,7 +673,7 @@
+ ;; Microarchitectures we know how to tune for.
+ ;; Keep this in sync with enum riscv_microarchitecture.
+ (define_attr "tune"
+-  "generic,sifive_7,sifive_p400,sifive_p600,xiangshan,generic_ooo,mips_p8700,
++  "generic,mundus,sifive_7,sifive_p400,sifive_p600,xiangshan,generic_ooo,mips_p8700,
+    tt_ascalon_d8,andes_25_series,andes_23_series,andes_45_series,spacemit_x60"
+   (const (symbol_ref "((enum attr_tune) riscv_microarchitecture)")))
+ 
+@@ -4981,6 +4981,7 @@
+ (include "andes.md")
+ ;; Pipeline models
+ (include "generic.md")
++(include "mundus.md")
+ (include "xiangshan.md")
+ (include "mips-p8700.md")
+ (include "sifive-7.md")
+diff --git a/gcc/config/riscv/riscv-cores.def b/gcc/config/riscv/riscv-cores.def
+index 79a460f8..42812f13 100644
+--- a/gcc/config/riscv/riscv-cores.def
++++ b/gcc/config/riscv/riscv-cores.def
+@@ -34,6 +34,7 @@
+ #endif
+ 
+ RISCV_TUNE("generic", generic, generic_tune_info)
++RISCV_TUNE("mundus", mundus, mundus_tune_info)
+ RISCV_TUNE("rocket", generic, rocket_tune_info)
+ RISCV_TUNE("sifive-3-series", generic, rocket_tune_info)
+ RISCV_TUNE("sifive-5-series", generic, rocket_tune_info)
+diff --git a/gcc/config/riscv/riscv.cc b/gcc/config/riscv/riscv.cc
+index 8a39c791..a0d052c1 100644
+--- a/gcc/config/riscv/riscv.cc
++++ b/gcc/config/riscv/riscv.cc
+@@ -488,6 +488,33 @@ static const struct riscv_tune_param generic_tune_info = {
+   false,					/* prefer-agnostic.  */
+ };
+ 
++/* Costs for the in-order, asymmetric two-wide Mundus integer core.  Keep
++   transformation costs close to generic RISC-V; the DFA below carries the
++   issue restrictions and producer latencies that matter to scheduling.  */
++static const struct riscv_tune_param mundus_tune_info = {
++  {COSTS_N_INSNS (4), COSTS_N_INSNS (5)},	/* fp_add */
++  {COSTS_N_INSNS (4), COSTS_N_INSNS (5)},	/* fp_mul */
++  {COSTS_N_INSNS (20), COSTS_N_INSNS (20)},	/* fp_div */
++  {COSTS_N_INSNS (4), COSTS_N_INSNS (4)},	/* int_mul */
++  {COSTS_N_INSNS (35), COSTS_N_INSNS (35)},	/* int_div */
++  2,						/* issue_rate */
++  4,						/* branch_cost */
++  3,						/* memory_cost */
++  8,						/* fmv_cost */
++  true,						/* slow_unaligned_access */
++  false,					/* vector_unaligned_access */
++  false,					/* use_divmod_expansion */
++  false,					/* overlap_op_by_pieces */
++  true,						/* use_zero_stride_load */
++  false,					/* speculative_sched_vsetvl */
++  RISCV_FUSE_NOTHING,				/* fusible_ops */
++  NULL,						/* vector cost */
++  NULL,						/* function_align */
++  NULL,						/* jump_align */
++  NULL,						/* loop_align */
++  false,					/* prefer-agnostic.  */
++};
++
+ /* Costs to use when optimizing for rocket.  */
+ static const struct riscv_tune_param rocket_tune_info = {
+   {COSTS_N_INSNS (4), COSTS_N_INSNS (5)},	/* fp_add */
+@@ -11025,6 +11052,30 @@ riscv_sched_variable_issue (FILE *, int, rtx_insn *insn, int more)
+      an assert so we can find and fix this problem.  */
+   gcc_assert (insn_has_dfa_reservation_p (insn));
+ 
++  /* These classes cannot occupy Mundus slot 1.  Returning zero also prevents
++     a control transfer selected as the first instruction from being followed
++     by a younger instruction.  Ordinary control transfers have a slot-1-only
++     DFA reservation and remain legal after an independent slot-0 operation.  */
++  if (riscv_microarchitecture == mundus)
++    switch (get_attr_type (insn))
++      {
++      case TYPE_IDIV:
++      case TYPE_TRAP:
++      case TYPE_ATOMIC:
++      case TYPE_MTC:
++      case TYPE_MFC:
++      case TYPE_FCVT:
++      case TYPE_FCVT_I2F:
++      case TYPE_FCVT_F2I:
++      case TYPE_FMOVE:
++      case TYPE_RDFRM:
++      case TYPE_WRFRM:
++      case TYPE_WRVXRM:
++	return 0;
++      default:
++	break;
++      }
++
+   /* If this is a vector insn with vl/vtype info, then record the last
+      vector configuration.  */
+   if (vsetvl_insn_p (insn))
+diff --git a/gcc/config/riscv/mundus.md b/gcc/config/riscv/mundus.md
+new file mode 100644
+index 00000000..02a267e4
+--- /dev/null
++++ b/gcc/config/riscv/mundus.md
+@@ -0,0 +1,56 @@
++;; Pipeline description for the Mundus in-order asymmetric two-wide core.
++
++(define_automaton "mundus")
++
++;; Slot 0 accepts integer ALU, multiply, and memory operations.  Slot 1 accepts
++;; the same classes plus control flow.  The LSU is shared by both slots.
++(define_cpu_unit "mundus_slot0,mundus_slot1,mundus_mem,mundus_div" "mundus")
++
++(define_insn_reservation "mundus_alu" 1
++  (and (eq_attr "tune" "mundus")
++       (eq_attr "type" "unknown,const,arith,shift,slt,multi,auipc,nop,logical,\
++			move,bitmanip,min,max,minu,maxu,clz,ctz,rotate,condmove,\
++			crypto,mvpair,zicond"))
++  "mundus_slot0|mundus_slot1")
++
++(define_insn_reservation "mundus_load" 3
++  (and (eq_attr "tune" "mundus")
++       (eq_attr "type" "load,fpload"))
++  "(mundus_slot0|mundus_slot1)+mundus_mem")
++
++(define_insn_reservation "mundus_store" 1
++  (and (eq_attr "tune" "mundus")
++       (eq_attr "type" "store,fpstore"))
++  "(mundus_slot0|mundus_slot1)+mundus_mem")
++
++;; Control flow is legal only as the younger instruction in slot 1.  The
++;; variable-issue hook ends the cycle if one is selected first.
++(define_insn_reservation "mundus_control" 1
++  (and (eq_attr "tune" "mundus")
++       (eq_attr "type" "branch,jump,call,jalr,ret"))
++  "mundus_slot1")
++
++(define_insn_reservation "mundus_mul" 4
++  (and (eq_attr "tune" "mundus")
++       (eq_attr "type" "imul,clmul,cpop"))
++  "mundus_slot0|mundus_slot1")
++
++;; Divide and system-like instructions are scalar.  The iterative divider can
++;; accept no second divide until its fixed 35-cycle operation completes.
++(define_insn_reservation "mundus_div" 35
++  (and (eq_attr "tune" "mundus")
++       (eq_attr "type" "idiv"))
++  "mundus_slot0+mundus_slot1+mundus_div,mundus_div*34")
++
++(define_insn_reservation "mundus_system" 1
++  (and (eq_attr "tune" "mundus")
++       (eq_attr "type" "trap,atomic,mtc,mfc,fcvt,fcvt_i2f,fcvt_f2i,fmove,\
++			rdfrm,wrfrm,wrvxrm"))
++  "mundus_slot0+mundus_slot1")
++
++;; These are not generated for rv32im, but keeping a conservative scalar
++;; reservation makes -mtune=mundus robust when GCC emits an auxiliary class.
++(define_insn_reservation "mundus_aux" 4
++  (and (eq_attr "tune" "mundus")
++       (eq_attr "type" "sfb_alu,fadd,fmul,fmadd,fdiv,fcmp,fsqrt"))
++  "mundus_slot0+mundus_slot1")

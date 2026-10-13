@@ -1,0 +1,86 @@
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/utils/log.c:18 init_log] Log is written to stdout[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:355 welcome] Build time: 21:48:33, Oct  8 2026[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:386 welcome] Processor configuration:[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:387 welcome]   Core: ISA=RV32IM, issue=2-wide in-order[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:388 welcome]   Custom instructions: CRC16=on, MULBE=on[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:391 welcome]   Frontend: queue=8 entries, IROM latency=1 cycle(s)[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:398 welcome]   Branch: TAGE, BTB=16 entries, base counter=2 bits, TAGE=4 x 256 entries, tag/counter/useful=8/3/2 bits[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:404 welcome]   Branch history: 4/12/32/64, FTQ=8 entries[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:414 welcome]   Branch extras: RAS=on, loop=off, fast-recurrence=off[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:417 welcome]     RAS=8 entries[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:423 welcome]   I-cache: block=4 B, blocks=16, ways=4[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:425 welcome]   D-cache: size=8 KiB, store buffer=4 entries[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:427 welcome]   MDU: MUL latency=4 cycles, DIV/REM latency=35 cycles[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:449 load_img] The image is /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/mundus-jyd-nano.bin, size = 13157344[0m
+
+ \ | /
+- RT -     Thread Operating System
+ / | \     3.1.5 build Oct  8 2026
+ 2006 - 2020 Copyright by rt-thread team
+[LED] cycle=30663 value=0x00000000
+        
+        
+        
+        
+MundusJyd miniTensor shell ready.
+Commands: help, mt_gemm, mt_memtest, mt_conv, quit.
+msh >mt_conv
+miniTensor 3x3 conv (6x6x4 -> 6x6x4, K=36) starting.
+  81 GEMM + 9 epilogue commands
+[LED] cycle=1589061 value=0x00000001
+        
+        
+        
+       [1;32mX[0m
+[LED] cycle=1593703 value=0x00000000
+        
+        
+        
+        
+miniTensor conv PASSED (all 144 output bytes match CPU reference).
+  conv cycles: 4630
+msh >mt_net
+miniTensor YOLO-shaped net (32x32x4 -> 8x8x8 head).
+[LED] cycle=2166332 value=0x00000001
+        
+        
+        
+       [1;32mX[0m
+[1;31m[ERROR] [/home/ccy/Documents/qs/Mundus/npc/csrc/wave/cpu.c:131 execute_once] retirement PC discontinuity: expected 0x80001338, got 0x8000133c[0m
+pc          0x80001338
+r0 	$0  0x00000000
+r1 	ra  0x80004ed8
+r2 	sp  0x8012889c
+r3 	gp  0x801218f0
+r4 	tp  0xdeadbeef
+r5 	t0  0x00000440
+r6 	t1  0x0000000f
+r7 	t2  0x00000001
+r8 	s0  0x0032c171
+r9 	s1  0x8012489c
+r10	a0  0x80330000
+r11	a1  0x00004000
+r12	a2  0x00006000
+r13	a3  0x00000002
+r14	a4  0x00000020
+r15	a5  0x00000020
+r16	a6  0x00000002
+r17	a7  0x00000000
+r18	s2  0x00000001
+r19	s3  0x80121c30
+r20	s4  0x0000005c
+r21	s5  0x00210e38
+r22	s6  0x8012893c
+r23	s7  0x80120f4e
+r24	s8  0x801210f0
+r25	s9  0x80100d48
+r26	s10 0xdeadbeef
+r27	s11 0xdeadbeef
+r28	t3  0x0000001e
+r29	t4  0x00001200
+r30	t5  0x00000000
+r31	t6  0x00001200
+[7SEG] 00000000
+MundusJyd: /home/ccy/Documents/qs/Mundus/npc/csrc/wave/cpu.c:131: void execute_once(char (*)[128]): Assertion `event.pc == cpu.pc' failed.
+timeout: the monitored command dumped core
+EXIT=134

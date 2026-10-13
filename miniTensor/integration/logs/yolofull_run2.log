@@ -1,0 +1,93 @@
+find: ‘/home/ccy/Documents/qs/Mundus/ysyxSoC/perip’: No such file or directory
+find: ‘/home/ccy/Documents/qs/Mundus/ysyxSoC/build’: No such file or directory
+- V e r i l a t i o n   R e p o r t: Verilator 5.040 2025-08-30 rev v5.040
+- Verilator: Built from 31.990 MB sources in 100 modules, into 6.083 MB in 21 C++ files needing 0.006 MB
+- Verilator: Walltime 5.677 s (elab=0.039, cvt=0.299, bld=5.241); cpu 0.490 s on 8 threads; alloced 101.688 MB
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/utils/log.c:18 init_log] Log is written to /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/coremark/npc-jyd.log[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:355 welcome] Build time: 12:52:36, Oct  9 2026[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:386 welcome] Processor configuration:[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:387 welcome]   Core: ISA=RV32IM, issue=2-wide in-order[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:388 welcome]   Custom instructions: CRC16=on, MULBE=on[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:391 welcome]   Frontend: queue=8 entries, IROM latency=1 cycle(s)[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:398 welcome]   Branch: TAGE, BTB=16 entries, base counter=2 bits, TAGE=4 x 256 entries, tag/counter/useful=8/3/2 bits[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:404 welcome]   Branch history: 4/12/32/64, FTQ=8 entries[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:414 welcome]   Branch extras: RAS=on, loop=off, fast-recurrence=off[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:417 welcome]     RAS=8 entries[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:423 welcome]   I-cache: block=4 B, blocks=16, ways=4[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:425 welcome]   D-cache: size=8 KiB, store buffer=4 entries[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:427 welcome]   MDU: MUL latency=4 cycles, DIV/REM latency=35 cycles[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:449 load_img] The image is /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/mundus-jyd-nano.bin, size = 13340800[0m
+
+ \ | /
+- RT -     Thread Operating System
+ / | \     3.1.5 build Oct  8 2026
+ 2006 - 2020 Copyright by rt-thread team
+[LED] cycle=30760 value=0x00000000
+        
+        
+        
+        
+MundusJyd miniTensor shell ready.
+Commands: help, mt_gemm, mt_memtest, mt_conv, quit.
+msh >mt_yolomodel
+miniTensor FULL tiny-yolov3: 21 stages from 0x804063a0.
+[LED] cycle=45927 value=0x00000001
+        
+        
+        
+       [1;32mX[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:87 sim_stats_on_led_write] statistics window started: led0, cycle 45927[0m
+   0 conv 64x64    4->16    65536 B  ok  (11561011 cycles)
+   1 pool 64x64   16->16    16384 B  ok  (673401 cycles)
+   2 conv 32x32   16->32    32768 B  ok  (13247356 cycles)
+   3 pool 32x32   32->32     8192 B  ok  (349206 cycles)
+   4 conv 16x16   32->64    16384 B  ok  (12344432 cycles)
+   5 pool 16x16   64->64     4096 B  ok  (190858 cycles)
+   6 conv  8x8    64->128    8192 B  ok  (19304251 cycles)
+   7 pool  8x8   128->128    2048 B  ok  (99677 cycles)
+   8 conv  4x4   128->256    4096 B  ok  (19249120 cycles)
+   9 pool  4x4   256->256    1024 B  ok  (54206 cycles)
+  10 conv  2x2   256->512    4096 B  ok  (38156991 cycles)
+  11 pls1  2x2   512->512    2048 B  ok  (118204 cycles)
+  12 conv  2x2   512->1024   8192 B  ok  (152004748 cycles)
+  13 conv  2x2  1024->256    2048 B  ok  (8666671 cycles)
+  14 conv  2x2   256->128    1024 B  ok  (717583 cycles)
+  15 up    2x2   128->128    2048 B  ok  (38355 cycles)
+  16 cat   4x4   128->256    6144 B  ok  (92268 cycles)
+  17 conv  2x2   256->512    4096 B  ok  (38139535 cycles)
+  18 conv  4x4   384->256    4096 B  ok  (57540599 cycles)
+  19 conv  2x2   512->256    2048 B  ok  (4348004 cycles)
+  20 conv  4x4   256->256    4096 B  ok  (2768880 cycles)
+[LED] cycle=384398684 value=0x00000000
+        
+        
+        
+        
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:95 sim_stats_on_led_write] statistics window finished: led0, cycles 45927..384398684[0m
+miniTensor FULL tiny-yolov3 PASSED (21 stages, 3128301 commands, 384352762 cycles)
+msh >quit
+Exit simulation.
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/cpu.c:246 cpu_exec] [1;32mHIT GOOD TRAP[0m[0m
+[7SEG] 00000000
+        
+        
+        
+        
+
+[Simulation Summary]
++------------------------------------------+--------------------------------+
+| Metric                                   | Value                          |
++------------------------------------------+--------------------------------+
+| Statistics window                        |        led0 (startup excluded) |
+| Host time                                |                   797642100 us |
+| Clock cycles                             |                      384352757 |
+| Guest instructions                       |                      165750779 |
+| IPC                                      |                       0.431246 |
+| Execution time                           |                  1.281175857 s |
+| Core frequency                           |                    300.000 MHz |
+| Simulation frequency                     |                  207800 inst/s |
++------------------------------------------+--------------------------------+
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:320 stats_report_end] pipeline statistics report: /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/coremark/pipeline_report.txt[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:320 stats_report_end] memory statistics report: /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/coremark/memory_report.txt[0m
+CoreMark report not generated: no CoreMark output was found.
+EXIT=0

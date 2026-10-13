@@ -1,0 +1,42 @@
+mainmenu "Mundus Simulation Configuration Menu"
+
+menu "Simulation Settings"
+
+config SIMULATION
+  bool "Enable RTL Simulation"
+  default "y"
+
+# TODO: This seems to have a problem
+config HAS_VERILATOR
+  depends on SIMULATION
+  bool "Enable Verilator functions"
+  default "y"
+
+config SOC_DELAY
+  depends on SIMULATION
+  bool "Enable SoC delayer"
+  default "y"
+
+config DEBUG
+  depends on SIMULATION
+  bool "Enable debug information"
+  default "n"
+
+config FORCE_WAVE
+  depends on SIMULATION
+  bool "Force open waveform"
+  default "n"
+
+config CORE_FREQ
+  string "Core clock frequency (MHz)"
+  default "300.000"
+
+endmenu # "Simulation Settings"
+
+source "configs/Mundus/Kconfig"
+
+source "configs/NPC/Kconfig"
+
+source "configs/SoC/Kconfig"
+
+source "configs/Testing&Debugging/Kconfig"

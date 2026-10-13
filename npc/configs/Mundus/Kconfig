@@ -1,0 +1,484 @@
+menu "Mundus Settings"
+
+config RVE
+  bool "Enable RISC-V E"
+  default y
+
+menu "Branch Predict"
+
+choice
+    prompt "Select branch predictor"
+    default BP_ALWAYS_NOT_TAKEN
+    config BP_ALWAYS_NOT_TAKEN
+        bool "Always Not Taken"
+    config BP_BIMODAL
+        bool "Bimodal Branch Predictor"
+    config BP_TAGE
+        bool "TAGE Branch Predictor"
+endchoice
+
+config BRANCH_PREDICT
+    int
+    default 0 if BP_ALWAYS_NOT_TAKEN
+    default 1 if BP_BIMODAL
+    default 2 if BP_TAGE
+
+menu "Bimodal base and BTB parameters"
+    depends on BP_BIMODAL || BP_TAGE
+
+config BRANCH_BTB_WIDTH
+    int "Branch target buffer index width"
+    default 4
+    range 1 16
+
+config BRANCH_BIMODAL_BITS
+    int "Bimodal base counter bits"
+    default 2
+    range 2 2
+
+endmenu # "Bimodal base and BTB parameters"
+
+menu "TAGE parameters"
+    visible if BP_TAGE
+
+config BRANCH_TAGE_TABLES
+    int "Number of tagged tables" if BP_TAGE
+    default 4
+    range 4 4
+
+config BRANCH_TAGE_INDEX_BITS
+    int "Tagged table index width" if BP_TAGE
+    default 8
+    range 6 10
+
+config BRANCH_TAGE_TAG_BITS
+    int "Tagged table tag width" if BP_TAGE
+    default 8
+    range 6 12
+
+config BRANCH_TAGE_CTR_BITS
+    int "Prediction counter width" if BP_TAGE
+    default 3
+    range 3 3
+
+config BRANCH_TAGE_USEFUL_BITS
+    int "Usefulness counter width" if BP_TAGE
+    default 2
+    range 2 2
+
+config BRANCH_TAGE_HIST_0
+    int "Table 0 history length" if BP_TAGE
+    default 4
+    range 1 64
+
+config BRANCH_TAGE_HIST_1
+    int "Table 1 history length" if BP_TAGE
+    default 12
+    range 1 64
+
+config BRANCH_TAGE_HIST_2
+    int "Table 2 history length" if BP_TAGE
+    default 32
+    range 1 64
+
+config BRANCH_TAGE_HIST_3
+    int "Table 3 history length" if BP_TAGE
+    default 64
+    range 1 64
+
+config BRANCH_FTQ_DEPTH
+    int "Fetch target queue entries" if BP_TAGE
+    default 8
+    range 2 16
+    help
+      Number of fetch-block checkpoints retained by the TAGE frontend.  The
+      FTQ is a sideband bookkeeping queue and is not placed in the fast
+      Bimodal-to-next-PC path.
+
+endmenu # "TAGE parameters"
+
+menu "Fast recurrence predictor parameters"
+    depends on BP_BIMODAL || BP_TAGE
+
+config BRANCH_FAST_RECURRENCE
+    bool "Enable fast CRC recurrence predictor"
+    default n
+    help
+      Recognize the adjacent ANDI-bit-test and conditional branch idiom used
+      by bit-serial CRC code. A small per-PC table learns the recurrence and
+      supplies direction beside Bimodal. Owned branches bypass TAGE so their
+      data-dependent outcomes do not enter TAGE history or tagged tables.
+
+config BRANCH_FAST_RECURRENCE_INDEX_BITS
+    int "Predictor table index width" if BRANCH_FAST_RECURRENCE
+    default 3
+    range 1 5
+
+endmenu # "Fast recurrence predictor parameters"
+
+menu "Return Address Stack parameters"
+    depends on BP_BIMODAL || BP_TAGE
+
+config BRANCH_RAS
+    bool "Enable Return Address Stack"
+    default y
+    help
+      Predict JALR returns using a small hardware return-address stack.
+      Return classification is stored in the synchronous BTB, so instruction
+      decoding is not added to the fetch-PC combinational path.
+
+config BRANCH_RAS_WIDTH
+    int "Stack index width" if BRANCH_RAS
+    default 3
+    range 1 5
+
+endmenu # "Return Address Stack parameters"
+
+menu "Loop Predictor parameters"
+    depends on BP_BIMODAL || BP_TAGE
+
+config BRANCH_LOOP_PREDICTOR
+    bool "Enable Loop Predictor"
+    default n
+    help
+      Add a small loop predictor beside Bimodal.  It learns both conventional
+      backward loop branches and forward loop-exit guards.  A confident table
+      hit overrides only the direction prediction; the target still comes
+      from the Bimodal BTB.
+
+endmenu # "Loop Predictor parameters"
+
+config BRANCH_TAGE
+    bool
+    default y if BP_TAGE
+
+config BRANCH_DIRECTION_METADATA
+    bool
+    default y if BRANCH_LOOP_PREDICTOR || BP_TAGE || BRANCH_FAST_RECURRENCE
+
+config BRANCH_DIRECTION_METADATA_ENABLE
+    int
+    default 1 if BRANCH_DIRECTION_METADATA
+    default 0
+
+config BRANCH_LOOP_PREDICTOR_ENABLE
+    int
+    default 1 if BRANCH_LOOP_PREDICTOR
+    default 0
+
+endmenu # "Branch Predict"
+
+menu "Frontend"
+
+choice
+    prompt "Instruction ROM capacity"
+    default IROM_SIZE_32KB
+    help
+      Select the JYD instruction ROM capacity.  The generated C, Verilog and
+      Scala configuration, the Verilator memory model, and image packing tools
+      all derive their limits and address widths from this selection.
+
+config IROM_SIZE_16KB
+    bool "16 KiB"
+
+config IROM_SIZE_32KB
+    bool "32 KiB"
+
+endchoice
+
+config IROM_SIZE_KB
+    int
+    default 16 if IROM_SIZE_16KB
+    default 32 if IROM_SIZE_32KB
+
+config IROM_SIZE_BYTES
+    int
+    default 16384 if IROM_SIZE_16KB
+    default 32768 if IROM_SIZE_32KB
+
+config IROM_DEPTH
+    int
+    default 2048 if IROM_SIZE_16KB
+    default 4096 if IROM_SIZE_32KB
+    help
+      Number of 64-bit entries in the instruction ROM.
+
+config IROM_ADDR_WIDTH
+    int
+    default 11 if IROM_SIZE_16KB
+    default 12 if IROM_SIZE_32KB
+    help
+      Address width for the 64-bit instruction ROM interface.
+
+config FRONTEND_QUEUE
+    bool "Enable fall-through instruction buffer"
+    default y
+    help
+      Use an asynchronous-read instruction buffer between IROM and IF/ID.
+      An empty buffer forwards the IROM response directly, so enabling it does
+      not add a pipeline stage to the normal fetch path.  While the backend is
+      stalled, fetching continues until the buffer and in-flight response fill.
+
+config FRONTEND_QUEUE_DEPTH
+    int "Instruction buffer depth" if FRONTEND_QUEUE
+    default 8
+    range 4 16
+    help
+      Number of entries in the dual-fetch instruction queue.
+
+config IROM_CORE_OUTPUT_REGISTER
+    bool
+    default n
+    help
+      Keep the Block Memory Generator core output register disabled.  TAGE
+      uses an FTQ-backed late correction and therefore does not extend the
+      one-cycle instruction-ROM response.
+
+config IROM_READ_LATENCY
+    int
+    default 1
+
+endmenu # "Frontend"
+
+menu "CACHE"
+
+menu "ICACHE"
+
+choice
+    prompt "Select bytes per block for icache"
+    default ICACHE_BYTE_4
+    config ICACHE_BYTE_4
+        bool "4 Bytes"
+    config ICACHE_BYTE_8
+        bool "8 Bytes"
+    config ICACHE_BYTE_16
+        bool "16 Bytes"
+    config ICACHE_BYTE_32
+        bool "32 Bytes"
+    config ICACHE_BYTE_64
+        bool "64 Bytes"
+endchoice
+
+config ICACHE_BYTE
+    int
+    default 4  if ICACHE_BYTE_4
+    default 8  if ICACHE_BYTE_8
+    default 16 if ICACHE_BYTE_16
+    default 32 if ICACHE_BYTE_32
+    default 64 if ICACHE_BYTE_64
+
+config ICACHE_BYTE_WIDTH
+    int
+    default 2 if ICACHE_BYTE_4
+    default 3 if ICACHE_BYTE_8
+    default 4 if ICACHE_BYTE_16
+    default 5 if ICACHE_BYTE_32
+    default 6 if ICACHE_BYTE_64
+
+choice
+    prompt "Select total blocks of ICACHE"
+    default ICACHE_BLOCK_16
+    config ICACHE_BLOCK_2
+        bool "2  Blocks"
+    config ICACHE_BLOCK_4
+        bool "4  Blocks"
+    config ICACHE_BLOCK_8
+        bool "8  Blocks"
+    config ICACHE_BLOCK_16
+        bool "16  Blocks"
+    config ICACHE_BLOCK_32
+        bool "32  Blocks"
+    config ICACHE_BLOCK_64
+        bool "64  Blocks"
+    config ICACHE_BLOCK_128
+        bool "128 Blocks"
+endchoice
+
+config ICACHE_BLOCK
+    int
+    default 2   if ICACHE_BLOCK_2
+    default 4   if ICACHE_BLOCK_4
+    default 8   if ICACHE_BLOCK_8
+    default 16  if ICACHE_BLOCK_16
+    default 32  if ICACHE_BLOCK_32
+    default 64  if ICACHE_BLOCK_64
+    default 128 if ICACHE_BLOCK_128
+
+config ICACHE_BLOCK_WIDTH
+    int
+    default 1 if ICACHE_BLOCK_2
+    default 2 if ICACHE_BLOCK_4
+    default 3 if ICACHE_BLOCK_8
+    default 4 if ICACHE_BLOCK_16
+    default 5 if ICACHE_BLOCK_32
+    default 6 if ICACHE_BLOCK_64
+    default 7 if ICACHE_BLOCK_128
+
+choice
+    prompt "Select ways set-associative of ICACHE"
+    default ICACHE_WAY_4
+    config ICACHE_WAY_1
+        bool "1  Ways"
+    config ICACHE_WAY_2
+        bool "2  Ways"
+    config ICACHE_WAY_4
+        bool "4  Ways"
+    config ICACHE_WAY_8
+        bool "8  Ways"
+    config ICACHE_WAY_16
+        bool "16 Ways"
+    config ICACHE_WAY_32
+        bool "32 Ways"
+endchoice
+
+config ICACHE_WAY
+    int
+    default 1  if ICACHE_WAY_1
+    default 2  if ICACHE_WAY_2
+    default 4  if ICACHE_WAY_4
+    default 8  if ICACHE_WAY_8
+    default 16 if ICACHE_WAY_16
+    default 32 if ICACHE_WAY_32
+
+config ICACHE_WAY_WIDTH
+    int
+    default 0 if ICACHE_WAY_1
+    default 1 if ICACHE_WAY_2
+    default 2 if ICACHE_WAY_4
+    default 3 if ICACHE_WAY_8
+    default 4 if ICACHE_WAY_16
+    default 5 if ICACHE_WAY_32
+
+endmenu # "ICACHE"
+
+menu "DCACHE"
+
+config LSU_EX2_STORE_REPLAY
+    bool "Replay speculative loads on Ex2 store conflicts"
+    default n
+    help
+      Launch cacheable load lookups before older in-flight store addresses are
+      checked.  A matching store detected from registered Ex2 metadata holds
+      the load locally and replays its cache lookup after older stores drain.
+
+choice
+    prompt "Select D-cache size"
+    default DCACHE_SIZE_8KB
+    help
+      Select the data capacity of the direct-mapped D-cache. Each cache entry
+      contains one 32-bit word. The DCacheData_BRAM depth and DCacheTag_BRAM
+      port widths must be updated to match this setting in the Vivado project.
+
+    config DCACHE_SIZE_1KB
+        bool "1 KiB"
+    config DCACHE_SIZE_2KB
+        bool "2 KiB"
+    config DCACHE_SIZE_4KB
+        bool "4 KiB"
+    config DCACHE_SIZE_8KB
+        bool "8 KiB"
+    config DCACHE_SIZE_16KB
+        bool "16 KiB"
+    config DCACHE_SIZE_32KB
+        bool "32 KiB"
+    config DCACHE_SIZE_64KB
+        bool "64 KiB"
+endchoice
+
+config DCACHE_SIZE_KB
+    int
+    default 1  if DCACHE_SIZE_1KB
+    default 2  if DCACHE_SIZE_2KB
+    default 4  if DCACHE_SIZE_4KB
+    default 8  if DCACHE_SIZE_8KB
+    default 16 if DCACHE_SIZE_16KB
+    default 32 if DCACHE_SIZE_32KB
+    default 64 if DCACHE_SIZE_64KB
+
+endmenu # "DCACHE"
+
+menu "Store Buffer"
+
+choice
+    prompt "Select store buffer entries"
+    default STORE_BUFFER_DEPTH_4
+
+    config STORE_BUFFER_DEPTH_1
+        bool "1 entry"
+    config STORE_BUFFER_DEPTH_2
+        bool "2 entries"
+    config STORE_BUFFER_DEPTH_4
+        bool "4 entries"
+    config STORE_BUFFER_DEPTH_8
+        bool "8 entries"
+    config STORE_BUFFER_DEPTH_16
+        bool "16 entries"
+endchoice
+
+config STORE_BUFFER_DEPTH
+    int
+    default 1  if STORE_BUFFER_DEPTH_1
+    default 2  if STORE_BUFFER_DEPTH_2
+    default 4  if STORE_BUFFER_DEPTH_4
+    default 8  if STORE_BUFFER_DEPTH_8
+    default 16 if STORE_BUFFER_DEPTH_16
+
+endmenu # "Store Buffer"
+
+endmenu # "CACHE"
+
+menu "CSR"
+
+config HAS_CSR_MSCRATCH
+  bool "Enable CSR mscratch"
+  default n
+
+config HAS_CSR_MIE
+  bool "Enable CSR mie"
+  default y
+
+config HAS_CSR_MIP
+  bool "Enable CSR mip"
+  default y
+
+config HAS_CSR_MCYCLE
+  bool "Enable CSRs mcycle and mcycleh"
+  default y
+  help
+    Enable the 64-bit machine cycle counter exposed as mcycle/mcycleh on RV32.
+
+config HAS_CSR_MISA
+  bool "Enable CSR misa"
+  default n
+
+endmenu # "CSR"
+
+menu "Custom Instruction Hardware"
+
+config CUSTOM_CRC16
+    bool "Enable CRC16 custom instruction"
+    default y
+    help
+      Enable the Mundus custom-0 CRC16 instruction and its parallel CRC
+      datapath. Disable this option to remove the CRC datapath and decoder
+      entry from the generated hardware.
+
+config CUSTOM_MULBE
+    bool "Enable MULBE custom instruction"
+    default y
+    help
+      Enable the Mundus custom-0 MULBE instruction and its CoreMark matrix
+      bit-extract post-processing datapath. Disable this option to remove the
+      MULBE decoder entry and post-processing hardware.
+
+endmenu # "Custom Instruction Hardware"
+
+config MUL_LATENCY
+    int "Multiplier Latency"
+    default 4
+
+config DIV_LATENCY
+    int "Divider Latency"
+    default 35
+
+endmenu # "Mundus Settings"

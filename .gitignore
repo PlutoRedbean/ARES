@@ -1,0 +1,21 @@
+# ---- build / simulation outputs ----
+build/
+out/
+obj_dir/
+.venv/
+waveform.fst
+*.vcd
+
+# ---- downloaded / generated tools ----
+npc/mill
+npc/tools/capstone/repo/
+npc/tools/kconfig/build/
+npc/tools/pysrc/.venv/
+
+# ---- python ----
+__pycache__/
+*.pyc
+
+# ---- editor / OS ----
+.vscode/
+.DS_Store

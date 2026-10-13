@@ -1,0 +1,15 @@
+menu "NPC Settings"
+
+config MEM_BASE
+  hex "Memory base address"
+  default 0x80000000
+
+config MEM_SIZE
+  hex "Memory size"
+  default 0x8000000
+
+config NPC_ENTRY
+  hex "CPU entry PC for NPC"
+  default 0x80000000
+
+endmenu # "NPC Settings"

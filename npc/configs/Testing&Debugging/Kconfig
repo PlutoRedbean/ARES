@@ -1,0 +1,181 @@
+menu "Testing and Debugging"
+
+menu "PERFORMANCE TEST"
+
+config IF_COUNTER
+  bool "Enable instruction-fetch counter"
+  default n
+
+config LS_COUNTER
+  bool "Enable load-store counter"
+  default n
+
+config EX_COUNTER
+  bool "Enable execution counter"
+  default n
+
+config INST_TYPE_COUNTER
+  bool "Enable instruction-type counter"
+  default n
+
+endmenu # "PERFORMANCE TEST"
+
+menu "TRACE"
+
+config ITRACE
+  bool "Enable instruction tracer"
+  default n
+
+config ITRACE_COND
+  depends on ITRACE
+  string "Only trace instructions when the condition is true"
+  default "true"
+
+config ITRACE_SIZE
+  depends on ITRACE
+  string "Define the size of ITRACE ringbuffer."
+  default "12"
+
+config MTRACE
+  bool "Enable memory tracer"
+  default n
+
+config MTRACE_COND
+  depends on MTRACE
+  string "Only trace memory when the condition is true"
+  default "true"
+
+config MTRACE_SIZE
+  depends on MTRACE
+  string "Define the size of MTRACE ringbuffer."
+  default "16"
+
+config MTRACE_SCATTER_PLOT
+  depends on MTRACE
+  bool "Enable memory spacetime scatter plot"
+  default n
+
+config PTRACE
+  bool "Enable performance tracer"
+  default n
+
+config PTRACE_COND
+  depends on PTRACE
+  string "Only trace performance when the condition is true"
+  default "true"
+
+config PTRACE_SIZE
+  depends on PTRACE
+  string "Define the size of PTRACE ringbuffer."
+  default "16"
+
+config FTRACE
+  bool "Enable function tracer"
+  default n
+
+endmenu # "TRACE"
+
+config DIFFTEST
+  bool "Enable differential testing"
+  default n
+  help
+    Enable differential testing with a reference design.
+    Note that this will significantly reduce the performance of NEMU.
+
+menu "Branch Predictor Difftest"
+
+config BRANCH_DIFFTEST
+  bool "Enable branch predictor difftest"
+  default n
+  help
+    Compare RTL branch prediction behavior against a C predictor model
+    during simulation and dump a branch difftest report at the end.
+
+config BRANCH_DIFFTEST_MISMATCH_ABORT
+  depends on BRANCH_DIFFTEST
+  bool "Abort on branch predictor mismatch"
+  default n
+  help
+    Stop the simulation when RTL branch prediction behavior mismatches
+    the C predictor model. If disabled, mismatches are only counted in
+    the branch difftest report.
+
+config BRANCH_DIFFTEST_EARLY_STOP
+  depends on BRANCH_DIFFTEST
+  bool "Stop after a fixed number of branch predictor updates"
+  default n
+  help
+    Stop simulation early after collecting a fixed number of branch
+    predictor update events. This is useful for quickly checking branch
+    prediction trends before running the full image.
+
+config BRANCH_DIFFTEST_EARLY_STOP_COUNT
+  depends on BRANCH_DIFFTEST_EARLY_STOP
+  int "Branch predictor update stop count"
+  default 20000000
+  range 1 2147483647
+
+config BRANCH_DIFFTEST_TOPN
+  depends on BRANCH_DIFFTEST
+  int "Number of top miss-rate branch PCs in report"
+  default 10
+  range 1 1024
+
+config BRANCH_DIFFTEST_TAGE
+  depends on BRANCH_DIFFTEST
+  bool "Run software TAGE accuracy model"
+  default y
+  help
+    Run an independent commit-time TAGE direction predictor in software.
+    It does not affect RTL prediction or the RTL reference model; its
+    accuracy and hottest miss PCs are added to the final report.
+
+config BRANCH_DIFFTEST_LOCAL
+  depends on BRANCH_DIFFTEST
+  bool "Run software per-PC local-history accuracy model"
+  default y
+  help
+    Run an independent per-PC local-history direction predictor with a
+    shared pattern table. It does not affect RTL prediction. The report
+    includes overall accuracy and detailed results for a selected PC.
+
+config BRANCH_DIFFTEST_LOCAL_HISTORY_BITS
+  depends on BRANCH_DIFFTEST_LOCAL
+  int "Local direction history length"
+  default 16
+  range 1 64
+
+config BRANCH_DIFFTEST_LOCAL_LHT_BITS
+  depends on BRANCH_DIFFTEST_LOCAL
+  int "Local history table index bits"
+  default 12
+  range 1 16
+
+config BRANCH_DIFFTEST_LOCAL_PHT_BITS
+  depends on BRANCH_DIFFTEST_LOCAL
+  int "Local pattern table index bits"
+  default 16
+  range 1 20
+
+config BRANCH_DIFFTEST_LOCAL_TARGET_PC
+  depends on BRANCH_DIFFTEST_LOCAL
+  hex "Local predictor PC to highlight"
+  default 0x80000400
+
+config BRANCH_PRED_TYPE
+  depends on BRANCH_DIFFTEST
+  int
+  default BRANCH_PREDICT
+
+endmenu # "Branch Predictor Difftest"
+
+config ICACHE_AMAT
+  bool "Enable cache related counter"
+  default n
+
+config CACHE_DIFF
+  depends on ICACHE_AMAT
+  bool "Enable differential testing for cache"
+  default n
+
+endmenu # "Testing and Debugging"

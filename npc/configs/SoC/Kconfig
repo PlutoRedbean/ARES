@@ -1,0 +1,163 @@
+menu "SoC Settings"
+
+menu "MROM"
+
+config MROM_BASE
+  hex "Address for MROM"
+  default 0x20000000
+
+config MROM_SIZE
+  hex "Size of MROM"
+  default 0x1000
+
+endmenu # "MROM"
+
+menu "FLASH"
+
+config FLASH_BASE
+  hex "Address for FLASH"
+  default 0x30000000
+
+config FLASH_SIZE
+  hex "Size of FLASH"
+  default 0x1000000
+
+endmenu # "FLASH"
+
+menu "SRAM"
+
+config SRAM_BASE
+  hex "Address for SRAM"
+  default 0x0f000000
+
+config SRAM_SIZE
+  hex "Size of SRAM"
+  default 0x2000
+
+endmenu # "SRAM"
+
+menu "PSRAM"
+
+config PSRAM_BASE
+  hex "Address for PSRAM"
+  default 0x80000000
+
+config PSRAM_SIZE
+  hex "Size of PSRAM"
+  default 0x400000
+
+endmenu # "PSRAM"
+
+menu "SDRAM"
+
+config SDRAM_BASE
+  hex "Address for SDRAM"
+  default 0xa0000000
+
+config SDRAM_SIZE
+  hex "Size of SDRAM"
+  default 0x2000000
+
+endmenu # "SDRAM"
+
+menu "CLINT"
+
+config CLINT_BASE
+  hex "Address for CLINT"
+  default 0x02000000
+
+config CLINT_SIZE
+  hex "Size of CLINT"
+  default 0x10000
+
+endmenu # "CLINT"
+
+menu "UART"
+
+config UART_BASE
+  hex "Address for UART"
+  default 0x10000000
+
+config UART_SIZE
+  hex "Size of UART"
+  default 0x1000
+
+endmenu # "UART"
+
+menu "SPI"
+
+config SPI_BASE
+  hex "Address for SPI"
+  default 0x10001000
+
+config SPI_SIZE
+  hex "Size of SPI"
+  default 0x1000
+
+endmenu # "SPI"
+
+menu "GPIO"
+
+config GPIO_BASE
+  hex "Address for GPIO"
+  default 0x10002000
+
+config GPIO_SIZE
+  hex "Size of GPIO"
+  default 0x10
+
+endmenu # "GPIO"
+
+menu "KBD"
+
+config KBD_BASE
+  hex "Address for KBD"
+  default 0x10011000
+
+config KBD_SIZE
+  hex "Size of KBD"
+  default 0x8
+
+endmenu # "KBD"
+
+menu "VGA"
+
+config VGA_BASE
+  hex "Address for VGA"
+  default 0x21000000
+
+config VGA_SIZE
+  hex "Size of VGA"
+  default 0x200000
+
+endmenu # "VGA"
+
+menu "CHIPLINK_MMIO"
+
+config CHIPLINK_MMIO_BASE
+  hex "Address for CHIPLINK_MMIO"
+  default 0x40000000
+
+config CHIPLINK_MMIO_SIZE
+  hex "Size of CHIPLINK_MMIO"
+  default 0x40000000
+
+endmenu # "CHIPLINK_MMIO"
+
+menu "CHIPLINK_MEM"
+
+config CHIPLINK_MEM_BASE
+  hex "Address for CHIPLINK_MEM"
+  default 0xc0000000
+
+config CHIPLINK_MEM_SIZE
+  hex "Size of CHIPLINK_MEM"
+  default 0x40000000
+
+endmenu # "CHIPLINK_MEM"
+
+config SOC_ENTRY
+  hex "CPU entry PC for SoC"
+  default 0x30000000
+
+endmenu # "SoC Settings"

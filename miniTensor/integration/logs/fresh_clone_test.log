@@ -1,0 +1,647 @@
+# 全新 clone 验证（git clone -b 0818_jyd_test）+ 按 README 2.5~6 执行
+# 注：本机网络很慢，一次性工具 mill/kconfig 的 conf/capstone 是预置的；
+#     其余步骤（config/autogen/verilog、venv、夹具、固件、Verilator、mt_gemm）都在 clone 里跑。
+
+=== 2.5 config + autogen + verilog ===
+#
+# configuration written to /home/ccy/Documents/qs/_fresh/Mundus/npc/configs/build/.config
+#
+Reading configuration from: configs/build/.config
+Created directory: configs/build/csrc/include/
+Generated: configs/build/csrc/include/autoconf.h
+Created directory: configs/build/vsrc/include/
+Generated: configs/build/vsrc/include/autoconf.vh
+Created directory: configs/build/scsrc/
+Generated: configs/build/scsrc/autoconf.scala
+find: ‘/home/ccy/Documents/qs/_fresh/Mundus/ysyxSoC/perip’: No such file or directory
+find: ‘/home/ccy/Documents/qs/_fresh/Mundus/ysyxSoC/build’: No such file or directory
+=============== Mundus.runMain npc.Elaborate --t...qs/_fresh/Mundus/npc/vsrc/build ===============
+[build.sc-64/68] compile[0K
+[build.sc-64] [info] compiling 1 Scala source to /home/ccy/Documents/qs/_fresh/Mundus/npc/out/mill-build/compile.dest/classes ...[0K
+[build.sc-64] [info] done compiling[0K
+[62/69] Mundus.compile[0K
+[62] [info] compiling 38 Scala sources to /home/ccy/Documents/qs/_fresh/Mundus/npc/out/Mundus/compile.dest/classes ...[0K
+[62] [info] done compiling[0K
+[69/69] Mundus.runMain[0K
+[69] Starting Elaboration...[0K
+[69] SV Length: 710392[0K
+[69] Target Dir: /home/ccy/Documents/qs/_fresh/Mundus/npc/vsrc/build[0K
+[69] Successfully generated![0K
+[69/69] =============== Mundus.runMain npc.Elabora...esh/Mundus/npc/vsrc/build =============== 19s
+=== 3 venv ===
+=== 4 fixture ===
+  conv2d_1            4->16   k3  64x64 wpad=64 nmt=1 mult=22586 leaky=1
+  pool             64x64 -> 32x32  (16 ch)
+  conv2d_2           16->32   k3  32x32 wpad=32 nmt=2 mult=21542 leaky=1
+  pool             32x32 -> 16x16  (32 ch)
+  conv2d_3           32->64   k3  16x16 wpad=16 nmt=2 mult=30394 leaky=1
+  pool             16x16 ->  8x8   (64 ch)
+  conv2d_4           64->128  k3   8x8  wpad=8 nmt=1 mult=18286 leaky=1
+  pool              8x8  ->  4x4   (128 ch)
+  conv2d_5          128->256  k3   4x4  wpad=4 nmt=1 mult=19625 leaky=1
+  pool              4x4  ->  2x2   (256 ch)
+  conv2d_6          256->512  k3   2x2  wpad=4 nmt=1 mult=19377 leaky=1
+  poolsame          2x2  ->  2x2   (512 ch)
+  conv2d_7          512->1024 k3   2x2  wpad=4 nmt=1 mult=22545 leaky=1
+  conv2d_8         1024->256  k1   2x2  wpad=4 nmt=1 mult=27243 leaky=1
+  conv2d_11         256->128  k1   2x2  wpad=4 nmt=2 mult=21566 leaky=1
+  upsample          2x2  ->  4x4 
+  concat           128 + 256 -> 384 ch @ 4x4
+  conv2d_9          256->512  k3   2x2  wpad=4 nmt=1 mult=29510 leaky=1
+  conv2d_12         384->256  k3   4x4  wpad=4 nmt=1 mult=16711 leaky=1
+  conv2d_10         512->256  k1   2x2  wpad=4 nmt=1 mult=23611 leaky=0
+  conv2d_13         256->256  k1   4x4  wpad=4 nmt=2 mult=19361 leaky=0
+blob file 9120992 B (8.70 MiB); scratch 198656 B; pad 52224 B at +0x8E34E0; total 8.94 MiB / 12 MiB
+goldens end at +0x8B2CE0 (small tests' scratch starts at 0x80D80000 = +0x979C00 from 0x80406400)
+wrote models/ym_weights.bin and integration/bsp/mt_yolomodel_weights.h
+=== 5+6 firmware + sim (mt_gemm) ===
+== building firmware ==
+make: Entering directory '/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd'
+riscv64-unknown-elf-gcc -march=rv32im_zicsr -mabi=ilp32  -mcmodel=medany -mstrict-align -ffreestanding -fno-builtin -fno-common -fno-pic -fno-pie -ffunction-sections -fdata-sections -MMD -MP -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/include -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/compat -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/include -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/libcpu/risc-v/common -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh -DMUNDUS_JYD_COMPETITION -flto -g -Wall -Wextra -Os -std=c11 -c /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/src/clock.c -o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/clock.o
+riscv64-unknown-elf-gcc -march=rv32im_zicsr -mabi=ilp32  -mcmodel=medany -mstrict-align -ffreestanding -fno-builtin -fno-common -fno-pic -fno-pie -ffunction-sections -fdata-sections -MMD -MP -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/include -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/compat -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/include -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/libcpu/risc-v/common -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh -DMUNDUS_JYD_COMPETITION -flto -g -Wall -Wextra -Os -std=c11 -c /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/src/components.c -o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/components.o
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/src/components.c: In function 'main_thread_entry':
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/src/components.c:173:30: warning: unused parameter 'parameter' [-Wunused-parameter]
+  173 | void main_thread_entry(void *parameter)
+      |                        ~~~~~~^~~~~~~~~
+riscv64-unknown-elf-gcc -march=rv32im_zicsr -mabi=ilp32  -mcmodel=medany -mstrict-align -ffreestanding -fno-builtin -fno-common -fno-pic -fno-pie -ffunction-sections -fdata-sections -MMD -MP -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/include -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/compat -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/include -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/libcpu/risc-v/common -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh -DMUNDUS_JYD_COMPETITION -flto -g -Wall -Wextra -Os -std=c11 -c /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/src/cpu.c -o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/cpu.o
+riscv64-unknown-elf-gcc -march=rv32im_zicsr -mabi=ilp32  -mcmodel=medany -mstrict-align -ffreestanding -fno-builtin -fno-common -fno-pic -fno-pie -ffunction-sections -fdata-sections -MMD -MP -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/include -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/compat -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/include -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/libcpu/risc-v/common -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh -DMUNDUS_JYD_COMPETITION -flto -g -Wall -Wextra -Os -std=c11 -c /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/src/idle.c -o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/idle.o
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/src/idle.c: In function 'rt_thread_idle_entry':
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/src/idle.c:179:40: warning: unused parameter 'parameter' [-Wunused-parameter]
+  179 | static void rt_thread_idle_entry(void *parameter)
+      |                                  ~~~~~~^~~~~~~~~
+riscv64-unknown-elf-gcc -march=rv32im_zicsr -mabi=ilp32  -mcmodel=medany -mstrict-align -ffreestanding -fno-builtin -fno-common -fno-pic -fno-pie -ffunction-sections -fdata-sections -MMD -MP -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/include -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/compat -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/include -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/libcpu/risc-v/common -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh -DMUNDUS_JYD_COMPETITION -flto -g -Wall -Wextra -Os -std=c11 -c /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/src/ipc.c -o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/ipc.o
+riscv64-unknown-elf-gcc -march=rv32im_zicsr -mabi=ilp32  -mcmodel=medany -mstrict-align -ffreestanding -fno-builtin -fno-common -fno-pic -fno-pie -ffunction-sections -fdata-sections -MMD -MP -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/include -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/compat -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/include -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/libcpu/risc-v/common -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh -DMUNDUS_JYD_COMPETITION -flto -g -Wall -Wextra -Os -std=c11 -c /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/src/irq.c -o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/irq.o
+riscv64-unknown-elf-gcc -march=rv32im_zicsr -mabi=ilp32  -mcmodel=medany -mstrict-align -ffreestanding -fno-builtin -fno-common -fno-pic -fno-pie -ffunction-sections -fdata-sections -MMD -MP -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/include -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/compat -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/include -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/libcpu/risc-v/common -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh -DMUNDUS_JYD_COMPETITION -flto -g -Wall -Wextra -Os -std=c11 -c /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/src/kservice.c -o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/kservice.o
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/src/kservice.c: In function 'rt_memcpy':
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/src/kservice.c:226:32: warning: comparison of integer expressions of different signedness: 'int' and 'unsigned int' [-Wsign-compare]
+  226 | #define TOO_SMALL(LEN)  ((LEN) < BIGBLOCKSIZE)
+      |                                ^
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/src/kservice.c:236:10: note: in expansion of macro 'TOO_SMALL'
+  236 |     if (!TOO_SMALL(len) && !UNALIGNED(src_ptr, dst_ptr))
+      |          ^~~~~~~~~
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/src/kservice.c:242:20: warning: comparison of integer expressions of different signedness: 'int' and 'unsigned int' [-Wsign-compare]
+  242 |         while (len >= BIGBLOCKSIZE)
+      |                    ^~
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/src/kservice.c:252:20: warning: comparison of integer expressions of different signedness: 'int' and 'unsigned int' [-Wsign-compare]
+  252 |         while (len >= LITTLEBLOCKSIZE)
+      |                    ^~
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/src/kservice.c: In function 'rt_hw_console_output':
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/src/kservice.c:1127:47: warning: unused parameter 'str' [-Wunused-parameter]
+ 1127 | RT_WEAK void rt_hw_console_output(const char *str)
+      |                                   ~~~~~~~~~~~~^~~
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/src/kservice.c: In function 'rt_vsnprintf':
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/src/kservice.c:957:19: warning: this statement may fall through [-Wimplicit-fallthrough=]
+  957 |             flags |= LARGE;
+      |                   ^
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/src/kservice.c:958:9: note: here
+  958 |         case 'x':
+      |         ^~~~
+riscv64-unknown-elf-gcc -march=rv32im_zicsr -mabi=ilp32  -mcmodel=medany -mstrict-align -ffreestanding -fno-builtin -fno-common -fno-pic -fno-pie -ffunction-sections -fdata-sections -MMD -MP -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/include -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/compat -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/include -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/libcpu/risc-v/common -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh -DMUNDUS_JYD_COMPETITION -flto -g -Wall -Wextra -Os -std=c11 -c /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/src/object.c -o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/object.o
+riscv64-unknown-elf-gcc -march=rv32im_zicsr -mabi=ilp32  -mcmodel=medany -mstrict-align -ffreestanding -fno-builtin -fno-common -fno-pic -fno-pie -ffunction-sections -fdata-sections -MMD -MP -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/include -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/compat -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/include -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/libcpu/risc-v/common -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh -DMUNDUS_JYD_COMPETITION -flto -g -Wall -Wextra -Os -std=c11 -c /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/src/scheduler.c -o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/scheduler.o
+riscv64-unknown-elf-gcc -march=rv32im_zicsr -mabi=ilp32  -mcmodel=medany -mstrict-align -ffreestanding -fno-builtin -fno-common -fno-pic -fno-pie -ffunction-sections -fdata-sections -MMD -MP -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/include -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/compat -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/include -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/libcpu/risc-v/common -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh -DMUNDUS_JYD_COMPETITION -flto -g -Wall -Wextra -Os -std=c11 -c /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/src/thread.c -o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/thread.o
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/src/thread.c: In function '_rt_thread_init':
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/src/thread.c:136:51: warning: unused parameter 'name' [-Wunused-parameter]
+  136 |                                 const char       *name,
+      |                                 ~~~~~~~~~~~~~~~~~~^~~~
+riscv64-unknown-elf-gcc -march=rv32im_zicsr -mabi=ilp32  -mcmodel=medany -mstrict-align -ffreestanding -fno-builtin -fno-common -fno-pic -fno-pie -ffunction-sections -fdata-sections -MMD -MP -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/include -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/compat -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/include -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/libcpu/risc-v/common -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh -DMUNDUS_JYD_COMPETITION -flto -g -Wall -Wextra -Os -std=c11 -c /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/src/timer.c -o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/timer.o
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/src/timer.c: In function 'rt_system_timer_init':
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/src/timer.c:725:19: warning: comparison of integer expressions of different signedness: 'int' and 'unsigned int' [-Wsign-compare]
+  725 |     for (i = 0; i < sizeof(rt_timer_list) / sizeof(rt_timer_list[0]); i++)
+      |                   ^
+riscv64-unknown-elf-gcc -march=rv32im_zicsr -mabi=ilp32  -mcmodel=medany -mstrict-align -ffreestanding -fno-builtin -fno-common -fno-pic -fno-pie -ffunction-sections -fdata-sections -MMD -MP -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/include -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/compat -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/include -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/libcpu/risc-v/common -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh -DMUNDUS_JYD_COMPETITION -flto -g -Wall -Wextra -Os -std=c11 -c /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/libcpu/risc-v/common/cpuport.c -o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/cpuport.o
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/libcpu/risc-v/common/cpuport.c: In function 'rt_hw_stack_init':
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/libcpu/risc-v/common/cpuport.c:83:19: warning: comparison of integer expressions of different signedness: 'int' and 'unsigned int' [-Wsign-compare]
+   83 |     for (i = 0; i < sizeof(struct rt_hw_stack_frame) / sizeof(rt_ubase_t); i++)
+      |                   ^
+riscv64-unknown-elf-gcc -march=rv32im_zicsr -mabi=ilp32  -mcmodel=medany -mstrict-align -ffreestanding -fno-builtin -fno-common -fno-pic -fno-pie -ffunction-sections -fdata-sections -MMD -MP -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/include -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/compat -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/include -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/libcpu/risc-v/common -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh -DMUNDUS_JYD_COMPETITION -flto -g -Wall -Wextra -Os -std=c11 -c board.c -o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/board.o
+riscv64-unknown-elf-gcc -march=rv32im_zicsr -mabi=ilp32  -mcmodel=medany -mstrict-align -ffreestanding -fno-builtin -fno-common -fno-pic -fno-pie -ffunction-sections -fdata-sections -MMD -MP -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/include -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/compat -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/include -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/libcpu/risc-v/common -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh -DMUNDUS_JYD_COMPETITION -flto -g -Wall -Wextra -Os -std=c11 -c console.c -o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/console.o
+riscv64-unknown-elf-gcc -march=rv32im_zicsr -mabi=ilp32  -mcmodel=medany -mstrict-align -ffreestanding -fno-builtin -fno-common -fno-pic -fno-pie -ffunction-sections -fdata-sections -MMD -MP -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/include -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/compat -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/include -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/libcpu/risc-v/common -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh -DMUNDUS_JYD_COMPETITION -flto -g -Wall -Wextra -Os -std=c11 -c /home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_main.c -o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/mt_main.o
+In file included from /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/include/rtthread.h:511,
+                 from /home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_main.c:10:
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/finsh_api.h:101:21: warning: cast between incompatible function types from 'int (*)(int,  char **)' to 'long int (*)(void)' [-Wcast-function-type]
+  101 |                     (syscall_func)&name     \
+      |                     ^
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/finsh_api.h:200:9: note: in expansion of macro 'FINSH_FUNCTION_EXPORT_CMD'
+  200 |         FINSH_FUNCTION_EXPORT_CMD(name, alias, desc)
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/finsh_api.h:214:5: note: in expansion of macro 'FINSH_FUNCTION_EXPORT_ALIAS'
+  214 |     FINSH_FUNCTION_EXPORT_ALIAS(command, __cmd_##alias, desc)
+      |     ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_main.c:25:1: note: in expansion of macro 'MSH_CMD_EXPORT_ALIAS'
+   25 | MSH_CMD_EXPORT_ALIAS(quit_command, quit, exit Verilator simulation.);
+      | ^~~~~~~~~~~~~~~~~~~~
+riscv64-unknown-elf-gcc -march=rv32im_zicsr -mabi=ilp32  -mcmodel=medany -mstrict-align -ffreestanding -fno-builtin -fno-common -fno-pic -fno-pie -ffunction-sections -fdata-sections -MMD -MP -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/include -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/compat -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/include -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/libcpu/risc-v/common -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh -DMUNDUS_JYD_COMPETITION -flto -g -Wall -Wextra -Os -std=c11 -c /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/coremark/finsh_compat.c -o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/finsh_compat.o
+riscv64-unknown-elf-gcc -march=rv32im_zicsr -mabi=ilp32  -mcmodel=medany -mstrict-align -ffreestanding -fno-builtin -fno-common -fno-pic -fno-pie -ffunction-sections -fdata-sections -MMD -MP -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/include -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/compat -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/include -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/libcpu/risc-v/common -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh -DMUNDUS_JYD_COMPETITION -flto -g -Wall -Wextra -Os -std=c11 -c /home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt.c -o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/mt.o
+riscv64-unknown-elf-gcc -march=rv32im_zicsr -mabi=ilp32  -mcmodel=medany -mstrict-align -ffreestanding -fno-builtin -fno-common -fno-pic -fno-pie -ffunction-sections -fdata-sections -MMD -MP -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/include -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/compat -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/include -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/libcpu/risc-v/common -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh -DMUNDUS_JYD_COMPETITION -flto -g -Wall -Wextra -Os -std=c11 -c /home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_app.c -o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/mt_app.o
+In file included from /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/include/rtthread.h:511,
+                 from /home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_app.c:12:
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/finsh_api.h:101:21: warning: cast between incompatible function types from 'int (*)(int,  char **)' to 'long int (*)(void)' [-Wcast-function-type]
+  101 |                     (syscall_func)&name     \
+      |                     ^
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/finsh_api.h:200:9: note: in expansion of macro 'FINSH_FUNCTION_EXPORT_CMD'
+  200 |         FINSH_FUNCTION_EXPORT_CMD(name, alias, desc)
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/finsh_api.h:214:5: note: in expansion of macro 'FINSH_FUNCTION_EXPORT_ALIAS'
+  214 |     FINSH_FUNCTION_EXPORT_ALIAS(command, __cmd_##alias, desc)
+      |     ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_app.c:462:1: note: in expansion of macro 'MSH_CMD_EXPORT_ALIAS'
+  462 | MSH_CMD_EXPORT_ALIAS(mt_gemm_command, mt_gemm, run miniTensor GEMM self-check.);
+      | ^~~~~~~~~~~~~~~~~~~~
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/finsh_api.h:101:21: warning: cast between incompatible function types from 'int (*)(int,  char **)' to 'long int (*)(void)' [-Wcast-function-type]
+  101 |                     (syscall_func)&name     \
+      |                     ^
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/finsh_api.h:200:9: note: in expansion of macro 'FINSH_FUNCTION_EXPORT_CMD'
+  200 |         FINSH_FUNCTION_EXPORT_CMD(name, alias, desc)
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/finsh_api.h:214:5: note: in expansion of macro 'FINSH_FUNCTION_EXPORT_ALIAS'
+  214 |     FINSH_FUNCTION_EXPORT_ALIAS(command, __cmd_##alias, desc)
+      |     ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_app.c:483:1: note: in expansion of macro 'MSH_CMD_EXPORT_ALIAS'
+  483 | MSH_CMD_EXPORT_ALIAS(mt_memtest_command, mt_memtest, run miniTensor >256KiB memory test.);
+      | ^~~~~~~~~~~~~~~~~~~~
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/finsh_api.h:101:21: warning: cast between incompatible function types from 'int (*)(int,  char **)' to 'long int (*)(void)' [-Wcast-function-type]
+  101 |                     (syscall_func)&name     \
+      |                     ^
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/finsh_api.h:200:9: note: in expansion of macro 'FINSH_FUNCTION_EXPORT_CMD'
+  200 |         FINSH_FUNCTION_EXPORT_CMD(name, alias, desc)
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/finsh_api.h:214:5: note: in expansion of macro 'FINSH_FUNCTION_EXPORT_ALIAS'
+  214 |     FINSH_FUNCTION_EXPORT_ALIAS(command, __cmd_##alias, desc)
+      |     ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_app.c:566:1: note: in expansion of macro 'MSH_CMD_EXPORT_ALIAS'
+  566 | MSH_CMD_EXPORT_ALIAS(mt_perf_command, mt_perf, measure miniTensor MMIO costs.);
+      | ^~~~~~~~~~~~~~~~~~~~
+riscv64-unknown-elf-gcc -march=rv32im_zicsr -mabi=ilp32  -mcmodel=medany -mstrict-align -ffreestanding -fno-builtin -fno-common -fno-pic -fno-pie -ffunction-sections -fdata-sections -MMD -MP -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/include -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/compat -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/include -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/libcpu/risc-v/common -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh -DMUNDUS_JYD_COMPETITION -flto -g -Wall -Wextra -Os -std=c11 -c /home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_conv.c -o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/mt_conv.o
+In file included from /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/include/rtthread.h:511,
+                 from /home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_conv.c:28:
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/finsh_api.h:101:21: warning: cast between incompatible function types from 'int (*)(int,  char **)' to 'long int (*)(void)' [-Wcast-function-type]
+  101 |                     (syscall_func)&name     \
+      |                     ^
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/finsh_api.h:200:9: note: in expansion of macro 'FINSH_FUNCTION_EXPORT_CMD'
+  200 |         FINSH_FUNCTION_EXPORT_CMD(name, alias, desc)
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/finsh_api.h:214:5: note: in expansion of macro 'FINSH_FUNCTION_EXPORT_ALIAS'
+  214 |     FINSH_FUNCTION_EXPORT_ALIAS(command, __cmd_##alias, desc)
+      |     ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_conv.c:315:1: note: in expansion of macro 'MSH_CMD_EXPORT_ALIAS'
+  315 | MSH_CMD_EXPORT_ALIAS(mt_conv_command, mt_conv, run miniTensor 3x3 conv layer.);
+      | ^~~~~~~~~~~~~~~~~~~~
+riscv64-unknown-elf-gcc -march=rv32im_zicsr -mabi=ilp32  -mcmodel=medany -mstrict-align -ffreestanding -fno-builtin -fno-common -fno-pic -fno-pie -ffunction-sections -fdata-sections -MMD -MP -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/include -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/compat -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/include -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/libcpu/risc-v/common -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh -DMUNDUS_JYD_COMPETITION -flto -g -Wall -Wextra -Os -std=c11 -c /home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_net.c -o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/mt_net.o
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_net.c:107:1: warning: missing initializer for field 'nmt' of 'net_layer_t' [-Wmissing-field-initializers]
+  107 | };
+      | ^
+In file included from /home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_net.c:38:
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_net.h:56:14: note: 'nmt' declared here
+   56 |     uint8_t  nmt;
+      |              ^~~
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_net.c:111:1: warning: missing initializer for field 'nmt' of 'net_layer_t' [-Wmissing-field-initializers]
+  111 | };
+      | ^
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_net.h:56:14: note: 'nmt' declared here
+   56 |     uint8_t  nmt;
+      |              ^~~
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_net.c:115:1: warning: missing initializer for field 'nmt' of 'net_layer_t' [-Wmissing-field-initializers]
+  115 | };
+      | ^
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_net.h:56:14: note: 'nmt' declared here
+   56 |     uint8_t  nmt;
+      |              ^~~
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_net.c:119:1: warning: missing initializer for field 'nmt' of 'net_layer_t' [-Wmissing-field-initializers]
+  119 | };
+      | ^
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_net.h:56:14: note: 'nmt' declared here
+   56 |     uint8_t  nmt;
+      |              ^~~
+In file included from /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/include/rtthread.h:511,
+                 from /home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_net.c:33:
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/finsh_api.h:101:21: warning: cast between incompatible function types from 'int (*)(int,  char **)' to 'long int (*)(void)' [-Wcast-function-type]
+  101 |                     (syscall_func)&name     \
+      |                     ^
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/finsh_api.h:200:9: note: in expansion of macro 'FINSH_FUNCTION_EXPORT_CMD'
+  200 |         FINSH_FUNCTION_EXPORT_CMD(name, alias, desc)
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/finsh_api.h:214:5: note: in expansion of macro 'FINSH_FUNCTION_EXPORT_ALIAS'
+  214 |     FINSH_FUNCTION_EXPORT_ALIAS(command, __cmd_##alias, desc)
+      |     ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_net.c:832:1: note: in expansion of macro 'MSH_CMD_EXPORT_ALIAS'
+  832 | MSH_CMD_EXPORT_ALIAS(mt_net_command, mt_net, run the miniTensor detection network.);
+      | ^~~~~~~~~~~~~~~~~~~~
+riscv64-unknown-elf-gcc -march=rv32im_zicsr -mabi=ilp32  -mcmodel=medany -mstrict-align -ffreestanding -fno-builtin -fno-common -fno-pic -fno-pie -ffunction-sections -fdata-sections -MMD -MP -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/include -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/compat -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/include -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/libcpu/risc-v/common -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh -DMUNDUS_JYD_COMPETITION -flto -g -Wall -Wextra -Os -std=c11 -c /home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_detect.c -o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/mt_detect.o
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_detect.c: In function 'det_make_layers':
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_detect.c:101:26: warning: missing initializer for field 'nmt' of 'net_layer_t' [-Wmissing-field-initializers]
+  101 |                          NET_CFG + DET_CFG_OFF_L1};
+      |                          ^~~~~~~
+In file included from /home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_detect.c:20:
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_net.h:56:14: note: 'nmt' declared here
+   56 |     uint8_t  nmt;
+      |              ^~~
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_detect.c:105:26: warning: missing initializer for field 'nmt' of 'net_layer_t' [-Wmissing-field-initializers]
+  105 |                          NET_CFG + DET_CFG_OFF_L2};
+      |                          ^~~~~~~
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_net.h:56:14: note: 'nmt' declared here
+   56 |     uint8_t  nmt;
+      |              ^~~
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_detect.c:109:26: warning: missing initializer for field 'nmt' of 'net_layer_t' [-Wmissing-field-initializers]
+  109 |                          NET_CFG + DET_CFG_OFF_L3};
+      |                          ^~~~~~~
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_net.h:56:14: note: 'nmt' declared here
+   56 |     uint8_t  nmt;
+      |              ^~~
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_detect.c:113:26: warning: missing initializer for field 'nmt' of 'net_layer_t' [-Wmissing-field-initializers]
+  113 |                          NET_CFG + DET_CFG_OFF_L4};
+      |                          ^~~~~~~
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_net.h:56:14: note: 'nmt' declared here
+   56 |     uint8_t  nmt;
+      |              ^~~
+In file included from /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/include/rtthread.h:511,
+                 from /home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_detect.c:15:
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_detect.c: At top level:
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/finsh_api.h:101:21: warning: cast between incompatible function types from 'int (*)(int,  char **)' to 'long int (*)(void)' [-Wcast-function-type]
+  101 |                     (syscall_func)&name     \
+      |                     ^
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/finsh_api.h:200:9: note: in expansion of macro 'FINSH_FUNCTION_EXPORT_CMD'
+  200 |         FINSH_FUNCTION_EXPORT_CMD(name, alias, desc)
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/finsh_api.h:214:5: note: in expansion of macro 'FINSH_FUNCTION_EXPORT_ALIAS'
+  214 |     FINSH_FUNCTION_EXPORT_ALIAS(command, __cmd_##alias, desc)
+      |     ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_detect.c:259:1: note: in expansion of macro 'MSH_CMD_EXPORT_ALIAS'
+  259 | MSH_CMD_EXPORT_ALIAS(mt_detect_command, mt_detect, run the packed-weight detector.);
+      | ^~~~~~~~~~~~~~~~~~~~
+riscv64-unknown-elf-gcc -march=rv32im_zicsr -mabi=ilp32  -mcmodel=medany -mstrict-align -ffreestanding -fno-builtin -fno-common -fno-pic -fno-pie -ffunction-sections -fdata-sections -MMD -MP -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/include -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/compat -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/include -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/libcpu/risc-v/common -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh -DMUNDUS_JYD_COMPETITION -flto -g -Wall -Wextra -Os -std=c11 -c /home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_wide.c -o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/mt_wide.o
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_wide.c: In function 'mt_wide_command':
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_wide.c:90:23: warning: missing initializer for field 'skip_off' of 'net_layer_t' [-Wmissing-field-initializers]
+   90 |                       WIDE_WT, WIDE_BIAS, WIDE_CFG, 0u};
+      |                       ^~~~~~~
+In file included from /home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_wide.c:21:
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_net.h:63:14: note: 'skip_off' declared here
+   63 |     uint32_t skip_off;     /* skip tensor, [g][h][w][4], same shape as out */
+      |              ^~~~~~~~
+In file included from /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/include/rtthread.h:511,
+                 from /home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_wide.c:16:
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_wide.c: At top level:
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/finsh_api.h:101:21: warning: cast between incompatible function types from 'int (*)(int,  char **)' to 'long int (*)(void)' [-Wcast-function-type]
+  101 |                     (syscall_func)&name     \
+      |                     ^
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/finsh_api.h:200:9: note: in expansion of macro 'FINSH_FUNCTION_EXPORT_CMD'
+  200 |         FINSH_FUNCTION_EXPORT_CMD(name, alias, desc)
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/finsh_api.h:214:5: note: in expansion of macro 'FINSH_FUNCTION_EXPORT_ALIAS'
+  214 |     FINSH_FUNCTION_EXPORT_ALIAS(command, __cmd_##alias, desc)
+      |     ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_wide.c:192:1: note: in expansion of macro 'MSH_CMD_EXPORT_ALIAS'
+  192 | MSH_CMD_EXPORT_ALIAS(mt_wide_command, mt_wide, stream a layer larger than UB.);
+      | ^~~~~~~~~~~~~~~~~~~~
+riscv64-unknown-elf-gcc -march=rv32im_zicsr -mabi=ilp32  -mcmodel=medany -mstrict-align -ffreestanding -fno-builtin -fno-common -fno-pic -fno-pie -ffunction-sections -fdata-sections -MMD -MP -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/include -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/compat -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/include -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/libcpu/risc-v/common -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh -DMUNDUS_JYD_COMPETITION -flto -g -Wall -Wextra -Os -std=c11 -c /home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_res.c -o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/mt_res.o
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_res.c: In function 'mt_res_command':
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_res.c:99:24: warning: missing initializer for field 'skip_off' of 'net_layer_t' [-Wmissing-field-initializers]
+   99 |                        RES_IMG, RES_PAD, RES_H1, RES_WT, RES_BIAS, RES_CFG, 0u};
+      |                        ^~~~~~~
+In file included from /home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_res.c:25:
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_net.h:63:14: note: 'skip_off' declared here
+   63 |     uint32_t skip_off;     /* skip tensor, [g][h][w][4], same shape as out */
+      |              ^~~~~~~~
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_res.c:103:24: warning: missing initializer for field 'skip_off' of 'net_layer_t' [-Wmissing-field-initializers]
+  103 |                        RES_H1, RES_PAD, RES_OUT, RES_WT2, RES_BIAS2, RES_CFG2, 0u};
+      |                        ^~~~~~
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_net.h:63:14: note: 'skip_off' declared here
+   63 |     uint32_t skip_off;     /* skip tensor, [g][h][w][4], same shape as out */
+      |              ^~~~~~~~
+In file included from /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/include/rtthread.h:511,
+                 from /home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_res.c:20:
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_res.c: At top level:
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/finsh_api.h:101:21: warning: cast between incompatible function types from 'int (*)(int,  char **)' to 'long int (*)(void)' [-Wcast-function-type]
+  101 |                     (syscall_func)&name     \
+      |                     ^
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/finsh_api.h:200:9: note: in expansion of macro 'FINSH_FUNCTION_EXPORT_CMD'
+  200 |         FINSH_FUNCTION_EXPORT_CMD(name, alias, desc)
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/finsh_api.h:214:5: note: in expansion of macro 'FINSH_FUNCTION_EXPORT_ALIAS'
+  214 |     FINSH_FUNCTION_EXPORT_ALIAS(command, __cmd_##alias, desc)
+      |     ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_res.c:203:1: note: in expansion of macro 'MSH_CMD_EXPORT_ALIAS'
+  203 | MSH_CMD_EXPORT_ALIAS(mt_res_command, mt_res, run a residual (skip) block via the VPU.);
+      | ^~~~~~~~~~~~~~~~~~~~
+riscv64-unknown-elf-gcc -march=rv32im_zicsr -mabi=ilp32  -mcmodel=medany -mstrict-align -ffreestanding -fno-builtin -fno-common -fno-pic -fno-pie -ffunction-sections -fdata-sections -MMD -MP -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/include -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/compat -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/include -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/libcpu/risc-v/common -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh -DMUNDUS_JYD_COMPETITION -flto -g -Wall -Wextra -Os -std=c11 -c /home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_yolocnn.c -o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/mt_yolocnn.o
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_yolocnn.c: In function 'yc_check':
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_yolocnn.c:135:31: warning: variable 't1' set but not used [-Wunused-but-set-variable]
+  135 |     uint32_t i, bad = 0u, t0, t1;
+      |                               ^~
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_yolocnn.c:135:27: warning: variable 't0' set but not used [-Wunused-but-set-variable]
+  135 |     uint32_t i, bad = 0u, t0, t1;
+      |                           ^~
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_yolocnn.c: In function 'mt_yolocnn_command':
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_yolocnn.c:199:23: warning: missing initializer for field 'skip_off' of 'net_layer_t' [-Wmissing-field-initializers]
+  199 |                       YC_IMG, YC_PAD, YC_A1, YC_WT, YC_BIAS, YC_CFG, 0u};
+      |                       ^~~~~~
+In file included from /home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_yolocnn.c:20:
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_net.h:63:14: note: 'skip_off' declared here
+   63 |     uint32_t skip_off;     /* skip tensor, [g][h][w][4], same shape as out */
+      |              ^~~~~~~~
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_yolocnn.c:224:23: warning: missing initializer for field 'skip_off' of 'net_layer_t' [-Wmissing-field-initializers]
+  224 |                       YC_P1, YC_PAD, YC_A2, YC_WT_1, YC_BIAS_1, YC_CFG_1, 0u};
+      |                       ^~~~~
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_net.h:63:14: note: 'skip_off' declared here
+   63 |     uint32_t skip_off;     /* skip tensor, [g][h][w][4], same shape as out */
+      |              ^~~~~~~~
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_yolocnn.c:239:23: warning: missing initializer for field 'skip_off' of 'net_layer_t' [-Wmissing-field-initializers]
+  239 |                       YC_P2, YC_PAD, YC_A3, YC_WT_2, YC_BIAS_2, YC_CFG_2, 0u};
+      |                       ^~~~~
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_net.h:63:14: note: 'skip_off' declared here
+   63 |     uint32_t skip_off;     /* skip tensor, [g][h][w][4], same shape as out */
+      |              ^~~~~~~~
+In file included from /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/include/rtthread.h:511,
+                 from /home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_yolocnn.c:15:
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_yolocnn.c: At top level:
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/finsh_api.h:101:21: warning: cast between incompatible function types from 'int (*)(int,  char **)' to 'long int (*)(void)' [-Wcast-function-type]
+  101 |                     (syscall_func)&name     \
+      |                     ^
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/finsh_api.h:200:9: note: in expansion of macro 'FINSH_FUNCTION_EXPORT_CMD'
+  200 |         FINSH_FUNCTION_EXPORT_CMD(name, alias, desc)
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/finsh_api.h:214:5: note: in expansion of macro 'FINSH_FUNCTION_EXPORT_ALIAS'
+  214 |     FINSH_FUNCTION_EXPORT_ALIAS(command, __cmd_##alias, desc)
+      |     ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_yolocnn.c:281:1: note: in expansion of macro 'MSH_CMD_EXPORT_ALIAS'
+  281 | MSH_CMD_EXPORT_ALIAS(mt_yolocnn_command, mt_yolocnn, run 3 real YOLO conv layers.);
+      | ^~~~~~~~~~~~~~~~~~~~
+riscv64-unknown-elf-gcc -march=rv32im_zicsr -mabi=ilp32  -mcmodel=medany -mstrict-align -ffreestanding -fno-builtin -fno-common -fno-pic -fno-pie -ffunction-sections -fdata-sections -MMD -MP -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/include -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/compat -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/include -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/libcpu/risc-v/common -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh -DMUNDUS_JYD_COMPETITION -flto -g -Wall -Wextra -Os -std=c11 -c /home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_yolomodel.c -o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/mt_yolomodel.o
+In file included from /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/include/rtthread.h:511,
+                 from /home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_yolomodel.c:32:
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/finsh_api.h:101:21: warning: cast between incompatible function types from 'int (*)(int,  char **)' to 'long int (*)(void)' [-Wcast-function-type]
+  101 |                     (syscall_func)&name     \
+      |                     ^
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/finsh_api.h:200:9: note: in expansion of macro 'FINSH_FUNCTION_EXPORT_CMD'
+  200 |         FINSH_FUNCTION_EXPORT_CMD(name, alias, desc)
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/finsh_api.h:214:5: note: in expansion of macro 'FINSH_FUNCTION_EXPORT_ALIAS'
+  214 |     FINSH_FUNCTION_EXPORT_ALIAS(command, __cmd_##alias, desc)
+      |     ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_yolomodel.c:164:1: note: in expansion of macro 'MSH_CMD_EXPORT_ALIAS'
+  164 | MSH_CMD_EXPORT_ALIAS(mt_yolomodel_command, mt_yolomodel,
+      | ^~~~~~~~~~~~~~~~~~~~
+riscv64-unknown-elf-gcc -march=rv32im_zicsr -mabi=ilp32  -mcmodel=medany -mstrict-align -ffreestanding -fno-builtin -fno-common -fno-pic -fno-pie -ffunction-sections -fdata-sections -MMD -MP -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/include -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/compat -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/include -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/libcpu/risc-v/common -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh -DMUNDUS_JYD_COMPETITION -flto -g -Wall -Wextra -Os -std=c11 -c /home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_yolo.c -o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/mt_yolo.o
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_yolo.c: In function 'mt_yolo_command':
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_yolo.c:79:23: warning: missing initializer for field 'skip_off' of 'net_layer_t' [-Wmissing-field-initializers]
+   79 |                       YOLO_WT, YOLO_BIAS, YOLO_CFG, 0u};
+      |                       ^~~~~~~
+In file included from /home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_yolo.c:25:
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_net.h:63:14: note: 'skip_off' declared here
+   63 |     uint32_t skip_off;     /* skip tensor, [g][h][w][4], same shape as out */
+      |              ^~~~~~~~
+In file included from /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/include/rtthread.h:511,
+                 from /home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_yolo.c:20:
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_yolo.c: At top level:
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/finsh_api.h:101:21: warning: cast between incompatible function types from 'int (*)(int,  char **)' to 'long int (*)(void)' [-Wcast-function-type]
+  101 |                     (syscall_func)&name     \
+      |                     ^
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/finsh_api.h:200:9: note: in expansion of macro 'FINSH_FUNCTION_EXPORT_CMD'
+  200 |         FINSH_FUNCTION_EXPORT_CMD(name, alias, desc)
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/finsh_api.h:214:5: note: in expansion of macro 'FINSH_FUNCTION_EXPORT_ALIAS'
+  214 |     FINSH_FUNCTION_EXPORT_ALIAS(command, __cmd_##alias, desc)
+      |     ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/mt_yolo.c:138:1: note: in expansion of macro 'MSH_CMD_EXPORT_ALIAS'
+  138 | MSH_CMD_EXPORT_ALIAS(mt_yolo_command, mt_yolo, run a real YOLO convolution.);
+      | ^~~~~~~~~~~~~~~~~~~~
+riscv64-unknown-elf-gcc -march=rv32im_zicsr -mabi=ilp32  -mcmodel=medany -mstrict-align -ffreestanding -fno-builtin -fno-common -fno-pic -fno-pie -ffunction-sections -fdata-sections -MMD -MP -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/include -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/compat -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/include -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/libcpu/risc-v/common -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh -DMUNDUS_JYD_COMPETITION -flto -g -Wall -Wextra -Os -std=c11 -c /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/shell.c -o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/shell.o
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/shell.c: In function 'finsh_thread_entry':
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/shell.c:507:31: warning: unused parameter 'parameter' [-Wunused-parameter]
+  507 | void finsh_thread_entry(void *parameter)
+      |                         ~~~~~~^~~~~~~~~
+riscv64-unknown-elf-gcc -march=rv32im_zicsr -mabi=ilp32  -mcmodel=medany -mstrict-align -ffreestanding -fno-builtin -fno-common -fno-pic -fno-pie -ffunction-sections -fdata-sections -MMD -MP -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/include -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/compat -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/include -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/libcpu/risc-v/common -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh -DMUNDUS_JYD_COMPETITION -flto -g -Wall -Wextra -Os -std=c11 -c /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/msh.c -o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/msh.o
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/msh.c: In function 'msh_help':
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/msh.c:69:18: warning: unused parameter 'argc' [-Wunused-parameter]
+   69 | int msh_help(int argc, char **argv)
+      |              ~~~~^~~~
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/msh.c:69:31: warning: unused parameter 'argv' [-Wunused-parameter]
+   69 | int msh_help(int argc, char **argv)
+      |                        ~~~~~~~^~~~
+In file included from /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/include/rtthread.h:511,
+                 from /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/msh.c:12:
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/msh.c: At top level:
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/finsh_api.h:101:21: warning: cast between incompatible function types from 'int (*)(int,  char **)' to 'long int (*)(void)' [-Wcast-function-type]
+  101 |                     (syscall_func)&name     \
+      |                     ^
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/finsh_api.h:200:9: note: in expansion of macro 'FINSH_FUNCTION_EXPORT_CMD'
+  200 |         FINSH_FUNCTION_EXPORT_CMD(name, alias, desc)
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/msh.c:91:1: note: in expansion of macro 'FINSH_FUNCTION_EXPORT_ALIAS'
+   91 | FINSH_FUNCTION_EXPORT_ALIAS(msh_help, __cmd_help, RT-Thread shell help.);
+      | ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/msh.c: In function 'cmd_ps':
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/msh.c:93:16: warning: unused parameter 'argc' [-Wunused-parameter]
+   93 | int cmd_ps(int argc, char **argv)
+      |            ~~~~^~~~
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/msh.c:93:29: warning: unused parameter 'argv' [-Wunused-parameter]
+   93 | int cmd_ps(int argc, char **argv)
+      |                      ~~~~~~~^~~~
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/msh.c: At top level:
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/finsh_api.h:101:21: warning: cast between incompatible function types from 'int (*)(int,  char **)' to 'long int (*)(void)' [-Wcast-function-type]
+  101 |                     (syscall_func)&name     \
+      |                     ^
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/finsh_api.h:200:9: note: in expansion of macro 'FINSH_FUNCTION_EXPORT_CMD'
+  200 |         FINSH_FUNCTION_EXPORT_CMD(name, alias, desc)
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/msh.c:106:1: note: in expansion of macro 'FINSH_FUNCTION_EXPORT_ALIAS'
+  106 | FINSH_FUNCTION_EXPORT_ALIAS(cmd_ps, __cmd_ps, List threads in the system.);
+      | ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/msh.c: In function 'msh_get_cmd':
+/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh/msh.c:208:24: warning: cast between incompatible function types from 'syscall_func' {aka 'long int (*)(void)'} to 'int (*)(int,  char **)' [-Wcast-function-type]
+  208 |             cmd_func = (cmd_function_t)index->func;
+      |                        ^
+riscv64-unknown-elf-gcc -march=rv32im_zicsr -mabi=ilp32  -mcmodel=medany -mstrict-align -ffreestanding -fno-builtin -fno-common -fno-pic -fno-pie -ffunction-sections -fdata-sections -MMD -MP -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/include -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/compat -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/include -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/libcpu/risc-v/common -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh -DMUNDUS_JYD_COMPETITION -flto -g -Wall -Wextra -Os -c start.S -o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/start.o
+riscv64-unknown-elf-gcc -march=rv32im_zicsr -mabi=ilp32  -mcmodel=medany -mstrict-align -ffreestanding -fno-builtin -fno-common -fno-pic -fno-pie -ffunction-sections -fdata-sections -MMD -MP -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/include -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/compat -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/include -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/libcpu/risc-v/common -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh -DMUNDUS_JYD_COMPETITION -flto -g -Wall -Wextra -Os -c trap.S -o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/trap.o
+riscv64-unknown-elf-gcc -march=rv32im_zicsr -mabi=ilp32  -mcmodel=medany -mstrict-align -ffreestanding -fno-builtin -fno-common -fno-pic -fno-pie -ffunction-sections -fdata-sections -MMD -MP -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/include -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/compat -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/include -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/libcpu/risc-v/common -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh -DMUNDUS_JYD_COMPETITION -flto -g -Wall -Wextra -Os -c /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/libcpu/risc-v/common/context_gcc.S -o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/context_gcc.o
+riscv64-unknown-elf-gcc -march=rv32im_zicsr -mabi=ilp32  -mcmodel=medany -mstrict-align -ffreestanding -fno-builtin -fno-common -fno-pic -fno-pie -ffunction-sections -fdata-sections -MMD -MP -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/include -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/compat -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/include -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/libcpu/risc-v/common -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh -DMUNDUS_JYD_COMPETITION -flto -g -Wall -Wextra -Os -std=c11 -c /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/timer.c -o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/bsp_timer.o
+riscv64-unknown-elf-gcc -march=rv32im_zicsr -mabi=ilp32  -mcmodel=medany -mstrict-align -ffreestanding -fno-builtin -fno-common -fno-pic -fno-pie -ffunction-sections -fdata-sections -MMD -MP -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/include -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp/compat -I/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/integration/bsp -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/include -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/libcpu/risc-v/common -I/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/components/finsh -DMUNDUS_JYD_COMPETITION -flto -g -Wall -Wextra -Os -std=c11 -c /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/trap.c -o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/bsp_trap.o
+riscv64-unknown-elf-objcopy -I binary -O elf32-littleriscv -B riscv \
+	--rename-section .data=.weights,alloc,load,readonly,data,contents \
+	/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/models/yc_weights.bin /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/yc_weights.o
+riscv64-unknown-elf-objcopy -I binary -O elf32-littleriscv -B riscv \
+	--rename-section .data=.model,alloc,load,readonly,data,contents \
+	/home/ccy/Documents/qs/_fresh/Mundus/miniTensor/models/ym_weights.bin /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/ym_weights.o
+riscv64-unknown-elf-gcc -E -P -x c -I/home/ccy/Documents/qs/_fresh/Mundus/npc/configs/build/csrc/include/ /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/linker.ld -o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/linker.ld
+riscv64-unknown-elf-gcc -march=rv32im_zicsr -mabi=ilp32  -flto -nostdlib -nostartfiles -static -Wl,-T,/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/linker.ld -Wl,-Map,/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/mundus-jyd-nano.map -Wl,--gc-sections -Wl,--build-id=none -o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/mundus-jyd-nano.elf /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/clock.o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/components.o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/cpu.o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/idle.o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/ipc.o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/irq.o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/kservice.o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/object.o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/scheduler.o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/thread.o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/timer.o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/cpuport.o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/board.o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/console.o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/mt_main.o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/finsh_compat.o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/mt.o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/mt_app.o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/mt_conv.o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/mt_net.o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/mt_detect.o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/mt_wide.o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/mt_res.o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/mt_yolocnn.o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/mt_yolomodel.o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/mt_yolo.o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/shell.o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/msh.o  /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/start.o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/trap.o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/context_gcc.o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/bsp_timer.o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/bsp_trap.o  /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/yc_weights.o /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/ym_weights.o -lgcc
+riscv64-unknown-elf-size /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/mundus-jyd-nano.elf
+   text	   data	    bss	    dec	    hex	filename
+9310488	     60	  30928	9341476	 8e8a24	/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/mundus-jyd-nano.elf
+riscv64-unknown-elf-objcopy -S -O binary /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/mundus-jyd-nano.elf /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/mundus-jyd-nano.bin
+riscv64-unknown-elf-objdump -d -S /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/mundus-jyd-nano.elf > /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/mundus-jyd-nano.txt
+riscv64-unknown-elf-objcopy -O binary --only-section=.text /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/mundus-jyd-nano.elf /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/mundus-jyd-irom.bin
+python3 /home/ccy/Documents/qs/_fresh/Mundus/npc/tools/pack_irom_coe.py /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/mundus-jyd-irom.bin /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/mundus-jyd-irom.coe --config /home/ccy/Documents/qs/_fresh/Mundus/npc/configs/build/.config
+riscv64-unknown-elf-objcopy -O binary --only-section=.rodata --only-section=.data /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/mundus-jyd-nano.elf /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/mundus-jyd-dram.bin
+python3 /home/ccy/Documents/qs/_fresh/Mundus/npc/tools/pack_mem_coe.py /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/mundus-jyd-dram.bin /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/mundus-jyd-dram.coe \
+	--capacity-bytes 0x40000
+IROM COE: /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/mundus-jyd-irom.coe
+DRAM COE: /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/mundus-jyd-dram.coe
+make: Leaving directory '/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd'
+== building and running the Mundus + miniTensor simulation ==
+make: Entering directory '/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd'
+make[1]: Entering directory '/home/ccy/Documents/qs/_fresh/Mundus/npc'
+find: ‘/home/ccy/Documents/qs/_fresh/Mundus/ysyxSoC/perip’: No such file or directory
+find: ‘/home/ccy/Documents/qs/_fresh/Mundus/ysyxSoC/build’: No such file or directory
++ CXX -> NVBOARD_HOME/src/render.cpp
+<command-line>: warning: missing terminating " character
+<command-line>: warning: missing terminating " character
+<command-line>: warning: missing terminating " character
+/home/ccy/Documents/qs/_fresh/Mundus/nvboard/src/render.cpp:4:21: warning: ‘tfpga_background’ defined but not used [-Wunused-variable]
+    4 | static SDL_Texture *tfpga_background;
+      |                     ^~~~~~~~~~~~~~~~
++ CXX -> NVBOARD_HOME/src/button.cpp
+<command-line>: warning: missing terminating " character
+<command-line>: warning: missing terminating " character
+<command-line>: warning: missing terminating " character
++ CXX -> NVBOARD_HOME/src/led.cpp
+<command-line>: warning: missing terminating " character
+<command-line>: warning: missing terminating " character
+<command-line>: warning: missing terminating " character
++ CXX -> NVBOARD_HOME/src/keyboard.cpp
+<command-line>: warning: missing terminating " character
+<command-line>: warning: missing terminating " character
+<command-line>: warning: missing terminating " character
++ CXX -> NVBOARD_HOME/src/uart.cpp
+<command-line>: warning: missing terminating " character
+<command-line>: warning: missing terminating " character
+<command-line>: warning: missing terminating " character
++ CXX -> NVBOARD_HOME/src/event.cpp
+<command-line>: warning: missing terminating " character
+<command-line>: warning: missing terminating " character
+<command-line>: warning: missing terminating " character
++ CXX -> NVBOARD_HOME/src/term.cpp
+<command-line>: warning: missing terminating " character
+<command-line>: warning: missing terminating " character
+<command-line>: warning: missing terminating " character
+/home/ccy/Documents/qs/_fresh/Mundus/nvboard/src/term.cpp: In constructor ‘Term::Term(SDL_Renderer*, int, int, int, int)’:
+/home/ccy/Documents/qs/_fresh/Mundus/nvboard/src/term.cpp:9:12: warning: unused variable ‘l’ [-Wunused-variable]
+    9 |   uint8_t *l = add_line();
+      |            ^
+/home/ccy/Documents/qs/_fresh/Mundus/nvboard/src/term.cpp: In member function ‘void Term::newline()’:
+/home/ccy/Documents/qs/_fresh/Mundus/nvboard/src/term.cpp:62:16: warning: comparison of integer expressions of different signedness: ‘int’ and ‘std::vector<unsigned char*>::size_type’ {aka ‘long unsigned int’} [-Wsign-compare]
+   62 |   if (cursor_y >= lines.size()) add_line();
+      |       ~~~~~~~~~^~~~~~~~~~~~~~~
+In file included from /home/ccy/Documents/qs/_fresh/Mundus/nvboard/include/pins.h:6,
+                 from /home/ccy/Documents/qs/_fresh/Mundus/nvboard/include/nvboard.h:4,
+                 from /home/ccy/Documents/qs/_fresh/Mundus/nvboard/src/term.cpp:1:
+/home/ccy/Documents/qs/_fresh/Mundus/nvboard/src/term.cpp: In member function ‘void Term::feed_ch(uint8_t)’:
+/home/ccy/Documents/qs/_fresh/Mundus/nvboard/src/term.cpp:110:12: warning: comparison of integer expressions of different signedness: ‘int’ and ‘std::vector<unsigned char*>::size_type’ {aka ‘long unsigned int’} [-Wsign-compare]
+  110 |   assert(y < lines.size());
+      |          ~~^~~~~~~~~~~~~~
+/home/ccy/Documents/qs/_fresh/Mundus/nvboard/src/term.cpp: In member function ‘void Term::update_gui()’:
+/home/ccy/Documents/qs/_fresh/Mundus/nvboard/src/term.cpp:148:22: warning: comparison of integer expressions of different signedness: ‘int’ and ‘std::vector<unsigned char*>::size_type’ {aka ‘long unsigned int’} [-Wsign-compare]
+  148 |     if (screen_y + y >= lines.size()) break;
+      |         ~~~~~~~~~~~~~^~~~~~~~~~~~~~~
+/home/ccy/Documents/qs/_fresh/Mundus/nvboard/src/term.cpp:145:7: warning: unused variable ‘x_start’ [-Wunused-variable]
+  145 |   int x_start = rect.x;
+      |       ^~~~~~~
++ CXX -> NVBOARD_HOME/src/timer.cpp
+<command-line>: warning: missing terminating " character
+<command-line>: warning: missing terminating " character
+<command-line>: warning: missing terminating " character
++ CXX -> NVBOARD_HOME/src/vga.cpp
+<command-line>: warning: missing terminating " character
+<command-line>: warning: missing terminating " character
+<command-line>: warning: missing terminating " character
++ CXX -> NVBOARD_HOME/src/switch.cpp
+<command-line>: warning: missing terminating " character
+<command-line>: warning: missing terminating " character
+<command-line>: warning: missing terminating " character
++ CXX -> NVBOARD_HOME/src/font.cpp
+<command-line>: warning: missing terminating " character
+<command-line>: warning: missing terminating " character
+<command-line>: warning: missing terminating " character
++ CXX -> NVBOARD_HOME/src/component.cpp
+<command-line>: warning: missing terminating " character
+<command-line>: warning: missing terminating " character
+<command-line>: warning: missing terminating " character
+/home/ccy/Documents/qs/_fresh/Mundus/nvboard/src/component.cpp: In function ‘void delete_components()’:
+/home/ccy/Documents/qs/_fresh/Mundus/nvboard/src/component.cpp:113:5: warning: deleting object of polymorphic class type ‘Component’ which has non-virtual destructor might cause undefined behavior [-Wdelete-non-virtual-dtor]
+  113 |     delete comp_ptr;
+      |     ^~~~~~~~~~~~~~~
++ CXX -> NVBOARD_HOME/src/segs7.cpp
+<command-line>: warning: missing terminating " character
+<command-line>: warning: missing terminating " character
+<command-line>: warning: missing terminating " character
++ CXX -> NVBOARD_HOME/src/nvboard.cpp
+<command-line>: warning: missing terminating " character
+<command-line>: warning: missing terminating " character
+<command-line>: warning: missing terminating " character
++ AR -> build/nvboard.a
+make[2]: Entering directory '/home/ccy/Documents/qs/_fresh/Mundus/npc/build/obj_dir'
+make[2]: Leaving directory '/home/ccy/Documents/qs/_fresh/Mundus/npc/build/obj_dir'
+- V e r i l a t i o n   R e p o r t: Verilator 5.040 2025-08-30 rev v5.040
+- Verilator: Built from 32.252 MB sources in 100 modules, into 6.086 MB in 21 C++ files needing 0.006 MB
+- Verilator: Walltime 7.235 s (elab=0.048, cvt=0.380, bld=6.695); cpu 0.602 s on 8 threads; alloced 101.699 MB
+[1;34m[/home/ccy/Documents/qs/_fresh/Mundus/npc/csrc/wave/utils/log.c:18 init_log] Log is written to /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/coremark/npc-jyd.log[0m
+[1;34m[/home/ccy/Documents/qs/_fresh/Mundus/npc/csrc/wave/sim.cpp:355 welcome] Build time: 15:02:07, Oct  9 2026[0m
+[1;34m[/home/ccy/Documents/qs/_fresh/Mundus/npc/csrc/wave/sim.cpp:386 welcome] Processor configuration:[0m
+[1;34m[/home/ccy/Documents/qs/_fresh/Mundus/npc/csrc/wave/sim.cpp:387 welcome]   Core: ISA=RV32IM, issue=2-wide in-order[0m
+[1;34m[/home/ccy/Documents/qs/_fresh/Mundus/npc/csrc/wave/sim.cpp:388 welcome]   Custom instructions: CRC16=on, MULBE=on[0m
+[1;34m[/home/ccy/Documents/qs/_fresh/Mundus/npc/csrc/wave/sim.cpp:391 welcome]   Frontend: queue=8 entries, IROM latency=1 cycle(s)[0m
+[1;34m[/home/ccy/Documents/qs/_fresh/Mundus/npc/csrc/wave/sim.cpp:398 welcome]   Branch: TAGE, BTB=16 entries, base counter=2 bits, TAGE=4 x 256 entries, tag/counter/useful=8/3/2 bits[0m
+[1;34m[/home/ccy/Documents/qs/_fresh/Mundus/npc/csrc/wave/sim.cpp:404 welcome]   Branch history: 4/12/32/64, FTQ=8 entries[0m
+[1;34m[/home/ccy/Documents/qs/_fresh/Mundus/npc/csrc/wave/sim.cpp:414 welcome]   Branch extras: RAS=on, loop=off, fast-recurrence=off[0m
+[1;34m[/home/ccy/Documents/qs/_fresh/Mundus/npc/csrc/wave/sim.cpp:417 welcome]     RAS=8 entries[0m
+[1;34m[/home/ccy/Documents/qs/_fresh/Mundus/npc/csrc/wave/sim.cpp:423 welcome]   I-cache: block=4 B, blocks=16, ways=4[0m
+[1;34m[/home/ccy/Documents/qs/_fresh/Mundus/npc/csrc/wave/sim.cpp:425 welcome]   D-cache: size=8 KiB, store buffer=4 entries[0m
+[1;34m[/home/ccy/Documents/qs/_fresh/Mundus/npc/csrc/wave/sim.cpp:427 welcome]   MDU: MUL latency=4 cycles, DIV/REM latency=35 cycles[0m
+[1;34m[/home/ccy/Documents/qs/_fresh/Mundus/npc/csrc/wave/sim.cpp:449 load_img] The image is /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/mundus-jyd-nano.bin, size = 13340800[0m
+
+ \ | /
+- RT -     Thread Operating System
+ / | \     3.1.5 build Oct  9 2026
+ 2006 - 2020 Copyright by rt-thread team
+[LED] cycle=30760 value=0x00000000
+        
+        
+        
+        
+MundusJyd miniTensor shell ready.
+Commands: help, mt_gemm, mt_memtest, mt_conv, quit.
+msh >mt_gemm
+miniTensor self-check starting.
+[LED] cycle=53394 value=0x00000001
+        
+        
+        
+       [1;32mX[0m
+[1;34m[/home/ccy/Documents/qs/_fresh/Mundus/npc/csrc/wave/sim.cpp:87 sim_stats_on_led_write] statistics window started: led0, cycle 53394[0m
+[LED] cycle=54337 value=0x00000000
+        
+        
+        
+        
+[1;34m[/home/ccy/Documents/qs/_fresh/Mundus/npc/csrc/wave/sim.cpp:95 sim_stats_on_led_write] statistics window finished: led0, cycles 53394..54337[0m
+miniTensor GEMM PASSED (K=12, 4x4 INT8, requant+ReLU).
+  command chain cycles: 931
+miniTensor VPU PASSED (ADD8 / MAX8 / RELU8).
+miniTensor self-check OK.
+msh >quit
+Exit simulation.
+[1;34m[/home/ccy/Documents/qs/_fresh/Mundus/npc/csrc/wave/cpu.c:246 cpu_exec] [1;32mHIT GOOD TRAP[0m[0m
+[7SEG] 00000000
+        
+        
+        
+        
+
+[Simulation Summary]
++------------------------------------------+--------------------------------+
+| Metric                                   | Value                          |
++------------------------------------------+--------------------------------+
+| Statistics window                        |        led0 (startup excluded) |
+| Host time                                |                        2287 us |
+| Clock cycles                             |                            943 |
+| Guest instructions                       |                            518 |
+| IPC                                      |                       0.549311 |
+| Execution time                           |                  0.000003143 s |
+| Core frequency                           |                    300.000 MHz |
+| Simulation frequency                     |                  226497 inst/s |
++------------------------------------------+--------------------------------+
+[1;34m[/home/ccy/Documents/qs/_fresh/Mundus/npc/csrc/wave/sim.cpp:320 stats_report_end] pipeline statistics report: /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/coremark/pipeline_report.txt[0m
+[1;34m[/home/ccy/Documents/qs/_fresh/Mundus/npc/csrc/wave/sim.cpp:320 stats_report_end] memory statistics report: /home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/coremark/memory_report.txt[0m
+make[1]: Leaving directory '/home/ccy/Documents/qs/_fresh/Mundus/npc'
+CoreMark report not generated: no CoreMark output was found.
+make: Leaving directory '/home/ccy/Documents/qs/_fresh/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd'
+FRESH_TEST_EXIT=0
+EXIT=0

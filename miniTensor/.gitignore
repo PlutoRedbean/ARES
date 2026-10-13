@@ -1,0 +1,9 @@
+# build / environment noise (everything else is tracked)
+/obj_dir/
+/vpu_basic.vcd
+/for_ai
+/.venv/
+__pycache__/
+*.pyc
+/tmp/
+/integration/npc/obj_shim/

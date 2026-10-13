@@ -1,0 +1,75 @@
+find: ‘/home/ccy/Documents/qs/Mundus/ysyxSoC/perip’: No such file or directory
+find: ‘/home/ccy/Documents/qs/Mundus/ysyxSoC/build’: No such file or directory
+- V e r i l a t i o n   R e p o r t: Verilator 5.040 2025-08-30 rev v5.040
+- Verilator: Built from 31.990 MB sources in 100 modules, into 6.083 MB in 21 C++ files needing 0.006 MB
+- Verilator: Walltime 5.835 s (elab=0.061, cvt=0.331, bld=5.317); cpu 0.508 s on 8 threads; alloced 101.688 MB
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/utils/log.c:18 init_log] Log is written to /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/coremark/npc-jyd.log[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:355 welcome] Build time: 12:45:29, Oct  9 2026[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:386 welcome] Processor configuration:[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:387 welcome]   Core: ISA=RV32IM, issue=2-wide in-order[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:388 welcome]   Custom instructions: CRC16=on, MULBE=on[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:391 welcome]   Frontend: queue=8 entries, IROM latency=1 cycle(s)[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:398 welcome]   Branch: TAGE, BTB=16 entries, base counter=2 bits, TAGE=4 x 256 entries, tag/counter/useful=8/3/2 bits[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:404 welcome]   Branch history: 4/12/32/64, FTQ=8 entries[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:414 welcome]   Branch extras: RAS=on, loop=off, fast-recurrence=off[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:417 welcome]     RAS=8 entries[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:423 welcome]   I-cache: block=4 B, blocks=16, ways=4[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:425 welcome]   D-cache: size=8 KiB, store buffer=4 entries[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:427 welcome]   MDU: MUL latency=4 cycles, DIV/REM latency=35 cycles[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:449 load_img] The image is /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/mundus-jyd-nano.bin, size = 13157344[0m
+
+ \ | /
+- RT -     Thread Operating System
+ / | \     3.1.5 build Oct  8 2026
+ 2006 - 2020 Copyright by rt-thread team
+[LED] cycle=30663 value=0x00000000
+        
+        
+        
+        
+MundusJyd miniTensor shell ready.
+Commands: help, mt_gemm, mt_memtest, mt_conv, quit.
+msh >mt_gemm
+miniTensor self-check starting.
+[LED] cycle=53189 value=0x00000001
+        
+        
+        
+       [1;32mX[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:87 sim_stats_on_led_write] statistics window started: led0, cycle 53189[0m
+[LED] cycle=54148 value=0x00000000
+        
+        
+        
+        
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:95 sim_stats_on_led_write] statistics window finished: led0, cycles 53189..54148[0m
+miniTensor GEMM PASSED (K=12, 4x4 INT8, requant+ReLU).
+  command chain cycles: 947
+miniTensor VPU PASSED (ADD8 / MAX8 / RELU8).
+miniTensor self-check OK.
+msh >quit
+Exit simulation.
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/cpu.c:246 cpu_exec] [1;32mHIT GOOD TRAP[0m[0m
+[7SEG] 00000000
+        
+        
+        
+        
+
+[Simulation Summary]
++------------------------------------------+--------------------------------+
+| Metric                                   | Value                          |
++------------------------------------------+--------------------------------+
+| Statistics window                        |        led0 (startup excluded) |
+| Host time                                |                        1855 us |
+| Clock cycles                             |                            959 |
+| Guest instructions                       |                            518 |
+| IPC                                      |                       0.540146 |
+| Execution time                           |                  0.000003197 s |
+| Core frequency                           |                    300.000 MHz |
+| Simulation frequency                     |                  279245 inst/s |
++------------------------------------------+--------------------------------+
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:320 stats_report_end] pipeline statistics report: /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/coremark/pipeline_report.txt[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:320 stats_report_end] memory statistics report: /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/coremark/memory_report.txt[0m
+CoreMark report not generated: no CoreMark output was found.
+EXIT=0

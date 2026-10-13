@@ -1,0 +1,98 @@
+== building firmware ==
+make: Entering directory '/home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd'
+riscv64-unknown-elf-gcc -march=rv32im_zicsr -mabi=ilp32  -flto -nostdlib -nostartfiles -static -Wl,-T,/home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/linker.ld -Wl,-Map,/home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/mundus-jyd-nano.map -Wl,--gc-sections -Wl,--build-id=none -o /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/mundus-jyd-nano.elf /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/clock.o /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/components.o /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/cpu.o /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/idle.o /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/ipc.o /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/irq.o /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/kservice.o /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/object.o /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/scheduler.o /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/thread.o /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/timer.o /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/cpuport.o /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/board.o /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/console.o /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/mt_main.o /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/finsh_compat.o /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/mt.o /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/mt_app.o /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/mt_conv.o /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/mt_net.o /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/mt_detect.o /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/mt_wide.o /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/mt_res.o /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/mt_yolocnn.o /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/mt_yolomodel.o /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/mt_yolo.o /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/shell.o /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/msh.o  /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/start.o /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/trap.o /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/context_gcc.o /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/bsp_timer.o /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/bsp_trap.o  /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/yc_weights.o /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/obj/ym_weights.o -lgcc
+riscv64-unknown-elf-size /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/mundus-jyd-nano.elf
+   text	   data	    bss	    dec	    hex	filename
+9310488	     60	  30928	9341476	 8e8a24	/home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/mundus-jyd-nano.elf
+riscv64-unknown-elf-objcopy -S -O binary /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/mundus-jyd-nano.elf /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/mundus-jyd-nano.bin
+riscv64-unknown-elf-objdump -d -S /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/mundus-jyd-nano.elf > /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/mundus-jyd-nano.txt
+riscv64-unknown-elf-objcopy -O binary --only-section=.text /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/mundus-jyd-nano.elf /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/mundus-jyd-irom.bin
+python3 /home/ccy/Documents/qs/Mundus/npc/tools/pack_irom_coe.py /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/mundus-jyd-irom.bin /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/mundus-jyd-irom.coe --config /home/ccy/Documents/qs/Mundus/npc/configs/build/.config
+riscv64-unknown-elf-objcopy -O binary --only-section=.rodata --only-section=.data /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/mundus-jyd-nano.elf /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/mundus-jyd-dram.bin
+python3 /home/ccy/Documents/qs/Mundus/npc/tools/pack_mem_coe.py /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/mundus-jyd-dram.bin /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/mundus-jyd-dram.coe \
+	--capacity-bytes 0x40000
+IROM COE: /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/mundus-jyd-irom.coe
+DRAM COE: /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/mundus-jyd-dram.coe
+make: Leaving directory '/home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd'
+== building and running the Mundus + miniTensor simulation ==
+make: Entering directory '/home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd'
+make[1]: Entering directory '/home/ccy/Documents/qs/Mundus/npc'
+find: ‘/home/ccy/Documents/qs/Mundus/ysyxSoC/perip’: No such file or directory
+find: ‘/home/ccy/Documents/qs/Mundus/ysyxSoC/build’: No such file or directory
+make[2]: Entering directory '/home/ccy/Documents/qs/Mundus/npc/build/obj_dir'
+make[2]: Leaving directory '/home/ccy/Documents/qs/Mundus/npc/build/obj_dir'
+- V e r i l a t i o n   R e p o r t: Verilator 5.040 2025-08-30 rev v5.040
+- Verilator: Built from 32.002 MB sources in 100 modules, into 6.084 MB in 21 C++ files needing 0.006 MB
+- Verilator: Walltime 7.650 s (elab=0.050, cvt=0.382, bld=7.111); cpu 0.595 s on 8 threads; alloced 101.688 MB
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/utils/log.c:18 init_log] Log is written to /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/coremark/npc-jyd.log[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:355 welcome] Build time: 14:31:55, Oct  9 2026[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:386 welcome] Processor configuration:[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:387 welcome]   Core: ISA=RV32IM, issue=2-wide in-order[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:388 welcome]   Custom instructions: CRC16=on, MULBE=on[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:391 welcome]   Frontend: queue=8 entries, IROM latency=1 cycle(s)[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:398 welcome]   Branch: TAGE, BTB=16 entries, base counter=2 bits, TAGE=4 x 256 entries, tag/counter/useful=8/3/2 bits[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:404 welcome]   Branch history: 4/12/32/64, FTQ=8 entries[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:414 welcome]   Branch extras: RAS=on, loop=off, fast-recurrence=off[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:417 welcome]     RAS=8 entries[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:423 welcome]   I-cache: block=4 B, blocks=16, ways=4[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:425 welcome]   D-cache: size=8 KiB, store buffer=4 entries[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:427 welcome]   MDU: MUL latency=4 cycles, DIV/REM latency=35 cycles[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:449 load_img] The image is /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/mundus-jyd-nano.bin, size = 13340800[0m
+
+ \ | /
+- RT -     Thread Operating System
+ / | \     3.1.5 build Oct  9 2026
+ 2006 - 2020 Copyright by rt-thread team
+[LED] cycle=30760 value=0x00000000
+        
+        
+        
+        
+MundusJyd miniTensor shell ready.
+Commands: help, mt_gemm, mt_memtest, mt_conv, quit.
+msh >mt_gemm
+miniTensor self-check starting.
+[LED] cycle=53394 value=0x00000001
+        
+        
+        
+       [1;32mX[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:87 sim_stats_on_led_write] statistics window started: led0, cycle 53394[0m
+[LED] cycle=54337 value=0x00000000
+        
+        
+        
+        
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:95 sim_stats_on_led_write] statistics window finished: led0, cycles 53394..54337[0m
+miniTensor GEMM PASSED (K=12, 4x4 INT8, requant+ReLU).
+  command chain cycles: 931
+miniTensor VPU PASSED (ADD8 / MAX8 / RELU8).
+miniTensor self-check OK.
+msh >quit
+Exit simulation.
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/cpu.c:246 cpu_exec] [1;32mHIT GOOD TRAP[0m[0m
+[7SEG] 00000000
+        
+        
+        
+        
+
+[Simulation Summary]
++------------------------------------------+--------------------------------+
+| Metric                                   | Value                          |
++------------------------------------------+--------------------------------+
+| Statistics window                        |        led0 (startup excluded) |
+| Host time                                |                        2271 us |
+| Clock cycles                             |                            943 |
+| Guest instructions                       |                            518 |
+| IPC                                      |                       0.549311 |
+| Execution time                           |                  0.000003143 s |
+| Core frequency                           |                    300.000 MHz |
+| Simulation frequency                     |                  228093 inst/s |
++------------------------------------------+--------------------------------+
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:320 stats_report_end] pipeline statistics report: /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/coremark/pipeline_report.txt[0m
+[1;34m[/home/ccy/Documents/qs/Mundus/npc/csrc/wave/sim.cpp:320 stats_report_end] memory statistics report: /home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd/build/coremark/memory_report.txt[0m
+make[1]: Leaving directory '/home/ccy/Documents/qs/Mundus/npc'
+CoreMark report not generated: no CoreMark output was found.
+make: Leaving directory '/home/ccy/Documents/qs/Mundus/rtthread-nano/rt-thread/bsp/MundusJyd'
+EXIT=0
