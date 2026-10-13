@@ -1,6 +1,7 @@
-# LSU 模块接口冻结（C2 / M2a）
+# LSU 模块接口冻结（C2 / M2a + M2b）
 
-> **状态**：M2a 接口冻结（L02 AGU / L03 LQ / L04 SQ / L05 Forwarding / L12 Completion / L10 Line Adapter / L01 lsu_top 最小闭环）。
+> **状态**：M2a 接口冻结（L02/L03/L04/L05/L12/L10/L01 最小闭环，§1–§8）；**M2b 接口冻结**（L07 dcache_arrays / L08 mshr / L09 wb_buffer / L11 mmio_bridge + L06/L01 收敛边界，§9–§14）。
+> **M2b 决策**：`docs/m2b_decisions.md`（D-M2b-01…10）。
 > **权威**：`docs/microarch/memory.md`（§3–§7）、`docs/implementation_plan.md` §5.10–§5.13 / §6.3 / §9.4。
 > **本文件的作用**：把 §9.4 C2 分阶段实现时**必须先冻结的模块边界**写成可执行契约，供各模块并行实现与自检 TB 使用。
 > **约束**：实现必须逐字使用下面的端口名/位宽/方向；**不得**新增、删除、重命名端口，也不得改变语义。若发现接口本身有误，先报告再改（接口即契约）。
@@ -30,7 +31,8 @@ verilator --binary --timing -sv --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEM
 sim/build/unit/<TB>/<TB>
 ```
 
-**staging 说明（M2a）**：L06/L07 DCache、L08 MSHR、L09 WB、L11 MMIO Bridge 属 M2b。M2a 的 `lsu_top` 用 `line_adapter` 的**单 beat 端口**直连 TB 内存模型，形成最小读写闭环；该直连路径只改变“数据从哪来”，**不改变** LQ/SQ/Forwarding/Completion/Commit/kill/credit 的任何后端可见语义。M2b 用 `dcache_top`+`mshr` 替换这条直连路径（LQ 的 `lookup_*`/`fill_*`、SQ 的 `drain_*` 保持为对 DCache 的请求/接管接口）。
+**staging 说明（M2a → M2b）**：M2a 的 `lsu_top` 用 `line_adapter` 的**单 beat 端口**直连 TB 内存模型，形成最小读写闭环；该直连路径只改变“数据从哪来”，**不改变** LQ/SQ/Forwarding/Completion/Commit/kill/credit 的任何后端可见语义。
+**M2b（当前）**用 `dcache_top`+`mshr`+`wb_buffer` 替换该直连路径（LQ 的 `lookup_*`/`fill_*`、SQ 的 `drain_*` 保持为对 DCache 的请求/接管接口），MMIO 顺序逻辑抽为 `mmio_bridge.sv`。接口冻结见 §9–§14。
 
 ---
 
@@ -453,3 +455,262 @@ M2a 内部连接（staging，见 §0）：
 4. Fast Path 与 FIFO 出队互斥（同一端口）；源必须保证 `push_valid`/`fast_valid` 在未被接受时保持不变。
 5. `completion_valid` 单周期脉冲；`fifo_empty/fifo_count` 供断言与上层使用。
 6. 断言（sim）：同一周期只有一个来源获得发送权；被 kill 的结果绝不出现于 `completion_valid`。
+---
+
+## 9. L07 `dcache_arrays.sv` — 每 Way 1R1W Data RAM + Tag/Valid/Dirty/LRU（M2b，**[已冻结]**）
+
+职责（memory.md §6.1/§6.3）：2 个 Way 各自独立的 64-bit Row Data RAM（同步读、byte-enable 写）与独立 Tag/Valid/Dirty 元数据；每 Set 1-bit LRU 记录**最近使用 Way**（Victim 候选 = 另一 Way）。**不含**端口仲裁、Way 锁、Hazard：这些属 L06。
+
+```systemverilog
+module dcache_arrays (
+    input  logic                                      clk,
+    input  logic                                      rst,
+    input  logic [ares_pkg::DCACHE_NUM_WAYS-1:0]      rd_valid,
+    input  logic [ares_pkg::DCACHE_NUM_WAYS-1:0][ares_pkg::DCACHE_INDEX_BITS-1:0] rd_set,
+    input  logic [ares_pkg::DCACHE_NUM_WAYS-1:0][$clog2(ares_pkg::ROWS_PER_LINE)-1:0] rd_row,
+    output logic [ares_pkg::DCACHE_NUM_WAYS-1:0]      rd_rsp_valid,
+    output logic [ares_pkg::DCACHE_NUM_WAYS-1:0][ares_pkg::DCACHE_INDEX_BITS-1:0] rd_rsp_set,
+    output logic [ares_pkg::DCACHE_NUM_WAYS-1:0][$clog2(ares_pkg::ROWS_PER_LINE)-1:0] rd_rsp_row,
+    output logic [ares_pkg::DCACHE_NUM_WAYS-1:0][63:0] rd_rsp_data,
+    output logic [ares_pkg::DCACHE_NUM_WAYS-1:0][ares_pkg::DCACHE_TAG_BITS-1:0] rd_rsp_tag,
+    output logic [ares_pkg::DCACHE_NUM_WAYS-1:0]      rd_rsp_line_valid,
+    output logic [ares_pkg::DCACHE_NUM_WAYS-1:0]      rd_rsp_dirty,
+    input  logic [ares_pkg::DCACHE_NUM_WAYS-1:0]      wr_valid,
+    input  logic [ares_pkg::DCACHE_NUM_WAYS-1:0][ares_pkg::DCACHE_INDEX_BITS-1:0] wr_set,
+    input  logic [ares_pkg::DCACHE_NUM_WAYS-1:0][$clog2(ares_pkg::ROWS_PER_LINE)-1:0] wr_row,
+    input  logic [ares_pkg::DCACHE_NUM_WAYS-1:0][63:0] wr_data,
+    input  logic [ares_pkg::DCACHE_NUM_WAYS-1:0][7:0] wr_be,
+    input  logic [ares_pkg::DCACHE_NUM_WAYS-1:0]      meta_valid,
+    input  logic [ares_pkg::DCACHE_NUM_WAYS-1:0][ares_pkg::DCACHE_INDEX_BITS-1:0] meta_set,
+    input  logic [ares_pkg::DCACHE_NUM_WAYS-1:0][ares_pkg::DCACHE_TAG_BITS-1:0]   meta_tag,
+    input  logic [ares_pkg::DCACHE_NUM_WAYS-1:0]      meta_tag_en,
+    input  logic [ares_pkg::DCACHE_NUM_WAYS-1:0]      meta_line_valid_en,
+    input  logic [ares_pkg::DCACHE_NUM_WAYS-1:0]      meta_line_valid,
+    input  logic [ares_pkg::DCACHE_NUM_WAYS-1:0]      meta_dirty_en,
+    input  logic [ares_pkg::DCACHE_NUM_WAYS-1:0]      meta_dirty,
+    input  logic                                      lru_valid,
+    input  logic [ares_pkg::DCACHE_INDEX_BITS-1:0]    lru_set,
+    input  logic                                      lru_way,
+    input  logic [ares_pkg::DCACHE_INDEX_BITS-1:0]    lru_rd_set,
+    output logic                                      lru_rd_last_way
+);
+```
+
+行为要点：
+1. `rd_valid[w]=1` 接收读请求；下一周期 `rd_rsp_valid[w]=1` 一拍，`rd_rsp_set/row` 回传请求字段，`rd_rsp_data` 为该 Way 的 64-bit Row，`rd_rsp_tag/line_valid/dirty` 为该 Set 该 Way 元数据。
+2. `wr_valid[w]=1` 写该 Way 的 Row（`wr_be[7:0]` byte-enable）；同 Way 每周期最多 1 Row（调用方保证）。
+3. 元数据三字段各自带使能可同拍写；`meta_set` 为该 Way 的 Set。
+4. LRU：`lru_valid` 写“最近使用 Way”；`lru_rd_last_way` 组合读出（Victim = `~lru_rd_last_way`）。
+5. 复位：只复位 `line_valid/dirty`/LRU 与读响应 valid；**不复位** Tag/Data 阵列（SPEC-D9/BRAM 推断）。
+6. 参数全部取自 `ares_pkg`；断言（sim）：`rd_rsp_valid[w]` 与上一周期 `rd_valid[w]` 相同、写使能合法、复位后无 valid line。
+
+TB（`tb_dcache_arrays`）：写后读一致、部分 byte-enable、两 Way 独立、元数据/LRU、复位、`LINE_BYTES=16/32/64` 编译 + 默认 32 运行。
+
+## 10. L08 `mshr.sv` — 2-entry MSHR / Refill / Overlay / WAKE（M2b，**[已冻结]**）
+
+职责（memory.md §6.4/§6.5/§6.8）：`FREE → RESERVE → VICTIM_CAPTURE → READ_BEATS → INSTALL → WAKE → FREE`；同 Line 合并；原子 RESERVE（MSHR+Way Lock+WB）；Victim 逐 Row 捕获；逐 Beat Refill；Overlay byte 合并；Install 逐 Row 写 + 最后一次写发布 Tag/Valid/Dirty/LRU；WAKE 每周期交接 1 个 waiter。
+
+```systemverilog
+module mshr (
+    input  logic                                      clk,
+    input  logic                                      rst,
+    output logic [ares_pkg::MSHR_ENTRIES-1:0]         lock_valid,        // 含 WAKE 期间
+    output logic [ares_pkg::MSHR_ENTRIES-1:0][31:0]   lock_line_addr,
+    output logic [ares_pkg::MSHR_ENTRIES-1:0][1:0]    lock_way,          // one-hot
+    output logic [ares_pkg::MSHR_ENTRIES-1:0]         busy,              // != FREE
+    input  logic [31:0]                               match_line_addr,
+    output logic [ares_pkg::MSHR_ENTRIES-1:0]         match_hit,
+    input  logic                                      resv_valid,
+    output logic                                      resv_ready,        // reserve_fire
+    input  logic [31:0]                               resv_line_addr,
+    input  logic [1:0]                                resv_way,          // one-hot Victim Way（同时锁定）
+    input  logic                                      resv_victim_dirty,
+    input  logic [1:0]                                resv_wb_idx,       // dirty 时已预留的 WB entry
+    input  logic                                      resv_is_store,
+    input  logic [1:0]                                resv_lq_idx,
+    input  ares_pkg::tag_t                            resv_lq_tag,
+    input  logic [7:0]                                resv_lq_epoch,
+    input  logic [ares_pkg::DCACHE_OFFSET_BITS-3:0]   resv_word_idx,
+    input  logic [3:0]                                resv_store_mask,
+    input  logic [31:0]                               resv_store_data,
+    input  logic [ares_pkg::DCACHE_OFFSET_BITS-3:0]   resv_store_widx,
+    input  logic                                      merge_valid,
+    input  logic [ares_pkg::MSHR_ENTRIES-1:0]         merge_sel,         // one-hot
+    output logic                                      merge_ready,
+    input  logic                                      merge_is_store,
+    input  logic [1:0]                                merge_lq_idx,
+    input  ares_pkg::tag_t                            merge_lq_tag,
+    input  logic [7:0]                                merge_lq_epoch,
+    input  logic [ares_pkg::DCACHE_OFFSET_BITS-3:0]   merge_word_idx,
+    input  logic [3:0]                                merge_store_mask,
+    input  logic [31:0]                               merge_store_data,
+    input  logic [ares_pkg::DCACHE_OFFSET_BITS-3:0]   merge_store_widx,
+    output logic [ares_pkg::MSHR_ENTRIES-1:0]         cap_req_valid,
+    output logic [ares_pkg::MSHR_ENTRIES-1:0][1:0]    cap_req_way,       // one-hot
+    output logic [ares_pkg::MSHR_ENTRIES-1:0][$clog2(ares_pkg::ROWS_PER_LINE)-1:0] cap_req_row,
+    input  logic [ares_pkg::MSHR_ENTRIES-1:0]         cap_gnt,           // 当拍 R 接收，响应下一周期
+    input  logic                                      cap_rsp_valid,
+    input  logic [ares_pkg::DCACHE_INDEX_BITS-1:0]    cap_rsp_set,
+    input  logic [$clog2(ares_pkg::ROWS_PER_LINE)-1:0] cap_rsp_row,
+    input  logic [1:0]                                cap_rsp_way,       // one-hot
+    input  logic [63:0]                               cap_rsp_data,
+    output logic [ares_pkg::MSHR_ENTRIES-1:0]         wb_wr_valid,
+    output logic [ares_pkg::MSHR_ENTRIES-1:0][1:0]    wb_wr_idx,
+    output logic [ares_pkg::MSHR_ENTRIES-1:0][$clog2(ares_pkg::ROWS_PER_LINE)-1:0] wb_wr_row,
+    output logic [ares_pkg::MSHR_ENTRIES-1:0][63:0]   wb_wr_data,
+    output logic [ares_pkg::MSHR_ENTRIES-1:0]         wb_wr_last,        // 最后一个 Row -> WB READY
+    input  logic                                      ovl_valid,
+    input  logic [ares_pkg::MSHR_ENTRIES-1:0]         ovl_sel,           // one-hot
+    output logic                                      ovl_ready,         // 接受 -> Early Takeover
+    input  logic [ares_pkg::DCACHE_OFFSET_BITS-3:0]   ovl_widx,
+    input  logic [3:0]                                ovl_mask,
+    input  logic [31:0]                               ovl_data,
+    output logic                                      refill_req_valid,
+    input  logic                                      refill_req_ready,
+    output logic [31:0]                               refill_line_addr,
+    input  logic                                      refill_rsp_valid,
+    output logic                                      refill_rsp_ready,
+    input  logic [8*ares_pkg::LINE_BYTES-1:0]         refill_line_data,
+    input  logic [ares_pkg::LINE_BEATS-1:0]           refill_beat_valid,
+    output logic [ares_pkg::MSHR_ENTRIES-1:0]         inst_valid,
+    output logic [ares_pkg::MSHR_ENTRIES-1:0][1:0]    inst_way,          // one-hot
+    output logic [ares_pkg::MSHR_ENTRIES-1:0][ares_pkg::DCACHE_INDEX_BITS-1:0] inst_set,
+    output logic [ares_pkg::MSHR_ENTRIES-1:0][$clog2(ares_pkg::ROWS_PER_LINE)-1:0] inst_row,
+    output logic [ares_pkg::MSHR_ENTRIES-1:0][63:0]   inst_data,
+    output logic [ares_pkg::MSHR_ENTRIES-1:0][7:0]    inst_be,
+    output logic [ares_pkg::MSHR_ENTRIES-1:0]         inst_last,
+    input  logic [ares_pkg::MSHR_ENTRIES-1:0]         inst_gnt,
+    output logic [ares_pkg::MSHR_ENTRIES-1:0]         pub_valid,
+    output logic [ares_pkg::MSHR_ENTRIES-1:0][1:0]    pub_way,
+    output logic [ares_pkg::MSHR_ENTRIES-1:0][ares_pkg::DCACHE_TAG_BITS-1:0] pub_tag,
+    output logic [ares_pkg::MSHR_ENTRIES-1:0]         pub_dirty,
+    output logic [ares_pkg::MSHR_ENTRIES-1:0]         wake_valid,
+    output logic [ares_pkg::MSHR_ENTRIES-1:0][1:0]    wake_lq_idx,
+    output logic [ares_pkg::MSHR_ENTRIES-1:0][31:0]   wake_word,
+    input  logic [ares_pkg::MSHR_ENTRIES-1:0]         wake_ready,        // 已处理（交付或丢弃）
+    input  logic [ares_pkg::LQ_ENTRIES-1:0]           lq_wait_pending,
+    input  ares_pkg::tag_t                            lq_wait_tag [ares_pkg::LQ_ENTRIES],
+    input  logic [7:0]                                lq_wait_epoch [ares_pkg::LQ_ENTRIES]
+);
+```
+
+行为要点：
+1. **RESERVE**：`resv_ready = 存在 FREE entry`；接受沿锁定 Way、初始化首个 waiter / overlay，进入 `RESERVE`；Dirty victim 的 WB entry 由 L06 预留并给出 `resv_wb_idx`；Clean victim 直接进 `READ_BEATS`。
+2. **VICTIM_CAPTURE**：逐 Row 拉高 `cap_req_*`；`cap_gnt` 推进 `capture_req_idx`；`cap_rsp_valid && cap_rsp_set/row/way` 匹配本 entry 时把 `cap_rsp_data` 交给 WB（`wb_wr_*`），最后一个 Row 时 `wb_wr_last=1`；**最后一个 Row 数据写入 WB 后**才转 `READ_BEATS`。
+3. **READ_BEATS**：每次只发一笔 16B Read；`refill_rsp_valid && refill_beat_valid` 全 1 时锁存 `refill_line_data`、置 `refill_rsp_ready`，下一周期进 `INSTALL`。两个 MSHR 同拍只允许一个占用 refill 端口（内部仲裁）。
+4. **INSTALL**：逐 Row 组 `inst_*`（`overlay_mask ? overlay_data : refill_data`，`inst_be=8'hFF`）；`inst_gnt && inst_last` 当拍发布 `pub_*`（L06 写元数据 + LRU），进入 `WAKE`。
+5. **WAKE**：每 entry 每周期最多交接 1 个 waiter：`wake_valid/wake_lq_idx/wake_word`（合并 line 中该 waiter `word_idx` 的 32-bit 字）；`wake_ready` 当拍清该 waiter 并选下一个；交付合法性由 L06/lsu_top 判定，不匹配只清位（**绝不写 LQ**）。全部 waiter 清空且无遗留响应 → `FREE`，释放 Way Lock。
+6. **Overlay**：`ovl_sel` 命中且 entry 在 `RESERVE/VICTIM_CAPTURE/READ_BEATS` 时 `ovl_ready=1`，同沿按 `ovl_widx*4 + lane` 合并 4 字节（新值覆盖旧值）；`INSTALL/WAKE` 期间 `ovl_ready=0`。
+7. **陈旧 waiter**：用 `{lq_idx, lq_tag, lq_epoch}` 记录；`lq_wait_pending/tag/epoch` 不匹配即可清除（不影响 Refill）；Committed Store Overlay 与在途总线事务不因 kill 取消。
+8. 断言（sim）：同 `(set,way)` 不被两个 entry 同时锁；同 Line 不重复分配；INSTALL 前 beat 全 1；`cap_rsp` 只被匹配 entry 消费；`busy=0 → wake_valid=0 && lock_valid=0`；FSM 合法转移。
+
+TB（`tb_mshr`，独立 top + TB 侧 line 内存模型）：单/双 MSHR 全流程、Clean/Dirty victim、Overlay 早接管与安装合并、WAKE 逐个交接、陈旧 waiter（epoch 复用）不写 LQ、单 outstanding Read 仲裁、复位、**状态/转移覆盖 100%**。
+
+## 11. L09 `wb_buffer.sv` — 2-entry Dirty Victim Writeback Buffer（M2b，**[已冻结]**）
+
+职责（memory.md §6.6）：保存 `{state,line_addr,line_data,capture_row_valid,beat_idx}`；`FREE/CAPTURING/READY/DRAINING`；READY 后逐 beat 发 WB（`be=16'hFFFF`）；全部 beat `wr_fire` 后释放（不等待物理写完成，D-M2b-03）；提供 C3 可见性查询与空位掩码。
+
+```systemverilog
+module wb_buffer (
+    input  logic                                      clk,
+    input  logic                                      rst,
+    input  logic                                      alloc_valid,
+    input  logic [1:0]                                alloc_idx,
+    input  logic [31:0]                               alloc_line_addr,
+    output logic [ares_pkg::WB_ENTRIES-1:0]           free_mask,         // 周期初空闲位（不借本拍释放）
+    input  logic                                      cap_wr_valid,
+    input  logic [1:0]                                cap_wr_idx,
+    input  logic [$clog2(ares_pkg::ROWS_PER_LINE)-1:0] cap_wr_row,
+    input  logic [63:0]                               cap_wr_data,
+    input  logic                                      cap_wr_last,       // 最后一个 Row -> READY
+    output logic                                      wb_req_valid,
+    input  logic                                      wb_req_ready,
+    output logic [31:0]                               wb_line_addr,
+    output logic [8*ares_pkg::LINE_BYTES-1:0]         wb_line_data,
+    input  logic                                      wb_done,           // 最后一笔 wr_fire 脉冲 -> FREE
+    input  logic [31:0]                               vis_query_line_addr,
+    output logic                                      vis_query_block,   // 该 Line 仍由 WB 持有（未达可见性点）
+    output logic [ares_pkg::WB_ENTRIES-1:0]           busy
+);
+```
+
+行为要点：
+1. `free_mask` 按**周期初**状态产生（不借用本拍 `wb_done` 释放的空位）。
+2. `alloc_valid && alloc_idx` → `CAPTURING` 并锁存 `alloc_line_addr`；`cap_wr_valid/cap_wr_idx` 把 64-bit Row 写入 `line_data[64*cap_wr_row +: 64]`；`cap_wr_last` → `READY`（sim 断言该 entry 所有 Row 已写入）。
+3. `READY` entry 按最低 index 公平仲裁出 `wb_req_*`；`wb_done` 当拍回 `FREE`（**不等待物理写完成**）。
+4. `vis_query_block`：任一非 FREE entry 的 `line_addr == vis_query_line_addr`（组合）。
+5. 复位：全部 entry 回 FREE；断言（sim）：`wb_req_valid` 只来自 READY entry；不重复 `wb_done`；`alloc_valid` 只写 FREE entry；FSM 合法转移。
+
+TB（`tb_wb_buffer`）：分配/捕获/READY/逐 beat drain、两 entry 并行与仲裁、`free_mask` 不借用、可见性查询窗口、复位、**状态/转移覆盖 100%**。
+
+## 12. L11 `mmio_bridge.sv` — 单 outstanding 设备通道（M2b，**[已冻结]**）
+
+职责（memory.md §3.1；LSU_INTERFACES §7 M2a staging 逻辑的抽取）：LQ Load 与 SQ 最老 COMMITTED Store 共享一条单 outstanding 设备通道；LQ（更老）优先；Write Ack = 副作用完成（`sq_req_ack` 脉冲 → SQ `drain_takeover`）；`busy` 供 `lsu_mmio_order_idle`。
+
+```systemverilog
+module mmio_bridge (
+    input  logic                    clk,
+    input  logic                    rst,
+    input  logic                    lq_req_valid,
+    output logic                    lq_req_ready,      // 设备请求已被接受（单周期）
+    input  logic [31:0]             lq_req_addr,       // word 对齐（LQ 产生）
+    output logic                    lq_rsp_valid,      // 单周期，路由给 LQ
+    input  logic [31:0]             lq_rsp_data,
+    input  logic                    sq_req_valid,
+    output logic                    sq_req_ready,      // 写请求已被接受 -> SQ drain_start
+    output logic                    sq_req_ack,        // Write Ack -> SQ drain_takeover
+    input  logic [31:0]             sq_req_addr,
+    input  logic [31:0]             sq_req_data,
+    input  logic [3:0]              sq_req_strb,
+    output logic                    mmio_req_valid,
+    input  logic                    mmio_req_ready,
+    output logic                    mmio_write,
+    output logic [31:0]             mmio_addr,
+    output logic [31:0]             mmio_wdata,
+    output logic [3:0]              mmio_wstrb,
+    input  logic                    mmio_rsp_valid,
+    output logic                    mmio_rsp_ready,
+    input  logic [31:0]             mmio_rsp_data,
+    output logic                    busy               // 有未完成事务（寄存）
+);
+```
+
+行为要点：
+1. 仲裁：`busy=0` 时 LQ 优先，否则 SQ；未被接受时客户端保持字段稳定。
+2. `lq_req_ready` = 设备请求被接受且 owner=load；`sq_req_ready` 同理（= SQ `drain_start`）。
+3. `mmio_addr`：Load = `{lq_req_addr[31:2],2'b00}`；Store = `{sq_req_addr[31:2],2'b00}`；load 时 `wstrb=4'h0`。
+4. `busy` 在请求握手沿置位、在 `mmio_rsp_valid` 沿清除；`mmio_rsp_ready=1'b1`（与 M2a 一致）。
+5. `lq_rsp_valid = mmio_rsp_valid && busy && owner==load`；`sq_req_ack = mmio_rsp_valid && busy && owner==store`（单周期脉冲）。
+6. 断言（sim）：`mmio_rsp_valid |-> busy`；`mmio_req_valid |-> addr[1:0]==0`；`busy` 期间不接收新请求；`lq_rsp_valid`/`sq_req_ack` 互斥。
+
+TB（`tb_mmio_bridge`）：load/store 顺序、单 outstanding、响应路由、Write Ack、`busy`、复位、**状态/转移覆盖 100%**。
+
+## 13. L06 `dcache_top` / L01 `lsu_top` 的 M2b 收敛（**[已冻结：边界]**）
+
+L06 实例化 L07，实现 memory.md §6.3 的 C2/C3 流水与全部仲裁：
+- C2：接收 LQ `lookup_*` 或 SQ `drain_*`（公平仲裁，SQ 高水位加权）并寄存 Owner；两 Way 同步读；MSHR `cap_req_*` 与本拍 Lookup 按 Way 独立仲裁（Lookup 优先，Capture 连续让行 4 次后提升优先级）；同 Set/Row 同 Way 的 R/W Hazard 在 grant 前检查（含 Pending Store Write 与 Install）。
+- C3：用**当前已登记**的 MSHR/Way Lock/WB 可见性/Pending Write 复检，唯一返回 `LOAD_HIT / STORE_HIT / MSHR_ACCEPT / RETRY`；`RETRY` 只重发内部 C2 读（Owner 保持，不重新握手 LQ/SQ）。
+- Store Hit → 1-entry Pending Store Write；实际 W 写入生效沿产生 `store_takeover`。Store Miss → MSHR RESERVE / Overlay 早接管。
+- Install：MSHR `inst_*` 与 Pending Store Write 按 Way 公平仲裁写端口；LRU 写按 `Lookup Hit > Store Hit Write > MSHR1 Install > MSHR0 Install` 每 Set 一次；`mshr_pub_*` → 元数据写 + LRU。
+
+L01 `lsu_top` 在 M2b：实例化 `lsu_agu/lq/sq/lsu_completion/line_adapter/mshr/wb_buffer/mmio_bridge/dcache_top`；
+- **LQ fill 仲裁**：`hit_fill` 优先于 MSHR `wake_*`（每周期最多 1 条）；WAKE 交付条件 = `lq_wait_pending[idx] && lq_wait_tag[idx]==tag && lq_wait_epoch[idx]==epoch && !kill_mask[tag]`，否则只清 MSHR waiter（D-M2b-04/05）；
+- MSHR `refill_* → line_adapter.refill_*`；MSHR `wb_wr_* → wb_buffer.cap_wr_*`；`wb_buffer.wb_req_* → line_adapter.wb_*`；`wb_buffer.vis_query_* ↔ dcache_top`；
+- MMIO：LQ `mmio_*` 与 SQ `drain_*`（`drain_is_mmio`）经 `mmio_bridge`；`lsu_mmio_order_idle = !mmio_busy && !sq_mmio_store_pending`（周期初登记状态）；
+- `line_adapter` 单 beat 端口在 M2b 悬空（`beat_*_req_valid=0`）。
+
+**LQ 附加只读端口（D-M2b-04，纯附加）**：
+```systemverilog
+    output logic [ares_pkg::LQ_ENTRIES-1:0]  lq_wait_pending,  // = e_lk_inflight[i]（等待 DCache/MSHR 交付）
+    output ares_pkg::tag_t                   lq_wait_tag [ares_pkg::LQ_ENTRIES],
+    output logic [7:0]                       lq_wait_epoch [ares_pkg::LQ_ENTRIES]  // 每次分配 +1
+```
+既有端口语义/时序不变；`tb_lq` 需覆盖 epoch 递增与 `lq_wait_pending` 一致。
+
+## 14. M2b 验证要求与门禁
+
+1. 每模块：`make lint-lsu` 0 warning；单元 TB `ALL TESTS PASSED`；`--assert` 0 误报；复位/边界/负向齐备（plan §8.2/§8.3）。
+2. `tb_lsu` 扩为 DCache 通路：hit / miss+refill / Dirty Victim WB / Store Hit / Store Overlay 早接管 / Load-Store 冲突 RETRY / kill 期间旧 WAKE 丢弃 / 2-wide Store Commit + drain；结束时物理内存镜像 == 架构镜像。
+3. `make -C tests/cpu-tests ARCH=riscv32-ares run` 36/36（FE 桩）。
+4. 覆盖率：mshr / dcache C2-C3 / wb_buffer / mmio_bridge 单元 TB 打印状态+转移 100%。
+5. PPA：**未验证**（SPEC-M10），见 D-M2b-09。
