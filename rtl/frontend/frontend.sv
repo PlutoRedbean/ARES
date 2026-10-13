@@ -14,8 +14,9 @@
 //   * the icache AXI master bus.
 //
 // The IQ write port (IFU -> IQ) and the FTQ read port (FTQ -> IFU) are
-// internal.  The back-end only needs to respect the IQ handshake and to send
-// its resolutions back in program order (see docs).
+// internal.  The back-end only needs to respect the counting handshake
+// (iq_raccept_cnt is the only consume condition) and to send its resolutions
+// back in program order (see docs).
 module frontend #(
     parameter int unsigned ADDR_WIDTH = 32,
     parameter int unsigned DATA_WIDTH = 32,
@@ -27,8 +28,8 @@ module frontend #(
     // ---------- IQ read port (front-end -> back-end) ----------
     output logic [fe_pkg::DECODE_WIDTH - 1:0] iq_rvalid,  // valid slots of HEAD (low-contiguous)
     output fe_pkg::iq_entry_t iq_rbits[fe_pkg::DECODE_WIDTH],
-    input  logic iq_rready,
-    input  logic [$clog2(fe_pkg::DECODE_WIDTH + 1) - 1:0] iq_raccept_cnt,  // instructions accepted
+    // counting handshake: iq_raccept_cnt is the only consume condition (0/1/2)
+    input logic [$clog2(fe_pkg::DECODE_WIDTH + 1) - 1:0] iq_raccept_cnt,  // instructions accepted
 
     // ---------- back-end -> front-end ----------
     // branch/jump resolution redirect.  Valid for one cycle; flushes the whole
@@ -37,37 +38,51 @@ module frontend #(
     input logic [ADDR_WIDTH - 1:0] backend_redirect_pc,
 
     // BPU training.  Must be driven in program order, at most one CFI per cycle.
-    input logic              bpu_update_en,
+    input logic                 bpu_update_en,
     input fe_pkg::update_meta_t bpu_update_meta,
 
-    // ---------- instruction cache AXI4-Lite master ----------
+    // ---------- instruction cache backing memory bus ----------
+`ifdef IO_USE_AXI
     axi_if.master ifu_axi_bus,
+`else
+    miniTensor_if.master ifu_mt_bus,
+`endif
 
     // ---------- debug / side-channel ----------
-    output logic [ADDR_WIDTH - 1:0] fetch_pc_out
+    output logic [ADDR_WIDTH - 1:0] fetch_pc_out,
+
+    // ---------- simulation performance counters ----------
+    output logic [$clog2(fe_pkg::IQ_DEPTH+1) - 1:0] iq_occupancy,
+    output logic [$clog2(fe_pkg::FETCH_WIDTH+1) - 1:0] iq_enq_count,
+    output logic [$clog2(fe_pkg::DECODE_WIDTH+1) - 1:0] iq_deq_count,
+    output logic [$clog2(fe_pkg::FTQ_NUM_ENTRIES+1) - 1:0] ftq_occupancy,
+    output logic ftq_alloc,
+    output logic ftq_pop,
+    output logic icache_refill,
+    output logic icache_req_fire
 );
     import fe_pkg::*;
 
     // ------------------------------------------------
     // IFU <-> IQ write channel (internal)
     // ------------------------------------------------
-    logic                                            iq_wvalid;
-    iq_entry_t                                       iq_wdata[FETCH_WIDTH];
-    logic [FETCH_WIDTH - 1:0]                        iq_wmask;
-    logic                                            iq_wready;
+    logic iq_wvalid;
+    iq_entry_t iq_wdata[FETCH_WIDTH];
+    logic [FETCH_WIDTH - 1:0] iq_wmask;
+    logic iq_wready;
 
     // ------------------------------------------------
     // BPU -> FTQ -> IFU links (internal)
     // ------------------------------------------------
-    ftq_entry_t                     ftq_wdata;
-    ftq_entry_t                     ftq_rdata;
-    logic                           ftq_wvalid;
-    logic                           ftq_wready;
-    logic                           ftq_rvalid;
-    logic                           ifu_rready;
+    ftq_entry_t ftq_wdata;
+    ftq_entry_t ftq_rdata;
+    logic ftq_wvalid;
+    logic ftq_wready;
+    logic ftq_rvalid;
+    logic ifu_rready;
 
     // front-end (PredecodeCheck) redirect
-    logic                    fe_redirect_valid;
+    logic fe_redirect_valid;
     logic [ADDR_WIDTH - 1:0] fe_redirect_pc;
 
     // back-end redirect wins over the front-end one
@@ -82,21 +97,18 @@ module frontend #(
     // ------------------------------------------------
     // IFU <-> ICache channel (internal)
     // ------------------------------------------------
-    logic                     icache_req_valid;
-    logic [ADDR_WIDTH - 1:0]  icache_req_addr;
-    logic                     icache_req_ready;
-    logic                     icache_resp_valid;
-    logic [ADDR_WIDTH - 1:0]  icache_resp_data[FETCH_WIDTH];
+    logic icache_req_valid;
+    logic [ADDR_WIDTH - 1:0] icache_req_addr;
+    logic icache_req_ready;
+    logic icache_resp_valid;
+    logic [ADDR_WIDTH - 1:0] icache_resp_data[FETCH_WIDTH];
     logic [FETCH_WIDTH - 1:0] icache_resp_rmask;
-    logic                     icache_resp_ready;
+    logic icache_resp_ready;
 
     // ------------------------------------------------
     // branch prediction unit
     // ------------------------------------------------
-    bpu #(
-        .ADDR_WIDTH(ADDR_WIDTH),
-        .RESET_VEC (RESET_VEC)
-    ) bpu_u (
+    bpu bpu_u (
         .clk        (clk),
         .rst        (rst),
         .flush      (fe_flush),
@@ -121,7 +133,10 @@ module frontend #(
         .wdata(ftq_wdata),
         .rvalid(ftq_rvalid),
         .rready(ifu_rready),
-        .rdata(ftq_rdata)
+        .rdata(ftq_rdata),
+        .occupancy(ftq_occupancy),
+        .alloc(ftq_alloc),
+        .pop(ftq_pop)
     );
 
     // ------------------------------------------------
@@ -160,9 +175,9 @@ module frontend #(
     icache #(
         .ADDR_WIDTH(ADDR_WIDTH),
         .DATA_WIDTH(DATA_WIDTH),
-        .LINE_BYTES(32),
-        .NR_SETS(64),
-        .NR_WAYS(4)
+        .LINE_BYTES(ICACHE_LINE_BYTES),
+        .NR_SETS(ICACHE_NR_SETS),
+        .NR_WAYS(ICACHE_NR_WAYS)
     ) icache_u (
         .clk           (clk),
         .rst           (rst),
@@ -173,8 +188,15 @@ module frontend #(
         .resp_ready    (icache_resp_ready),
         .resp_data     (icache_resp_data),
         .resp_rmask    (icache_resp_rmask),
+        .refill        (icache_refill),
+`ifdef IO_USE_AXI
         .icache_axi_bus(ifu_axi_bus)
+`else
+        .icache_mt_bus (ifu_mt_bus)
+`endif
     );
+
+    assign icache_req_fire = icache_req_valid && icache_req_ready;
 
     // ------------------------------------------------
     // instruction queue
@@ -187,9 +209,11 @@ module frontend #(
         .wmask      (iq_wmask),
         .wready     (iq_wready),
         .rvalid     (iq_rvalid),
-        .rready     (iq_rready),
         .raccept_cnt(iq_raccept_cnt),
         .rbits      (iq_rbits),
+        .occupancy  (iq_occupancy),
+        .enq_count  (iq_enq_count),
+        .deq_count  (iq_deq_count),
         .flush      (backend_redirect_valid)
     );
 

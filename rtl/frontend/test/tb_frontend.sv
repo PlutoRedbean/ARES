@@ -43,7 +43,6 @@ module tb_frontend;
     // IQ read port
     logic [DECODE_WIDTH-1:0] iq_rvalid;
     iq_entry_t iq_rbits[DECODE_WIDTH];
-    logic iq_rready;
     logic [$clog2(DECODE_WIDTH+1)-1:0] iq_raccept_cnt;
 
     // back-end -> front-end
@@ -68,7 +67,6 @@ module tb_frontend;
         .rst                  (rst),
         .iq_rvalid            (iq_rvalid),
         .iq_rbits             (iq_rbits),
-        .iq_rready            (iq_rready),
         .iq_raccept_cnt       (iq_raccept_cnt),
         .backend_redirect_valid(backend_redirect_valid),
         .backend_redirect_pc  (backend_redirect_pc),
@@ -121,8 +119,7 @@ module tb_frontend;
     int errors = 0;
     int consumed = 0;
 
-    assign iq_rready      = auto_consume && iq_rvalid[0];
-    assign iq_raccept_cnt = iq_rready ? 2'd1 : 2'd0;
+    assign iq_raccept_cnt = (auto_consume && iq_rvalid[0]) ? 2'd1 : 2'd0;
 
     task automatic check(input string name, input logic cond);
         if (!cond) begin
@@ -134,7 +131,7 @@ module tb_frontend;
     always @(posedge clk) begin
         if (!rst) begin
             check("iq_rvalid != 2'b10", (DECODE_WIDTH != 2) || (iq_rvalid != 2'b10));
-            if (iq_rvalid[0] && iq_rready) begin
+            if (iq_raccept_cnt != 0) begin
                 if (iq_rbits[0].pc !== exp_pc) begin
                     $display("FAIL: consumed pc=%h expected=%h", iq_rbits[0].pc, exp_pc);
                     errors++;

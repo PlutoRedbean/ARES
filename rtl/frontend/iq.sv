@@ -10,9 +10,16 @@ module iq (
 
     // ---------- IDU Read Port ----------
     output logic [fe_pkg::DECODE_WIDTH - 1:0] rvalid,  // HEAD中有效的指令槽
-    input logic rready,
-    input logic [$clog2(fe_pkg::DECODE_WIDTH+1) - 1:0] raccept_cnt,  // IDU实际消费的指令数
+
+    // how many entries the back-end accepted this cycle
+    input logic [$clog2(fe_pkg::DECODE_WIDTH+1) - 1:0] raccept_cnt,
     output fe_pkg::iq_entry_t rbits[fe_pkg::DECODE_WIDTH],
+
+    // synthesis-safe occupancy (HEAD + BODY valid entries) for the simulation
+    // performance model
+    output logic [$clog2(fe_pkg::IQ_DEPTH+1) - 1:0] occupancy,
+    output logic [$clog2(fe_pkg::FETCH_WIDTH+1) - 1:0] enq_count,
+    output logic [$clog2(fe_pkg::DECODE_WIDTH+1) - 1:0] deq_count,
 
     input logic flush
 );
@@ -70,15 +77,10 @@ module iq (
         for (int slot = 0; slot < FETCH_WIDTH; slot++) write_num = write_num + WCNT_W'(wmask[slot]);
     end
 
-    logic [1:0] consume;
-    // TODO: the specifig behavior of raccpet_cnt is under discusstion.
-    // It's not sure whenn raccept_cnt will be changed and how it will be kept
-    //in sync with rready.
-    assign consume = rready ? 2'(raccept_cnt) : 2'd0;
 
     // HEAD occupancy left after the IDU consume
     logic [DECODE_WIDTH-1:0] head_after_consume;
-    assign head_after_consume = 2'(head_state) - consume;
+    assign head_after_consume = 2'(head_state) - raccept_cnt;
 
     // free HEAD slots after the consume
     logic [WCHK_W-1:0] head_room;
@@ -98,7 +100,6 @@ module iq (
     logic [BODY_CNT_W-1:0] free_slots;
     assign free_slots = BODY_CNT_W'(BODY_DEPTH) - body_occ;
 
-    // BODY holds at least two entries?
     wire body_has_2_entries = (body_occ >= BODY_CNT_W'(2));
 
     // promote BODY entries into the HEAD when the HEAD has room; if the IDU
@@ -124,7 +125,6 @@ module iq (
     logic [WCNT_W-1:0] body_take;
     assign body_take = write_num - head_take;
 
-    // accept the whole block when the BODY can hold the remaining entries
     assign wready = (WCHK_W'(body_take) <= WCHK_W'(free_slots_eff));
 
     wire iq_w_fire = wvalid && wready && (write_num != '0);
@@ -166,7 +166,7 @@ module iq (
     // ---------------- HEAD next head_state ----------------
     always_comb begin
         // shift out the consumed entries
-        unique case (consume)
+        unique case (raccept_cnt)
             2'd0: begin
                 n_head0 = head0_r;
                 n_head1 = head1_r;
@@ -249,6 +249,13 @@ module iq (
     assign rbits[0]  = head0_r;
     assign rbits[1]  = head1_r;
 
+    // occupancy = BODY entries + valid HEAD slots
+    assign occupancy = $clog2(IQ_DEPTH + 1)'(body_occ) + $clog2(IQ_DEPTH + 1)'(head_state);
+
+    // per-cycle enqueue (IFU -> IQ) and dequeue (IQ -> back-end) counts
+    assign enq_count = iq_w_fire ? write_num : '0;
+    assign deq_count = raccept_cnt;
+
 `ifndef SYNTHESIS
     always_ff @(posedge clk) begin
         // occupancy must never leave the representable range
@@ -271,12 +278,21 @@ module iq (
     /* verilator lint_on UNUSEDSIGNAL */
 
 
-    // IDU 保证 raccept_cnt <= popcount(rvalid)
-    wire over_consume = rready && (raccept_cnt > $countones(rvalid));
+    // contract checks (frontend_backend_contract.md §2/§6):
+    //  - rvalid is always a low-contiguous prefix (never 2'b10)
+    //  - the back-end never accepts more than the offered prefix, never 3
+    //  - on a Redirect/Reset cycle the back-end drives accept = 0
+    wire bad_rvalid    = (DECODE_WIDTH == 2) && (rvalid == 2'b10);
+    wire over_consume  = (raccept_cnt > $countones(rvalid));
+    wire accept_on_flush = flush && (raccept_cnt != '0);
     always_ff @(posedge clk) begin
         if (rst);  // no-op
-        else if (over_consume)
-            $error("[iq] over-consume: rvalid=%b raccept_cnt=%0d", rvalid, raccept_cnt);
+        else begin
+            if (bad_rvalid) $error("[iq] rvalid=%b: slot1 valid without slot0", rvalid);
+            if (over_consume)
+                $error("[iq] over-consume: rvalid=%b raccept_cnt=%0d", rvalid, raccept_cnt);
+            if (accept_on_flush) $error("[iq] accept during flush: raccept_cnt=%0d", raccept_cnt);
+        end
     end
 `endif
 endmodule
