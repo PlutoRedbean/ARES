@@ -59,7 +59,8 @@ ARES_UNIT_SRCS := $(RTL_ROOT)/common/ares_pkg.sv $(wildcard $(RTL_ROOT)/backend/
 # outside the sim/Makefile VSRCS glob.
 #-----------------------------------------------------------------------------
 ARES_LSU_UNIT_TBS  := tb_lsu_agu tb_store_forward tb_sq tb_lq tb_lsu_completion \
-                      tb_line_adapter tb_lsu
+                      tb_line_adapter tb_lsu \
+                      tb_dcache_arrays tb_wb_buffer tb_mshr tb_mmio_bridge
 ARES_LSU_UNIT_SRCS := $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
                       $(wildcard $(RTL_ROOT)/memory/*.sv) \
                       $(wildcard $(RTL_ROOT)/memory/test/unit/*.sv)
@@ -77,7 +78,8 @@ lint-backend:
 # LSU / memory lint, including the C3 core top (ares_core_top needs both
 # subsystems, so it is linted together with the backend and memory sources).
 lint-lsu:
-	@for top in store_forward lsu_agu lq sq lsu_completion line_adapter lsu_top; do \
+	@for top in store_forward lsu_agu lq sq lsu_completion line_adapter \
+	            dcache_arrays dcache_top mshr wb_buffer mmio_bridge lsu_top; do \
 	  echo "[lint] $$top"; \
 	  verilator $(VERILATOR_LINT_FLAGS) --top-module $$top \
 	      $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
