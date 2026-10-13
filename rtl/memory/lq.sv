@@ -115,6 +115,11 @@ module lq (
     //---- Flush ------------------------------------------------------------
     input  logic [ares_pkg::CIQ_ENTRIES-1:0] kill_mask,
 
+    //---- M2b waiter tokens (D-M2b-04: additive read-only outputs) ----------
+    output logic [ares_pkg::LQ_ENTRIES-1:0] lq_wait_pending,   // == e_lk_inflight[i]
+    output ares_pkg::tag_t                  lq_wait_tag [ares_pkg::LQ_ENTRIES],
+    output logic [7:0]                      lq_wait_epoch [ares_pkg::LQ_ENTRIES],
+
     //---- status / allocation index ----------------------------------------
     output logic [1:0]                      lq_alloc_idx,    // lowest free slot (!lq_full)
     output logic [2:0]                      lq_used,
@@ -142,6 +147,7 @@ module lq (
     logic                     e_result_vld  [LQ_ENTRIES];  // result latched, completion owed
     logic [31:0]              e_result      [LQ_ENTRIES];
     logic                     e_mmio_sent   [LQ_ENTRIES];  // device read issued once
+    logic [7:0]               e_epoch       [LQ_ENTRIES];  // allocation generation
 
     //-------------------------------------------------------------------------
     // Allocation-order list: ord[0] is the OLDEST live load; arbitrary entries
@@ -230,17 +236,19 @@ module lq (
     logic        lookup_elig [LQ_ENTRIES];
     logic        mmio_elig   [LQ_ENTRIES];
 
+    // Block 1: entry state conditions ONLY.  It must not depend on any data
+    // input (fill_word / mmio_rsp_data), otherwise Verilator's block-level
+    // dependency analysis would close a combinational loop
+    //   lq lookup -> dcache_top -> mshr -> lq fill.
     always_comb begin
         for (int unsigned i = 0; i < LQ_ENTRIES; i++) begin
             logic [3:0]  fm;
-            logic [31:0] fd;
             logic [1:0]  si;
             si = i[1:0];
 
             // memory.md 4.2: the snapshot is frozen once confirmed; takeover,
             // drain and SQ slot reuse must not change it.
             fm = e_snap_valid[i] ? e_snap_mask[i] : fwd_mask_c[i];
-            fd = e_snap_valid[i] ? e_snap_data[i] : fwd_data_c[i];
 
             // memory.md 4.1/4.2: the snapshot is confirmed on the first cycle
             // the entry owns an address and every older store is ready.
@@ -249,18 +257,7 @@ module lq (
 
             // memory.md 4.2 item 3/4: fully forwarded bytes produce the result
             // without a lookup and without occupying an MSHR.
-            ff_now[i]    = snap_now[i] && ((fm & e_byte_mask[i]) == e_byte_mask[i]);
-            ff_result[i] = lsu_merge_extract(32'd0, fwd_mask_c[i], fwd_data_c[i],
-                                             e_unsigned[i], e_addr[i][1:0], e_size[i]);
-
-            // memory.md 4.2 item 4: forwarded bytes win over the DCache word,
-            // then LB/LH/LW/LBU/LHU select + sign/zero extension.
-            fill_result[i] = lsu_merge_extract(fill_word, fm, fd,
-                                               e_unsigned[i], e_addr[i][1:0], e_size[i]);
-
-            // memory.md 3.1: a MMIO result comes from the device word only.
-            mmio_result[i] = lsu_merge_extract(mmio_rsp_data, 4'd0, 32'd0,
-                                               e_unsigned[i], e_addr[i][1:0], e_size[i]);
+            ff_now[i] = snap_now[i] && ((fm & e_byte_mask[i]) == e_byte_mask[i]);
 
             agu_reg_now[i] = agu_valid && (agu_qidx[1:0] == si)
                           && e_alive[i] && !rel_entry[i];
@@ -278,6 +275,28 @@ module lq (
                         && load_head_valid
                         && (load_head_tag.slot_index == e_tag[i])
                         && !rel_entry[i];
+        end
+    end
+
+    // Block 2: data merge results (do NOT feed back into the lookup decision).
+    always_comb begin
+        for (int unsigned i = 0; i < LQ_ENTRIES; i++) begin
+            logic [3:0]  fm;
+            logic [31:0] fd;
+            fm = e_snap_valid[i] ? e_snap_mask[i] : fwd_mask_c[i];
+            fd = e_snap_valid[i] ? e_snap_data[i] : fwd_data_c[i];
+
+            ff_result[i] = lsu_merge_extract(32'd0, fwd_mask_c[i], fwd_data_c[i],
+                                             e_unsigned[i], e_addr[i][1:0], e_size[i]);
+
+            // memory.md 4.2 item 4: forwarded bytes win over the DCache word,
+            // then LB/LH/LW/LBU/LHU select + sign/zero extension.
+            fill_result[i] = lsu_merge_extract(fill_word, fm, fd,
+                                               e_unsigned[i], e_addr[i][1:0], e_size[i]);
+
+            // memory.md 3.1: a MMIO result comes from the device word only.
+            mmio_result[i] = lsu_merge_extract(mmio_rsp_data, 4'd0, 32'd0,
+                                               e_unsigned[i], e_addr[i][1:0], e_size[i]);
         end
     end
 
@@ -394,8 +413,10 @@ module lq (
                 e_mmio_sent[i]   <= 1'b0;
             end
             ord_cnt <= 3'd0;
-            for (int unsigned k = 0; k < LQ_ENTRIES; k++)
-                ord[k] <= 2'd0;
+            for (int unsigned k = 0; k < LQ_ENTRIES; k++) begin
+                ord[k]     <= 2'd0;
+                e_epoch[k] <= 8'd0;
+            end
             lk_hold_valid <= 1'b0;
             lk_hold_idx   <= 2'd0;
         end else begin
@@ -423,6 +444,9 @@ module lq (
                     e_result_vld[i]  <= 1'b0;
                     e_result[i]      <= '0;
                     e_mmio_sent[i]   <= 1'b0;
+                    // New lifetime: bump the generation so a stale MSHR waiter
+                    // can never be handed to this (reused) slot (D-M2b-04).
+                    e_epoch[i]       <= e_epoch[i] + 8'd1;
                 end else if (rel_entry[i]) begin
                     // Completion fired or Flush kill.  Kill beats a same-cycle
                     // fill / result: the pending state is dropped without a
@@ -527,6 +551,16 @@ module lq (
 
     assign lq_used = alive_cnt;
     assign lq_full = (alive_cnt == 3'(LQ_ENTRIES));
+
+    //-------------------------------------------------------------------------
+    // M2b waiter tokens (D-M2b-04): a pure observation of the registered entry
+    // state, used by mshr to drop stale waiters (idx + tag + epoch match).
+    //-------------------------------------------------------------------------
+    for (genvar gw = 0; gw < LQ_ENTRIES; gw++) begin : g_wait_token
+        assign lq_wait_pending[gw] = e_lk_inflight[gw];
+        assign lq_wait_tag[gw]     = e_tag[gw];
+        assign lq_wait_epoch[gw]   = e_epoch[gw];
+    end
 
 `ifdef CONFIG_SIMULATION
     //-------------------------------------------------------------------------
