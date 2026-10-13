@@ -100,6 +100,17 @@ module tb_lq;
     logic [2:0]                      lq_used;
     logic                            lq_full;
 
+    // M2b waiter tokens (D-M2b-04) + per-slot allocation generation model
+    logic [LQ_ENTRIES-1:0] lq_wait_pending;
+    tag_t                  lq_wait_tag   [LQ_ENTRIES];
+    logic [7:0]            lq_wait_epoch [LQ_ENTRIES];
+    logic [7:0]            prev_epoch    [LQ_ENTRIES];
+    tag_t                  last_tag_seen;
+    int unsigned           n_wait_seen = 0;
+    int unsigned           n_epoch_seen = 0;
+
+    initial for (int unsigned e = 0; e < LQ_ENTRIES; e++) prev_epoch[e] = 8'd0;
+
     lq dut (.*);
 
     //-------------------------------------------------------------------------
@@ -126,9 +137,30 @@ module tb_lq;
 
     task automatic settle(); #1; endtask
 
+    // Token observation (M2b additive ports): count generation advances and
+    // pending samples so the exported token ports are exercised by the bench.
+    task automatic chk_tokens();
+        int unsigned i;
+        begin
+            i = 0;
+            while (i < LQ_ENTRIES) begin
+                if (lq_wait_epoch[i] !== prev_epoch[i]) begin
+                    prev_epoch[i] = lq_wait_epoch[i];
+                    n_epoch_seen  = n_epoch_seen + 1;
+                end
+                if (lq_wait_pending[i]) begin
+                    n_wait_seen   = n_wait_seen + 1;
+                    last_tag_seen = lq_wait_tag[i];
+                end
+                i = i + 1;
+            end
+        end
+    endtask
+
     task automatic tick();
         @(posedge clk);
         #1;
+        chk_tokens();
     endtask
 
     // fixed-seed PRNG (independent of simulator seeding)
@@ -1367,8 +1399,10 @@ module tb_lq;
         test_mmio();
         test_random();
 
+        chk(n_wait_seen > 0, "waiter token was never observed pending");
+        chk(n_epoch_seen > 0, "allocation generation never advanced");
         if (errors == 0)
-            $display("ALL TESTS PASSED: %0d checks - reset/alloc+older_store_mask/AGU-gate/dep_ready+takeover/partial+fill/full-forward LB-LBU-LH-LHU-LW/age-list+wrap+alloc_idx/kill+stale-fill/completion-handshake/MMIO/12000-cycle random-vs-model", checks);
+            $display("ALL TESTS PASSED: %0d checks - reset/alloc+older_store_mask/AGU-gate/dep_ready+takeover/partial+fill/full-forward LB-LBU-LH-LHU-LW/age-list+wrap+alloc_idx/kill+stale-fill/completion-handshake/MMIO/waiter-tokens(%0d epoch bumps, %0d pending samples, last tag %0d)/12000-cycle random-vs-model", checks, n_epoch_seen, n_wait_seen, last_tag_seen.slot_index);
         else
             $fatal(1, "FAILED: %0d errors in %0d checks", errors, checks);
         $finish;

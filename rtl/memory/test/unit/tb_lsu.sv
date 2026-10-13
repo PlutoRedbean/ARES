@@ -155,6 +155,13 @@ module tb_lsu;
         mem_word = mem[bidx(a)][32*a[3:2] +: 32];
     endfunction
 
+    // Architectural word: with the M2b write-back DCache, physical memory only
+    // matches the architectural image after the dirty lines were written back,
+    // so the reference snapshot must come from the commit-time image.
+    function automatic logic [31:0] arch_word(input logic [31:0] a);
+        arch_word = arch[bidx(a)][32*a[3:2] +: 32];
+    endfunction
+
     task automatic beat_write(input logic [31:0] a, input logic [127:0] d, input logic [15:0] be);
         for (int unsigned b = 0; b < 16; b++)
             if (be[b]) mem[bidx(a)][8*b +: 8] = d[8*b +: 8];
@@ -343,8 +350,33 @@ module tb_lsu;
                     r_done[idx]   = 1'b1;
                     if (p_expect_en[idx])
                         chk(completion.result == p_expect[idx], "MMIO load result mismatch");
-                    else if (!p_is_store[idx])
+                    else if (!p_is_store[idx]) begin
+                        if (completion.result !== expected_load(idx)) begin
+                            $display("LOAD MISMATCH li=%0d op=%0d addr=%08x exp=%08x got=%08x snap=%08x",
+                                     idx, p_op[idx], p_addr[idx], expected_load(idx),
+                                     completion.result, r_snap[idx]);
+                            $display("  CACHE set=%0d way0 tag=%05x v=%b d=%b | way1 tag=%05x v=%b d=%b | lru=%0d | DC own=%b st=%b idx=%0d | MSHR st=%0d/%0d line=%08x/%08x way=%b%b",
+                                p_addr[idx][11:5],
+                                dut.u_dcache.u_arrays.g_way[0].tag_mem[p_addr[idx][11:5]],
+                                dut.u_dcache.u_arrays.g_way[0].line_valid_mem[p_addr[idx][11:5]],
+                                dut.u_dcache.u_arrays.g_way[0].dirty_mem[p_addr[idx][11:5]],
+                                dut.u_dcache.u_arrays.g_way[1].tag_mem[p_addr[idx][11:5]],
+                                dut.u_dcache.u_arrays.g_way[1].line_valid_mem[p_addr[idx][11:5]],
+                                dut.u_dcache.u_arrays.g_way[1].dirty_mem[p_addr[idx][11:5]],
+                                dut.u_dcache.u_arrays.lru_mem[p_addr[idx][11:5]],
+                                dut.u_dcache.own_valid, dut.u_dcache.own_store, dut.u_dcache.own_idx,
+                                dut.u_mshr.state_q[0], dut.u_mshr.state_q[1],
+                                dut.u_mshr.line_q[0], dut.u_mshr.line_q[1],
+                                dut.u_mshr.way_q[0], dut.u_mshr.way_q[1]);
+                            $display("  ROWS set=%0d row=%0d way0=%016x way1=%016x",
+                                p_addr[idx][11:5], p_addr[idx][4:3],
+                                dut.u_dcache.u_arrays.g_way[0].row_mem[
+                                    {p_addr[idx][11:5], p_addr[idx][4:3]}],
+                                dut.u_dcache.u_arrays.g_way[1].row_mem[
+                                    {p_addr[idx][11:5], p_addr[idx][4:3]}]);
+                        end
                         chk(completion.result == expected_load(idx), "cacheable load result mismatch");
+                    end
                 end
             end
         end
@@ -437,7 +469,7 @@ module tb_lsu;
                         r_issued[li]       = 1'b1;
                         r_tag[li]          = issue_req.tag;
                         tag_busy[free_idx] = 1'b1;
-                        r_snap[li]         = p_is_store[li] ? 32'd0 : mem_word(p_addr[li]);
+                        r_snap[li]         = p_is_store[li] ? 32'd0 : arch_word(p_addr[li]);
                         r_issue_ptr        = r_issue_ptr + 1;
                     end
                 end
@@ -468,7 +500,7 @@ module tb_lsu;
 
                     if (lane == 0) begin
                         // architectural update of the committed store
-                        if (p_is_store[r_retire_ptr])
+                        if (p_is_store[r_retire_ptr] && !p_is_mmio[r_retire_ptr])
                             for (int unsigned b = 0; b < 4; b++)
                                 if (p_mask[r_retire_ptr][b])
                                     arch[bidx(p_addr[r_retire_ptr])][8*(4*(p_addr[r_retire_ptr][3:2])+b) +: 8]
@@ -493,7 +525,7 @@ module tb_lsu;
                                 head_ok = 1'b1;
                             end
                             if (head_ok) begin
-                                if (p_is_store[r_retire_ptr])
+                                if (p_is_store[r_retire_ptr] && !p_is_mmio[r_retire_ptr])
                                     for (int unsigned b = 0; b < 4; b++)
                                         if (p_mask[r_retire_ptr][b])
                                             arch[bidx(p_addr[r_retire_ptr])][8*(4*(p_addr[r_retire_ptr][3:2])+b) +: 8]
@@ -545,6 +577,30 @@ module tb_lsu;
             while ((r_retire_ptr < p_count) && (guard < budget)) begin
                 step();
                 guard = guard + 1;
+            end
+            if (r_retire_ptr != p_count) begin
+                $display("STUCK: retire=%0d issue=%0d p_count=%0d lq=%0d sq=%0d lc=%0d sc=%0d idle=%b",
+                         r_retire_ptr, r_issue_ptr, p_count, dbg_lq_used, dbg_sq_used,
+                         load_credit, store_credit, lsu_mmio_order_idle);
+                for (int unsigned k = r_retire_ptr; k < r_issue_ptr; k++)
+                    $display("  op[%0d] store=%b done=%b killed=%b tag=%0d addr=%08x mmio=%b",
+                             k, p_is_store[k], r_done[k], r_killed[k],
+                             r_tag[k].slot_index, p_addr[k], p_is_mmio[k]);
+                $display("  DC: own=%b store=%b idx=%0d psw=%b way=%b set=%0d row=%0d | MSHR: st=%0d/%0d line=%08x/%08x way=%b%b wake=%b%b waiter=%b%b | WB: st=%0d/%0d | SQ: occ=%0d cmt=%0d head=%0d drainv=%b | LQ: alive=%b infl=%b resv=%b",
+                    dut.u_dcache.own_valid, dut.u_dcache.own_store, dut.u_dcache.own_idx,
+                    dut.u_dcache.psw_valid, dut.u_dcache.psw_way, dut.u_dcache.psw_set,
+                    dut.u_dcache.psw_row,
+                    dut.u_mshr.state_q[0], dut.u_mshr.state_q[1],
+                    dut.u_mshr.line_q[0], dut.u_mshr.line_q[1],
+                    dut.u_mshr.way_q[0], dut.u_mshr.way_q[1],
+                    dut.u_mshr.wake_valid[0], dut.u_mshr.wake_valid[1],
+                    dut.u_mshr.wq_v_q[0], dut.u_mshr.wq_v_q[1],
+                    dut.u_wb.state_q[0], dut.u_wb.state_q[1],
+                    dut.u_sq.occupancy_r, dut.u_sq.committed_cnt_r, dut.u_sq.sq_head_ptr,
+                    dut.u_sq.drain_valid,
+                    {dut.u_lq.e_alive[3], dut.u_lq.e_alive[2], dut.u_lq.e_alive[1], dut.u_lq.e_alive[0]},
+                    {dut.u_lq.e_lk_inflight[3], dut.u_lq.e_lk_inflight[2], dut.u_lq.e_lk_inflight[1], dut.u_lq.e_lk_inflight[0]},
+                    {dut.u_lq.e_result_vld[3], dut.u_lq.e_result_vld[2], dut.u_lq.e_result_vld[1], dut.u_lq.e_result_vld[0]});
             end
             chk(r_retire_ptr == p_count, "program did not retire within the cycle budget");
         end
@@ -631,6 +687,10 @@ module tb_lsu;
         end
     endtask
 
+    // NOTE (M2b): the behavioural "poke" writes memory behind the DUT, so a
+    // write-back cache would shadow it if the line were already cached.  The
+    // poked phases therefore run before any phase that leaves dirty lines in
+    // the cache, and every phase after them uses the LSU/reference model only.
     task automatic test_reset();
         begin
             chk(load_credit == 3'd4, "reset: load_credit is not 4");
@@ -734,6 +794,8 @@ module tb_lsu;
                 @(negedge clk);
                 if (completion_valid) begin
                     got = got + 1;
+                    $display("STALE-AGU completion tag=%0d result=%08x (val_a=%08x val_b=%08x)",
+                             completion.tag.slot_index, completion.result, val_a, val_b);
                     chk(completion.result == val_b,
                         "stale AGU result was written into a reallocated LQ entry");
                 end
@@ -786,7 +848,9 @@ module tb_lsu;
         int unsigned pick;
         begin
             for (int unsigned i = 0; i < n; i++) begin
-                base = MEM_BASE + 32'(4 * $urandom_range(15, 0));
+                // Span enough lines to exercise hits, capacity/conflict misses,
+                // dirty victim writebacks and MSHR merges (M2b).
+                base = MEM_BASE + 32'(4 * $urandom_range(255, 0));
                 pick = $urandom_range(9, 0);
                 case (pick)
                     0: begin op = OP_SB; a = base + 32'($urandom_range(3, 0)); end
@@ -806,6 +870,59 @@ module tb_lsu;
                     add_load(op, a);
                 end
             end
+        end
+    endtask
+
+    // DCache directed sequence (M2b): cold store miss (reserve + overlay),
+    // install, store hit + pending write, same-line load merge, dirty victim
+    // eviction (writeback) and refill.  Load values are checked by the common
+    // reference model, the writeback by the final image check.
+    task automatic test_dcache();
+        logic [31:0] a0, a0b, a2, a3;
+        begin
+            prog_reset();
+            a0  = MEM_BASE + 32'h0000_1000;
+            a0b = a0 + 32'(DCACHE_NUM_SETS * LINE_BYTES);   // same set, other tag
+            a2  = a0 + 32'd4;
+            a3  = a0 + 32'd8;
+
+            add_store(OP_SW, a2,  32'h1111_2222);   // cold store miss -> overlay
+            add_load (OP_LW, a2);                   // install -> 0x11112222
+            add_store(OP_SW, a3,  32'h3333_4444);   // store hit -> pending write
+            add_load (OP_LW, a3);                   // hit -> 0x33334444
+            add_load (OP_LW, a0);                   // same line, MSHR/hit path
+            add_store(OP_SW, a0b, 32'h5555_6666);   // dirty victim -> WB entry
+            add_load (OP_LW, a0b);                  // refill after writeback
+            add_load (OP_LW, a0);                   // original line still readable
+
+            c_kill_enable = 1'b0;
+            run_until_retired(20000);
+            run_idle(200);
+            chk(store_credit == 4'd8, "dcache: SQ did not drain back to empty");
+            chk(load_credit == 3'd4, "dcache: LQ did not drain back to empty");
+        end
+    endtask
+
+    // After the run every dirty line must leave the write-back cache before the
+    // physical image can be compared with the architectural image: read-walk
+    // each set twice (both ways) in an untouched region, so every resident dirty
+    // line is evicted (and written back) and the walk lines end up clean.
+    task automatic drain_cache();
+        begin
+            // Four read misses per Set in an untouched region (same Set = same
+            // addr[11:5], different tag needs bit12+; k*0x1000 walks four tags).
+            // Four allocations per Set always displace both previous occupants
+            // (2-way), so every dirty line leaves the cache and is written back;
+            // the walk lines themselves end up clean.
+            for (int unsigned s = 0; s < DCACHE_NUM_SETS; s++) begin
+                for (int unsigned k = 0; k < 4; k++) begin
+                    add_load(OP_LW, MEM_BASE + 32'h0000_4000 + 32'(k * 32'h1000)
+                                  + 32'(s * LINE_BYTES));
+                end
+            end
+            c_kill_enable = 1'b0;
+            run_until_retired(400000);
+            run_idle(400);
         end
     endtask
 
@@ -833,10 +950,12 @@ module tb_lsu;
         @(posedge clk); #1;
 
         test_forwarding();
+        test_stale_agu();   // pokes memory: must run before the cache gets dirty
         test_kill();
-        test_stale_agu();
         test_mmio();
+        test_dcache();
         test_random();
+        drain_cache();
 
         //---------------------------------------------------------------------
         // Final image check: every committed store reached memory, and no
@@ -846,7 +965,19 @@ module tb_lsu;
             int unsigned mismatches;
             mismatches = 0;
             for (int unsigned b = 0; b < BEATS; b++)
-                if (mem[b] !== arch[b]) mismatches = mismatches + 1;
+                if (mem[b] !== arch[b]) begin
+                    if (mismatches < 4)
+                        $display("IMAGE MISMATCH beat=%0d addr=%08x mem=%032x arch=%032x | CACHE set=%0d way0 tag=%05x v=%b d=%b way1 tag=%05x v=%b d=%b | WB st=%0d/%0d",
+                             b, {16'h8010, b[15:0], 4'b0}, mem[b], arch[b], b[11:5],
+                             dut.u_dcache.u_arrays.g_way[0].tag_mem[b[11:5]],
+                             dut.u_dcache.u_arrays.g_way[0].line_valid_mem[b[11:5]],
+                             dut.u_dcache.u_arrays.g_way[0].dirty_mem[b[11:5]],
+                             dut.u_dcache.u_arrays.g_way[1].tag_mem[b[11:5]],
+                             dut.u_dcache.u_arrays.g_way[1].line_valid_mem[b[11:5]],
+                             dut.u_dcache.u_arrays.g_way[1].dirty_mem[b[11:5]],
+                             dut.u_wb.state_q[0], dut.u_wb.state_q[1]);
+                    mismatches = mismatches + 1;
+                end
             chk(mismatches == 0, "physical memory image differs from the architectural image");
             $display("tb_lsu: completion events=%0d kills=%0d cycles=%0d mismatched beats=%0d",
                      n_completions, n_kills, cycle_count, mismatches);
