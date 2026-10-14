@@ -86,35 +86,35 @@ ARES_MT_SRCS := \
     $(MINITENSOR_HOME)/rtl/top/mini_tensor_top.sv
 
 # Empty pins are intentional debug observations / unused mailbox status.
-lint-soc:
+lint-soc: config-gen
 	@verilator $(VERILATOR_LINT_FLAGS) -Wno-PINCONNECTEMPTY --top-module student_top \
-	    $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
+	    $(RTL_ROOT)/common/fe_pkg.sv $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
 	    $(wildcard $(RTL_ROOT)/backend/*.sv) $(wildcard $(RTL_ROOT)/memory/*.sv) \
 	    $(RTL_ROOT)/top/ares_core_top.sv $(RTL_ROOT)/top/student_top.sv $(ARES_SOC_SRCS)
 
 # miniTensor SoC integration (S09): elaborate the real JYD subtree together
 # with mini_tensor_top and the ARES CV-X-IF host adapter.  The DMA master is
 # exported by ares_soc_top and left for the future Fabric (SPEC-M7/M20/M21).
-lint-mt:
+lint-mt: config-gen
 	@echo "[lint] ares_soc_top + mini_tensor_top + ares_mt_host_adapter"
 	@verilator $(VERILATOR_LINT_FLAGS) -Wno-PINCONNECTEMPTY --top-module ares_soc_top \
-	    $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
+	    $(RTL_ROOT)/common/fe_pkg.sv $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
 	    $(wildcard $(RTL_ROOT)/backend/*.sv) $(wildcard $(RTL_ROOT)/memory/*.sv) \
 	    $(RTL_ROOT)/top/ares_core_top.sv $(RTL_ROOT)/top/student_top.sv \
 	    $(RTL_ROOT)/top/ares_soc_top.sv $(ARES_SOC_SRCS) $(ARES_MT_SRCS)
 
-unit-soc:
+unit-soc: config-gen
 	@mkdir -p $(ARES_HOME)/sim/build/unit/tb_jyd_bus
 	@verilator --binary --timing --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
-	    -Wno-PINCONNECTEMPTY -DCONFIG_SIMULATION --top-module tb_jyd_bus \
+	    -Wno-PINCONNECTEMPTY -DCONFIG_SIMULATION $(ARES_CFG_INC) --top-module tb_jyd_bus \
 	    --Mdir $(ARES_HOME)/sim/build/unit/tb_jyd_bus -o tb_jyd_bus \
 	    $(ARES_SOC_SRCS) $(RTL_ROOT)/soc/jyd/test/tb_jyd_bus.sv
 	@$(ARES_HOME)/sim/build/unit/tb_jyd_bus/tb_jyd_bus
 	@mkdir -p $(ARES_HOME)/sim/build/unit/tb_student_top
 	@verilator --binary --timing --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
-	    -Wno-PINCONNECTEMPTY -DCONFIG_SIMULATION --top-module tb_student_top \
+	    -Wno-PINCONNECTEMPTY -DCONFIG_SIMULATION $(ARES_CFG_INC) --top-module tb_student_top \
 	    --Mdir $(ARES_HOME)/sim/build/unit/tb_student_top -o tb_student_top \
-	    $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
+	    $(RTL_ROOT)/common/fe_pkg.sv $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
 	    $(wildcard $(RTL_ROOT)/backend/*.sv) $(wildcard $(RTL_ROOT)/memory/*.sv) \
 	    $(RTL_ROOT)/top/ares_core_top.sv $(RTL_ROOT)/top/student_top.sv $(ARES_SOC_SRCS) \
 	    $(RTL_ROOT)/soc/jyd/test/tb_student_top.sv
@@ -127,7 +127,7 @@ unit-soc:
 # outside the sim/Makefile VSRCS glob).
 #-----------------------------------------------------------------------------
 ARES_UNIT_TBS  := tb_decode tb_fu_exec tb_bru_csr tb_backend
-ARES_UNIT_SRCS := $(RTL_ROOT)/common/ares_pkg.sv $(wildcard $(RTL_ROOT)/backend/*.sv) \
+ARES_UNIT_SRCS := $(RTL_ROOT)/common/fe_pkg.sv $(RTL_ROOT)/common/ares_pkg.sv $(wildcard $(RTL_ROOT)/backend/*.sv) \
                   $(RTL_ROOT)/backend/test/lsu_stub.sv \
                   $(wildcard $(RTL_ROOT)/backend/test/unit/*.sv)
 
@@ -140,54 +140,59 @@ ARES_UNIT_SRCS := $(RTL_ROOT)/common/ares_pkg.sv $(wildcard $(RTL_ROOT)/backend/
 ARES_LSU_UNIT_TBS  := tb_lsu_agu tb_store_forward tb_sq tb_lq tb_lsu_completion \
                       tb_line_adapter tb_lsu \
                       tb_dcache_arrays tb_wb_buffer tb_mshr tb_mmio_bridge
-ARES_LSU_UNIT_SRCS := $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
+ARES_LSU_UNIT_SRCS := $(RTL_ROOT)/common/fe_pkg.sv $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
                       $(wildcard $(RTL_ROOT)/memory/*.sv) \
                       $(wildcard $(RTL_ROOT)/memory/test/unit/*.sv)
+ARES_CFG_INC := +incdir+$(ARES_HOME)/configs/build/vsrc/include
 VERILATOR_LINT_FLAGS := --lint-only -Wall --assert -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
-                        -DCONFIG_SIMULATION
+                        -DCONFIG_SIMULATION $(ARES_CFG_INC)
 
-lint-backend:
+# fe_pkg.sv includes the generated configuration header (configs/Kconfig).
+config-gen:
+	@$(KCONFIG) gen >/dev/null
+
+lint-backend: config-gen
 	@for top in be_top ciq be_issue_sched be_operand_read be_commit be_flush be_trap_ctrl \
 	            be_completion be_checkpoint be_producer_map be_bpu_update be_redirect be_gpr; do \
 	  echo "[lint] $$top"; \
 	  verilator $(VERILATOR_LINT_FLAGS) --top-module $$top \
-	      $(RTL_ROOT)/common/ares_pkg.sv $(wildcard $(RTL_ROOT)/backend/*.sv) || exit 1; \
+	      $(RTL_ROOT)/common/fe_pkg.sv $(RTL_ROOT)/common/ares_pkg.sv $(wildcard $(RTL_ROOT)/backend/*.sv) || exit 1; \
 	done
 
 # LSU / memory lint, including the C3 core top (ares_core_top needs both
 # subsystems, so it is linted together with the backend and memory sources).
-lint-lsu:
+lint-lsu: config-gen
 	@for top in store_forward lsu_agu lq sq lsu_completion line_adapter \
 	            dcache_arrays dcache_top mshr wb_buffer mmio_bridge lsu_top; do \
 	  echo "[lint] $$top"; \
 	  verilator $(VERILATOR_LINT_FLAGS) --top-module $$top \
-	      $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
+	      $(RTL_ROOT)/common/fe_pkg.sv $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
 	      $(wildcard $(RTL_ROOT)/memory/*.sv) $(wildcard $(RTL_ROOT)/memory/test/*.sv) || exit 1; \
 	done
 	@echo "[lint] ares_core_top"; \
 	verilator $(VERILATOR_LINT_FLAGS) --top-module ares_core_top \
-	    $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
+	    $(RTL_ROOT)/common/fe_pkg.sv $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
 	    $(wildcard $(RTL_ROOT)/backend/*.sv) $(wildcard $(RTL_ROOT)/memory/*.sv) \
     $(RTL_ROOT)/top/ares_core_top.sv || exit 1
 
-unit:
+unit: config-gen
 	@set -e; for tb in $(ARES_UNIT_TBS); do \
 	  d=$(ARES_HOME)/sim/build/unit/$$tb; \
 	  echo "[unit] $$tb"; \
 	  rm -rf $$d; mkdir -p $$d/ccache-tmp; \
 	  CCACHE_TEMPDIR=$$d/ccache-tmp verilator --binary --timing -sv --assert \
-	      -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD -DCONFIG_SIMULATION \
+	      -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD -DCONFIG_SIMULATION $(ARES_CFG_INC) \
 	      --top-module $$tb --Mdir $$d -o $$d/$$tb $(ARES_UNIT_SRCS); \
 	  $$d/$$tb | tail -3; \
 	done
 
-unit-lsu:
+unit-lsu: config-gen
 	@set -e; for tb in $(ARES_LSU_UNIT_TBS); do \
 	  d=$(ARES_HOME)/sim/build/unit/$$tb; \
 	  echo "[unit-lsu] $$tb"; \
 	  rm -rf $$d; mkdir -p $$d/ccache-tmp; \
 	  CCACHE_TEMPDIR=$$d/ccache-tmp verilator --binary --timing -sv --assert \
-	      -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD -DCONFIG_SIMULATION \
+	      -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD -DCONFIG_SIMULATION $(ARES_CFG_INC) \
 	      --top-module $$tb --Mdir $$d -o $$d/$$tb $(ARES_LSU_UNIT_SRCS); \
 	  if $$d/$$tb > $$d/run.log 2>&1; then \
 	    grep -E "ALL TESTS PASSED" $$d/run.log | head -1; \
