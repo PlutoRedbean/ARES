@@ -187,7 +187,7 @@
 | MMIO base | `0xA000_0000`：console +0x3F8、RTC +0x48/+0x4C、KBD +0x60、VGA +0x100、audio +0x200、disk +0x300 | `ares.h`、sim/README | [?] SPEC-M7 |
 | 64-bit 计时器 | memory.md 要求 SoC 提供 `mtime/mtimecmp`（当前 BSP 只有 64-bit uptime @0xA000_0048/4C） | memory.md §3.1 vs `ioe.c` | **[?] SPEC-M12** |
 | RESET_MTVEC | 必须由顶层定义（契约 §1） | 契约 §1 | **[?] SPEC-M8** |
-| 目标器件 / 时钟约束 | 「实际项目 FPGA 上 >200 MHz」 | AGENTS.md | **[?] SPEC-M10** |
+| 目标器件 / 时钟约束 | `xc7k325tffg900-2`；复用 JYD2025 `digital_twin.xpr` 综合/布线配置；CPU 时钟严格 >200 MHz | AGENTS.md、用户确认（2026-10-14），见 §9.6 | **SPEC-M10 部分解除**：生成器与 SoC OOC 综合已验证，板级接入/时序签核待完成 |
 
 ---
 
@@ -1144,7 +1144,7 @@ miniTensor.md §4.1 定义了**加速器侧主要通道**（但仍有字段缺�
 | **SPEC-M7** | **SoC 集成层规范缺失**：无 `ares_soc_top`/`core_top` 端口定义、无正式地址映射、无 Fabric/仲裁/内存控制器模块归属、无「ICache AXI4-Lite 通道」与「128-bit D 通道」的衔接方式（是否同一 Fabric、单 outstanding 如何共享、谁做译码）。现有事实映射仅见于 sim/README 与 BSP 头文件 | S02/S03/S04/S05/S07、L10/L11、V 全部 | memory.md §3.1/§6.7（只给要求，不给 SoC 层） | **阻塞**（集成与 TB） |
 | **SPEC-M8** | **复位/时钟架构缺失**：无复位控制器、无复位域/同步要求、无 `RESET_MTVEC` 取值（契约 §1 要求顶层定义），memory.md §6.7 只规定「协调 Cold Reset」的行为要求 | 所有模块；S01/S02/S03 | 契约 §1、memory.md §6.7 | **高** |
 | **SPEC-M9** | 仿真观测/退出端口形态未定义：`sim/csrc` 需要 `retire_event_enqueue/ebreak/interrupt_redirect/init_reg/get_npc_pc`，但无规范定义 ARES core 侧端口/时序（backend.md §16.1 只说「TB 在 Commit Head 边界识别 EBREAK，可选仿真 shadow」） | B18/B20、S01/S08 | backend.md §16.1、sim/README | 中 |
-| **SPEC-M10** | **PPA 签核环境缺失**：无器件型号、无 XDC、无 Vivado 工程 → AGENTS.md 的「>200 MHz 且无违例」无法验证（不得虚拟器件） | V07、全部时序敏感模块 | AGENTS.md（要求） | **阻塞**（验收） |
+| **SPEC-M10** | **PPA 签核环境部分到位（2026-10-14）**：用户指定 JYD2025 `digital_twin.xpr`、`xc7k325tffg900-2` 与既有综合/布线配置，见 §9.6；ARES SoC OOC 生成/综合已验证；尚需真实 FE/板级接入、CPU >200 MHz 时序与完整约束校验。旧 Core 报告不能作为 ARES 签核证据 | V07、全部时序敏感模块 | AGENTS.md（要求）、用户确认 | **仍阻塞验收**（接入/时钟/约束未闭环） |
 | **SPEC-M12** | Timer 未定义：memory.md §3.1 要求 SoC 提供 64-bit `mtime/mtimecmp` + `timer_irq`，但未给地址/实现归属；现有 BSP 只有 32-bit RTC(`0xA000_0048/4C`) 与 uptime 语义；RT-Thread 需要可编程比较器 | S06、B16、B20、BSP | memory.md §3.1、backend.md §16.1 | **高** |
 | **SPEC-M13** | 下层写可见性点/旧事务隔离的责任方未落实：memory.md §6.7/§10 要求「由实际 SoC Memory Controller **证明或实现**」，当前无该模块、无证明 | S05、L10 | memory.md §6.7/§10 | **高** |
 | **SPEC-M14** | 无顶层模块/端口清单文档：README 只有目录说明；`ares_core_top`/`soc_top` 端口需从各规范拼装（本计划 §6.4 给出建议，但需评审冻结） | S01/S02 | README | 中 |
@@ -1536,11 +1536,81 @@ M2b 范围（§9.4 顺序的后半）：L06 `dcache_top` + L07 `dcache_arrays` +
 
 ### 9.6 C4（P1）PPA 与 C5（P2）真实前端对接
 
+**C4 工程生成与 SoC 迁移基线（2026-10-14）**
+
+用户指定复用 JYD2025 `digital_twin.xpr` 中**源码与 IP 以外**的工程配置；旧 Core 源码、IP、历史报告不作为 ARES 实现/时序证据。版本化设置保存在 `fpga/vivado/baseline.xml`，约束快照为 `fpga/vivado/constraints/board.xdc`，生成过程不依赖旧工程路径。
+
+| 项目 | 当前基线 |
+|---|---|
+| FPGA / 工具 | `xc7k325tffg900-2` / Vivado 2025.2 |
+| 综合 | `synth_1` / `Flow_PerfOptimized_high`：`PerformanceOptimized`、FSM one-hot、保留等价寄存器、关闭资源共享/LUT combining、`shreg_min_size=5` |
+| 布线 | `impl_1` / `Performance_ExplorePostRoutePhysOpt`，保留 `-tns_cleanup` 和 post-route phys-opt；保留两个 impl copy 的非 IP 设置 |
+| 生成器 | `scripts/vivado/create_project.py` + `generate.tcl`；源文件/配置/配方快照与 SHA-256、有效工具设置、编译顺序、IP 状态、日志随工程保存 |
+| IP | Tcl 重新生成 IROM（4096×64，1-cycle）/BRAM（65536×32，byte enable，2-cycle）；可选 PLL（200MHz 差分输入，50MHz 外设 + 显式指定 CPU 频率）；不导入旧 XCI/DCP/COE |
+| SoC / Core | `rtl/top/student_top.sv` / `ares_core_top Core_cpu`；平台依赖位于 `rtl/soc/jyd/` |
+| 当前综合入口 | `soc` 默认：`student_top` OOC；`core`：`ares_core_top` OOC；FE IQ/Redirect/BPU 契约保留在外部端口，真实 FE 待 C5 |
+| 板级入口 | `board`：通过版本化 manifest 提供实际 `top` 与真实 FE/适配源；此模式才应用原板级 XDC、支持完整布线 |
+
+**用户已裁决（2026-10-14）**：本次先迁移 SoC/生成脚本，真实前端以后接入；沿用复制 SoC 的 `0x8020_xxxx` 外设映射和 uncached 别名，并授权记录架构差异。详见 `docs/jyd_soc_integration.md`：JYD 专用地址分类参数默认关闭，只有新 `student_top` 开启；不添加缓存别名一致性。原 miniTensor DMA 是 DPI 实现，暂不导入，保留外部控制接缝；原脉冲 Timer 不视为 `mtime/mtimecmp`（SPEC-M12 仍开放）。
+
+**执行与验证**：工程与 IROM/BRAM/PLL 生成已在 Vivado 2025.2 实际执行；`student_top` + 真实 ARES Core + 新 IP 已完成 OOC 综合。`make test-vivado` 7 项通过；`make lint-backend lint-lsu lint-soc` 通过；Backend 4 个 TB、LSU 11 个 TB、SoC 2 个 TB 通过；FE 桩 ISA 回归 36/36。SoC 总线集成 TB 为 2864 checks / 1200 随机部分写；Core+SoC 冒烟 12 条指令退休 / 14 checks。Vivado 集成期修正包类型/常量限定，去除操作数读取 `continue` 结构产生的锁存器，并把 Dispatch 一致性断言改为沿采样（无外部时序/协议变化）。
+
+**综合诊断（非 PPA 签核）**：CPU 请求 250MHz（4ns）、外设 50MHz；LUT 42428、FF 16664、BRAM Tile 74.5、DSP 5、Latch 0。综合 WNS=-9.888ns、TNS=-180019.219ns、WHS=0.059ns、THS=0；最差路径从 `Core_cpu/u_backend/u_bru/op_src1_reg[0]` 到 `Core_cpu/u_backend/u_smul/op_result_reg[16]`，需 C4 进一步分析/优化。`check_timing` 内部 no_clock/unconstrained endpoints 均为 0，但外部 I/O 缺输入/输出延迟（493/491），与 OOC/外部 FE 的验证边界一致。**未跑 ARES 板级 `route_design`，MC4 未达成，PPA 未验证。** 250MHz 是诊断目标，不是达到的频率。
+
+实施/复现命令和完整板级签核步骤见 `fpga/vivado/README.md`。SPEC-M10 已从“无工程”转为“生成器可用，板级 FE/适配/完整约束及 post-route 签核待闭环”。
+
 - **C4 PPA**：SPEC-M10 提供器件/XDC/工程后，跑 synth → impl → `route_design`，按 §8.4 判定（WNS/TNS/WHS/THS、`check_timing`、时钟 > 200 MHz）；不达标回到对应模块做时序优化（保持外部契约），然后重跑 C3 回归。
 - **C5 前端对接**：FE 维护者按 `docs/fe_contract_migration.md` 完成迁移（10–16 人日）后，用真实 `frontend.sv` 替换 `fe_stub`：
   1. 先跑 `tb_fe_be_contract.sv`（契约 §6 断言，后端提供）；
   2. 再跑 35 用例 ISA 回归（真实预测路径）；
   3. 若 FE 尚未就绪但要做性能预演，可临时用 `fe_legacy_adapter.sv`（限制见 `docs/core_verification_flow.md` §7，**不可用于签核**）。
+
+### 9.6a 仓库清理（2026-10-14）
+
+- 已退役根目录旧 `npc/` 副本，以及 `sim/` 的 Mundus 测试顶层、生成 RTL、旧配置和 Chisel 生成脚本。
+- `sim/Makefile` 默认且仅使用本地 ARES Core＋契约 FE 桩；旧命令中 `ARES_RTL=1` 可以保留，但不再需要。ISA 流程不再依赖外部 NPC。
+- miniTensor RTL/测试、RT-Thread 驱动、BSP 补丁、应用、模型及历史验收资料保留。RT-Thread 工程由用户后续加入；旧 `run_jyd_sim.sh` 改为显式指定外部 `MUNDUS_HOME`，不代表 ARES RTOS 集成完成。
+- 构建目录、编译产物、波形和 Vivado 缓存/运行产物忽略；可重建的 miniTensor 权重 blob 忽略，ONNX、校准输入及自校验 golden 头保留。
+- 本节之前的 NPC 构建分支描述作为历史记录保留；当前入口以根 README 和 `sim/README.md` 为准。
+
+本次清理均位于 Backend/Memory 之外：
+
+| 文件 | 原因与兼容性/后续 |
+|---|---|
+| `npc/` 全部旧副本 | SoC 已迁到 `rtl/`，工程配置/IP 已由 ARES 生成器负责；旧 CPU 仿真改用外部 Mundus |
+| `sim/rtl/tb_mundus_npc.sv`、`sim/rtl/generated/Mundus.sv`、`sim/config/autoconf.vh`、`sim/scripts/gen_mundus.sh` | 删除仅服务旧 DUT 的测试顶层、生成 RTL、配置及工具 |
+| `sim/Makefile`、根 `Makefile` | 清理旧 DUT 分支/`lint-npc`；显式选择 `ares_core_top`，避免 Core 测试导入独立 SoC 顶层；ARES 命令和协议保持兼容 |
+| `sim/csrc/main.cpp` | 帮助文本改为当前 ARES＋FE 桩，执行行为不变 |
+| `.gitignore`、`miniTensor/.gitignore` | 排除构建产物与可重建权重 blob；两个 blob 取消索引跟踪但保留本地内容 |
+| 根 `README.md`、`sim/README.md`、`docs/core_verification_flow.md`、`docs/jyd_soc_integration.md`、本计划 | 更新默认构建入口和清理记录，不改架构要求 |
+| `miniTensor/README.md`、`miniTensor/integration/README.md`、`MANIFEST.md`、`run_jyd_sim.sh` | 保留 RT-Thread 集成资料，明确旧记录边界；旧脚本需设置外部 `MUNDUS_HOME`，并显式传本地 `MT_HOME` |
+
+后续由 RT-Thread/miniTensor 集成维护者加入 RTOS 工程并完成 ARES 适配；本次不改变 CPU/加速器接口、地址契约或流水线行为。
+
+清理后验证：`make -C sim lint-all`、`make lint-lsu`、`make isa`（36/36）、
+`make tb-ares-pkg tb-fe-stub tb-mem-model`（三个 GOOD TRAP）、`make test-vivado`（7/7）、
+`make -C miniTensor npc-sim` 均通过。旧 RT-Thread 脚本通过语法及缺环境/缺 BSP/本地
+`MT_HOME` 和 image/run 参数传递检查（使用临时替身 Makefile，不代表 RTOS 实际运行）。
+忽略检查确认构建产物被排除，源码、ONNX、校准输入及 golden 头仍可跟踪；未改动已有历史日志的空白格式。
+
+### 9.6b miniTensor 文件整理（2026-10-14）
+
+- `miniTensor/README.md` 改为当前源码/测试/软件集成的入口索引；旧完整部署说明迁到 `miniTensor/docs/legacy_mundus_deployment.md`。
+- 原 `miniTensor/miniTensor.md` 迁到 `miniTensor/docs/legacy_microarch.md`，正文原样保留并标记为旧快照；当前批准架构仍是 `docs/microarch/miniTensor.md`，未合并或修改架构要求。
+- `miniTensor/.gitignore` 排除构建/环境/缓存/波形/运行日志和旧九级模型备份；`integration/logs/` 的 11 份原始日志及 `handoff/archive/9stage/` 的 3 份过期夹具取消 Git 跟踪，磁盘内容保留。
+- 新增 `miniTensor/models/README.md` 说明模型输入、blob 生成方式与打包器覆盖关系；ONNX、NPZ 校准输入和 BSP golden 头继续跟踪。RTL、测试、驱动、补丁和工具路径均保留，兼容现有 Makefile 及后续 RT-Thread 导入。
+- 更新 `miniTensor/handoff/README.md`、`miniTensor/integration/README.md` 和 `MANIFEST.md` 的导航与本地日志边界。所有本次修改都在 Backend/Memory 之外，仅整理文件/文档/忽略策略；维护者后续仍需完成真实 ARES RTOS/加速器接入。
+
+验证：`make -C miniTensor regress` 九个目标全部通过；当前入口文档的相对链接均有效，
+旧集成脚本 `bash -n` 通过。`git ls-files -ci --exclude-standard -- miniTensor` 为空，
+忽略检查覆盖日志、备份、权重 blob、环境与构建目录，并确认 RTL/测试/BSP/补丁/工具/
+模型输入/golden 文档未被误忽略。原始日志和旧夹具在本地仍存在；未创建提交。
+
+**提交组织**：用户随后授权在 `base_core` 按功能拆分本次修改。提交系列依次覆盖包符号
+兼容修正、Backend 综合修正、JYD SoC、Vivado 生成器、旧 DUT 退役，以及 miniTensor
+基础模块、Tensor、顶层、MMIO/DPI 适配、RT-Thread 驱动/模型应用、打包工具、模型输入、
+外部平台集成、历史资料和当前入口文档，共 16 个本地提交。源码与对应测试一起提交，
+共享 Makefile 按功能分阶段记录，生成物不入库；不推送、不重写既有历史。
 
 ### 9.7 延后项（P3，不在 core 计划内）
 

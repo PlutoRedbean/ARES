@@ -206,46 +206,22 @@ endmodule
 
 ## 4. 构建与运行
 
-### 4.1 `sim/Makefile` 需要的最小改动
+### 4.1 当前 ARES 构建入口
 
-1. 现有开头有一个硬检查会挡住 ARES RTL（它假定 RTL_ROOT 是 npc 树）：
-
-```make
-ifeq ($(wildcard $(RTL_ROOT)/include/common_para.vh),)
-  $(error RTL_ROOT ... does not look like the npc vsrc tree ...)
-endif
-```
-
-加一个开关（示意）：
-
-```make
-ifneq ($(ARES_RTL),1)
-  ifeq ($(wildcard $(RTL_ROOT)/include/common_para.vh),)
-    $(error ...)
-  endif
-else
-  VSRCS := $(SIM_HOME)/rtl/tb_ares_core.sv \
-           $(wildcard $(RTL_ROOT)/common/*.sv) \
-           $(wildcard $(RTL_ROOT)/backend/*.sv) $(wildcard $(RTL_ROOT)/backend/**/*.sv) \
-           $(wildcard $(RTL_ROOT)/memory/*.sv)   $(wildcard $(RTL_ROOT)/memory/**/*.sv)
-  V_DEF_MACRO := -D__VERILATOR__ -DCONFIG_SIMULATION
-endif
-```
-
-注意：**package 文件（`ares_pkg.sv`）必须排在模块之前**，Verilator 才能解析 `import`。
-
-2. 顶层名与 RTL 根：
+`sim/Makefile` 现默认且仅构建本地 ARES Core＋契约 FE 桩，旧 Mundus 分支已退役。
+`RTL_ROOT` 默认指向仓库 `rtl/`，顶层默认 `tb_ares_core`；已有命令中的
+`ARES_RTL=1` 可保留，但不再需要。package 文件仍必须排在模块之前。
 
 ```bash
-make -C sim ARES_RTL=1 RTL_ROOT=$(pwd)/rtl TOPNAME=tb_ares_core            # 构建
-make -C sim ARES_RTL=1 RTL_ROOT=$(pwd)/rtl TOPNAME=tb_ares_core \
-     run PROGRAM=tests/cpu-tests/build/add-riscv32-ares.bin                # 跑单个镜像
-make -C sim ARES_RTL=1 RTL_ROOT=$(pwd)/rtl TOPNAME=tb_ares_core \
-     wave PROGRAM=tests/cpu-tests/build/add-riscv32-ares.bin               # FST 波形
-make -C sim ARES_RTL=1 RTL_ROOT=$(pwd)/rtl TOPNAME=tb_ares_core lint       # 仅 lint
+make -C sim
+make -C sim lint
+make -C sim run PROGRAM="$PWD/tests/cpu-tests/build/add-riscv32-ares.bin"
+make -C sim wave PROGRAM="$PWD/tests/cpu-tests/build/add-riscv32-ares.bin"
+make -C tests/cpu-tests ARCH=riscv32-ares run
 ```
 
-3. ISA 回归（`tests/cpu-tests/Makefile` 经 `platform/ares.mk` 调 `make -C sim run`）：把 `ARES_RTL=1 RTL_ROOT=... TOPNAME=...` 加进 `SIM_ARGS` 或 `ares.mk` 一行即可复用现有 35 个用例与退出码（0/1/2/3）。
+ISA 回归经 `platform/ares.mk` 调用默认 ARES 仿真，不需设置外部 `NPC_HOME`。
+`SIM_ARGS` 仅传模拟器参数，例如 `--itrace`，不用于选择 Makefile 的 DUT。
 
 ### 4.2 单元 TB（不经 harness，最快）
 

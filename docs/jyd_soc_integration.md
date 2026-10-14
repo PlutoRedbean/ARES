@@ -91,3 +91,71 @@ The legacy hardware port is only 32 bits; splitting 16-byte misses/writebacks
 is a board-specific memory service cost. It does not change core issue width,
 FU latency, cache-hit path, LSU completion bandwidth or the accepted 128-bit
 bus protocol. Real frontend and multi-master DMA throughput remain unverified.
+
+## Verification and integration fixes
+
+- `make test-vivado`: generator tests (clean input set, config/image validation,
+  output overwrite guards, clock/profile guards, relocation/Tcl literal paths).
+- `make lint-soc`: whole `student_top`, real Core, platform helpers and IP timing
+  models; intentional unconnected debug/mailbox pins are explicitly waived.
+- `make unit-soc`: `tb_jyd_bus` exercises the real peripheral bridge under
+  random downstream stalls, arbitrary byte masks, queue full/wrap/concurrent
+  enqueue/dequeue, response backpressure, reset, aliases, MMIO and LED CDC;
+  `tb_student_top` retires 12 instructions through real ARES Core, testing
+  uncached stores/loads, MMIO and a cache miss/hit after a visible alias store.
+- `tb_lsu_agu` retains default coverage and adds explicitly enabled uncached
+  windows with boundaries and computed-address classification.
+- Existing Backend/LSU unit suites and FE-stub ISA regression remain the generic
+  core regression; they are separate from SoC and real-FE verification.
+
+Executed validation (2026-10-14): generator **7/7**, Backend **4/4 TB**, LSU
+**11/11 TB**, SoC **2/2 TB**, generic FE-stub ISA **36/36**; final lint targets
+passed. The SoC bus bench produced **2864 checks**; the student_top bench
+retired **12 instructions / 14 checks**. Actual Vivado IP generation and SoC
+OOC synthesis completed on `xc7k325tffg900-2` with the preserved strategies.
+The final synthesis contains **zero latches**, LUT **42428**, FF **16664**,
+BRAM Tile **74.5**, DSP **5**. CPU target was 250MHz (4ns), not achieved Fmax:
+synthesis WNS **-9.888ns**, TNS **-180019.219ns**, WHS **0.059ns**, THS **0**;
+worst path is BRU `op_src1_reg[0]` → SMUL `op_result_reg[16]`. Internal
+no_clock/unconstrained endpoints are zero; exposed OOC ports still lack
+493 input and 491 output delay constraints. Board routing and PPA remain
+unverified. Reports are in `build/vivado/soc-synth-final/reports/`.
+
+Vivado initially rejected unqualified package types/constants in ANSI module
+ports before their module-body import; they are now explicitly qualified.
+Its first synthesis also inferred latches in `be_operand_read` around a loop
+`continue`; an equivalent complete `if/else` supplies every output on every
+path. The dispatch decode-consistency assertions now sample at clock edges,
+avoiding transient combinational false failures in the integrated testbench.
+These compatibility fixes preserve interface widths and active datapath behavior.
+
+See [Vivado workflow](../fpga/vivado/README.md) for project creation and future
+board routing. Subsystem synthesis is diagnostic; no post-route MC4 acceptance
+is claimed by this migration. Tool reports and build inputs live under the
+ignored `build/vivado/` tree.
+
+## Files outside Backend/Memory and handoff
+
+| Files | Necessity / compatibility / follow-up |
+|---|---|
+| `rtl/top/ares_core_top.sv` | Pass the default-off JYD classification parameter to LSU; generic port/latency behavior unchanged |
+| `rtl/top/student_top.sv` | Replace old Core with ARES and expose its FE contract; FE/board owner must connect real FE and physical top later |
+| `rtl/soc/jyd/ares_jyd_bus_bridge.sv` | New 16B→32-bit board adapter; preserves accepted write ownership, read ordering and MMIO ACK |
+| `rtl/soc/jyd/perip_bridge.sv` | Migrate board map/CDC; byte-strobe caller updated with adapter; new idle observation; aliases deliberately retain copied backing semantics |
+| `rtl/soc/jyd/bram_driver.sv` | Retain hardware BRAM port wiring; independent of old simulation config/DPI memory |
+| `rtl/soc/jyd/counter.sv` | Migrate counter/IRQ without legacy config header; M-mode timer semantics remain a later architecture decision |
+| `rtl/soc/jyd/cdc_xpm_nofifo_lib.sv` | Retain platform XPM CDC helpers; final board CDC still requires independent sign-off |
+| `rtl/soc/jyd/display_seg.sv`, `seg7.sv` | Platform SEG output dependencies; synchronous reset migration; board default widths retained |
+| `rtl/soc/jyd/test/tb_jyd_bus.sv`, `tb_student_top.sv` | Self-checking platform/Core integration tests; no synthesized test logic |
+| `rtl/soc/jyd/test/memory_ip_models.sv`, `xpm_cdc_models.sv` | Unit-test timing/CDC models only; not substitutes for hardware IP/CDC sign-off |
+| `scripts/vivado/create_project.py`, `generate.tcl`, `test_create_project.py` | Portable generator, vendor execution and input/guard tests; full board needs a complete source manifest |
+| `fpga/vivado/baseline.xml`, `constraints/board.xdc` | Versioned non-source/IP project configuration and original board constraints; final I/O timing and clock exceptions still need validation |
+| `fpga/vivado/ip/memories.tcl`, `ip/pll.tcl` | Reproducible fresh catalog IP, with explicit widths/latencies/frequencies |
+| `fpga/vivado/README.md` | Team generation/configuration/build/sign-off instructions |
+| `Makefile`, `.gitignore` | Team entry points and generated-output exclusion; ARES targets retained, legacy `lint-npc` retired during repository cleanup |
+| `docs/implementation_plan.md`, this document | Track authorized scope, mapping exceptions, validation and remaining MC4/C5 work |
+
+Original `npc/` was removed after migration during repository cleanup.
+The miniTensor RTL, tests and RT-Thread integration sources are retained and are not
+implicitly imported by the generator. Cleanup updates the index only for the
+removed legacy files and untracked generated blobs; no commit was created.
