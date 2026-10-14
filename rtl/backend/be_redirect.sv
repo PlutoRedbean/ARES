@@ -21,7 +21,7 @@ module be_redirect (
     input  logic [31:0]             mret_pc,
     input  logic                    branch_valid,
     input  logic [31:0]             branch_pc,
-    input  logic [GHR_WIDTH-1:0]    branch_ghr_before,
+    input  logic [ares_pkg::GHR_WIDTH-1:0]    branch_ghr_before,
     input  logic                    branch_taken,
     input  logic                    irq_valid,
     input  logic [31:0]             irq_pc,
@@ -29,8 +29,8 @@ module be_redirect (
     //---- BE -> FE redirect --------------------------------------------------
     output logic                    redirect_valid,
     output logic [31:0]             redirect_pc,
-    output fe_redirect_kind_t       redirect_kind,
-    output logic [GHR_WIDTH-1:0]    redirect_ghr_before,
+    output ares_pkg::fe_redirect_kind_t       redirect_kind,
+    output logic [ares_pkg::GHR_WIDTH-1:0]    redirect_ghr_before,
     output logic                    redirect_actual_taken,
 
     //---- winner identification for the flush path --------------------------

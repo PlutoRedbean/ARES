@@ -16,7 +16,7 @@
 //              wb_req_valid/wb_line_addr/wb_line_data and is handed to the
 //              Line Adapter on wb_req_valid && wb_req_ready.
 //   DRAINING   the Line Adapter owns the line and is emitting the
-//              LINE_BEATS x 16B full-byte-enable beats; wb_done (last beat
+//              ares_pkg::LINE_BEATS x 16B full-byte-enable beats; wb_done (last beat
 //              accepted, D-M2b-03 - never waiting for the physical write to
 //              finish) returns the entry to FREE.
 //
@@ -43,7 +43,7 @@
 //   all entry state is updated on the clock edge).
 // Self-check bench: rtl/memory/test/unit/tb_wb_buffer.sv
 //
-// Build / run (repository root; explicit file list; LINE_BYTES = 16 / 32 / 64,
+// Build / run (repository root; explicit file list; ares_pkg::LINE_BYTES = 16 / 32 / 64,
 // default 32):
 //   $ verilator --lint-only -Wall --assert -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
 //     -DCONFIG_SIMULATION -DCONFIG_LINE_BYTES=32 --top-module wb_buffer \

@@ -23,33 +23,33 @@
 //=============================================================================
 module be_flush (
     //---- entry array --------------------------------------------------------
-    input  queue_entry_t            entry [CIQ_ENTRIES],
-    input  tag_t                    commit_ptr,
+    input  ares_pkg::queue_entry_t            entry [ares_pkg::CIQ_ENTRIES],
+    input  ares_pkg::tag_t                    commit_ptr,
 
     //---- normal commit of this cycle (frees slots, advances commit_ptr) ----
     input  logic [1:0]              commit_fire,
-    input  tag_t                    commit_tag [2],
+    input  ares_pkg::tag_t                    commit_tag [2],
 
     //---- branch recovery ----------------------------------------------------
     input  logic                    recovery_valid,
-    input  tag_t                    recovery_branch_tag,
+    input  ares_pkg::tag_t                    recovery_branch_tag,
 
     //---- full-queue flush (trap / mret / IRQ boundary) ---------------------
     input  logic                    full_flush_valid,
     input  logic                    full_flush_keep_head,  // MRET commits lane 0 first
-    input  tag_t                    full_flush_ptr,
+    input  ares_pkg::tag_t                    full_flush_ptr,
 
     //---- frozen checkpoint row read (be_checkpoint) ------------------------
     input  logic [31:0]             cp_rvalid,
-    input  tag_t                    cp_rtag [32],
+    input  ares_pkg::tag_t                    cp_rtag [32],
 
     //---- outputs ------------------------------------------------------------
-    output logic [CIQ_ENTRIES-1:0]  kill_mask,
+    output logic [ares_pkg::CIQ_ENTRIES-1:0]  kill_mask,
     output logic                    restore_valid,
-    output tag_t                    restore_ptr,
+    output ares_pkg::tag_t                    restore_ptr,
     output logic [31:0]             restore_map_valid,
-    output tag_t                    restore_map_tag [32],
-    output logic [CIQ_ENTRIES-1:0]  cp_release
+    output ares_pkg::tag_t                    restore_map_tag [32],
+    output logic [ares_pkg::CIQ_ENTRIES-1:0]  cp_release
 );
     import ares_pkg::*;
 

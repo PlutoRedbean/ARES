@@ -26,9 +26,9 @@ module be_commit (
     input  logic                    rst,
 
     //---- CIQ state ----------------------------------------------------------
-    input  queue_entry_t            entry [CIQ_ENTRIES],
-    input  tag_t                    commit_ptr,
-    input  logic [CIQ_ENTRIES-1:0]  kill_mask,
+    input  ares_pkg::queue_entry_t            entry [ares_pkg::CIQ_ENTRIES],
+    input  ares_pkg::tag_t                    commit_ptr,
+    input  logic [ares_pkg::CIQ_ENTRIES-1:0]  kill_mask,
 
     //---- external commit conditions ----------------------------------------
     input  logic [1:0]              store_commit_ok,
@@ -39,7 +39,7 @@ module be_commit (
 
     //---- commit lanes -------------------------------------------------------
     output logic [1:0]              commit_fire,
-    output tag_t                    commit_tag [2],
+    output ares_pkg::tag_t                    commit_tag [2],
     output logic [1:0]              commit_rd_wen,
     output logic [4:0]              commit_rd [2],
     output logic [31:0]             commit_wdata [2],
@@ -51,8 +51,8 @@ module be_commit (
     output logic [31:0]             commit_pc [2],
     output logic                    commit_actual_taken [2],
     output logic [31:0]             commit_actual_target [2],
-    output cfi_type_t               commit_actual_cfi_type [2],
-    output pred_meta_t              commit_pred_meta [2],
+    output ares_pkg::cfi_type_t               commit_actual_cfi_type [2],
+    output ares_pkg::pred_meta_t              commit_pred_meta [2],
 
     //---- architectural writes ----------------------------------------------
     output logic                    csr_commit_we,
@@ -61,7 +61,7 @@ module be_commit (
 
     //---- Store lane handshake with the LSU (backend.md 14.6) ---------------
     output logic [1:0]              store_commit_valid,
-    output tag_t                    store_commit_tag [2],
+    output ares_pkg::tag_t                    store_commit_tag [2],
 
     //---- retire observation (simulation hooks, backend.md 16.1) -----------
     output logic [1:0]              retire_valid,

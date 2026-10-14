@@ -21,7 +21,7 @@
 //                      completely ignored, other bits 0
 //       mhartid 0xF14: read-only 0 (single hart)
 //       optional misa 0x301 / mtval 0x343 / mcycle 0xB00 + mcycleh 0xB80 are
-//       compiled in only when ares_pkg::HAS_MISA / HAS_MTVAL / HAS_MCYCLE = 1.
+//       compiled in only when ares_pkg::HAS_MISA / ares_pkg::HAS_MTVAL / ares_pkg::HAS_MCYCLE = 1.
 //       All three are 0 in v1 (D-C0-13), so those four addresses are decoded
 //       as NOT implemented (raddr_ok = 0) and their storage does not exist.
 //   backend.md section 16.2 - the CSR Unit reads the old value and the commit

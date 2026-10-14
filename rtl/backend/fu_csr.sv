@@ -41,11 +41,11 @@
 //   * rd=x0 is handled by the commit stage (the GPR write enable), not here;
 //     CSRRW[I] always computes a new value, CSRRS/CSRRC[I] always read.
 //
-// FREE items exercised: FREE-01 (op_t encodings), FREE-02 (file layout),
+// FREE items exercised: FREE-01 (ares_pkg::op_t encodings), FREE-02 (file layout),
 // FREE-04 (shared read-modify-write datapath), FREE-10 (verification
 // environment).
 //=============================================================================
-/* verilator lint_off UNUSEDSIGNAL */  // CSR FU reads only its own subset of the shared fu_req_t
+/* verilator lint_off UNUSEDSIGNAL */  // CSR FU reads only its own subset of the shared ares_pkg::fu_req_t
 module fu_csr (
     input  logic                             clk,
     input  logic                             rst,

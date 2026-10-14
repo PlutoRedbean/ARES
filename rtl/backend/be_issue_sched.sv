@@ -25,28 +25,28 @@
 //=============================================================================
 module be_issue_sched (
     //---- four oldest candidates and their resolved sources -----------------
-    input  queue_entry_t cand [ISSUE_WIDTH_MAX],
-    input  logic [31:0]  src1 [ISSUE_WIDTH_MAX],
-    input  logic [31:0]  src2 [ISSUE_WIDTH_MAX],
-    input  logic         src_ready [ISSUE_WIDTH_MAX],
+    input  ares_pkg::queue_entry_t cand [ares_pkg::ISSUE_WIDTH_MAX],
+    input  logic [31:0]  src1 [ares_pkg::ISSUE_WIDTH_MAX],
+    input  logic [31:0]  src2 [ares_pkg::ISSUE_WIDTH_MAX],
+    input  logic         src_ready [ares_pkg::ISSUE_WIDTH_MAX],
 
     //---- ordering / global conditions --------------------------------------
-    input  tag_t         issue_ptr,
-    input  tag_t         commit_ptr,
+    input  ares_pkg::tag_t         issue_ptr,
+    input  ares_pkg::tag_t         commit_ptr,
     input  logic         lsu_mmio_order_idle,
     input  logic         recovery_valid,
     input  logic         flush_active,
 
-    //---- FU acceptance and LSU credits (indexed by fu_type_t) -------------
+    //---- FU acceptance and LSU credits (indexed by ares_pkg::fu_type_t) -------------
     input  logic [7:0]   fu_can_accept,
-    input  logic [2:0]   load_credit,     // LQ_ENTRIES = 4 (3 bits = 0..4)
-    input  logic [3:0]   store_credit,    // SQ_ENTRIES = 8 (4 bits = 0..8)
+    input  logic [2:0]   load_credit,     // ares_pkg::LQ_ENTRIES = 4 (3 bits = 0..4)
+    input  logic [3:0]   store_credit,    // ares_pkg::SQ_ENTRIES = 8 (4 bits = 0..8)
 
     //---- grants (CIQ: WAIT -> EXEC, FU: latch the request) -----------------
-    output logic [ISSUE_WIDTH_MAX-1:0] issue_grant,
-    output tag_t                       issue_tag [ISSUE_WIDTH_MAX],
+    output logic [ares_pkg::ISSUE_WIDTH_MAX-1:0] issue_grant,
+    output ares_pkg::tag_t                       issue_tag [ares_pkg::ISSUE_WIDTH_MAX],
     output logic [7:0]                 fu_issue_valid,
-    output fu_req_t                    fu_req [8]
+    output ares_pkg::fu_req_t                    fu_req [8]
 );
     import ares_pkg::*;
 

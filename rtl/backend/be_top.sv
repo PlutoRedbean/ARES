@@ -44,8 +44,8 @@ module be_top #(
 
     //---- LSU interface (backend.md 9.6 / plan section 5.10) ----------------
     input  logic                        lsu_can_accept,
-    input  logic [2:0]                  load_credit,     // LQ_ENTRIES = 4 (3 bits = 0..4)
-    input  logic [3:0]                  store_credit,    // SQ_ENTRIES = 8 (4 bits = 0..8)
+    input  logic [2:0]                  load_credit,     // ares_pkg::LQ_ENTRIES = 4 (3 bits = 0..4)
+    input  logic [3:0]                  store_credit,    // ares_pkg::SQ_ENTRIES = 8 (4 bits = 0..8)
     output logic                        lsu_issue_valid,
     output ares_pkg::fu_req_t           lsu_issue_req,
     input  logic                        lsu_completion_valid,

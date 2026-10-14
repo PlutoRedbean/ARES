@@ -21,9 +21,9 @@
 //   These identities hold modulo 2^64, so the high word is correct for every
 //   operand combination (see the 128-bit reference model in the unit TB).
 //
-//   Stage usage: stage 1 registers operands, and stage MUL_LATENCY is the
-//   output/completion register.  For MUL_LATENCY = 3 the partial products are
-//   registered in an extra middle stage; for MUL_LATENCY = 2 the 16x16
+//   Stage usage: stage 1 registers operands, and stage ares_pkg::MUL_LATENCY is the
+//   output/completion register.  For ares_pkg::MUL_LATENCY = 3 the partial products are
+//   registered in an extra middle stage; for ares_pkg::MUL_LATENCY = 2 the 16x16
 //   products and the reduction share the single remaining stage.  Only the two
 //   configurations offered by configs/Kconfig (range 2..3) are supported.
 //
@@ -34,7 +34,7 @@
 //   docs/microarch/backend.md section 10    guaranteed-accept request + kill
 //   docs/microarch/backend.md section 11    completion protocol invariants
 //   docs/implementation_plan.md sections 5.6 / 5.7, module B13
-//   docs/c0_decisions.md D-C0-03            MUL_LATENCY default 3
+//   docs/c0_decisions.md D-C0-03            ares_pkg::MUL_LATENCY default 3
 //
 // FREE items exercised
 //   FREE-02  file organisation / internal partitioning
@@ -43,7 +43,7 @@
 //   FREE-11  internal pipeline register placement and naming
 //
 // Verification
-//   rtl/backend/test/unit/tb_fu_exec.sv runs both MUL_LATENCY = 2 and 3;
+//   rtl/backend/test/unit/tb_fu_exec.sv runs both ares_pkg::MUL_LATENCY = 2 and 3;
 //   lint and run commands are recorded in that test bench header.
 //=============================================================================
 module fu_mul (

@@ -20,12 +20,12 @@
 //=============================================================================
 module be_completion (
     //---- entry state visibility --------------------------------------------
-    input  queue_entry_t            entry [CIQ_ENTRIES],
-    input  logic [CIQ_ENTRIES-1:0]  kill_mask,
+    input  ares_pkg::queue_entry_t            entry [ares_pkg::CIQ_ENTRIES],
+    input  logic [ares_pkg::CIQ_ENTRIES-1:0]  kill_mask,
 
-    //---- FU completion ports (indexed by fu_type_t) ------------------------
+    //---- FU completion ports (indexed by ares_pkg::fu_type_t) ------------------------
     input  logic [7:0]              fu_completion_valid,
-    input  fu_completion_t          fu_completion [8],
+    input  ares_pkg::fu_completion_t          fu_completion [8],
     input  logic [31:0]             csr_write_data [8],
     input  logic [31:0]             actual_npc [8],
     input  logic                    actual_taken [8],
@@ -33,10 +33,10 @@ module be_completion (
 
     //---- filtered writes for the CIQ ---------------------------------------
     output logic [7:0]              cmpl_we,
-    output tag_t                    cmpl_tag [8],
+    output ares_pkg::tag_t                    cmpl_tag [8],
     output logic [31:0]             cmpl_result [8],
     output logic                    cmpl_exception [8],
-    output exception_cause_t        cmpl_cause [8],
+    output ares_pkg::exception_cause_t        cmpl_cause [8],
     output logic [31:0]             cmpl_tval [8],
     output logic [31:0]             cmpl_csr_write_data [8],
     output logic [31:0]             cmpl_actual_npc [8],

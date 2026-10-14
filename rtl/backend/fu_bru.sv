@@ -60,10 +60,10 @@
 //     encode the exact post-fix contract.
 //   * completion.result is pc + 4 for every supported operation.
 //
-// FREE items exercised: FREE-01 (op_t encodings), FREE-02 (file layout),
+// FREE items exercised: FREE-01 (ares_pkg::op_t encodings), FREE-02 (file layout),
 // FREE-04 (combinational structure), FREE-10 (verification environment).
 //=============================================================================
-/* verilator lint_off UNUSEDSIGNAL */  // BRU reads only the CFI fields of the shared fu_req_t
+/* verilator lint_off UNUSEDSIGNAL */  // BRU reads only the CFI fields of the shared ares_pkg::fu_req_t
 module fu_bru (
     input  logic                             clk,
     input  logic                             rst,

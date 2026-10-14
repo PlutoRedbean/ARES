@@ -30,7 +30,7 @@ module be_trap_ctrl (
     //---- commit head and commit lanes --------------------------------------
     input  logic            head_is_ecall,        // head is DONE with cause 11 (registered state)
     input  logic [31:0]     head_pc,              // ecall.pc -> mepc
-    input  tag_t            commit_ptr,
+    input  ares_pkg::tag_t            commit_ptr,
     input  logic [1:0]      commit_fire,
     input  logic            head_is_mret,         // commit head is a DONE MRET (registered state)
     input  logic [31:0]     commit_pc_next [2],
@@ -58,7 +58,7 @@ module be_trap_ctrl (
     //---- full-queue flush control (be_flush) -------------------------------
     output logic            full_flush_valid,
     output logic            full_flush_keep_head,
-    output tag_t            full_flush_ptr,
+    output ares_pkg::tag_t            full_flush_ptr,
 
     //---- CSR architectural updates (csr_file) ------------------------------
     output logic            trap_we,

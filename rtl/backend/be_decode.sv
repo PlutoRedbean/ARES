@@ -2,9 +2,9 @@
 // ARES core - backend instruction decode, one dispatch lane (B02)
 //-----------------------------------------------------------------------------
 // Purpose: purely combinational decoder for a single IQ lane.  be_dispatch
-// instantiates DECODE_WIDTH (=2) copies, one per dispatch slot.  The module
-// turns the raw instruction word of an iq_entry_t into every non-dependency
-// field of queue_entry_t, classifies the *actual* control flow and cross-checks
+// instantiates ares_pkg::DECODE_WIDTH (=2) copies, one per dispatch slot.  The module
+// turns the raw instruction word of an ares_pkg::iq_entry_t into every non-dependency
+// field of ares_pkg::queue_entry_t, classifies the *actual* control flow and cross-checks
 // the frontend predecode.  Encodings outside RV32IM + Zicsr + ECALL/EBREAK/MRET
 // raise decode_err instead of silently becoming a NOP (D-C0-01); v1 has no
 // illegal-instruction trap, so dispatch must drop the candidate instead.
@@ -20,7 +20,7 @@
 //   docs/c0_decisions.md D-C0-01  unsupported encoding -> decode_err (no NOP,
 //                                 no architectural trap), EBREAK retires
 //   docs/c0_decisions.md D-C0-09  ECALL / MRET are not CFI events
-//   docs/c0_decisions.md D-C0-13  HAS_MISA/HAS_MTVAL/HAS_MCYCLE default 0: an
+//   docs/c0_decisions.md D-C0-13  ares_pkg::HAS_MISA/ares_pkg::HAS_MTVAL/ares_pkg::HAS_MCYCLE default 0: an
 //                                 access to those CSR addresses is an error
 //   docs/implementation_plan.md 6.1 / B02
 //
@@ -42,11 +42,11 @@
 //=============================================================================
 /* verilator lint_off UNUSEDSIGNAL */  // decode only reads inst/valid/cfi fields of iq
 module be_decode (
-    input  iq_entry_t    iq,
+    input  ares_pkg::iq_entry_t    iq,
     output logic         decode_err,
     output logic         valid,
-    output fu_type_t     fu_type,
-    output op_t          op,
+    output ares_pkg::fu_type_t     fu_type,
+    output ares_pkg::op_t          op,
     output logic [4:0]   rd,
     output logic         rd_wen,
     output logic [4:0]   rs1,
@@ -59,7 +59,7 @@ module be_decode (
     output logic         is_serializing,
     output logic         is_cfi,
     output logic         is_branch,
-    output cfi_type_t    actual_cfi_type,
+    output ares_pkg::cfi_type_t    actual_cfi_type,
     output logic         is_load,
     output logic         is_store,
     output logic         is_csr,

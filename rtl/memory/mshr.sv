@@ -1,7 +1,7 @@
 //=============================================================================
 // ARES LSU - 2-entry MSHR: refill / victim capture / overlay / wake (L08)
 //-----------------------------------------------------------------------------
-// Tracks up to MSHR_ENTRIES (2) in-flight cache line misses.  A miss owns one
+// Tracks up to ares_pkg::MSHR_ENTRIES (2) in-flight cache line misses.  A miss owns one
 // MSHR entry plus one locked DCache Way of one Set for its whole lifetime
 // (RESERVE ... WAKE); the reservation is exported to the C3 hazard check via
 // lock_valid/lock_line_addr/lock_way and is only dropped when the entry
@@ -56,8 +56,8 @@
 //   FREE-11 (internal register placement - none added).
 // Self-check bench: rtl/memory/test/unit/tb_mshr.sv
 //
-// Build / run (repository root; explicit file list; LINE_BYTES comes from the
-// configuration menu - 16 / 32 / 64, default 32, ROWS_PER_LINE/LINE_BEATS are
+// Build / run (repository root; explicit file list; ares_pkg::LINE_BYTES comes from the
+// configuration menu - 16 / 32 / 64, default 32, ares_pkg::ROWS_PER_LINE/ares_pkg::LINE_BEATS are
 // derived inside ares_pkg):
 //   $ verilator --lint-only -Wall --assert -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
 //     -DCONFIG_SIMULATION -DCONFIG_LINE_BYTES=32 --top-module mshr \

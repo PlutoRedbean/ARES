@@ -24,7 +24,7 @@ module be_producer_map (
 
     //---- normal commit clears (backend.md 6.2) -----------------------------
     input  logic [1:0]  commit_fire,
-    input  tag_t        commit_tag [2],
+    input  ares_pkg::tag_t        commit_tag [2],
     input  logic [1:0]  commit_rd_wen,
     input  logic [4:0]  commit_rd [2],
 
@@ -32,16 +32,16 @@ module be_producer_map (
     input  logic [1:0]  disp_valid,
     input  logic [1:0]  disp_rd_wen,
     input  logic [4:0]  disp_rd [2],
-    input  tag_t        disp_tag [2],
+    input  ares_pkg::tag_t        disp_tag [2],
 
     //---- validated checkpoint restore (be_checkpoint) -----------------------
     input  logic        restore_valid,
     input  logic [31:0] restore_valid_map,
-    input  tag_t        restore_tag [32],
+    input  ares_pkg::tag_t        restore_tag [32],
 
     //---- map for dispatch source binding ------------------------------------
     output logic [31:0] base_valid,
-    output tag_t        base_tag [32]
+    output ares_pkg::tag_t        base_tag [32]
 );
     import ares_pkg::*;
 

@@ -25,15 +25,15 @@ module be_bpu_update (
     input  logic [31:0]             cand_pc [2],
     input  logic                    cand_actual_taken [2],
     input  logic [31:0]             cand_actual_target [2],
-    input  cfi_type_t               cand_actual_cfi_type [2],
-    input  pred_meta_t              cand_pred_meta [2],
+    input  ares_pkg::cfi_type_t               cand_actual_cfi_type [2],
+    input  ares_pkg::pred_meta_t              cand_pred_meta [2],
 
     //---- credit blocking for the commit prefix -----------------------------
     output logic [1:0]              bpu_block,
 
     //---- training events ----------------------------------------------------
     output logic [1:0]              bpu_update_valid,
-    output bpu_update_t             bpu_update [2]
+    output ares_pkg::bpu_update_t             bpu_update [2]
 );
     import ares_pkg::*;
 

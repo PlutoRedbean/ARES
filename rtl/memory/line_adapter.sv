@@ -1,7 +1,7 @@
 //=============================================================================
 // ARES LSU - cache line <-> 16B beat adapter (L10)
 //-----------------------------------------------------------------------------
-// Splits one Refill / Writeback into LINE_BEATS 16-byte beats on the custom
+// Splits one Refill / Writeback into ares_pkg::LINE_BEATS 16-byte beats on the custom
 // 128-bit memory bus (memory.md 6.7) and reassembles a refill line from the
 // individual beat responses.  It also exposes the single-beat read/write
 // ports used by the M2a direct path (lsu_top without DCache; LSU_INTERFACES.md
@@ -15,7 +15,7 @@
 //   * Beat b of a line lives at line_addr + 16*b and is bit slice
 //     [128*b +: 128] of the line.  Refill beats are written into
 //     refill_line_data and flagged in refill_beat_valid[b]; once all
-//     LINE_BEATS beats arrived refill_rsp_valid is raised and held until
+//     ares_pkg::LINE_BEATS beats arrived refill_rsp_valid is raised and held until
 //     refill_rsp_ready (assembled data is never overwritten while unconsumed).
 //   * Writeback beats use be = 16'hFFFF; single-beat writes carry their own
 //     byte enables.  wb_done / beat_wr_done are single-cycle pulses, raised on
@@ -31,7 +31,7 @@
 //
 // Latency (no backpressure): a single beat read is accepted in cycle 0, its
 // bus request is presented in cycle 1, the response is captured in cycle 2 and
-// handed to the client in cycle 3.  A refill needs 2*LINE_BEATS cycles for the
+// handed to the client in cycle 3.  A refill needs 2*ares_pkg::LINE_BEATS cycles for the
 // bus beats plus the accept cycle and the client response cycle.
 //
 // Spec sources: docs/microarch/memory.md 6.7 (bus + read ownership), 6.4
@@ -42,7 +42,7 @@
 // Self-check bench: rtl/memory/test/unit/tb_line_adapter.sv
 //
 // Build / run (repository root; explicit file list; the bench is compiled once
-// per line size - LINE_BYTES = 16 / 32 / 64, LINE_BEATS comes from ares_pkg):
+// per line size - ares_pkg::LINE_BYTES = 16 / 32 / 64, ares_pkg::LINE_BEATS comes from ares_pkg):
 //   $ verilator --lint-only -Wall --assert -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
 //     -DCONFIG_SIMULATION -DCONFIG_LINE_BYTES=32 --top-module line_adapter \
 //     rtl/common/ares_pkg.sv rtl/memory/line_adapter.sv

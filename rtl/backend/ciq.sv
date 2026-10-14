@@ -27,25 +27,25 @@ module ciq (
 
     //---- allocate (dispatch) ----------------------------------------------
     input  logic [1:0]              alloc_valid,
-    input  queue_entry_t            alloc_entry [2],
-    output tag_t                    alloc_ptr,
+    input  ares_pkg::queue_entry_t            alloc_entry [2],
+    output ares_pkg::tag_t                    alloc_ptr,
 
     //---- pointers / status -------------------------------------------------
-    output tag_t                    commit_ptr,
-    output tag_t                    issue_ptr,
+    output ares_pkg::tag_t                    commit_ptr,
+    output ares_pkg::tag_t                    issue_ptr,
     output logic [4:0]              free_count,
     output logic [4:0]              occupancy_count,
     output logic                    serializing_present,
 
     //---- entry array: issue candidates and result reads --------------------
-    output queue_entry_t            entry [CIQ_ENTRIES],
+    output ares_pkg::queue_entry_t            entry [ares_pkg::CIQ_ENTRIES],
 
     //---- completion registration (be_completion, one port per FU) ----------
     input  logic [7:0]              cmpl_we,
-    input  tag_t                    cmpl_tag [8],
+    input  ares_pkg::tag_t                    cmpl_tag [8],
     input  logic [31:0]             cmpl_result [8],
     input  logic                    cmpl_exception [8],
-    input  exception_cause_t        cmpl_cause [8],
+    input  ares_pkg::exception_cause_t        cmpl_cause [8],
     input  logic [31:0]             cmpl_tval [8],
     input  logic [31:0]             cmpl_csr_write_data [8],
     input  logic [31:0]             cmpl_actual_npc [8],
@@ -53,18 +53,18 @@ module ciq (
     input  logic [31:0]             cmpl_actual_target [8],
 
     //---- issue (be_issue_sched): WAIT -> EXEC ------------------------------
-    input  logic [ISSUE_WIDTH_MAX-1:0] issue_fire,
-    input  tag_t                       issue_tag [ISSUE_WIDTH_MAX],
+    input  logic [ares_pkg::ISSUE_WIDTH_MAX-1:0] issue_fire,
+    input  ares_pkg::tag_t                       issue_tag [ares_pkg::ISSUE_WIDTH_MAX],
 
     //---- commit ------------------------------------------------------------
     input  logic [1:0]              commit_fire,
-    input  tag_t                    commit_tag [2],
+    input  ares_pkg::tag_t                    commit_tag [2],
 
     //---- flush / kill (be_flush) -------------------------------------------
     input  logic                    restore_valid,
     input  logic                    restore_all,     // full flush: all three pointers collapse
-    input  tag_t                    restore_ptr,
-    input  logic [CIQ_ENTRIES-1:0]  kill_mask
+    input  ares_pkg::tag_t                    restore_ptr,
+    input  logic [ares_pkg::CIQ_ENTRIES-1:0]  kill_mask
 );
     import ares_pkg::*;
 

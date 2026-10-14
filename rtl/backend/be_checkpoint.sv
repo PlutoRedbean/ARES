@@ -19,20 +19,20 @@ module be_checkpoint (
 
     //---- snapshot write from dispatch (lane 0 / lane 1) --------------------
     input  logic [1:0]              cp_we,
-    input  tag_t                    cp_wslot [2],
+    input  ares_pkg::tag_t                    cp_wslot [2],
     input  logic [31:0]             cp_wvalid [2],
-    input  tag_t                    cp_wtag [2][32],
+    input  ares_pkg::tag_t                    cp_wtag [2][32],
 
     //---- release: CFI committed or squashed --------------------------------
-    input  logic [CIQ_ENTRIES-1:0]  cp_release,
+    input  logic [ares_pkg::CIQ_ENTRIES-1:0]  cp_release,
 
     //---- raw row read for restore validation -------------------------------
-    input  tag_t                    rd_slot,
+    input  ares_pkg::tag_t                    rd_slot,
     output logic [31:0]             cp_rvalid,
-    output tag_t                    cp_rtag [32],
+    output ares_pkg::tag_t                    cp_rtag [32],
 
     //---- assertion visibility ----------------------------------------------
-    output logic [CIQ_ENTRIES-1:0]  cp_valid_out
+    output logic [ares_pkg::CIQ_ENTRIES-1:0]  cp_valid_out
 );
     import ares_pkg::*;
 
