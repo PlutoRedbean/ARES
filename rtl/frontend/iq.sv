@@ -25,7 +25,6 @@ module iq (
 );
     import fe_pkg::*;
 
-    localparam int unsigned BODY_DEPTH = IQ_DEPTH - DECODE_WIDTH;  // BODY entry 数
     localparam int unsigned BIDX_W = (BODY_DEPTH > 1) ? $clog2(BODY_DEPTH) : 1;
     localparam int unsigned BOFF_W = BIDX_W + 1;  // room for a wrap-around offset
     localparam int unsigned BODY_CNT_W = $clog2(BODY_DEPTH + 1);
@@ -55,19 +54,16 @@ module iq (
     logic      [BIDX_W-1:0] body_wptr;
     logic      [BIDX_W-1:0] body_rptr;
 
-    // Advance a BODY ring pointer by `off`, wrapping at BODY_DEPTH.  `off` is at
-    // most BODY_DEPTH (a promote of 2 or a write of up to BODY_DEPTH entries),
-    // so a single conditional subtraction wraps it.  Binary pointers keep the
-    // pointer cost logarithmic in BODY_DEPTH (and hence in IQ_DEPTH).
     function automatic logic [BIDX_W-1:0] body_add(input logic [BIDX_W-1:0] base,
                                                    input logic [BOFF_W-1:0] off);
-        logic [BOFF_W-1:0] sum;
-        sum = {1'b0, base} + off;
-        body_add = (sum >= BOFF_W'(BODY_DEPTH)) ? BIDX_W'(sum - BOFF_W'(BODY_DEPTH)) : BIDX_W'(sum);
+        // logic [BOFF_W-1:0] sum;
+        // sum = {1'b0, base} + off;
+        // body_add = (sum >= BOFF_W'(BODY_DEPTH)) ? BIDX_W'(sum - BOFF_W'(BODY_DEPTH)) : BIDX_W'(sum);
+        body_add = base + BIDX_W'(off);
     endfunction
 
-    wire  [BIDX_W-1:0] n_body_rptr = body_add(body_rptr, BOFF_W'(1));
-    wire  [BIDX_W-1:0] n2_body_rptr = body_add(body_rptr, BOFF_W'(2));
+    wire  [BIDX_W-1:0] n_body_rptr = body_rptr + BIDX_W'(1);
+    wire  [BIDX_W-1:0] n2_body_rptr = body_rptr + BIDX_W'(2);
 
     // ---------------- read / write control ----------------
     // number of valid entries offered this cycle (contiguous from slot 0)
@@ -161,7 +157,7 @@ module iq (
     end
 
     // next BODY write pointer (advanced by the number of BODY entries)
-    wire [BIDX_W-1:0] n_body_wptr = body_add(body_wptr, BOFF_W'(body_write_num));
+    wire [BIDX_W-1:0] n_body_wptr = body_wptr + BIDX_W'(body_write_num);
 
     // ---------------- HEAD next head_state ----------------
     always_comb begin
@@ -256,7 +252,7 @@ module iq (
     assign enq_count = iq_w_fire ? write_num : '0;
     assign deq_count = raccept_cnt;
 
-`ifndef SYNTHESIS
+`ifndef __SYNTHESIS__
     always_ff @(posedge clk) begin
         // occupancy must never leave the representable range
         if (body_r_fire && (body_r_dec > body_occ))
@@ -293,6 +289,13 @@ module iq (
                 $error("[iq] over-consume: rvalid=%b raccept_cnt=%0d", rvalid, raccept_cnt);
             if (accept_on_flush) $error("[iq] accept during flush: raccept_cnt=%0d", raccept_cnt);
         end
+    end
+
+    initial begin
+        assert (DECODE_WIDTH == 2)
+        else $error("[iq] DECODE_WIDTH=%0d not supported", DECODE_WIDTH);
+        assert (1 << $clog2(BODY_DEPTH) == BODY_DEPTH)
+        else $error("[iq] BODY_DEPTH=%0d not a power-of-2", BODY_DEPTH);
     end
 `endif
 endmodule
