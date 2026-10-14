@@ -490,7 +490,6 @@ head和tail使用独热码+左旋的方式实现。
         logic [31:0] inst;
         logic        valid;  // 指令是否有效
 
-        logic need_redirect;     // 未预测目标的 JALR：暂停后续取指，并要求 BRU 强制 Redirect
         cfi_type_t cfi_type;  // is_jal is_jalr is_branch is_call is_ret
         logic is_cfi;  // control flow instruction
     } iq_entry_t;
@@ -652,7 +651,7 @@ PredecodeCheck主要检查Fetch Block中是否存在CFI指令，如果有，并�
 
 若 PredecodeCheck 发现预测错误，只有在能确定正确后继 PC（例如 JAL 立即数目标）时才在前端执行 Local Redirect；这不是 Backend CIQ Flush。不能从指令编码判断条件分支的实际 taken，也不能在 Predecode 求出 JALR 的寄存器目标。未预测到的条件分支按生效预测不跳转处理，并修复对应的推测 GHR。具体保留/取消范围见 `frontend_backend_contract.md` 第 3.1 节。
 
-> 若存在 JALR，则 Predecode 不核验其动态 Target（依赖 RF[rs1]）；未预测到可用目标时，在 IQ Entry 中置 `need_redirect=1`，并暂停该 JALR 之后的可见取指，等待 BRU 无条件恢复。
+> 若存在 JALR，则 Predecode 不核验其动态 Target（依赖 RF[rs1]），也不猜测其目标；该 JALR 正常进入 IQ 执行，由 BRU 在 `actual_npc != pred_npc` 时发起恢复。
 
 ```text
                  PreDecode
@@ -671,7 +670,7 @@ PredecodeCheck主要检查Fetch Block中是否存在CFI指令，如果有，并�
                               │
                               ├──────────► IQ
                               │
-                              └──► 设置 need_redirect = 1，暂停后续取指
+                               └──► JALR 正常入 IQ（不暂停后续取指）
                                        │
                                        ▼
                                   BRU 发出 redirect 请求
@@ -898,7 +897,7 @@ Cycle N+2:
 本章的**唯一规范性定义**见 [`frontend_backend_contract.md`](frontend_backend_contract.md)。
 
 - **Instruction**：`rvalid/rbits/raccept_cnt` 与 Backend 的 `iq_valid/iq_inst/iq_accept_count` 对应；`rvalid` 只允许 `00/01/11`，接受连续前缀，`raccept_cnt` 是唯一 IQ pop 条件。
-- **Prediction Metadata**：每条 CFI 的 `pred_npc` 为生效预测后继 PC；`pred_meta` 保留原始 BPU 预测和 `ghr_before`，随指令进入 CIQ。未预测目标的 JALR 使用 `need_redirect` 等待 BRU 强制恢复。
+- **Prediction Metadata**：每条 CFI 的 `pred_npc` 为生效预测后继 PC；`pred_meta` 保留原始 BPU 预测和 `ghr_before`，随指令进入 CIQ。未预测目标的 JALR 由 BRU 在目标不符时正常恢复。
 - **Redirect**：统一接收 Backend 最终仲裁的 `backend_redirect_valid/pc/kind`；Branch Recovery 使用逐 CFI `ghr_before/actual_taken` 恢复推测历史，Trap/MRET/IRQ 使用 Commit 历史。FE 本地修正不清空正确的 IQ 旧 prefix。
 - **BPU Update**：接收正常 CFI Commit 的最多两个 `bpu_update` 事件，通过登记的 `bpu_update_credit` 预留事件缓冲；在接受沿更新 `ghr_commit`，预测表可按顺序延迟训练。
 

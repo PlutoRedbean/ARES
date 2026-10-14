@@ -216,7 +216,6 @@ typedef struct packed {
   logic [31:0]       pc;
   logic [31:0]       pred_npc; // BRU：Frontend 修正后生效的预测下一 PC
   npc_pkg::pred_meta_t pred_meta; // CFI：原始 BPU 预测/训练元数据及 ghr_before
-  logic              need_redirect; // CFI：未预测目标（JALR）强制恢复
   npc_pkg::cfi_type_t actual_cfi_type; // CFI：Decode 确认的真实类别
   logic [31:0]       actual_npc; // BRU Completion 登记，供精确中断下一 PC 使用
   logic              actual_taken; // BRU Completion 登记，供 BPU 更新/历史恢复
@@ -597,10 +596,10 @@ Issue 每周期最多选择 4 个物理端口。FU 在 guaranteed-accept 协议�
 BRU 独立支持 `BEQ/BNE/BLT/BGE/BLTU/BGEU/JAL/JALR`，定义为 `latency = 1, II = 1`，正常运行时 `can_accept = 1`。BRU 根据 `pc/src/imm` 计算 `actual_npc`，并使用：
 
 ```text
-mispredict = need_redirect || (actual_npc != pred_npc)
+mispredict = (actual_npc != pred_npc)
 ```
 
-`JAL/JALR` 的普通结果为 `pc + 4`。BRU Completion 同沿另登记 `actual_npc / actual_taken / actual_target` 到 CIQ，供精确中断与 BPU Commit 训练使用。`need_redirect=1`（未预测目标的 JALR）即使 `actual_npc == pred_npc` 也必须恢复前端取指。第一版 BRU 不处理 instruction-address-misaligned；恢复通过第 15 节的 `recovery_valid / recovery_branch_tag / redirect_pc` sideband 直接触发，不等待 Commit。跨模块 Redirect 见 `frontend_backend_contract.md`。
+`JAL/JALR` 的普通结果为 `pc + 4`。BRU Completion 同沿另登记 `actual_npc / actual_taken / actual_target` 到 CIQ，供精确中断与 BPU Commit 训练使用。第一版 BRU 不处理 instruction-address-misaligned；恢复通过第 15 节的 `recovery_valid / recovery_branch_tag / redirect_pc` sideband 直接触发，不等待 Commit。跨模块 Redirect 见 `frontend_backend_contract.md`。
 
 ### 9.3 Short MUL（SMUL）
 
@@ -712,7 +711,6 @@ typedef struct packed {
   logic [31:0] imm;
   logic [31:0] pc;
   logic [31:0] pred_npc; // BRU only
-  logic        need_redirect; // BRU only：要求强制恢复的未预测 JALR
   logic [11:0] csr_addr;  // CSR only
   logic        csr_write_en; // CSR only；由编码中的 rs1/uimm 是否为零确定
 } fu_req_t;
@@ -1163,4 +1161,4 @@ ECALL/IRQ Trap 及 MRET 通过统一 Frontend Redirect 清除错误路径 IB；E
 - **Redirect**：Backend 在 Reset/Trap/MRET/BRU/IRQ 优先级仲裁后输出唯一 `backend_redirect_valid/pc/kind`；Branch 同时传 `ghr_before/actual_taken`；Redirect 同周期停止 Dispatch，Frontend 丢弃旧路径 IQ/FTQ/在途请求。
 - **BPU Update**：Commit 按 lane0→lane1 顺序对已正常退休 CFI 输出最多两个事件；先以 BPU 已登记 `bpu_update_credit` 约束 Commit，Frontend 更新 `ghr_commit` 并将训练信息排队处理；BRU Completion 不直接推进已提交预测历史。
 
-Frontend 内部 Predecode 修正仅修正尚未进入后端的取指路径，不触发 CIQ Flush。`pred_npc` 为修正后生效的预测值，`pred_meta` 保留原始预测信息；`need_redirect` 要求未预测 JALR 在 BRU Resolution 无条件发起一次恢复，防止 Frontend 等待死锁。
+Frontend 内部 Predecode 修正仅修正尚未进入后端的取指路径，不触发 CIQ Flush。`pred_npc` 为修正后生效的预测值，`pred_meta` 保留原始预测信息。
