@@ -149,6 +149,7 @@ module tb_lsu_agu;
     logic        out_is_mmio2;
 
     lsu_agu #(
+        .JYD_UNCACHED_WINDOWS (1'b1),
         .MMIO_BASE (ALT_BASE),
         .MMIO_MASK (ALT_MASK)
     ) u_dut_alt (
@@ -280,6 +281,10 @@ module tb_lsu_agu;
             endcase
 
             e.mmio = ((a & mmio_mask) == (mmio_base & mmio_mask));
+            // Independent range model for the explicitly enabled JYD profile.
+            if (mmio_base == ALT_BASE)
+                e.mmio |= (a >= 32'h8030_0000 && a <= 32'h8033_FFFF) ||
+                          (a >= 32'h8040_0000 && a <= 32'h83FF_FFFF);
             ref_agu = e;
         end
     endfunction
@@ -602,6 +607,17 @@ module tb_lsu_agu;
         issue_check(OP_LW, 32'hA001_0000, 32'h0000_0000, 32'hFFFF_0000, 3'd3, 4'd11, 1'b0); // sum -> 0xA000_0000
         issue_check(OP_LB, 32'h9FFF_FFFF, 32'h0000_0000, 32'h0000_0001, 3'd4, 4'd12, 1'b0); // sum -> 0xA000_0000
         issue_check(OP_LW, 32'hA000_0004, 32'h0000_0000, 32'hFFFF_0000, 3'd5, 4'd13, 1'b0); // sum -> 0x9FFF_0004
+
+        ctx = "JYD uncached windows, boundaries and computed address";
+        alt_check(OP_LW, 32'h8010_0000, 0, 0, 0);
+        alt_check(OP_LW, 32'h802F_FFFC, 0, 0, 0);
+        alt_check(OP_LW, 32'h8030_0000, 0, 0, 1);
+        alt_check(OP_LW, 32'h8033_FFFC, 0, 0, 1);
+        alt_check(OP_LW, 32'h8034_0000, 0, 0, 0);
+        alt_check(OP_LW, 32'h803F_FFFC, 0, 4, 1);
+        alt_check(OP_LW, 32'h83FF_FFFC, 0, 0, 1);
+        alt_check(OP_LW, 32'h8400_0000, 0, 0, 0);
+        alt_check(OP_SW, 32'h8030_0000, 32'hFEED_ABCD, 0, 1);
 
         //---------------------------------------------------------------------
         // 6. Kill priority and pipeline integrity under kill

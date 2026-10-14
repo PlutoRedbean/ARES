@@ -41,6 +41,34 @@ PROGRAM ?=
 
 all: lint lint-backend lint-lsu tb-ares-pkg tb-fe-stub tb-mem-model unit unit-lsu
 
+.PHONY: lint-soc unit-soc
+ARES_SOC_SRCS := $(wildcard $(RTL_ROOT)/soc/jyd/*.sv) \
+                $(RTL_ROOT)/soc/jyd/test/memory_ip_models.sv \
+                $(RTL_ROOT)/soc/jyd/test/xpm_cdc_models.sv
+# Empty pins are intentional debug observations / unused mailbox status.
+lint-soc:
+	@verilator $(VERILATOR_LINT_FLAGS) -Wno-PINCONNECTEMPTY --top-module student_top \
+	    $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
+	    $(wildcard $(RTL_ROOT)/backend/*.sv) $(wildcard $(RTL_ROOT)/memory/*.sv) \
+	    $(RTL_ROOT)/top/ares_core_top.sv $(RTL_ROOT)/top/student_top.sv $(ARES_SOC_SRCS)
+
+unit-soc:
+	@mkdir -p $(ARES_HOME)/sim/build/unit/tb_jyd_bus
+	@verilator --binary --timing --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+	    -Wno-PINCONNECTEMPTY -DCONFIG_SIMULATION --top-module tb_jyd_bus \
+	    --Mdir $(ARES_HOME)/sim/build/unit/tb_jyd_bus -o tb_jyd_bus \
+	    $(ARES_SOC_SRCS) $(RTL_ROOT)/soc/jyd/test/tb_jyd_bus.sv
+	@$(ARES_HOME)/sim/build/unit/tb_jyd_bus/tb_jyd_bus
+	@mkdir -p $(ARES_HOME)/sim/build/unit/tb_student_top
+	@verilator --binary --timing --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+	    -Wno-PINCONNECTEMPTY -DCONFIG_SIMULATION --top-module tb_student_top \
+	    --Mdir $(ARES_HOME)/sim/build/unit/tb_student_top -o tb_student_top \
+	    $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
+	    $(wildcard $(RTL_ROOT)/backend/*.sv) $(wildcard $(RTL_ROOT)/memory/*.sv) \
+	    $(RTL_ROOT)/top/ares_core_top.sv $(RTL_ROOT)/top/student_top.sv $(ARES_SOC_SRCS) \
+	    $(RTL_ROOT)/soc/jyd/test/tb_student_top.sv
+	@$(ARES_HOME)/sim/build/unit/tb_student_top/tb_student_top
+
 #-----------------------------------------------------------------------------
 # Backend (C1): lint the backend subsystem top and run the standalone
 # self-checking benches under rtl/backend/test/unit/ (each has its own clock,
@@ -89,7 +117,7 @@ lint-lsu:
 	verilator $(VERILATOR_LINT_FLAGS) --top-module ares_core_top \
 	    $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
 	    $(wildcard $(RTL_ROOT)/backend/*.sv) $(wildcard $(RTL_ROOT)/memory/*.sv) \
-	    $(wildcard $(RTL_ROOT)/top/*.sv) || exit 1
+	    $(RTL_ROOT)/top/ares_core_top.sv || exit 1
 
 unit:
 	@set -e; for tb in $(ARES_UNIT_TBS); do \

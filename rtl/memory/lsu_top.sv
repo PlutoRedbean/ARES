@@ -32,6 +32,7 @@
 //=============================================================================
 module lsu_top #(
     parameter logic [31:0] MMIO_BASE = 32'hA000_0000,
+    parameter bit JYD_UNCACHED_WINDOWS = 1'b0,
     parameter logic [31:0] MMIO_MASK = 32'hFF00_0000
 ) (
     input  logic                             clk,
@@ -124,6 +125,7 @@ module lsu_top #(
     logic        agu_is_unsigned_w, agu_is_mmio_w;
 
     lsu_agu #(
+        .JYD_UNCACHED_WINDOWS (JYD_UNCACHED_WINDOWS),
         .MMIO_BASE (MMIO_BASE),
         .MMIO_MASK (MMIO_MASK)
     ) u_agu (

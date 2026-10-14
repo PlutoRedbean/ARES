@@ -25,6 +25,7 @@
 module ares_core_top #(
     parameter logic [31:0] RESET_MTVEC = ares_pkg::RESET_PC,  // SPEC-M8: owned by the top
     parameter logic [31:0] MMIO_BASE   = 32'hA000_0000,       // SPEC-M7 placeholder
+    parameter bit JYD_UNCACHED_WINDOWS = 1'b0,
     parameter logic [31:0] MMIO_MASK   = 32'hFF00_0000
 ) (
     input  logic                             clk,
@@ -198,6 +199,7 @@ module ares_core_top #(
     // LSU / memory subsystem
     //-------------------------------------------------------------------------
     lsu_top #(
+        .JYD_UNCACHED_WINDOWS (JYD_UNCACHED_WINDOWS),
         .MMIO_BASE (MMIO_BASE),
         .MMIO_MASK (MMIO_MASK)
     ) u_lsu (

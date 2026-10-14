@@ -52,6 +52,7 @@
 //=============================================================================
 module lsu_agu #(
     parameter logic [31:0] MMIO_BASE = 32'hA000_0000,  // SPEC-M7 placeholder: physical map
+    parameter bit JYD_UNCACHED_WINDOWS = 1'b0, // approved JYD profile: docs/jyd_soc_integration.md
     parameter logic [31:0] MMIO_MASK = 32'hFF00_0000   // is_mmio = ((addr & MASK)==(BASE & MASK))
 ) (
     input  logic                       clk,
@@ -80,6 +81,13 @@ module lsu_agu #(
 );
     import ares_pkg::*;
     import lsu_pkg::*;
+
+    function automatic logic is_device_addr(input logic [31:0] addr);
+        return ((addr & MMIO_MASK) == (MMIO_BASE & MMIO_MASK)) ||
+            (JYD_UNCACHED_WINDOWS &&
+             ((addr[31:18] == 14'b1000_0000_0011_00) ||
+              ((addr[31:26] == 6'b1000_00) && (addr[25:22] != 4'd0))));
+    endfunction
 
     //-------------------------------------------------------------------------
     // C1 input register
@@ -136,7 +144,7 @@ module lsu_agu #(
         c1_is_load     = lsu_op_is_load(c1_op);
         c1_is_store    = lsu_op_is_store(c1_op);
         c1_is_unsigned = lsu_op_is_unsigned(c1_op);
-        c1_is_mmio     = ((c1_addr & MMIO_MASK) == (MMIO_BASE & MMIO_MASK));
+        c1_is_mmio     = is_device_addr(c1_addr);
     end
 
     //-------------------------------------------------------------------------
@@ -185,7 +193,7 @@ module lsu_agu #(
     // The registered window classification belongs to the registered address
     // (catches a field-registration / pipeline-depth mistake).
     a_mmio_window: assert property (@(posedge clk) disable iff (rst)
-        out_valid |-> (out_is_mmio == ((out_addr & MMIO_MASK) == (MMIO_BASE & MMIO_MASK))));
+        out_valid |-> (out_is_mmio == is_device_addr(out_addr)));
 `endif
 
 endmodule
