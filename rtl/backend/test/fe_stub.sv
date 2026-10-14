@@ -15,8 +15,8 @@
 //   2. iq_accept_count is the only consumption basis; pop is a contiguous prefix
 //   3. with accept=0 the head entry and its metadata stay stable
 //   4. backend_redirect_valid forces a same-cycle refetch from the new PC
-//   5. pred_npc is the effective next PC (always pc+4), pred_meta is raw,
-//      need_redirect is always 0 (the stub never stops fetching)
+//   5. pred_meta.pred_target is the effective next PC (always pc+4), the rest
+//      of pred_meta is left raw
 //   6. bpu_update_credit comes from registered state (constant 2; the stub has
 //      no predictor to train and therefore drops the events)
 //
@@ -35,24 +35,25 @@ module fe_stub #(
 
     //---- instruction interface: FE -> BE (contract section 2) --------------
     output logic [1:0]            iq_valid,
-    output ares_pkg::iq_entry_t   iq_inst [2],
+    output fe_pkg::iq_entry_t   iq_inst [2],
     input  logic [1:0]            iq_accept_count,
 
     //---- redirect interface: BE -> FE (contract section 3) -----------------
     input  logic                           backend_redirect_valid,
     input  logic [31:0]                    backend_redirect_pc,
-    input  ares_pkg::fe_redirect_kind_t    backend_redirect_kind,
+    input  fe_pkg::fe_redirect_kind_t    backend_redirect_kind,
     input  logic [ares_pkg::GHR_WIDTH-1:0] backend_redirect_ghr_before,
     input  logic                           backend_redirect_actual_taken,
 
     //---- BPU update interface: BE commit -> FE (contract section 4) --------
     output logic [1:0]            bpu_update_credit,
     input  logic [1:0]            bpu_update_valid,
-    input  ares_pkg::bpu_update_t bpu_update [2]
+    input  fe_pkg::bpu_update_t bpu_update [2]
 );
 /* verilator lint_on UNUSEDSIGNAL */
 
     import ares_pkg::*;
+    import fe_pkg::*;
 
     import "DPI-C" function int irom_read(input int addr);
 
@@ -122,11 +123,8 @@ module fe_stub #(
         new_entry                       = '0;
         new_entry.pc                    = f1_pc;
         new_entry.inst                  = f1_inst;
-        new_entry.pred_npc              = f1_pc + 32'd4;
         new_entry.pred_meta.pred_target = f1_pc + 32'd4;
         new_entry.pred_meta.pred_taken  = 1'b0;
-        new_entry.pred_meta.pred_type   = new_cfi;
-        new_entry.need_redirect         = 1'b0;
         new_entry.cfi_type              = new_cfi;
         new_entry.is_cfi                = (new_cfi != CFI_NONE);
         new_entry.valid                 = 1'b1;
@@ -208,19 +206,10 @@ module fe_stub #(
     a_head_stable: assert property (@(posedge clk) disable iff (rst)
         (!backend_redirect_valid && iq_valid[0] && (iq_accept_count == 2'd0))
         |=> (iq_valid[0] && $stable(iq_inst[0].pc) && $stable(iq_inst[0].inst)
-             && $stable(iq_inst[0].pred_npc) && $stable(iq_inst[0].pred_meta)));
+             && $stable(iq_inst[0].pred_meta)));
 
     a_slot_valid: assert property (@(posedge clk) disable iff (rst)
         (iq_inst[0].valid == iq_valid[0]) && (iq_inst[1].valid == iq_valid[1]));
-
-    a_pred_npc: assert property (@(posedge clk) disable iff (rst)
-        iq_valid[0] |-> (iq_inst[0].pred_npc == iq_inst[0].pc + 32'd4));
-
-    a_no_need_redirect0: assert property (@(posedge clk) disable iff (rst)
-        iq_inst[0].valid |-> !iq_inst[0].need_redirect);
-
-    a_no_need_redirect1: assert property (@(posedge clk) disable iff (rst)
-        iq_inst[1].valid |-> !iq_inst[1].need_redirect);
 
     a_is_cfi0: assert property (@(posedge clk) disable iff (rst)
         iq_inst[0].valid |-> (iq_inst[0].is_cfi == (iq_inst[0].cfi_type != CFI_NONE)));

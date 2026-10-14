@@ -26,6 +26,7 @@ module tb_ares_pkg (
     input reset
 );
     import ares_pkg::*;
+    import fe_pkg::*;
 
     import "DPI-C" function void ebreak();
 
@@ -56,11 +57,11 @@ module tb_ares_pkg (
             check($bits(cfi_type_t)         == 3,   "cfi_type_t width");
             check($bits(fe_redirect_kind_t) == 1,   "fe_redirect_kind_t width");
             check($bits(chooser_meta_t)     == 14,  "chooser_meta_t width");
-            check($bits(pred_meta_t)        == 63,  "pred_meta_t width");
-            check($bits(iq_entry_t)         == 165, "iq_entry_t width");
-            check($bits(bpu_update_t)       == 131, "bpu_update_t width");
-            check($bits(queue_entry_t)      == 417, "queue_entry_t width");
-            check($bits(fu_req_t)           == 184, "fu_req_t width");
+            check($bits(pred_meta_t)        == 48,  "pred_meta_t width (fe_pkg)");
+            check($bits(iq_entry_t)         == 117, "iq_entry_t width (fe_pkg)");
+            check($bits(bpu_update_t)       == 116, "bpu_update_t width (fe_pkg)");
+            check($bits(queue_entry_t)      == 401, "queue_entry_t width");
+            check($bits(fu_req_t)           == 183, "fu_req_t width");
             check($bits(fu_completion_t)    == 101, "fu_completion_t width");
 
             //---- enum encodings (FREE-01) ----------------------------------
@@ -85,9 +86,9 @@ module tb_ares_pkg (
 
             //---- parameter relationships -----------------------------------
             check(CIQ_ENTRIES == (1 << CIQ_SLOT_BITS), "CIQ_ENTRIES vs tag width");
-            check(FETCH_WIDTH == 4 && DECODE_WIDTH == 2 && DISPATCH_WIDTH == 2
+            check(ares_pkg::FETCH_WIDTH == 4 && ares_pkg::DECODE_WIDTH == 2 && DISPATCH_WIDTH == 2
                   && ISSUE_WIDTH_MAX == 4 && COMMIT_WIDTH == 2, "pipeline widths");
-            check(GHR_WIDTH == 12 && BPU_UPDATE_FIFO_DEPTH >= 2,
+            check(ares_pkg::GHR_WIDTH == 12 && BPU_UPDATE_FIFO_DEPTH >= 2,
                   "BPU interface parameters");
             //---- configuration menu (configs/Kconfig, make menuconfig) ------
             // These are the values the build actually elaborated with; they are
@@ -107,7 +108,7 @@ module tb_ares_pkg (
             check((DCACHE_NUM_SETS & (DCACHE_NUM_SETS - 1)) == 0,
                   "DCache set count is not a power of two");
             check(DCACHE_INDEX_BITS + DCACHE_OFFSET_BITS + DCACHE_TAG_BITS
-                  == ADDR_WIDTH, "DCache address split");
+                  == ares_pkg::ADDR_WIDTH, "DCache address split");
             check(LQ_ENTRIES == 4 && SQ_ENTRIES == 8 && MSHR_ENTRIES == 2
                   && WB_ENTRIES == 2, "LSU queue sizes");
             check(RESET_PC[1:0] == 2'b00, "RESET_PC 4-byte alignment");
@@ -116,8 +117,6 @@ module tb_ares_pkg (
             pm = '0;
             pm.pred_target   = 32'h8000_1234;
             pm.pred_taken    = 1'b1;
-            pm.pred_type     = CFI_CALL;
-            pm.ghr_before    = 12'ha5a;
             pm.chooser_meta.update_gshare_taken  = 1'b1;
             pm.chooser_meta.update_bimodal_taken = 1'b0;
             pm.chooser_meta.pred_ghr             = 12'h123;
@@ -126,18 +125,15 @@ module tb_ares_pkg (
             iq = '0;
             iq.pc            = 32'h8000_0100;
             iq.pred_meta     = pm;
-            iq.pred_npc      = 32'h8000_0200;
             iq.inst          = 32'h00c58533;   // add a0, a1, a2
             iq.valid         = 1'b1;
-            iq.need_redirect = 1'b1;
             iq.cfi_type      = CFI_RETURN;
             iq.is_cfi        = 1'b1;
-            check(iq.pc == 32'h8000_0100 && iq.pred_npc == 32'h8000_0200
-                  && iq.inst == 32'h00c58533 && iq.valid && iq.need_redirect
+            check(iq.pc == 32'h8000_0100
+                  && iq.inst == 32'h00c58533 && iq.valid
                   && iq.cfi_type == CFI_RETURN && iq.is_cfi
                   && iq.pred_meta.pred_target == 32'h8000_1234
-                  && iq.pred_meta.pred_taken && iq.pred_meta.pred_type == CFI_CALL
-                  && iq.pred_meta.ghr_before == 12'ha5a
+                  && iq.pred_meta.pred_taken
                   && iq.pred_meta.chooser_meta.pred_ghr == 12'h123
                   && iq.pred_meta.loop_override, "iq_entry_t round trip");
 
@@ -150,12 +146,12 @@ module tb_ares_pkg (
             check(bu.update_pc == 32'h8000_0ffc && bu.actual_taken
                   && bu.actual_target == 32'h8000_0400
                   && bu.actual_cfi_type == CFI_COND_BRANCH
-                  && bu.pred_meta.ghr_before == 12'ha5a, "bpu_update_t round trip");
+                  && bu.pred_meta.chooser_meta.pred_ghr == 12'h123, "bpu_update_t round trip");
 
             q = '0;
             q.valid = 1'b1;      q.state = ENTRY_DONE;
             q.pc = 32'h8000_0004; q.pred_npc = 32'h8000_0008;
-            q.pred_meta = pm;     q.need_redirect = 1'b1;
+            q.pred_meta = pm;
             q.actual_cfi_type = CFI_DIRECT_JUMP;
             q.actual_npc = 32'h8000_0080; q.actual_taken = 1'b1;
             q.actual_target = 32'h8000_0080;
@@ -173,7 +169,7 @@ module tb_ares_pkg (
             q.is_branch = 1'b0;    q.is_load = 1'b0; q.is_store = 1'b0;
             q.is_csr = 1'b0;       q.is_fence = 1'b0;
             check(q.valid && q.state == ENTRY_DONE && q.pc == 32'h8000_0004
-                  && q.pred_npc == 32'h8000_0008 && q.need_redirect
+                  && q.pred_npc == 32'h8000_0008
                   && q.actual_cfi_type == CFI_DIRECT_JUMP
                   && q.actual_npc == 32'h8000_0080 && q.actual_taken
                   && q.actual_target == 32'h8000_0080
@@ -196,12 +192,12 @@ module tb_ares_pkg (
             rq.tag.slot_index = 4'hb; rq.op = OP_JALR;
             rq.src1 = 32'h8000_0000;  rq.src2 = 32'hdead_beef;
             rq.imm = 32'h0000_0004;   rq.pc = 32'h8000_0030;
-            rq.pred_npc = 32'h8000_0034; rq.need_redirect = 1'b1;
+            rq.pred_npc = 32'h8000_0034;
             rq.csr_addr = 12'h341;    rq.csr_write_en = 1'b1;
             check(rq.tag.slot_index == 4'hb && rq.op == OP_JALR
                   && rq.src1 == 32'h8000_0000 && rq.src2 == 32'hdead_beef
                   && rq.imm == 32'h0000_0004 && rq.pc == 32'h8000_0030
-                  && rq.pred_npc == 32'h8000_0034 && rq.need_redirect
+                  && rq.pred_npc == 32'h8000_0034
                   && rq.csr_addr == 12'h341 && rq.csr_write_en,
                   "fu_req_t round trip");
 

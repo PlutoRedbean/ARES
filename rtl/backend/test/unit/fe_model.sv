@@ -16,22 +16,21 @@
 //   * bpu_update_credit is a constant registered value (2); training events are
 //     counted but never trained (the model has no predictor).
 //
-// JALR carries need_redirect = 1 (parameter) so the 'unpredicted target forces
-// one recovery' path is exercised even when the target happens to equal pc+4.
+// JALR is resolved through the normal BRU recovery path when its actual target
+// differs from the predicted (pc+4) next PC.
 //
 // FREE items: FREE-10 (verification environment internal structure).
 //=============================================================================
 module fe_model #(
     parameter logic [31:0] RESET_PC           = ares_pkg::RESET_PC,
-    parameter int unsigned IMEM_WORDS         = 1024,
-    parameter logic        NEED_REDIRECT_JALR = 1'b1
+    parameter int unsigned IMEM_WORDS         = 1024
 ) (
     input  logic                        clk,
     input  logic                        rst,
 
     //---- instruction interface (contract section 2) ------------------------
     output logic [1:0]                  iq_valid,
-    output ares_pkg::iq_entry_t         iq_inst [2],
+    output fe_pkg::iq_entry_t         iq_inst [2],
     input  logic [1:0]                  iq_accept_count,
 
     //---- redirect (contract section 3) -------------------------------------
@@ -42,7 +41,7 @@ module fe_model #(
     /* verilator lint_off UNUSEDSIGNAL */  // no predictor in this model
     output logic [1:0]                  bpu_update_credit,
     input  logic [1:0]                  bpu_update_valid,
-    input  ares_pkg::bpu_update_t       bpu_update [2],
+    input  fe_pkg::bpu_update_t       bpu_update [2],
     /* verilator lint_on UNUSEDSIGNAL */
 
     //---- program image and observation -------------------------------------
@@ -51,6 +50,7 @@ module fe_model #(
     output logic [31:0]                 redirect_count
 );
     import ares_pkg::*;
+    import fe_pkg::*;
 
     localparam int unsigned IDX_BITS = $clog2(IMEM_WORDS);
     localparam int unsigned DEPTH    = 4;
@@ -86,13 +86,10 @@ module fe_model #(
             e.valid                 = 1'b1;
             e.pc                    = pc;
             e.inst                  = inst;
-            e.pred_npc              = pc + 32'd4;
             e.pred_meta.pred_target = pc + 32'd4;
             e.pred_meta.pred_taken  = 1'b0;
-            e.pred_meta.pred_type   = c;
             e.cfi_type              = c;
             e.is_cfi                = (c != CFI_NONE);
-            e.need_redirect         = (inst[6:0] == 7'h67) && NEED_REDIRECT_JALR;
             make_entry              = e;
         end
     endfunction

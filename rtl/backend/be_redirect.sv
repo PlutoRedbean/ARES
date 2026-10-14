@@ -12,34 +12,35 @@
 // FREE items: FREE-04 (one-hot priority mux).
 //=============================================================================
 module be_redirect (
-    input  logic                    rst,
+    input logic rst,
 
     //---- event requests (already qualified by their owners) ----------------
-    input  logic                    ecall_valid,
-    input  logic [31:0]             ecall_pc,
-    input  logic                    mret_valid,
-    input  logic [31:0]             mret_pc,
-    input  logic                    branch_valid,
-    input  logic [31:0]             branch_pc,
-    input  logic [ares_pkg::GHR_WIDTH-1:0]    branch_ghr_before,
-    input  logic                    branch_taken,
-    input  logic                    irq_valid,
-    input  logic [31:0]             irq_pc,
+    input logic                         ecall_valid,
+    input logic [                 31:0] ecall_pc,
+    input logic                         mret_valid,
+    input logic [                 31:0] mret_pc,
+    input logic                         branch_valid,
+    input logic [                 31:0] branch_pc,
+    input logic [fe_pkg::GHR_WIDTH-1:0] branch_ghr_before,
+    input logic                         branch_taken,
+    input logic                         irq_valid,
+    input logic [                 31:0] irq_pc,
 
     //---- BE -> FE redirect --------------------------------------------------
-    output logic                    redirect_valid,
-    output logic [31:0]             redirect_pc,
-    output ares_pkg::fe_redirect_kind_t       redirect_kind,
-    output logic [ares_pkg::GHR_WIDTH-1:0]    redirect_ghr_before,
-    output logic                    redirect_actual_taken,
+    output logic                                              redirect_valid,
+    output logic                      [                 31:0] redirect_pc,
+    output fe_pkg::fe_redirect_kind_t                         redirect_kind,
+    output logic                      [fe_pkg::GHR_WIDTH-1:0] redirect_ghr_before,
+    output logic                                              redirect_actual_taken,
 
     //---- winner identification for the flush path --------------------------
-    output logic                    sel_ecall,
-    output logic                    sel_mret,
-    output logic                    sel_branch,
-    output logic                    sel_irq
+    output logic sel_ecall,
+    output logic sel_mret,
+    output logic sel_branch,
+    output logic sel_irq
 );
     import ares_pkg::*;
+    import fe_pkg::*;
 
     always_comb begin
         // Reset resets the machine; the FE stub/real FE clears itself, so no

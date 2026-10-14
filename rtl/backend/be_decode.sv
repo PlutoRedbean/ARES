@@ -3,7 +3,7 @@
 //-----------------------------------------------------------------------------
 // Purpose: purely combinational decoder for a single IQ lane.  be_dispatch
 // instantiates ares_pkg::DECODE_WIDTH (=2) copies, one per dispatch slot.  The module
-// turns the raw instruction word of an ares_pkg::iq_entry_t into every non-dependency
+// turns the raw instruction word of an fe_pkg::iq_entry_t into every non-dependency
 // field of ares_pkg::queue_entry_t, classifies the *actual* control flow and cross-checks
 // the frontend predecode.  Encodings outside RV32IM + Zicsr + ECALL/EBREAK/MRET
 // raise decode_err instead of silently becoming a NOP (D-C0-01); v1 has no
@@ -16,7 +16,7 @@
 //                                 table, zero-extended uimm, rd=x0 / rs1=x0
 //   frontend_backend_contract.md 2.1
 //                                 cfi_type / is_cfi must be cross-checked
-//                                 against inst, need_redirect implies a CFI
+//                                 against inst
 //   docs/c0_decisions.md D-C0-01  unsupported encoding -> decode_err (no NOP,
 //                                 no architectural trap), EBREAK retires
 //   docs/c0_decisions.md D-C0-09  ECALL / MRET are not CFI events
@@ -42,38 +42,39 @@
 //=============================================================================
 /* verilator lint_off UNUSEDSIGNAL */  // decode only reads inst/valid/cfi fields of iq
 module be_decode (
-    input  ares_pkg::iq_entry_t    iq,
-    output logic         decode_err,
-    output logic         valid,
-    output ares_pkg::fu_type_t     fu_type,
-    output ares_pkg::op_t          op,
-    output logic [4:0]   rd,
-    output logic         rd_wen,
-    output logic [4:0]   rs1,
-    output logic         src1_used,
-    output logic [4:0]   rs2,
-    output logic         src2_used,
-    output logic [31:0]  imm,
-    output logic [11:0]  csr_addr,
-    output logic         csr_write_en,
-    output logic         is_serializing,
-    output logic         is_cfi,
-    output logic         is_branch,
-    output ares_pkg::cfi_type_t    actual_cfi_type,
-    output logic         is_load,
-    output logic         is_store,
-    output logic         is_csr,
-    output logic         is_fence
+    input  fe_pkg::iq_entry_t         iq,
+    output logic                      decode_err,
+    output logic                      valid,
+    output ares_pkg::fu_type_t        fu_type,
+    output ares_pkg::op_t             op,
+    output logic               [ 4:0] rd,
+    output logic                      rd_wen,
+    output logic               [ 4:0] rs1,
+    output logic                      src1_used,
+    output logic               [ 4:0] rs2,
+    output logic                      src2_used,
+    output logic               [31:0] imm,
+    output logic               [11:0] csr_addr,
+    output logic                      csr_write_en,
+    output logic                      is_serializing,
+    output logic                      is_cfi,
+    output logic                      is_branch,
+    output fe_pkg::cfi_type_t         actual_cfi_type,
+    output logic                      is_load,
+    output logic                      is_store,
+    output logic                      is_csr,
+    output logic                      is_fence
 );
-/* verilator lint_on UNUSEDSIGNAL */
+    /* verilator lint_on UNUSEDSIGNAL */
     import ares_pkg::*;
+    import fe_pkg::*;
 
     //-------------------------------------------------------------------------
     // Instruction fields.  Pure wiring; everything below is combinational.
     //-------------------------------------------------------------------------
-    logic [6:0]  opcode;
-    logic [2:0]  funct3;
-    logic [6:0]  funct7;
+    logic [ 6:0] opcode;
+    logic [ 2:0] funct3;
+    logic [ 6:0] funct7;
     logic [11:0] funct12;
 
     assign opcode  = iq.inst[6:0];
@@ -97,13 +98,15 @@ module be_decode (
     logic [31:0] imm_j;
     logic [31:0] imm_uimm;
 
-    assign imm_i    = {{20{iq.inst[31]}}, iq.inst[31:20]};
-    assign imm_s    = {{20{iq.inst[31]}}, iq.inst[31:25], iq.inst[11:7]};
-    assign imm_b    = {{19{iq.inst[31]}}, iq.inst[31], iq.inst[7],
-                       iq.inst[30:25], iq.inst[11:8], 1'b0};
-    assign imm_u    = {iq.inst[31:12], 12'b0};
-    assign imm_j    = {{11{iq.inst[31]}}, iq.inst[31], iq.inst[19:12],
-                       iq.inst[20], iq.inst[30:21], 1'b0};
+    assign imm_i = {{20{iq.inst[31]}}, iq.inst[31:20]};
+    assign imm_s = {{20{iq.inst[31]}}, iq.inst[31:25], iq.inst[11:7]};
+    assign imm_b = {
+        {19{iq.inst[31]}}, iq.inst[31], iq.inst[7], iq.inst[30:25], iq.inst[11:8], 1'b0
+    };
+    assign imm_u = {iq.inst[31:12], 12'b0};
+    assign imm_j = {
+        {11{iq.inst[31]}}, iq.inst[31], iq.inst[19:12], iq.inst[20], iq.inst[30:21], 1'b0
+    };
     assign imm_uimm = {27'b0, iq.inst[19:15]};
 
     //-------------------------------------------------------------------------
@@ -113,7 +116,7 @@ module be_decode (
     logic rd_is_link;
     logic rs1_is_link;
 
-    assign rd_is_link  = (iq.inst[11:7]  == 5'd1) || (iq.inst[11:7]  == 5'd5);
+    assign rd_is_link  = (iq.inst[11:7] == 5'd1) || (iq.inst[11:7] == 5'd5);
     assign rs1_is_link = (iq.inst[19:15] == 5'd1) || (iq.inst[19:15] == 5'd5);
 
     //-------------------------------------------------------------------------
@@ -124,8 +127,8 @@ module be_decode (
     function automatic logic csr_legal(input logic [11:0] addr);
         begin
             case (addr)
-                12'h300, 12'h304, 12'h305, 12'h340,
-                12'h341, 12'h342, 12'h344, 12'hF14: csr_legal = 1'b1;
+                12'h300, 12'h304, 12'h305, 12'h340, 12'h341, 12'h342, 12'h344, 12'hF14:
+                csr_legal = 1'b1;
                 12'h301: csr_legal = HAS_MISA;
                 12'h343: csr_legal = HAS_MTVAL;
                 12'hB00, 12'hB80: csr_legal = HAS_MCYCLE;
@@ -138,11 +141,11 @@ module be_decode (
     // Decode.  Every output is assigned in every path: the defaults below are
     // the "invalid lane / unsupported encoding" value of each field.
     //-------------------------------------------------------------------------
-    logic legal;    // current encoding maps to a v1-supported instruction
+    logic legal;  // current encoding maps to a v1-supported instruction
 
     always_comb begin
         //---- defaults: invalid lane and every error path --------------------
-        decode_err      = 1'b0;         // never set for an invalid lane
+        decode_err      = 1'b0;  // never set for an invalid lane
         valid           = iq.valid;
         fu_type         = FU_ALU0;
         op              = OP_ILLEGAL;
@@ -174,13 +177,13 @@ module be_decode (
 
             case (opcode)
                 //---- U-type ------------------------------------------------
-                7'h37: begin                        // LUI
+                7'h37: begin  // LUI
                     op      = OP_LUI;
                     fu_type = FU_ALU0;
                     rd_wen  = 1'b1;
                     imm     = imm_u;
                 end
-                7'h17: begin                        // AUIPC
+                7'h17: begin  // AUIPC
                     op      = OP_AUIPC;
                     fu_type = FU_ALU0;
                     rd_wen  = 1'b1;
@@ -188,7 +191,7 @@ module be_decode (
                 end
 
                 //---- jumps -------------------------------------------------
-                7'h6F: begin                        // JAL
+                7'h6F: begin  // JAL
                     op              = OP_JAL;
                     fu_type         = FU_BRU;
                     rd_wen          = 1'b1;
@@ -197,30 +200,28 @@ module be_decode (
                     is_cfi          = 1'b1;
                     is_branch       = 1'b1;
                 end
-                7'h67: begin                        // JALR
-                    op              = OP_JALR;
-                    fu_type         = FU_BRU;
-                    rd_wen          = 1'b1;
-                    src1_used       = 1'b1;
-                    imm             = imm_i;
-                    actual_cfi_type = rd_is_link ? CFI_CALL
-                                    : (rs1_is_link ? CFI_RETURN
-                                                   : CFI_INDIRECT_JUMP);
-                    is_cfi          = 1'b1;
-                    is_branch       = 1'b1;
+                7'h67: begin  // JALR
+                    op = OP_JALR;
+                    fu_type = FU_BRU;
+                    rd_wen = 1'b1;
+                    src1_used = 1'b1;
+                    imm = imm_i;
+                    actual_cfi_type = rd_is_link ? CFI_CALL : (rs1_is_link ? CFI_RETURN : CFI_INDIRECT_JUMP);
+                    is_cfi = 1'b1;
+                    is_branch = 1'b1;
                 end
 
                 //---- conditional branches ----------------------------------
                 7'h63: begin
                     legal = 1'b1;
                     case (funct3)
-                        3'd0: op = OP_BEQ;
-                        3'd1: op = OP_BNE;
-                        3'd4: op = OP_BLT;
-                        3'd5: op = OP_BGE;
-                        3'd6: op = OP_BLTU;
-                        3'd7: op = OP_BGEU;
-                        default: legal = 1'b0;      // funct3 2/3: not in v1
+                        3'd0:    op = OP_BEQ;
+                        3'd1:    op = OP_BNE;
+                        3'd4:    op = OP_BLT;
+                        3'd5:    op = OP_BGE;
+                        3'd6:    op = OP_BLTU;
+                        3'd7:    op = OP_BGEU;
+                        default: legal = 1'b0;  // funct3 2/3: not in v1
                     endcase
                     if (legal) begin
                         fu_type         = FU_BRU;
@@ -240,12 +241,12 @@ module be_decode (
                 7'h03: begin
                     legal = 1'b1;
                     case (funct3)
-                        3'd0: op = OP_LB;
-                        3'd1: op = OP_LH;
-                        3'd2: op = OP_LW;
-                        3'd4: op = OP_LBU;
-                        3'd5: op = OP_LHU;
-                        default: legal = 1'b0;      // funct3 3/6/7: not in v1
+                        3'd0:    op = OP_LB;
+                        3'd1:    op = OP_LH;
+                        3'd2:    op = OP_LW;
+                        3'd4:    op = OP_LBU;
+                        3'd5:    op = OP_LHU;
+                        default: legal = 1'b0;  // funct3 3/6/7: not in v1
                     endcase
                     if (legal) begin
                         fu_type   = FU_LSU;
@@ -263,10 +264,10 @@ module be_decode (
                 7'h23: begin
                     legal = 1'b1;
                     case (funct3)
-                        3'd0: op = OP_SB;
-                        3'd1: op = OP_SH;
-                        3'd2: op = OP_SW;
-                        default: legal = 1'b0;      // funct3 3..7: not in v1
+                        3'd0:    op = OP_SB;
+                        3'd1:    op = OP_SH;
+                        3'd2:    op = OP_SW;
+                        default: legal = 1'b0;  // funct3 3..7: not in v1
                     endcase
                     if (legal) begin
                         fu_type   = FU_LSU;
@@ -315,14 +316,14 @@ module be_decode (
                     case (funct7)
                         7'b0000000: begin
                             case (funct3)
-                                3'd0: op = OP_ADD;
-                                3'd1: op = OP_SLL;
-                                3'd2: op = OP_SLT;
-                                3'd3: op = OP_SLTU;
-                                3'd4: op = OP_XOR;
-                                3'd5: op = OP_SRL;
-                                3'd6: op = OP_OR;
-                                default: op = OP_AND;       // 3'd7
+                                3'd0:    op = OP_ADD;
+                                3'd1:    op = OP_SLL;
+                                3'd2:    op = OP_SLT;
+                                3'd3:    op = OP_SLTU;
+                                3'd4:    op = OP_XOR;
+                                3'd5:    op = OP_SRL;
+                                3'd6:    op = OP_OR;
+                                default: op = OP_AND;  // 3'd7
                             endcase
                             fu_type = FU_ALU0;
                         end
@@ -334,16 +335,40 @@ module be_decode (
                             endcase
                             fu_type = FU_ALU0;
                         end
-                        7'b0000001: begin               // M extension
+                        7'b0000001: begin  // M extension
                             case (funct3)
-                                3'd0: begin op = OP_MUL;    fu_type = FU_MUL; end
-                                3'd1: begin op = OP_MULH;   fu_type = FU_MUL; end
-                                3'd2: begin op = OP_MULHSU; fu_type = FU_MUL; end
-                                3'd3: begin op = OP_MULHU;  fu_type = FU_MUL; end
-                                3'd4: begin op = OP_DIV;    fu_type = FU_DIV; end
-                                3'd5: begin op = OP_DIVU;   fu_type = FU_DIV; end
-                                3'd6: begin op = OP_REM;    fu_type = FU_DIV; end
-                                default: begin op = OP_REMU; fu_type = FU_DIV; end
+                                3'd0: begin
+                                    op = OP_MUL;
+                                    fu_type = FU_MUL;
+                                end
+                                3'd1: begin
+                                    op = OP_MULH;
+                                    fu_type = FU_MUL;
+                                end
+                                3'd2: begin
+                                    op = OP_MULHSU;
+                                    fu_type = FU_MUL;
+                                end
+                                3'd3: begin
+                                    op = OP_MULHU;
+                                    fu_type = FU_MUL;
+                                end
+                                3'd4: begin
+                                    op = OP_DIV;
+                                    fu_type = FU_DIV;
+                                end
+                                3'd5: begin
+                                    op = OP_DIVU;
+                                    fu_type = FU_DIV;
+                                end
+                                3'd6: begin
+                                    op = OP_REM;
+                                    fu_type = FU_DIV;
+                                end
+                                default: begin
+                                    op = OP_REMU;
+                                    fu_type = FU_DIV;
+                                end
                             endcase
                         end
                         default: legal = 1'b0;
@@ -363,63 +388,57 @@ module be_decode (
                     case (funct3)
                         3'd0: begin
                             case (funct12)
-                                12'h000: begin              // ECALL
+                                12'h000: begin  // ECALL
                                     op             = OP_ECALL;
                                     fu_type        = FU_CSR;
                                     is_serializing = 1'b1;
                                 end
-                                12'h001: begin              // EBREAK
+                                12'h001: begin  // EBREAK
                                     // Retires normally (D-C0-01): no exception,
                                     // no CSR access, no serialization.
                                     op      = OP_EBREAK;
                                     fu_type = FU_ALU0;
                                 end
-                                12'h302: begin              // MRET
+                                12'h302: begin  // MRET
                                     op             = OP_MRET;
                                     fu_type        = FU_CSR;
                                     is_serializing = 1'b1;
                                 end
-                                default: decode_err = 1'b1; // WFI/SRET/...
+                                default: decode_err = 1'b1;  // WFI/SRET/...
                             endcase
                         end
-                        3'd1, 3'd2, 3'd3: begin         // CSRRW / CSRRS / CSRRC
+                        3'd1, 3'd2, 3'd3: begin  // CSRRW / CSRRS / CSRRC
                             if (csr_legal(funct12)) begin
-                                op             = (funct3 == 3'd1) ? OP_CSRRW
-                                               : (funct3 == 3'd2) ? OP_CSRRS
-                                                                  : OP_CSRRC;
-                                fu_type        = FU_CSR;
-                                rd_wen         = 1'b1;
-                                src1_used      = 1'b1;
-                                is_csr         = 1'b1;
+                                op = (funct3 == 3'd1) ? OP_CSRRW : (funct3 == 3'd2) ? OP_CSRRS : OP_CSRRC;
+                                fu_type = FU_CSR;
+                                rd_wen = 1'b1;
+                                src1_used = 1'b1;
+                                is_csr = 1'b1;
                                 is_serializing = 1'b1;
-                                csr_addr       = funct12;
+                                csr_addr = funct12;
                                 // CSRRW always writes; CSRRS/CSRRC only when
                                 // the encoded rs1 is not x0 (backend.md 16.2)
-                                csr_write_en   = (funct3 == 3'd1) ? 1'b1
-                                               : (iq.inst[19:15] != 5'd0);
+                                csr_write_en = (funct3 == 3'd1) ? 1'b1 : (iq.inst[19:15] != 5'd0);
                             end else begin
                                 decode_err = 1'b1;  // unsupported CSR access
                             end
                         end
-                        3'd5, 3'd6, 3'd7: begin         // CSRRWI / CSRRSI / CSRRCI
+                        3'd5, 3'd6, 3'd7: begin  // CSRRWI / CSRRSI / CSRRCI
                             if (csr_legal(funct12)) begin
-                                op             = (funct3 == 3'd5) ? OP_CSRRWI
-                                               : (funct3 == 3'd6) ? OP_CSRRSI
-                                                                  : OP_CSRRCI;
-                                fu_type        = FU_CSR;
-                                rd_wen         = 1'b1;
-                                src1_used      = 1'b0;  // uimm, no GPR read
-                                is_csr         = 1'b1;
+                                op = (funct3 == 3'd5) ? OP_CSRRWI : (funct3 == 3'd6) ? OP_CSRRSI : OP_CSRRCI;
+                                fu_type = FU_CSR;
+                                rd_wen = 1'b1;
+                                src1_used = 1'b0;  // uimm, no GPR read
+                                is_csr = 1'b1;
                                 is_serializing = 1'b1;
-                                csr_addr       = funct12;
-                                csr_write_en   = (funct3 == 3'd5) ? 1'b1
-                                               : (iq.inst[19:15] != 5'd0);
-                                imm            = imm_uimm;
+                                csr_addr = funct12;
+                                csr_write_en = (funct3 == 3'd5) ? 1'b1 : (iq.inst[19:15] != 5'd0);
+                                imm = imm_uimm;
                             end else begin
                                 decode_err = 1'b1;
                             end
                         end
-                        default: decode_err = 1'b1;     // funct3 = 4 and reserved
+                        default: decode_err = 1'b1;  // funct3 = 4 and reserved
                     endcase
                 end
 
@@ -438,9 +457,7 @@ module be_decode (
             // Predecode cross-check (contract 2.1).  Never evaluated for an
             // invalid lane, so a dead slot can never raise decode_err.
             //-----------------------------------------------------------------
-            if ((is_cfi != iq.is_cfi)
-                || (is_cfi && (actual_cfi_type != iq.cfi_type))
-                || (iq.need_redirect && !is_cfi)) begin
+            if ((is_cfi != iq.is_cfi) || (is_cfi && (actual_cfi_type != iq.cfi_type))) begin
                 decode_err = 1'b1;
             end
         end
@@ -454,15 +471,15 @@ module be_decode (
     always_comb begin
         if (valid && !decode_err) begin
             assert (op != OP_ILLEGAL)
-                else $error("be_decode: supported encoding produced OP_ILLEGAL");
+            else $error("be_decode: supported encoding produced OP_ILLEGAL");
             assert (is_branch == is_cfi)
-                else $error("be_decode: is_branch must equal is_cfi");
+            else $error("be_decode: is_branch must equal is_cfi");
             assert (is_cfi == (actual_cfi_type != CFI_NONE))
-                else $error("be_decode: is_cfi must match actual_cfi_type");
+            else $error("be_decode: is_cfi must match actual_cfi_type");
             assert (!is_fence)
-                else $error("be_decode: FENCE must raise decode_err");
+            else $error("be_decode: FENCE must raise decode_err");
             assert (!(is_load && is_store))
-                else $error("be_decode: load and store are mutually exclusive");
+            else $error("be_decode: load and store are mutually exclusive");
         end
     end
 `endif

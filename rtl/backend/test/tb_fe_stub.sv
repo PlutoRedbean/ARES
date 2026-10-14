@@ -6,7 +6,7 @@
 //
 //   * iq_valid is never 2'b10, iq_inst[i].valid always matches iq_valid[i]
 //   * every visible entry carries pc / inst / cfi_type consistent with the
-//     instruction memory image and pred_npc == pc+4, need_redirect == 0
+//     instruction memory image and pred_meta.pred_target == pc+4
 //   * iq_accept_count is consumed as a contiguous prefix: the PC sequence of
 //     all popped instructions is exactly pc, pc+4, pc+8, ... with a restart at
 //     backend_redirect_pc after every redirect (no instruction lost, none
@@ -31,6 +31,7 @@ module tb_fe_stub (
     input reset
 );
     import ares_pkg::*;
+    import fe_pkg::*;
 
     import "DPI-C" function int  irom_read(input int addr);
     import "DPI-C" function void ebreak();
@@ -48,7 +49,7 @@ module tb_fe_stub (
     logic                  backend_redirect_valid;
     logic [31:0]           backend_redirect_pc;
     fe_redirect_kind_t     backend_redirect_kind;
-    logic [GHR_WIDTH-1:0]  backend_redirect_ghr_before;
+    logic [ares_pkg::GHR_WIDTH-1:0]  backend_redirect_ghr_before;
     logic                  backend_redirect_actual_taken;
 
     logic [1:0]            bpu_update_credit;
@@ -214,13 +215,12 @@ module tb_fe_stub (
             if (iq_valid[0]) begin
                 check(iq_inst[0].inst == 32'(irom_read(int'(iq_inst[0].pc))),
                       "fetched word != memory image");
-                check(iq_inst[0].pred_npc == (iq_inst[0].pc + 32'd4),
-                      "pred_npc != pc+4");
+                check(iq_inst[0].pred_meta.pred_target == (iq_inst[0].pc + 32'd4),
+                      "pred_target != pc+4");
                 check(iq_inst[0].cfi_type == ref_classify(iq_inst[0].inst),
                       "cfi_type != reference classification");
                 check(iq_inst[0].is_cfi == (iq_inst[0].cfi_type != CFI_NONE),
                       "is_cfi disagrees with cfi_type");
-                check(!iq_inst[0].need_redirect, "need_redirect set");
             end
             if (iq_valid == 2'b11)
                 check(iq_inst[1].pc == (iq_inst[0].pc + 32'd4),

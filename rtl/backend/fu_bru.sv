@@ -10,9 +10,7 @@
 // Spec sources (authoritative)
 //   backend.md section 9.2  - BRU: latency 1 / II 1, actual_npc / actual_taken
 //                             / actual_target registration, mispredict =
-//                             need_redirect || (actual_npc != pred_npc),
-//                             need_redirect forces recovery even when the
-//                             numeric target matches.
+//                             (actual_npc != pred_npc).
 //   backend.md section 10   - guaranteed-accept request, in-flight operation
 //                             valid + tag, kill_mask cancellation.
 //   backend.md section 11   - completion protocol: one completion per accepted
@@ -65,21 +63,21 @@
 //=============================================================================
 /* verilator lint_off UNUSEDSIGNAL */  // BRU reads only the CFI fields of the shared ares_pkg::fu_req_t
 module fu_bru (
-    input  logic                             clk,
-    input  logic                             rst,
-    input  logic                             issue_valid,
-    input  ares_pkg::fu_req_t                issue_req,
-    input  logic [ares_pkg::CIQ_ENTRIES-1:0] kill_mask,
-    output logic                             completion_valid,
-    output ares_pkg::fu_completion_t         completion,
-    output logic [31:0]                      actual_npc,
-    output logic                             actual_taken,
-    output logic [31:0]                      actual_target,
-    output logic                             recovery_valid,
-    output ares_pkg::tag_t                   recovery_branch_tag,
-    output logic [31:0]                      redirect_pc
+    input  logic                                                 clk,
+    input  logic                                                 rst,
+    input  logic                                                 issue_valid,
+    input  ares_pkg::fu_req_t                                    issue_req,
+    input  logic                     [ares_pkg::CIQ_ENTRIES-1:0] kill_mask,
+    output logic                                                 completion_valid,
+    output ares_pkg::fu_completion_t                             completion,
+    output logic                     [                     31:0] actual_npc,
+    output logic                                                 actual_taken,
+    output logic                     [                     31:0] actual_target,
+    output logic                                                 recovery_valid,
+    output ares_pkg::tag_t                                       recovery_branch_tag,
+    output logic                     [                     31:0] redirect_pc
 );
-/* verilator lint_on UNUSEDSIGNAL */
+    /* verilator lint_on UNUSEDSIGNAL */
     import ares_pkg::*;
 
     //-------------------------------------------------------------------------
@@ -94,11 +92,10 @@ module fu_bru (
     logic [31:0] op_src2;
     logic [31:0] op_imm;
     logic [31:0] op_pred_npc;
-    logic        op_need_redirect;
 
     // Kill of the operation currently held (backend.md section 10/11.5): the
     // mask is indexed by the operation tag and wins over the completion.
-    wire op_killed = op_valid && kill_mask[op_tag.slot_index];
+    wire         op_killed = op_valid && kill_mask[op_tag.slot_index];
 
     always_ff @(posedge clk) begin
         if (rst) begin
@@ -113,14 +110,13 @@ module fu_bru (
 
     always_ff @(posedge clk) begin
         if (issue_valid) begin
-            op_tag           <= issue_req.tag;
-            op_code          <= issue_req.op;
-            op_pc            <= issue_req.pc;
-            op_src1          <= issue_req.src1;
-            op_src2          <= issue_req.src2;
-            op_imm           <= issue_req.imm;
-            op_pred_npc      <= issue_req.pred_npc;
-            op_need_redirect <= issue_req.need_redirect;
+            op_tag      <= issue_req.tag;
+            op_code     <= issue_req.op;
+            op_pc       <= issue_req.pc;
+            op_src1     <= issue_req.src1;
+            op_src2     <= issue_req.src2;
+            op_imm      <= issue_req.imm;
+            op_pred_npc <= issue_req.pred_npc;
         end
     end
 
@@ -131,14 +127,14 @@ module fu_bru (
     logic        is_jalr;
     logic        is_branch;
     logic        cond_taken;
-    logic [31:0] jump_target;   // pc + imm for JAL / conditional branches
-    logic [31:0] link_target;   // (src1 + imm) & ~1 for JALR
+    logic [31:0] jump_target;  // pc + imm for JAL / conditional branches
+    logic [31:0] link_target;  // (src1 + imm) & ~1 for JALR
     logic [31:0] resolved_npc;
     logic        resolved_taken;
 
     always_comb begin
-        is_jal    = (op_code == OP_JAL);
-        is_jalr   = (op_code == OP_JALR);
+        is_jal = (op_code == OP_JAL);
+        is_jalr = (op_code == OP_JALR);
         is_branch = (op_code == OP_BEQ) || (op_code == OP_BNE) || (op_code == OP_BLT)
                  || (op_code == OP_BGE) || (op_code == OP_BLTU) || (op_code == OP_BGEU);
 
@@ -146,9 +142,9 @@ module fu_bru (
         case (op_code)
             OP_BEQ:  cond_taken = (op_src1 == op_src2);
             OP_BNE:  cond_taken = (op_src1 != op_src2);
-            OP_BLT:  cond_taken = ($signed(op_src1) <  $signed(op_src2));
+            OP_BLT:  cond_taken = ($signed(op_src1) < $signed(op_src2));
             OP_BGE:  cond_taken = ($signed(op_src1) >= $signed(op_src2));
-            OP_BLTU: cond_taken = (op_src1 <  op_src2);
+            OP_BLTU: cond_taken = (op_src1 < op_src2);
             OP_BGEU: cond_taken = (op_src1 >= op_src2);
             default: cond_taken = 1'b0;
         endcase
@@ -194,8 +190,7 @@ module fu_bru (
         // flush (ECALL/MRET/IRQ) cannot coincide with an in-flight BRU
         // operation (serializing issue / empty-CIQ requirement).  The
         // a_kill_priority assertion below still pins the invariant.
-        recovery_valid       = op_valid && (op_need_redirect
-                                            || (resolved_npc != op_pred_npc));
+        recovery_valid       = op_valid && (resolved_npc != op_pred_npc);
         recovery_branch_tag  = op_tag;
         redirect_pc          = resolved_npc;
     end
@@ -207,28 +202,36 @@ module fu_bru (
     // A recovery is produced by a live operation and, except for the
     // same-cycle kill that creates the loop-break case documented in the
     // header, always travels with the completion.
-    a_recovery_needs_completion: assert property (@(posedge clk) disable iff (rst)
+    a_recovery_needs_completion :
+    assert property (@(posedge clk) disable iff (rst)
         recovery_valid |-> (completion_valid || kill_mask[op_tag.slot_index]));
 
-    a_recovery_tag: assert property (@(posedge clk) disable iff (rst)
+    a_recovery_tag :
+    assert property (@(posedge clk) disable iff (rst)
         recovery_valid |-> (recovery_branch_tag == completion.tag));
 
-    a_recovery_pc: assert property (@(posedge clk) disable iff (rst)
-        recovery_valid |-> (redirect_pc == actual_npc));
+    a_recovery_pc :
+    assert property (@(posedge clk) disable iff (rst) recovery_valid |-> (redirect_pc == actual_npc));
 
-    a_kill_priority: assert property (@(posedge clk) disable iff (rst)
+    a_kill_priority :
+    assert property (@(posedge clk) disable iff (rst)
         (op_valid && kill_mask[op_tag.slot_index])
         |-> !completion_valid && !recovery_valid);
 
-    a_result_is_pc4: assert property (@(posedge clk) disable iff (rst)
+    a_result_is_pc4 :
+    assert property (@(posedge clk) disable iff (rst)
         completion_valid |-> (completion.result == op_pc + 32'd4));
 
-    a_bru_no_exception: assert property (@(posedge clk) disable iff (rst)
+    a_bru_no_exception :
+    assert property (@(posedge clk) disable iff (rst)
         completion_valid |-> (!completion.exception && (completion.cause == EXC_NONE)));
 
-    a_issue_completes: assert property (@(posedge clk) disable iff (rst)
+    a_issue_completes :
+    assert property (@(posedge clk) disable iff (rst)
         (issue_valid && !kill_mask[issue_req.tag.slot_index])
-        |=> (completion_valid || kill_mask[$past(issue_req.tag.slot_index)]));
+        |=> (completion_valid || kill_mask[$past(
+        issue_req.tag.slot_index
+    )]));
 `endif
 
 endmodule

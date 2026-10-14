@@ -16,7 +16,7 @@
 //   * immediate generation for all five formats, including negative sign
 //     extension (I/S/B/J) and the Zicsr uimm[4:0] zero extension
 //   * CFI classification for JAL / JALR with rd and rs1 = x1/x5 and for every
-//     branch, plus the predecode cross-check (is_cfi / cfi_type / need_redirect)
+//     branch, plus the predecode cross-check (is_cfi / cfi_type)
 //   * decode_err for unknown opcodes, FENCE, unsupported funct3/funct7
 //     combinations and unsupported CSR addresses (HAS_MISA/HAS_MTVAL/
 //     HAS_MCYCLE are 0, so 0x301/0x343/0xB00/0xB80 must fail)
@@ -36,6 +36,7 @@
 //=============================================================================
 module tb_decode;
     import ares_pkg::*;
+    import fe_pkg::*;
 
     //-------------------------------------------------------------------------
     // DUT
@@ -415,19 +416,17 @@ module tb_decode;
             iq.valid       = vld;
             iq.cfi_type    = classify(inst);
             iq.is_cfi      = (classify(inst) != CFI_NONE);
-            iq.need_redirect = 1'b0;
         end
     endtask
 
     task automatic drive_pre(input logic [31:0] inst, input cfi_type_t ct,
-                             input logic iscfi, input logic need_redir);
+                             input logic iscfi);
         begin
             iq              = '0;
             iq.inst         = inst;
             iq.valid        = 1'b1;
             iq.cfi_type     = ct;
             iq.is_cfi       = iscfi;
-            iq.need_redirect = need_redir;
         end
     endtask
 
@@ -827,7 +826,6 @@ module tb_decode;
         iq.inst          = 32'hFFFF_FFFF;
         iq.cfi_type      = CFI_CALL;
         iq.is_cfi        = 1'b1;
-        iq.need_redirect = 1'b1;
         iq.pc            = 32'hDEAD_BEEF;
         #1; chk_invalid("invalid lane (hostile iq)");
 
@@ -1100,29 +1098,26 @@ module tb_decode;
         chk_valid("csrrwi unsupported CSR 0x7FF", 32'h7FF2D0F3, exp_err(OP_ILLEGAL));
 
         //---------------------------------------------------------------------
-        // 12. Predecode cross-check (contract 2.1).  A mismatch is a decode_err;
-        //     a JALR with need_redirect is not a mismatch.
+        // 12. Predecode cross-check (contract 2.1).  A mismatch is a decode_err.
         //---------------------------------------------------------------------
         e = exp_ri(OP_ADDI, 32'd1); e.err = 1'b1;
-        drive_pre(32'h00100093, CFI_COND_BRANCH, 1'b1, 1'b0);
+        drive_pre(32'h00100093, CFI_COND_BRANCH, 1'b1);
         #1; chk_valid("predecode: addi marked as CFI", 32'h00100093, e);
-        drive_pre(32'h00100093, CFI_NONE, 1'b0, 1'b1);
-        #1; chk_valid("predecode: addi with need_redirect", 32'h00100093, e);
 
         e = exp_jump(OP_JAL, 32'd16, CFI_DIRECT_JUMP); e.err = 1'b1;
-        drive_pre(32'h0100036F, CFI_NONE, 1'b0, 1'b0);
+        drive_pre(32'h0100036F, CFI_NONE, 1'b0);
         #1; chk_valid("predecode: jal not marked CFI", 32'h0100036F, e);
-        drive_pre(32'h0100036F, CFI_COND_BRANCH, 1'b1, 1'b0);
+        drive_pre(32'h0100036F, CFI_COND_BRANCH, 1'b1);
         #1; chk_valid("predecode: jal wrong CFI class", 32'h0100036F, e);
 
         e = exp_jump(OP_JALR, 32'hFFFFF800, CFI_RETURN); e.err = 1'b1;
-        drive_pre(32'h800083E7, CFI_INDIRECT_JUMP, 1'b1, 1'b0);
+        drive_pre(32'h800083E7, CFI_INDIRECT_JUMP, 1'b1);
         #1; chk_valid("predecode: jalr wrong CFI class", 32'h800083E7, e);
 
-        // Legal combination: un-predicted JALR recovery request.
+        // Legal combination: JALR decoded with its true CFI class.
         e = exp_jump(OP_JALR, 32'hFFFFF800, CFI_RETURN);
-        drive_pre(32'h800083E7, CFI_RETURN, 1'b1, 1'b1);
-        #1; chk_valid("predecode: jalr need_redirect (ok)", 32'h800083E7, e);
+        drive_pre(32'h800083E7, CFI_RETURN, 1'b1);
+        #1; chk_valid("predecode: jalr CFI_RETURN (ok)", 32'h800083E7, e);
 
         //---------------------------------------------------------------------
         // 13. Randomised cross-check against the reference decoder.

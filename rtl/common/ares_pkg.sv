@@ -29,36 +29,32 @@ package ares_pkg;
     // This package is shared by FE / BE / LSU / SoC and every consumer only
     // uses a subset of the parameters; UNUSEDPARAM is therefore expected.
     /* verilator lint_off UNUSEDPARAM */
-    localparam int unsigned XLEN            = 32;
-    localparam int unsigned ADDR_WIDTH      = 32;
-    localparam int unsigned INST_WIDTH      = 32;
+    localparam int unsigned XLEN              = 32;
+    localparam int unsigned ADDR_WIDTH        = 32;
+    localparam int unsigned INST_WIDTH        = 32;
 
-    localparam int unsigned FETCH_WIDTH     = 4;   // frontend.md section 1
-    localparam int unsigned DECODE_WIDTH    = 2;   // contract section 2
-    localparam int unsigned DISPATCH_WIDTH  = 2;   // backend.md section 5.1
-    localparam int unsigned ISSUE_WIDTH_MAX = 4;   // backend.md section 8
-    localparam int unsigned COMMIT_WIDTH    = 2;   // backend.md section 14.1
+    localparam int unsigned FETCH_WIDTH       = 4;     // frontend.md section 1
+    localparam int unsigned DECODE_WIDTH      = 2;     // contract section 2
+    localparam int unsigned DISPATCH_WIDTH    = 2;     // backend.md section 5.1
+    localparam int unsigned ISSUE_WIDTH_MAX   = 4;     // backend.md section 8
+    localparam int unsigned COMMIT_WIDTH      = 2;     // backend.md section 14.1
 
     // CIQ (backend.md section 3/4) - valid-only slot lifetime, no generation.
-    localparam int unsigned CIQ_ENTRIES     = 16;
-    localparam int unsigned CIQ_SLOT_BITS   = 4;
+    localparam int unsigned CIQ_ENTRIES       = 16;
+    localparam int unsigned CIQ_SLOT_BITS     = 4;
 
     // GPR (backend.md section 1)
-    localparam int unsigned GPR_ADDR_WIDTH  = 5;
-    localparam int unsigned GPR_READ_PORTS  = 8;
-    localparam int unsigned GPR_WRITE_PORTS = 2;
-
-    // Branch predictor interface (contract section 4)
-    localparam int unsigned GHR_WIDTH             = 12;
-    localparam int unsigned BPU_UPDATE_FIFO_DEPTH = 8;
+    localparam int unsigned GPR_ADDR_WIDTH    = 5;
+    localparam int unsigned GPR_READ_PORTS    = 8;
+    localparam int unsigned GPR_WRITE_PORTS   = 2;
 
     // LSU / memory (memory.md sections 3 / 5 / 6.1)
-    localparam int unsigned LQ_ENTRIES      = 4;
-    localparam int unsigned SQ_ENTRIES      = 8;
-    localparam int unsigned MSHR_ENTRIES    = 2;
-    localparam int unsigned WB_ENTRIES      = 2;
-    localparam int unsigned MEM_WQ_ENTRIES  = 4;   // Fabric write queue
-    localparam int unsigned MEM_BEAT_BYTES  = 16;  // 128-bit memory bus beat
+    localparam int unsigned LQ_ENTRIES        = 4;
+    localparam int unsigned SQ_ENTRIES        = 8;
+    localparam int unsigned MSHR_ENTRIES      = 2;
+    localparam int unsigned WB_ENTRIES        = 2;
+    localparam int unsigned MEM_WQ_ENTRIES    = 4;     // Fabric write queue
+    localparam int unsigned MEM_BEAT_BYTES    = 16;    // 128-bit memory bus beat
 
     // DCache geometry (memory.md section 6.1).
     //
@@ -71,18 +67,16 @@ package ares_pkg;
     localparam int unsigned DCACHE_SIZE_BYTES = 8192;
     localparam int unsigned DCACHE_NUM_WAYS   = 2;
 `ifdef CONFIG_LINE_BYTES
-    localparam int unsigned LINE_BYTES        = `CONFIG_LINE_BYTES;
+    localparam int unsigned LINE_BYTES = `CONFIG_LINE_BYTES;
 `else
-    localparam int unsigned LINE_BYTES        = 32;
+    localparam int unsigned LINE_BYTES = 32;
 `endif
-    localparam int unsigned LINE_BEATS        = LINE_BYTES / MEM_BEAT_BYTES;
-    localparam int unsigned ROWS_PER_LINE     = LINE_BYTES / 8;
-    localparam int unsigned DCACHE_NUM_SETS   =
-        DCACHE_SIZE_BYTES / (DCACHE_NUM_WAYS * LINE_BYTES);
+    localparam int unsigned LINE_BEATS = LINE_BYTES / MEM_BEAT_BYTES;
+    localparam int unsigned ROWS_PER_LINE = LINE_BYTES / 8;
+    localparam int unsigned DCACHE_NUM_SETS = DCACHE_SIZE_BYTES / (DCACHE_NUM_WAYS * LINE_BYTES);
     localparam int unsigned DCACHE_INDEX_BITS = $clog2(DCACHE_NUM_SETS);
-    localparam int unsigned DCACHE_OFFSET_BITS= $clog2(LINE_BYTES);
-    localparam int unsigned DCACHE_TAG_BITS   =
-        ADDR_WIDTH - DCACHE_INDEX_BITS - DCACHE_OFFSET_BITS;
+    localparam int unsigned DCACHE_OFFSET_BITS = $clog2(LINE_BYTES);
+    localparam int unsigned DCACHE_TAG_BITS = ADDR_WIDTH - DCACHE_INDEX_BITS - DCACHE_OFFSET_BITS;
 
     // M extension (backend.md section 9.4): fully pipelined MUL, II = 1.
     // Configured through "make menuconfig" (2 or 3 stages); the fallback is
@@ -90,9 +84,9 @@ package ares_pkg;
     // Neither value changes an external handshake or throughput contract -
     // only the internal pipeline depth.
 `ifdef CONFIG_MUL_LATENCY
-    localparam int unsigned MUL_LATENCY     = `CONFIG_MUL_LATENCY;
+    localparam int unsigned MUL_LATENCY = `CONFIG_MUL_LATENCY;
 `else
-    localparam int unsigned MUL_LATENCY     = 3;
+    localparam int unsigned MUL_LATENCY = 3;
 `endif
 
     //-------------------------------------------------------------------------
@@ -153,220 +147,157 @@ package ares_pkg;
     //-------------------------------------------------------------------------
     typedef enum logic [5:0] {
         // U-type
-        OP_LUI          = 6'd0,
-        OP_AUIPC        = 6'd1,
+        OP_LUI     = 6'd0,
+        OP_AUIPC   = 6'd1,
         // jumps
-        OP_JAL          = 6'd2,
-        OP_JALR         = 6'd3,
+        OP_JAL     = 6'd2,
+        OP_JALR    = 6'd3,
         // conditional branches
-        OP_BEQ          = 6'd4,
-        OP_BNE          = 6'd5,
-        OP_BLT          = 6'd6,
-        OP_BGE          = 6'd7,
-        OP_BLTU         = 6'd8,
-        OP_BGEU         = 6'd9,
+        OP_BEQ     = 6'd4,
+        OP_BNE     = 6'd5,
+        OP_BLT     = 6'd6,
+        OP_BGE     = 6'd7,
+        OP_BLTU    = 6'd8,
+        OP_BGEU    = 6'd9,
         // loads
-        OP_LB           = 6'd10,
-        OP_LH           = 6'd11,
-        OP_LW           = 6'd12,
-        OP_LBU          = 6'd13,
-        OP_LHU          = 6'd14,
+        OP_LB      = 6'd10,
+        OP_LH      = 6'd11,
+        OP_LW      = 6'd12,
+        OP_LBU     = 6'd13,
+        OP_LHU     = 6'd14,
         // stores
-        OP_SB           = 6'd15,
-        OP_SH           = 6'd16,
-        OP_SW           = 6'd17,
+        OP_SB      = 6'd15,
+        OP_SH      = 6'd16,
+        OP_SW      = 6'd17,
         // OP-IMM
-        OP_ADDI         = 6'd18,
-        OP_SLTI         = 6'd19,
-        OP_SLTIU        = 6'd20,
-        OP_XORI         = 6'd21,
-        OP_ORI          = 6'd22,
-        OP_ANDI         = 6'd23,
-        OP_SLLI         = 6'd24,
-        OP_SRLI         = 6'd25,
-        OP_SRAI         = 6'd26,
+        OP_ADDI    = 6'd18,
+        OP_SLTI    = 6'd19,
+        OP_SLTIU   = 6'd20,
+        OP_XORI    = 6'd21,
+        OP_ORI     = 6'd22,
+        OP_ANDI    = 6'd23,
+        OP_SLLI    = 6'd24,
+        OP_SRLI    = 6'd25,
+        OP_SRAI    = 6'd26,
         // OP
-        OP_ADD          = 6'd27,
-        OP_SUB          = 6'd28,
-        OP_SLL          = 6'd29,
-        OP_SLT          = 6'd30,
-        OP_SLTU         = 6'd31,
-        OP_XOR          = 6'd32,
-        OP_SRL          = 6'd33,
-        OP_SRA          = 6'd34,
-        OP_OR           = 6'd35,
-        OP_AND          = 6'd36,
+        OP_ADD     = 6'd27,
+        OP_SUB     = 6'd28,
+        OP_SLL     = 6'd29,
+        OP_SLT     = 6'd30,
+        OP_SLTU    = 6'd31,
+        OP_XOR     = 6'd32,
+        OP_SRL     = 6'd33,
+        OP_SRA     = 6'd34,
+        OP_OR      = 6'd35,
+        OP_AND     = 6'd36,
         // M extension
-        OP_MUL          = 6'd37,
-        OP_MULH         = 6'd38,
-        OP_MULHSU       = 6'd39,
-        OP_MULHU        = 6'd40,
-        OP_DIV          = 6'd41,
-        OP_DIVU         = 6'd42,
-        OP_REM          = 6'd43,
-        OP_REMU         = 6'd44,
+        OP_MUL     = 6'd37,
+        OP_MULH    = 6'd38,
+        OP_MULHSU  = 6'd39,
+        OP_MULHU   = 6'd40,
+        OP_DIV     = 6'd41,
+        OP_DIVU    = 6'd42,
+        OP_REM     = 6'd43,
+        OP_REMU    = 6'd44,
         // Zicsr
-        OP_CSRRW        = 6'd45,
-        OP_CSRRS        = 6'd46,
-        OP_CSRRC        = 6'd47,
-        OP_CSRRWI       = 6'd48,
-        OP_CSRRSI       = 6'd49,
-        OP_CSRRCI       = 6'd50,
+        OP_CSRRW   = 6'd45,
+        OP_CSRRS   = 6'd46,
+        OP_CSRRC   = 6'd47,
+        OP_CSRRWI  = 6'd48,
+        OP_CSRRSI  = 6'd49,
+        OP_CSRRCI  = 6'd50,
         // SYSTEM / MISC-MEM
-        OP_ECALL        = 6'd51,
-        OP_EBREAK       = 6'd52,
-        OP_MRET         = 6'd53,
-        OP_FENCE        = 6'd54,
+        OP_ECALL   = 6'd51,
+        OP_EBREAK  = 6'd52,
+        OP_MRET    = 6'd53,
+        OP_FENCE   = 6'd54,
         // Decode could not map the encoding (SPEC-A1/M17: simulated error,
         // no architectural trap in v1 - see docs/c0_decisions.md D-C0-01).
-        OP_ILLEGAL      = 6'd55
+        OP_ILLEGAL = 6'd55
     } op_t;
 
     //-------------------------------------------------------------------------
     // 5. Exception causes (backend.md sections 11 / 16.1 / 17)
     //-------------------------------------------------------------------------
     typedef enum logic [31:0] {
-        EXC_NONE           = 32'h0000_0000,
-        EXC_ECALL_M        = 32'd11,
-        EXC_MACHINE_TIMER  = 32'h8000_0007
+        EXC_NONE          = 32'h0000_0000,
+        EXC_ECALL_M       = 32'd11,
+        EXC_MACHINE_TIMER = 32'h8000_0007
     } exception_cause_t;
-
-    //-------------------------------------------------------------------------
-    // 6. Control-flow types (frontend.md section 3.2; SPEC-C3 name fix)
-    //-------------------------------------------------------------------------
-    typedef enum logic [2:0] {
-        CFI_NONE          = 3'd0,
-        CFI_COND_BRANCH   = 3'd1,
-        CFI_DIRECT_JUMP   = 3'd2,
-        CFI_CALL          = 3'd3,
-        CFI_RETURN        = 3'd4,
-        CFI_INDIRECT_JUMP = 3'd5
-    } cfi_type_t;
-
-    // Redirect kind (contract section 3)
-    typedef enum logic {
-        REDIRECT_BRANCH = 1'b0,
-        REDIRECT_ARCH   = 1'b1
-    } fe_redirect_kind_t;
-
-    //-------------------------------------------------------------------------
-    // 7. Predictor metadata (FIXED layout - SPEC-C5 forbids ifdef variation)
-    //-------------------------------------------------------------------------
-    typedef struct packed {
-        logic                 update_gshare_taken;
-        logic                 update_bimodal_taken;
-        logic [GHR_WIDTH-1:0] pred_ghr;  // GHR the gshare index was formed with
-    } chooser_meta_t;
-
-    typedef struct packed {
-        logic [ADDR_WIDTH-1:0] pred_target;   // raw BPU target
-        logic                  pred_taken;    // raw BPU direction
-        cfi_type_t             pred_type;     // raw BPU CFI class
-        logic [GHR_WIDTH-1:0]  ghr_before;    // per-CFI GHR snapshot
-        chooser_meta_t         chooser_meta;  // tournament training state
-        logic                  loop_override; // direction came from the loop predictor
-    } pred_meta_t;
-
-    //-------------------------------------------------------------------------
-    // 8. Instruction interface FE -> BE (contract section 2.1)
-    //-------------------------------------------------------------------------
-    typedef struct packed {
-        logic [ADDR_WIDTH-1:0] pc;
-        pred_meta_t            pred_meta;
-        logic [ADDR_WIDTH-1:0] pred_npc;   // effective predicted next PC
-        logic [INST_WIDTH-1:0] inst;
-        logic                  valid;
-        logic                  need_redirect;  // un-predicted JALR: force recovery
-        cfi_type_t             cfi_type;       // actual class from predecode
-        logic                  is_cfi;
-    } iq_entry_t;
-
-    //-------------------------------------------------------------------------
-    // 9. BPU training event (contract section 4)
-    //-------------------------------------------------------------------------
-    typedef struct packed {
-        logic [ADDR_WIDTH-1:0] update_pc;
-        logic                  actual_taken;
-        logic [ADDR_WIDTH-1:0] actual_target;
-        cfi_type_t             actual_cfi_type;
-        pred_meta_t            pred_meta;
-    } bpu_update_t;
 
     //-------------------------------------------------------------------------
     // 10. CIQ entry (backend.md section 4)
     //-------------------------------------------------------------------------
     typedef struct packed {
-        logic              valid;
-        entry_state_t      state;
+        logic         valid;
+        entry_state_t state;
 
         logic [ADDR_WIDTH-1:0] pc;
         logic [ADDR_WIDTH-1:0] pred_npc;
-        pred_meta_t        pred_meta;
-        logic              need_redirect;
-        cfi_type_t         actual_cfi_type;
+        fe_pkg::pred_meta_t    pred_meta;
+        fe_pkg::cfi_type_t     actual_cfi_type;
         logic [ADDR_WIDTH-1:0] actual_npc;
-        logic              actual_taken;
+        logic                  actual_taken;
         logic [ADDR_WIDTH-1:0] actual_target;
 
-        fu_type_t          fu_type;
-        op_t               op;
+        fu_type_t fu_type;
+        op_t      op;
 
-        logic [4:0]        rd;
-        logic              rd_wen;
+        logic [4:0] rd;
+        logic       rd_wen;
 
-        logic [4:0]        rs1;
-        logic              src1_used;
-        logic              src1_dep_valid;
-        tag_t              src1_dep_tag;
+        logic [4:0] rs1;
+        logic       src1_used;
+        logic       src1_dep_valid;
+        tag_t       src1_dep_tag;
 
-        logic [4:0]        rs2;
-        logic              src2_used;
-        logic              src2_dep_valid;
-        tag_t              src2_dep_tag;
+        logic [4:0] rs2;
+        logic       src2_used;
+        logic       src2_dep_valid;
+        tag_t       src2_dep_tag;
 
-        logic [31:0]       imm;
-        logic [31:0]       result;
+        logic [31:0] imm;
+        logic [31:0] result;
 
-        logic [11:0]       csr_addr;
-        logic              csr_write_en;
-        logic [31:0]       csr_write_data;
-        logic              is_serializing;
+        logic [11:0] csr_addr;
+        logic        csr_write_en;
+        logic [31:0] csr_write_data;
+        logic        is_serializing;
 
-        logic              exception;
-        exception_cause_t  exception_cause;
-        logic [31:0]       exception_tval;
+        logic             exception;
+        exception_cause_t exception_cause;
+        logic [31:0]      exception_tval;
 
-        logic              is_branch;
-        logic              is_load;
-        logic              is_store;
-        logic              is_csr;
-        logic              is_fence;
+        logic is_branch;
+        logic is_load;
+        logic is_store;
+        logic is_csr;
+        logic is_fence;
     } queue_entry_t;
 
     //-------------------------------------------------------------------------
     // 11. FU request / completion (backend.md sections 10 / 11)
     //-------------------------------------------------------------------------
     typedef struct packed {
-        tag_t              tag;
-        op_t               op;
+        tag_t tag;
+        op_t  op;
 
-        logic [31:0]       src1;
-        logic [31:0]       src2;
-        logic [31:0]       imm;
-        logic [31:0]       pc;
-        logic [31:0]       pred_npc;      // BRU only
-        logic              need_redirect; // BRU only
-        logic [11:0]       csr_addr;      // CSR only
-        logic              csr_write_en;  // CSR only
+        logic [31:0] src1;
+        logic [31:0] src2;
+        logic [31:0] imm;
+        logic [31:0] pc;
+        logic [31:0] pred_npc;      // BRU only
+        logic [11:0] csr_addr;      // CSR only
+        logic        csr_write_en;  // CSR only
     } fu_req_t;
 
     typedef struct packed {
-        tag_t              tag;
-        logic [31:0]       result;
+        tag_t        tag;
+        logic [31:0] result;
 
-        logic              exception;
-        exception_cause_t  cause;
-        logic [31:0]       tval;
+        logic             exception;
+        exception_cause_t cause;
+        logic [31:0]      tval;
     } fu_completion_t;
 
 endpackage

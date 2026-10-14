@@ -99,12 +99,18 @@ package fe_pkg;
      */
     typedef enum logic [2:0] {
         CFI_NONE = '0,
-        CFI_BRANCH,
+        CFI_COND_BRANCH,
         CFI_DIRECT_JUMP,
         CFI_CALL,
         CFI_RETURN,
         CFI_INDIRECT_JUMP
     } cfi_type_t;
+
+    // Redirect kind (frontend_backend_contract.md section 3)
+    typedef enum logic {
+        REDIRECT_BRANCH = 1'b0,
+        REDIRECT_ARCH   = 1'b1
+    } fe_redirect_kind_t;
 
     /*
      * Direction predictor metadata.
@@ -129,6 +135,18 @@ package fe_pkg;
 `ifdef LOOP_PRED_ON
         logic          loop_override;  // direction came from the loop predictor
 `endif
+
+        // Per-CFI speculative-GHR snapshot (frontend_backend_contract.md 2.1 /
+        // 3), stored compactly as the number of predicted CFIs that precede
+        // this slot inside its fetch block.  The block-start GHR
+        // (chooser_meta.pred_ghr) advances by one bit per on-path CFI and all
+        // not-taken predecessors shift in a zero, so the full per-CFI snapshot
+        // is recovered exactly on a redirect with
+        //     ghr_before = chooser_meta.pred_ghr << cfi_prefix
+        // This avoids storing a second, fully derivable GHR per instruction.
+        // A block ends at the first predicted-taken CFI, so it may still hold
+        // several not-taken CFIs and cfi_prefix can be non-zero.
+        logic [$clog2(FETCH_WIDTH+1)-1:0] cfi_prefix;
     } pred_meta_t;
 
     /*
@@ -195,19 +213,15 @@ package fe_pkg;
     } btb_entry_t;
 
     /*
-     * BPU Update metadata packed data
+     * BPU training event (frontend_backend_contract.md section 4)
      */
 
     typedef struct packed {
-        // resolution of the CFI
-        logic [ADDR_WIDTH - 1:0] update_pc;
-        logic                    actual_taken;
-        logic                    is_branch;     // conditional branch (opcode 0x63)
-        btb_target_info_t        actual_info;
-
-        // the prediction that was made for this instruction; needed by the
-        // direction predictor to train the state it used at predict time
-        pred_meta_t pred_meta;
-    } update_meta_t;
+        logic [ADDR_WIDTH-1:0] update_pc;        // PC of the resolved CFI
+        logic                  actual_taken;     // JAL/JALR are always taken
+        logic [ADDR_WIDTH-1:0] actual_target;    // BRU computed target
+        cfi_type_t             actual_cfi_type;  // Decode-confirmed true CFI class
+        pred_meta_t            pred_meta;        // raw prediction + ghr snapshot
+    } bpu_update_t;
 
 endpackage

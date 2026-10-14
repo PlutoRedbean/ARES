@@ -6,8 +6,7 @@
 //
 //   phase 1  directed program, checked instruction by instruction against an
 //            independent RV32IM golden model (retire PC, rd, value): branch
-//            taken/not-taken, JAL, JALR with need_redirect=1 and
-//            actual_npc == pred_npc (forced recovery), loads/stores, MUL/DIV/
+//            taken/not-taken, JAL, JALR target resolution, loads/stores, MUL/DIV/
 //            REM, serializing CSR, 2-wide dispatch, store commit handshake;
 //   phase 2  ECALL -> mtvec handler -> MRET and a machine timer interrupt
 //            (drain-to-boundary, mepc/mcause/mstatus path);
@@ -28,6 +27,7 @@
 //=============================================================================
 module tb_backend;
     import ares_pkg::*;
+    import fe_pkg::*;
 
     localparam logic [31:0] BASE    = 32'h8000_0000;
     localparam logic [31:0] HANDLER = 32'h8000_0200;
@@ -54,7 +54,7 @@ module tb_backend;
     logic                  redirect_valid;
     logic [31:0]           redirect_pc;
     fe_redirect_kind_t     redirect_kind;
-    logic [GHR_WIDTH-1:0]  redirect_ghr;
+    logic [fe_pkg::GHR_WIDTH-1:0]  redirect_ghr;
     logic                  redirect_taken;
     logic [1:0]            bpu_credit, bpu_valid;
     bpu_update_t           bpu_update [2];
@@ -484,8 +484,7 @@ module tb_backend;
     a_dep_error: assert property (@(posedge clk) disable iff (rst) !dep_error)
         else fail("dependency points at an invalid slot");
     // With an always-not-taken fetch model a BRU recovery is only produced for
-    // an actually taken CFI (or a need_redirect JALR, also taken), and the FE
-    // model keeps ghr_before at zero.
+    // an actually taken CFI, and the FE model keeps ghr_before at zero.
     a_branch_taken: assert property (@(posedge clk) disable iff (rst)
         redirect_valid && (redirect_kind == REDIRECT_BRANCH) |-> redirect_taken)
         else fail("branch redirect with actual_taken == 0");
@@ -673,7 +672,6 @@ module tb_backend;
         errors = 0;
         p3_cycles = 0;
         p3_retires = 0;
-        mismatch_prints = 0;
         gold_checked = 0;
         gold_unchecked = 0;
 

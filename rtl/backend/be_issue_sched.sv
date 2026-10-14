@@ -25,28 +25,28 @@
 //=============================================================================
 module be_issue_sched (
     //---- four oldest candidates and their resolved sources -----------------
-    input  ares_pkg::queue_entry_t cand [ares_pkg::ISSUE_WIDTH_MAX],
-    input  logic [31:0]  src1 [ares_pkg::ISSUE_WIDTH_MAX],
-    input  logic [31:0]  src2 [ares_pkg::ISSUE_WIDTH_MAX],
-    input  logic         src_ready [ares_pkg::ISSUE_WIDTH_MAX],
+    input ares_pkg::queue_entry_t        cand     [ares_pkg::ISSUE_WIDTH_MAX],
+    input logic                   [31:0] src1     [ares_pkg::ISSUE_WIDTH_MAX],
+    input logic                   [31:0] src2     [ares_pkg::ISSUE_WIDTH_MAX],
+    input logic                          src_ready[ares_pkg::ISSUE_WIDTH_MAX],
 
     //---- ordering / global conditions --------------------------------------
-    input  ares_pkg::tag_t         issue_ptr,
-    input  ares_pkg::tag_t         commit_ptr,
-    input  logic         lsu_mmio_order_idle,
-    input  logic         recovery_valid,
-    input  logic         flush_active,
+    input ares_pkg::tag_t issue_ptr,
+    input ares_pkg::tag_t commit_ptr,
+    input logic           lsu_mmio_order_idle,
+    input logic           recovery_valid,
+    input logic           flush_active,
 
     //---- FU acceptance and LSU credits (indexed by ares_pkg::fu_type_t) -------------
-    input  logic [7:0]   fu_can_accept,
-    input  logic [2:0]   load_credit,     // ares_pkg::LQ_ENTRIES = 4 (3 bits = 0..4)
-    input  logic [3:0]   store_credit,    // ares_pkg::SQ_ENTRIES = 8 (4 bits = 0..8)
+    input logic [7:0] fu_can_accept,
+    input logic [2:0] load_credit,    // ares_pkg::LQ_ENTRIES = 4 (3 bits = 0..4)
+    input logic [3:0] store_credit,   // ares_pkg::SQ_ENTRIES = 8 (4 bits = 0..8)
 
     //---- grants (CIQ: WAIT -> EXEC, FU: latch the request) -----------------
     output logic [ares_pkg::ISSUE_WIDTH_MAX-1:0] issue_grant,
-    output ares_pkg::tag_t                       issue_tag [ares_pkg::ISSUE_WIDTH_MAX],
-    output logic [7:0]                 fu_issue_valid,
-    output ares_pkg::fu_req_t                    fu_req [8]
+    output ares_pkg::tag_t issue_tag[ares_pkg::ISSUE_WIDTH_MAX],
+    output logic [7:0] fu_issue_valid,
+    output ares_pkg::fu_req_t fu_req[8]
 );
     import ares_pkg::*;
 
@@ -70,44 +70,53 @@ module be_issue_sched (
     endfunction
     /* verilator lint_on UNUSEDSIGNAL */
 
-    logic smul_ok [ISSUE_WIDTH_MAX];
+    logic smul_ok[ISSUE_WIDTH_MAX];
     always_comb begin
         for (int unsigned i = 0; i < ISSUE_WIDTH_MAX; i++)
-            smul_ok[i] = (cand[i].op == OP_MUL) && fit16(src1[i]) && fit16(src2[i]);
+        smul_ok[i] = (cand[i].op == OP_MUL) && fit16(src1[i]) && fit16(src2[i]);
     end
 
     //-------------------------------------------------------------------------
     // Port preference for one candidate against the remaining port set.
     // Returns 1 when a compatible free port was found.
     //-------------------------------------------------------------------------
-    function automatic logic pick_port(
-        input  fu_type_t   ft,
-        input  logic       smul_eligible,
-        input  logic       credit_ok,
-        input  logic [7:0] rem,
-        output logic [2:0] port
-    );
+    function automatic logic pick_port(input fu_type_t ft, input logic smul_eligible,
+                                       input logic credit_ok, input logic [7:0] rem,
+                                       output logic [2:0] port);
         begin
             pick_port = 1'b1;
             port      = P_ALU0;
             case (ft)
                 FU_ALU0, FU_ALU1: begin
-                    if (rem[P_ALU0])                   port = P_ALU0;
-                    else if (rem[P_ALU1])              port = P_ALU1;
-                    else                               pick_port = 1'b0;
+                    if (rem[P_ALU0]) port = P_ALU0;
+                    else if (rem[P_ALU1]) port = P_ALU1;
+                    else pick_port = 1'b0;
                 end
                 FU_MUL: begin
-                    if (smul_eligible && rem[P_SMUL])  port = P_SMUL;
-                    else if (rem[P_MUL])               port = P_MUL;
-                    else                               pick_port = 1'b0;
+                    if (smul_eligible && rem[P_SMUL]) port = P_SMUL;
+                    else if (rem[P_MUL]) port = P_MUL;
+                    else pick_port = 1'b0;
                 end
-                FU_BRU:  begin if (rem[P_BRU]) port = P_BRU; else pick_port = 1'b0; end
-                FU_DIV:  begin if (rem[P_DIV]) port = P_DIV; else pick_port = 1'b0; end
-                FU_CSR:  begin if (rem[P_CSR]) port = P_CSR; else pick_port = 1'b0; end
-                FU_LSU:  begin
-                    if (rem[P_LSU] && credit_ok) port = P_LSU; else pick_port = 1'b0;
+                FU_BRU: begin
+                    if (rem[P_BRU]) port = P_BRU;
+                    else pick_port = 1'b0;
                 end
-                default: begin port = P_ALU0; pick_port = 1'b0; end
+                FU_DIV: begin
+                    if (rem[P_DIV]) port = P_DIV;
+                    else pick_port = 1'b0;
+                end
+                FU_CSR: begin
+                    if (rem[P_CSR]) port = P_CSR;
+                    else pick_port = 1'b0;
+                end
+                FU_LSU: begin
+                    if (rem[P_LSU] && credit_ok) port = P_LSU;
+                    else pick_port = 1'b0;
+                end
+                default: begin
+                    port = P_ALU0;
+                    pick_port = 1'b0;
+                end
             endcase
         end
     endfunction
@@ -115,12 +124,12 @@ module be_issue_sched (
     //-------------------------------------------------------------------------
     // Contiguous-prefix arbitration
     //-------------------------------------------------------------------------
-    logic [7:0]  remaining;
-    logic        prefix_ok, block_all;
-    logic        c_ok, c_credit_ok, c_found;
-    logic [2:0]  c_port;
-    logic [2:0]  fu_sel [ISSUE_WIDTH_MAX];
-    logic        fu_sel_valid [ISSUE_WIDTH_MAX];
+    logic [7:0] remaining;
+    logic prefix_ok, block_all;
+    logic c_ok, c_credit_ok, c_found;
+    logic [2:0] c_port;
+    logic [2:0] fu_sel      [ISSUE_WIDTH_MAX];
+    logic       fu_sel_valid[ISSUE_WIDTH_MAX];
 
     always_comb begin
         remaining = fu_can_accept;
@@ -134,13 +143,15 @@ module be_issue_sched (
             fu_sel_valid[i]         = 1'b0;
         end
 
-        c_ok = 1'b0; c_credit_ok = 1'b0; c_found = 1'b0; c_port = P_ALU0;
+        c_ok = 1'b0;
+        c_credit_ok = 1'b0;
+        c_found = 1'b0;
+        c_port = P_ALU0;
 
         for (int unsigned i = 0; i < ISSUE_WIDTH_MAX; i++) begin
             c_ok = cand[i].valid && (cand[i].state == ENTRY_WAIT) && src_ready[i];
             if (cand[i].is_serializing)
-                c_ok = c_ok && (issue_tag[i].slot_index == commit_ptr.slot_index)
-                            && lsu_mmio_order_idle;
+                c_ok = c_ok && (issue_tag[i].slot_index == commit_ptr.slot_index) && lsu_mmio_order_idle;
 
             c_credit_ok = cand[i].is_load  ? (load_credit  != 3'd0)
                         : cand[i].is_store ? (store_credit != 4'd0)
@@ -178,7 +189,6 @@ module be_issue_sched (
                 fu_req[fu_sel[i]].imm          = cand[i].imm;
                 fu_req[fu_sel[i]].pc           = cand[i].pc;
                 fu_req[fu_sel[i]].pred_npc     = cand[i].pred_npc;
-                fu_req[fu_sel[i]].need_redirect = cand[i].need_redirect;
                 fu_req[fu_sel[i]].csr_addr     = cand[i].csr_addr;
                 fu_req[fu_sel[i]].csr_write_en = cand[i].csr_write_en;
             end
@@ -191,7 +201,7 @@ module be_issue_sched (
     // invariant).
     always_comb begin
         for (int unsigned p = 0; p < 8; p++)
-            a_guaranteed_accept : assert (!fu_issue_valid[p] || fu_can_accept[p]);
+        a_guaranteed_accept : assert (!fu_issue_valid[p] || fu_can_accept[p]);
     end
 `endif
 endmodule

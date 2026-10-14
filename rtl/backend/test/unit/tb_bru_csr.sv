@@ -18,8 +18,6 @@
 //       cycle pulse
 //     * pred_npc equal (no recovery) and unequal (recovery with
 //       recovery_branch_tag + redirect_pc) for branches and jumps
-//     * need_redirect=1 with actual_npc == pred_npc still produces exactly one
-//       recovery
 //     * kill in the completion cycle -> no completion (kill wins over the
 //       completion) and no recovery afterwards; kill in the issue cycle -> the
 //       operation is dropped and never completes or recovers.  The BRU recovery
@@ -236,10 +234,7 @@ module tb_bru_csr;
         end
     endfunction
 
-    function automatic fu_req_t mk_bru_req(input tag_t tag, input op_t op,
-                                           input logic [31:0] pc, src1, src2, imm,
-                                           input logic [31:0] pred_npc,
-                                           input logic need_redirect);
+    function automatic fu_req_t mk_bru_req(input tag_t tag, input op_t op, input logic [31:0] pc, src1, src2, imm, input logic [31:0] pred_npc);
         fu_req_t r;
         begin
             r = '0;
@@ -250,7 +245,6 @@ module tb_bru_csr;
             r.src2          = src2;
             r.imm           = imm;
             r.pred_npc      = pred_npc;
-            r.need_redirect = need_redirect;
             mk_bru_req      = r;
         end
     endfunction
@@ -259,28 +253,15 @@ module tb_bru_csr;
     // fu_bru: one operation end to end (issue, completion, recovery sideband,
     // then the single-cycle check)
     //-------------------------------------------------------------------------
-    task automatic bru_case(
-        input op_t         op,
-        input logic [31:0] pc,
-        input logic [31:0] src1,
-        input logic [31:0] src2,
-        input logic [31:0] imm,
-        input logic [31:0] pred_npc,
-        input logic        need_redirect,
-        input logic        exp_taken,
-        input logic [31:0] exp_target,
-        input logic [31:0] exp_npc,
-        input tag_t        tag,
-        input string       name
-    );
+    task automatic bru_case(input op_t         op, input logic [31:0] pc, input logic [31:0] src1, input logic [31:0] src2, input logic [31:0] imm, input logic [31:0] pred_npc, input logic        exp_taken, input logic [31:0] exp_target, input logic [31:0] exp_npc, input tag_t        tag, input string       name);
         logic exp_recovery;
         begin
-            exp_recovery = need_redirect || (exp_npc != pred_npc);
+            exp_recovery = (exp_npc != pred_npc);
 
             @(negedge clk);
             check(!bru_completion_valid, $sformatf("%s: BRU idle before issue", name));
             bru_issue_valid = 1'b1;
-            bru_issue_req   = mk_bru_req(tag, op, pc, src1, src2, imm, pred_npc, need_redirect);
+            bru_issue_req   = mk_bru_req(tag, op, pc, src1, src2, imm, pred_npc);
             bru_kill_mask   = '0;
             #1;
             check(!bru_completion_valid, $sformatf("%s: no completion in the issue cycle", name));
@@ -529,56 +510,44 @@ module tb_bru_csr;
         begin
             t = mk_tag(4'd0);
             // BEQ taken; target == npc; prediction correct -> no recovery
-            bru_case(OP_BEQ, 32'h8000_0000, 32'h0000_0005, 32'h0000_0005, 32'h0000_0020,
-                     32'h8000_0020, 1'b0, 1'b1, 32'h8000_0020, 32'h8000_0020, t, "BEQ taken");
+            bru_case(OP_BEQ, 32'h8000_0000, 32'h0000_0005, 32'h0000_0005, 32'h0000_0020, 32'h8000_0020, 1'b1, 32'h8000_0020, 32'h8000_0020, t, "BEQ taken");
 
             // BEQ not taken: actual_target (0x8000_0120) != actual_npc (pc+4)
             t = mk_tag(4'd1);
-            bru_case(OP_BEQ, 32'h8000_0100, 32'h0000_0005, 32'h0000_0006, 32'h0000_0020,
-                     32'h8000_0104, 1'b0, 1'b0, 32'h8000_0120, 32'h8000_0104, t, "BEQ not taken");
+            bru_case(OP_BEQ, 32'h8000_0100, 32'h0000_0005, 32'h0000_0006, 32'h0000_0020, 32'h8000_0104, 1'b0, 32'h8000_0120, 32'h8000_0104, t, "BEQ not taken");
 
             // BNE taken with a negative immediate
             t = mk_tag(4'd2);
-            bru_case(OP_BNE, 32'h8000_0200, 32'h0000_0007, 32'h0000_0009, 32'hFFFF_FFF0,
-                     32'h8000_01F0, 1'b0, 1'b1, 32'h8000_01F0, 32'h8000_01F0, t, "BNE taken");
+            bru_case(OP_BNE, 32'h8000_0200, 32'h0000_0007, 32'h0000_0009, 32'hFFFF_FFF0, 32'h8000_01F0, 1'b1, 32'h8000_01F0, 32'h8000_01F0, t, "BNE taken");
 
             // BNE not taken
             t = mk_tag(4'd3);
-            bru_case(OP_BNE, 32'h8000_0200, 32'h0000_0009, 32'h0000_0009, 32'h0000_0010,
-                     32'h8000_0204, 1'b0, 1'b0, 32'h8000_0210, 32'h8000_0204, t, "BNE not taken");
+            bru_case(OP_BNE, 32'h8000_0200, 32'h0000_0009, 32'h0000_0009, 32'h0000_0010, 32'h8000_0204, 1'b0, 32'h8000_0210, 32'h8000_0204, t, "BNE not taken");
 
             // BLT signed: -1 < 0 taken ...
             t = mk_tag(4'd4);
-            bru_case(OP_BLT, 32'h8000_0300, 32'hFFFF_FFFF, 32'h0000_0000, 32'h0000_0040,
-                     32'h8000_0340, 1'b0, 1'b1, 32'h8000_0340, 32'h8000_0340, t, "BLT taken (-1<0)");
+            bru_case(OP_BLT, 32'h8000_0300, 32'hFFFF_FFFF, 32'h0000_0000, 32'h0000_0040, 32'h8000_0340, 1'b1, 32'h8000_0340, 32'h8000_0340, t, "BLT taken (-1<0)");
             // ... and 0 < -1 not taken (an unsigned compare would say taken)
             t = mk_tag(4'd5);
-            bru_case(OP_BLT, 32'h8000_0300, 32'h0000_0000, 32'hFFFF_FFFF, 32'h0000_0040,
-                     32'h8000_0304, 1'b0, 1'b0, 32'h8000_0340, 32'h8000_0304, t, "BLT not taken (0<-1)");
+            bru_case(OP_BLT, 32'h8000_0300, 32'h0000_0000, 32'hFFFF_FFFF, 32'h0000_0040, 32'h8000_0304, 1'b0, 32'h8000_0340, 32'h8000_0304, t, "BLT not taken (0<-1)");
 
             // BGE signed
             t = mk_tag(4'd6);
-            bru_case(OP_BGE, 32'h8000_0400, 32'h0000_0000, 32'hFFFF_FFFF, 32'h0000_0008,
-                     32'h8000_0408, 1'b0, 1'b1, 32'h8000_0408, 32'h8000_0408, t, "BGE taken (0>=-1)");
+            bru_case(OP_BGE, 32'h8000_0400, 32'h0000_0000, 32'hFFFF_FFFF, 32'h0000_0008, 32'h8000_0408, 1'b1, 32'h8000_0408, 32'h8000_0408, t, "BGE taken (0>=-1)");
             t = mk_tag(4'd7);
-            bru_case(OP_BGE, 32'h8000_0400, 32'hFFFF_FFFF, 32'h0000_0000, 32'h0000_0008,
-                     32'h8000_0404, 1'b0, 1'b0, 32'h8000_0408, 32'h8000_0404, t, "BGE not taken (-1>=0)");
+            bru_case(OP_BGE, 32'h8000_0400, 32'hFFFF_FFFF, 32'h0000_0000, 32'h0000_0008, 32'h8000_0404, 1'b0, 32'h8000_0408, 32'h8000_0404, t, "BGE not taken (-1>=0)");
 
             // BLTU unsigned
             t = mk_tag(4'd8);
-            bru_case(OP_BLTU, 32'h8000_0500, 32'h0000_0001, 32'hFFFF_FFFF, 32'h0000_0004,
-                     32'h8000_0504, 1'b0, 1'b1, 32'h8000_0504, 32'h8000_0504, t, "BLTU taken (1<max)");
+            bru_case(OP_BLTU, 32'h8000_0500, 32'h0000_0001, 32'hFFFF_FFFF, 32'h0000_0004, 32'h8000_0504, 1'b1, 32'h8000_0504, 32'h8000_0504, t, "BLTU taken (1<max)");
             t = mk_tag(4'd9);
-            bru_case(OP_BLTU, 32'h8000_0500, 32'hFFFF_FFFF, 32'h0000_0001, 32'h0000_0010,
-                     32'h8000_0504, 1'b0, 1'b0, 32'h8000_0510, 32'h8000_0504, t, "BLTU not taken (max<1)");
+            bru_case(OP_BLTU, 32'h8000_0500, 32'hFFFF_FFFF, 32'h0000_0001, 32'h0000_0010, 32'h8000_0504, 1'b0, 32'h8000_0510, 32'h8000_0504, t, "BLTU not taken (max<1)");
 
             // BGEU unsigned
             t = mk_tag(4'd10);
-            bru_case(OP_BGEU, 32'h8000_0600, 32'hFFFF_FFFF, 32'h0000_0001, 32'h0000_0100,
-                     32'h8000_0700, 1'b0, 1'b1, 32'h8000_0700, 32'h8000_0700, t, "BGEU taken (max>=1)");
+            bru_case(OP_BGEU, 32'h8000_0600, 32'hFFFF_FFFF, 32'h0000_0001, 32'h0000_0100, 32'h8000_0700, 1'b1, 32'h8000_0700, 32'h8000_0700, t, "BGEU taken (max>=1)");
             t = mk_tag(4'd11);
-            bru_case(OP_BGEU, 32'h8000_0600, 32'h0000_0001, 32'hFFFF_FFFF, 32'h0000_0100,
-                     32'h8000_0604, 1'b0, 1'b0, 32'h8000_0700, 32'h8000_0604, t, "BGEU not taken (1>=max)");
+            bru_case(OP_BGEU, 32'h8000_0600, 32'h0000_0001, 32'hFFFF_FFFF, 32'h0000_0100, 32'h8000_0604, 1'b0, 32'h8000_0700, 32'h8000_0604, t, "BGEU not taken (1>=max)");
         end
     endtask
 
@@ -586,30 +555,24 @@ module tb_bru_csr;
         tag_t t;
         begin
             t = mk_tag(4'd0);
-            bru_case(OP_JAL, 32'h8000_1000, 32'h0000_0000, 32'h0000_0000, 32'h0000_0100,
-                     32'h8000_1100, 1'b0, 1'b1, 32'h8000_1100, 32'h8000_1100, t, "JAL +imm");
+            bru_case(OP_JAL, 32'h8000_1000, 32'h0000_0000, 32'h0000_0000, 32'h0000_0100, 32'h8000_1100, 1'b1, 32'h8000_1100, 32'h8000_1100, t, "JAL +imm");
 
             t = mk_tag(4'd3);
-            bru_case(OP_JAL, 32'h8000_2000, 32'h0000_0000, 32'h0000_0000, 32'hFFFF_FFF0,
-                     32'h8000_1FF0, 1'b0, 1'b1, 32'h8000_1FF0, 32'h8000_1FF0, t, "JAL -imm");
+            bru_case(OP_JAL, 32'h8000_2000, 32'h0000_0000, 32'h0000_0000, 32'hFFFF_FFF0, 32'h8000_1FF0, 1'b1, 32'h8000_1FF0, 32'h8000_1FF0, t, "JAL -imm");
 
             t = mk_tag(4'd5);
-            bru_case(OP_JALR, 32'h8000_3000, 32'h8000_4004, 32'h0000_0000, 32'h0000_0004,
-                     32'h8000_4008, 1'b0, 1'b1, 32'h8000_4008, 32'h8000_4008, t, "JALR target");
+            bru_case(OP_JALR, 32'h8000_3000, 32'h8000_4004, 32'h0000_0000, 32'h0000_0004, 32'h8000_4008, 1'b1, 32'h8000_4008, 32'h8000_4008, t, "JALR target");
 
             // JALR clears bit 0 of (src1 + imm)
             t = mk_tag(4'd7);
-            bru_case(OP_JALR, 32'h8000_3000, 32'h8000_4005, 32'h0000_0000, 32'h0000_0000,
-                     32'h8000_4004, 1'b0, 1'b1, 32'h8000_4004, 32'h8000_4004, t, "JALR clears bit0");
+            bru_case(OP_JALR, 32'h8000_3000, 32'h8000_4005, 32'h0000_0000, 32'h0000_0000, 32'h8000_4004, 1'b1, 32'h8000_4004, 32'h8000_4004, t, "JALR clears bit0");
 
             t = mk_tag(4'd9);
-            bru_case(OP_JALR, 32'h8000_3000, 32'h8000_4000, 32'h0000_0000, 32'h0000_0007,
-                     32'h8000_4006, 1'b0, 1'b1, 32'h8000_4006, 32'h8000_4006, t, "JALR clears bit0 (imm)");
+            bru_case(OP_JALR, 32'h8000_3000, 32'h8000_4000, 32'h0000_0000, 32'h0000_0007, 32'h8000_4006, 1'b1, 32'h8000_4006, 32'h8000_4006, t, "JALR clears bit0 (imm)");
 
             // (src1 + imm) wraps through 0 and bit 0 is still cleared
             t = mk_tag(4'd15);
-            bru_case(OP_JALR, 32'h8000_3000, 32'hFFFF_FFFF, 32'h0000_0000, 32'h0000_0001,
-                     32'h0000_0000, 1'b0, 1'b1, 32'h0000_0000, 32'h0000_0000, t, "JALR wrap");
+            bru_case(OP_JALR, 32'h8000_3000, 32'hFFFF_FFFF, 32'h0000_0000, 32'h0000_0001, 32'h0000_0000, 1'b1, 32'h0000_0000, 32'h0000_0000, t, "JALR wrap");
         end
     endtask
 
@@ -618,48 +581,31 @@ module tb_bru_csr;
         begin
             // Branch predicted not-taken but actually taken -> recovery
             t = mk_tag(4'd2);
-            bru_case(OP_BEQ, 32'h8000_0000, 32'h0000_0005, 32'h0000_0005, 32'h0000_0040,
-                     32'h8000_0004, 1'b0, 1'b1, 32'h8000_0040, 32'h8000_0040, t, "BEQ mispredict taken");
+            bru_case(OP_BEQ, 32'h8000_0000, 32'h0000_0005, 32'h0000_0005, 32'h0000_0040, 32'h8000_0004, 1'b1, 32'h8000_0040, 32'h8000_0040, t, "BEQ mispredict taken");
 
             // Branch predicted taken but actually not taken -> recovery to pc+4
             t = mk_tag(4'd4);
-            bru_case(OP_BNE, 32'h8000_0100, 32'h0000_0005, 32'h0000_0005, 32'h0000_0040,
-                     32'h8000_0140, 1'b0, 1'b0, 32'h8000_0140, 32'h8000_0104, t, "BEQ mispredict not taken");
+            bru_case(OP_BNE, 32'h8000_0100, 32'h0000_0005, 32'h0000_0005, 32'h0000_0040, 32'h8000_0140, 1'b0, 32'h8000_0140, 32'h8000_0104, t, "BEQ mispredict not taken");
 
             // JAL target mispredicted
             t = mk_tag(4'd6);
-            bru_case(OP_JAL, 32'h8000_0200, 32'h0000_0000, 32'h0000_0000, 32'h0000_0080,
-                     32'h8000_0204, 1'b0, 1'b1, 32'h8000_0280, 32'h8000_0280, t, "JAL mispredict");
+            bru_case(OP_JAL, 32'h8000_0200, 32'h0000_0000, 32'h0000_0000, 32'h0000_0080, 32'h8000_0204, 1'b1, 32'h8000_0280, 32'h8000_0280, t, "JAL mispredict");
 
             // JAL target matching the prediction -> no recovery
             t = mk_tag(4'd8);
-            bru_case(OP_JAL, 32'h8000_0200, 32'h0000_0000, 32'h0000_0000, 32'h0000_0080,
-                     32'h8000_0280, 1'b0, 1'b1, 32'h8000_0280, 32'h8000_0280, t, "JAL correct prediction");
+            bru_case(OP_JAL, 32'h8000_0200, 32'h0000_0000, 32'h0000_0000, 32'h0000_0080, 32'h8000_0280, 1'b1, 32'h8000_0280, 32'h8000_0280, t, "JAL correct prediction");
 
-            // need_redirect with actual_npc == pred_npc still recovers (exactly
-            // one cycle); this is the un-predicted JALR case of contract 3.1.
+            // JALR actual target == prediction -> no recovery
             t = mk_tag(4'd10);
-            bru_case(OP_JALR, 32'h8000_0300, 32'h8000_5000, 32'h0000_0000, 32'h0000_0004,
-                     32'h8000_5004, 1'b1, 1'b1, 32'h8000_5004, 32'h8000_5004, t,
-                     "JALR need_redirect, npc == pred_npc");
+            bru_case(OP_JALR, 32'h8000_0300, 32'h8000_5000, 32'h0000_0000, 32'h0000_0004, 32'h8000_5004, 1'b1, 32'h8000_5004, 32'h8000_5004, t, "JALR predicted target, no recovery");
 
-            // need_redirect=0 and npc == pred_npc -> no recovery
-            t = mk_tag(4'd10);
-            bru_case(OP_JALR, 32'h8000_0300, 32'h8000_5000, 32'h0000_0000, 32'h0000_0004,
-                     32'h8000_5004, 1'b0, 1'b1, 32'h8000_5004, 32'h8000_5004, t,
-                     "JALR predicted target, no recovery");
-
-            // need_redirect with a mismatching prediction -> recovery as well
+            // JALR actual target != prediction -> recovery
             t = mk_tag(4'd12);
-            bru_case(OP_JALR, 32'h8000_0300, 32'h8000_5000, 32'h0000_0000, 32'h0000_0004,
-                     32'h8000_6000, 1'b1, 1'b1, 32'h8000_5004, 32'h8000_5004, t,
-                     "JALR need_redirect + mispredict");
+            bru_case(OP_JALR, 32'h8000_0300, 32'h8000_5000, 32'h0000_0000, 32'h0000_0004, 32'h8000_6000, 1'b1, 32'h8000_5004, 32'h8000_5004, t, "JALR mispredict");
 
             // Correctly predicted conditional branch -> no recovery
             t = mk_tag(4'd14);
-            bru_case(OP_BLTU, 32'h8000_0400, 32'h0000_0001, 32'h0000_0002, 32'h0000_0010,
-                     32'h8000_0410, 1'b0, 1'b1, 32'h8000_0410, 32'h8000_0410, t,
-                     "BLTU correctly predicted");
+            bru_case(OP_BLTU, 32'h8000_0400, 32'h0000_0001, 32'h0000_0002, 32'h0000_0010, 32'h8000_0410, 1'b1, 32'h8000_0410, 32'h8000_0410, t, "BLTU correctly predicted");
         end
     endtask
 
@@ -674,8 +620,7 @@ module tb_bru_csr;
             t = mk_tag(4'd7);
             @(negedge clk);
             bru_issue_valid = 1'b1;
-            bru_issue_req   = mk_bru_req(t, OP_BEQ, 32'h8000_0000, 32'h0000_0005,
-                                         32'h0000_0005, 32'h0000_0040, 32'h8000_0040, 1'b0);
+            bru_issue_req   = mk_bru_req(t, OP_BEQ, 32'h8000_0000, 32'h0000_0005, 32'h0000_0005, 32'h0000_0040, 32'h8000_0040);
             bru_kill_mask   = '0;
             @(posedge clk); #1;
             bru_issue_valid = 1'b0;
@@ -695,8 +640,7 @@ module tb_bru_csr;
             t = mk_tag(4'd9);
             @(negedge clk);
             bru_issue_valid = 1'b1;
-            bru_issue_req   = mk_bru_req(t, OP_JAL, 32'h8000_1000, 32'h0, 32'h0,
-                                         32'h0000_0100, 32'h8000_1100, 1'b0);
+            bru_issue_req   = mk_bru_req(t, OP_JAL, 32'h8000_1000, 32'h0, 32'h0, 32'h0000_0100, 32'h8000_1100);
             bru_kill_mask[t.slot_index] = 1'b1;
             @(posedge clk); #1;
             bru_issue_valid = 1'b0;
@@ -716,7 +660,7 @@ module tb_bru_csr;
         logic [31:0] pc, a, b, imm, pnpc;
         logic [31:0] exp_npc, exp_tgt;
         op_t         op;
-        logic        taken, ndr;
+        logic        taken;
         tag_t        t;
         begin
             for (i = 0; i < 800; i = i + 1) begin
@@ -775,11 +719,9 @@ module tb_bru_csr;
                 end else begin
                     pnpc = rnd32() & 32'hFFFF_FFFC;
                 end
-                ndr = rnd32()[0];
                 t.slot_index = rnd32()[3:0];
 
-                bru_case(op, pc, a, b, imm, pnpc, ndr, taken, exp_tgt, exp_npc, t,
-                         $sformatf("random BRU #%0d", i));
+                bru_case(op, pc, a, b, imm, pnpc, taken, exp_tgt, exp_npc, t, $sformatf("random BRU #%0d", i));
             end
         end
     endtask
@@ -1310,7 +1252,7 @@ module tb_bru_csr;
             $fatal(1, "tb_bru_csr: %0d of %0d checks FAILED", errors, checks);
         end
 
-        $display("ALL TESTS PASSED: %0d checks - fu_bru (all 6 conditional branches taken/not-taken, JAL/JALR targets incl. JALR bit-0 clearing, actual_target for not-taken branches, pred_npc match/mismatch, need_redirect=1 with equal npc, single-cycle recovery, kill vs completion/recovery, fixed-seed randomised sweep); csr_file (reset values, mstatus MIE/MPIE/MPP, mie MTIE only, mtvec MODE=00, mepc[1:0]=00, mip MTIP follows timer_irq with writes ignored, mhartid read-only 0, raddr_ok for required/unimplemented addresses, trap/mret transitions and priority, fixed-seed randomised write/readback); fu_csr (all six Zicsr forms with src=0 and write-enable rules, old-value result and new-value csr_write_data, zero-extended uimm operands, ECALL exception registration, MRET normal completion, kill suppression, real CSR-file read integration and no early write)", checks);
+        $display("ALL TESTS PASSED: %0d checks - fu_bru (all 6 conditional branches taken/not-taken, JAL/JALR targets incl. JALR bit-0 clearing, actual_target for not-taken branches, pred_npc match/mismatch, single-cycle recovery, kill vs completion/recovery, fixed-seed randomised sweep); csr_file (reset values, mstatus MIE/MPIE/MPP, mie MTIE only, mtvec MODE=00, mepc[1:0]=00, mip MTIP follows timer_irq with writes ignored, mhartid read-only 0, raddr_ok for required/unimplemented addresses, trap/mret transitions and priority, fixed-seed randomised write/readback); fu_csr (all six Zicsr forms with src=0 and write-enable rules, old-value result and new-value csr_write_data, zero-extended uimm operands, ECALL exception registration, MRET normal completion, kill suppression, real CSR-file read integration and no early write)", checks);
         $finish;
     end
 

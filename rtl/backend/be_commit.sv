@@ -22,60 +22,60 @@
 // FREE items: FREE-04 (parallel prefix formation), FREE-02 (retire hooks here).
 //=============================================================================
 module be_commit (
-    input  logic                    clk,
-    input  logic                    rst,
+    input logic clk,
+    input logic rst,
 
     //---- CIQ state ----------------------------------------------------------
-    input  ares_pkg::queue_entry_t            entry [ares_pkg::CIQ_ENTRIES],
-    input  ares_pkg::tag_t                    commit_ptr,
-    input  logic [ares_pkg::CIQ_ENTRIES-1:0]  kill_mask,
+    input ares_pkg::queue_entry_t                             entry     [ares_pkg::CIQ_ENTRIES],
+    input ares_pkg::tag_t                                     commit_ptr,
+    input logic                   [ares_pkg::CIQ_ENTRIES-1:0] kill_mask,
 
     //---- external commit conditions ----------------------------------------
-    input  logic [1:0]              store_commit_ok,
-    input  logic [1:0]              bpu_block,
+    input logic [1:0] store_commit_ok,
+    input logic [1:0] bpu_block,
 
     //---- CSR values needed for the successor PC ----------------------------
-    input  logic [31:0]             mepc,
+    input logic [31:0] mepc,
 
     //---- commit lanes -------------------------------------------------------
-    output logic [1:0]              commit_fire,
-    output ares_pkg::tag_t                    commit_tag [2],
-    output logic [1:0]              commit_rd_wen,
-    output logic [4:0]              commit_rd [2],
-    output logic [31:0]             commit_wdata [2],
-    output logic [31:0]             commit_pc_next [2],
-    output logic [1:0]              commit_is_cfi,
-    output logic [1:0]              commit_is_mret,
+    output logic           [ 1:0] commit_fire,
+    output ares_pkg::tag_t        commit_tag    [2],
+    output logic           [ 1:0] commit_rd_wen,
+    output logic           [ 4:0] commit_rd     [2],
+    output logic           [31:0] commit_wdata  [2],
+    output logic           [31:0] commit_pc_next[2],
+    output logic           [ 1:0] commit_is_cfi,
+    output logic           [ 1:0] commit_is_mret,
 
     //---- CFI training attributes (to be_bpu_update) ------------------------
-    output logic [31:0]             commit_pc [2],
-    output logic                    commit_actual_taken [2],
-    output logic [31:0]             commit_actual_target [2],
-    output ares_pkg::cfi_type_t               commit_actual_cfi_type [2],
-    output ares_pkg::pred_meta_t              commit_pred_meta [2],
+    output logic               [31:0] commit_pc             [2],
+    output logic                      commit_actual_taken   [2],
+    output logic               [31:0] commit_actual_target  [2],
+    output fe_pkg::cfi_type_t         commit_actual_cfi_type[2],
+    output fe_pkg::pred_meta_t        commit_pred_meta      [2],
 
     //---- architectural writes ----------------------------------------------
-    output logic                    csr_commit_we,
-    output logic [11:0]             csr_commit_addr,
-    output logic [31:0]             csr_commit_wdata,
+    output logic        csr_commit_we,
+    output logic [11:0] csr_commit_addr,
+    output logic [31:0] csr_commit_wdata,
 
     //---- Store lane handshake with the LSU (backend.md 14.6) ---------------
-    output logic [1:0]              store_commit_valid,
-    output ares_pkg::tag_t                    store_commit_tag [2],
+    output logic           [1:0] store_commit_valid,
+    output ares_pkg::tag_t       store_commit_tag  [2],
 
     //---- retire observation (simulation hooks, backend.md 16.1) -----------
-    output logic [1:0]              retire_valid,
-    output logic [31:0]             retire_pc [2],
-    output logic [31:0]             retire_pc_next [2],
-    output logic [1:0]              retire_rd_wen,
-    output logic [4:0]              retire_rd [2],
-    output logic [31:0]             retire_wdata [2],
-    output logic [1:0]              retire_is_ebreak
+    output logic [ 1:0] retire_valid,
+    output logic [31:0] retire_pc       [2],
+    output logic [31:0] retire_pc_next  [2],
+    output logic [ 1:0] retire_rd_wen,
+    output logic [ 4:0] retire_rd       [2],
+    output logic [31:0] retire_wdata    [2],
+    output logic [ 1:0] retire_is_ebreak
 );
     import ares_pkg::*;
 
-    queue_entry_t cand [2];
-    logic [3:0]   idx1;
+    queue_entry_t cand[2];
+    logic [3:0] idx1;
 
     assign idx1 = commit_ptr.slot_index + 4'd1;
 
@@ -100,8 +100,7 @@ module be_commit (
     assign store_commit_tag[1]   = tag_t'{slot_index: idx1};
 
     always_comb begin
-        commit_fire[0] = c0_ok && bpu_block[0] == 1'b0
-                         && (!cand[0].is_store || store_commit_ok[0]);
+        commit_fire[0] = c0_ok && bpu_block[0] == 1'b0 && (!cand[0].is_store || store_commit_ok[0]);
         commit_fire[1] = commit_fire[0] && c1_ok && bpu_block[1] == 1'b0
                          && !cand[0].is_serializing
                          && !cand[1].is_serializing
@@ -109,22 +108,22 @@ module be_commit (
     end
 
     always_comb begin
-        commit_tag[0]    = commit_ptr;
-        commit_tag[1]    = tag_t'{slot_index: idx1};
+        commit_tag[0] = commit_ptr;
+        commit_tag[1] = tag_t'{slot_index: idx1};
         for (int unsigned l = 0; l < 2; l++) begin
             // Architectural writes happen only on a successful retire: the write
             // enables must be gated by commit_fire, otherwise an entry waiting at
             // the commit head clobbers its destination with a stale/default result.
-            commit_rd_wen[l]        = commit_fire[l] && cand[l].rd_wen && (cand[l].rd != 5'd0);
-            commit_rd[l]            = cand[l].rd;
-            commit_wdata[l]         = cand[l].result;
-            commit_is_cfi[l]        = cand[l].is_branch;
-            commit_is_mret[l]       = (cand[l].op == OP_MRET);
-            commit_pc[l]            = cand[l].pc;
-            commit_actual_taken[l]  = cand[l].actual_taken;
+            commit_rd_wen[l] = commit_fire[l] && cand[l].rd_wen && (cand[l].rd != 5'd0);
+            commit_rd[l] = cand[l].rd;
+            commit_wdata[l] = cand[l].result;
+            commit_is_cfi[l] = cand[l].is_branch;
+            commit_is_mret[l] = (cand[l].op == OP_MRET);
+            commit_pc[l] = cand[l].pc;
+            commit_actual_taken[l] = cand[l].actual_taken;
             commit_actual_target[l] = cand[l].actual_target;
             commit_actual_cfi_type[l] = cand[l].actual_cfi_type;
-            commit_pred_meta[l]     = cand[l].pred_meta;
+            commit_pred_meta[l] = cand[l].pred_meta;
 
             // True architectural successor (backend.md 17.2)
             commit_pc_next[l] = cand[l].is_branch ? cand[l].actual_npc
@@ -156,7 +155,8 @@ module be_commit (
     always_ff @(posedge clk) begin
         if (!rst) begin
             a_lane_order : assert (!commit_fire[1] || commit_fire[0]);
-            a_no_exc     : assert (!(cand[0].valid && (cand[0].state == ENTRY_DONE)
+            a_no_exc :
+            assert (!(cand[0].valid && (cand[0].state == ENTRY_DONE)
                                      && cand[0].exception
                                      && (cand[0].exception_cause != EXC_ECALL_M))
                                    || !commit_fire[0]);

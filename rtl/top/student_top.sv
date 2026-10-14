@@ -23,20 +23,20 @@ module student_top (
     input logic [31:0] mt_status, mt_result,
     // FE contract remains external until C5.
     input  logic [1:0]                       iq_valid,
-    input  ares_pkg::iq_entry_t              iq_inst [2],
+    input  fe_pkg::iq_entry_t              iq_inst [2],
     output logic [1:0]                       iq_accept_count,
 
     //---- Redirect: BE -> FE (contract section 3) ---------------------------
     output logic                             backend_redirect_valid,
     output logic [31:0]                      backend_redirect_pc,
-    output ares_pkg::fe_redirect_kind_t      backend_redirect_kind,
+    output fe_pkg::fe_redirect_kind_t      backend_redirect_kind,
     output logic [ares_pkg::GHR_WIDTH-1:0]   backend_redirect_ghr_before,
     output logic                             backend_redirect_actual_taken,
 
     //---- BPU update: Commit -> FE (contract section 4) ---------------------
     input  logic [1:0]                       bpu_update_credit,
     output logic [1:0]                       bpu_update_valid,
-    output ares_pkg::bpu_update_t            bpu_update [2]
+    output fe_pkg::bpu_update_t            bpu_update [2]
 );
     logic timer_irq;
     logic mem_rd_valid, mem_rd_ready, mem_rsp_valid, mem_rsp_ready;
