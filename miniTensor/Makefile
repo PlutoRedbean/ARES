@@ -18,7 +18,18 @@ DMA_SOURCES := \
 	$(CURDIR)/rtl/memory/vpu_dma.sv \
 	$(CURDIR)/tb/memory/tb_vpu_dma.sv
 
-.PHONY: sim regress clean vector-sim vrf-sim ub-sim dma-sim
+TENSOR_SOURCES := \
+	$(CURDIR)/rtl/tensor/tensor_pkg.sv \
+	$(CURDIR)/rtl/memory/unified_buffer.sv \
+	$(CURDIR)/rtl/tensor/MXU/Systolic_Array/tensor_pe.sv \
+	$(CURDIR)/rtl/tensor/MXU/Systolic_Array/tensor_systolic_array.sv \
+	$(CURDIR)/rtl/tensor/MXU/INT8_GEMM/tensor_gemm_core.sv \
+	$(CURDIR)/rtl/tensor/tensor_controller.sv \
+	$(CURDIR)/rtl/tensor/Epilogue/tensor_epilogue_core.sv \
+	$(CURDIR)/rtl/tensor/Epilogue/tensor_epilogue_controller.sv \
+	$(CURDIR)/tb/tensor/tb_tensor_gemm_core.sv
+
+.PHONY: sim regress clean vector-sim vrf-sim ub-sim dma-sim tensor-sim tensor-controller-sim epilogue-sim
 
 sim: regress
 
@@ -27,6 +38,9 @@ regress:
 	$(MAKE) vrf-sim
 	$(MAKE) ub-sim
 	$(MAKE) dma-sim
+	$(MAKE) tensor-sim
+	$(MAKE) tensor-controller-sim
+	$(MAKE) epilogue-sim
 
 vector-sim:
 	mkdir -p $(OBJ_DIR)/vector
@@ -53,6 +67,33 @@ dma-sim:
 	CCACHE_DISABLE=1 $(VERILATOR) $(COMMON_FLAGS) --Mdir $(OBJ_DIR)/dma \
 		--top-module tb_vpu_dma $(DMA_SOURCES)
 	$(OBJ_DIR)/dma/Vtb_vpu_dma
+
+tensor-sim:
+	mkdir -p $(OBJ_DIR)/tensor
+	CCACHE_DISABLE=1 $(VERILATOR) $(COMMON_FLAGS) --Mdir $(OBJ_DIR)/tensor \
+		--top-module tb_tensor_gemm_core $(TENSOR_SOURCES)
+	$(OBJ_DIR)/tensor/Vtb_tensor_gemm_core
+
+tensor-controller-sim:
+	mkdir -p $(OBJ_DIR)/tensor_controller
+	CCACHE_DISABLE=1 $(VERILATOR) $(COMMON_FLAGS) --Mdir $(OBJ_DIR)/tensor_controller \
+		--top-module tb_tensor_controller \
+		$(CURDIR)/rtl/tensor/tensor_pkg.sv \
+		$(CURDIR)/rtl/memory/unified_buffer.sv \
+		$(CURDIR)/rtl/tensor/MXU/Systolic_Array/tensor_pe.sv \
+		$(CURDIR)/rtl/tensor/MXU/Systolic_Array/tensor_systolic_array.sv \
+		$(CURDIR)/rtl/tensor/MXU/INT8_GEMM/tensor_gemm_core.sv \
+		$(CURDIR)/rtl/tensor/tensor_controller.sv \
+		$(CURDIR)/tb/tensor/tb_tensor_controller.sv
+	$(OBJ_DIR)/tensor_controller/Vtb_tensor_controller
+
+epilogue-sim:
+	mkdir -p $(OBJ_DIR)/epilogue
+	CCACHE_DISABLE=1 $(VERILATOR) $(COMMON_FLAGS) --Mdir $(OBJ_DIR)/epilogue \
+		--top-module tb_tensor_epilogue \
+		$(CURDIR)/rtl/tensor/Epilogue/tensor_epilogue_core.sv \
+		$(CURDIR)/tb/tensor/tb_tensor_epilogue.sv
+	$(OBJ_DIR)/epilogue/Vtb_tensor_epilogue
 
 clean:
 	rm -rf $(OBJ_DIR)
