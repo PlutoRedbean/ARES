@@ -1,64 +1,85 @@
+`include "autoconf.vh"
 package fe_pkg;
 
     // ------------------
     // Base parameters
     // ------------------
-    localparam int unsigned ADDR_WIDTH = 32;
-    localparam int unsigned DATA_WIDTH = 32;
-    localparam int unsigned INST_WIDTH = 32;
-    localparam int unsigned FETCH_WIDTH = 4;
+    localparam int unsigned ADDR_WIDTH = `CONFIG_FE_ADDR_WIDTH;
+    localparam int unsigned DATA_WIDTH = `CONFIG_FE_DATA_WIDTH;
+    localparam int unsigned INST_WIDTH = `CONFIG_FE_INST_WIDTH;
+    localparam int unsigned FETCH_WIDTH = `CONFIG_FE_FETCH_WIDTH;
     localparam int unsigned INST_BYTES = INST_WIDTH / 8;
+    localparam int unsigned RESET_VEC = 32'h8000_0000;
 
     // ------------------
     // IQ parameters
     // ------------------
-    localparam int unsigned DECODE_WIDTH = 2;
-    localparam int unsigned IQ_DEPTH = 128;
+    localparam int unsigned DECODE_WIDTH = `CONFIG_FE_DECODE_WIDTH;
+    localparam int unsigned BODY_DEPTH = `CONFIG_FE_BODY_DEPTH;
+    localparam int unsigned IQ_DEPTH = BODY_DEPTH + DECODE_WIDTH;
+
 
     // ------------------
     // FTQ parameters
     // ------------------
-    localparam int unsigned FTQ_NUM_ENTRIES = 16;
+    localparam int unsigned FTQ_NUM_ENTRIES = `CONFIG_FE_FTQ_NUM_ENTRIES;
+
+    // ------------------
+    // I-cache parameters
+    // ------------------
+    localparam int unsigned ICACHE_LINE_BYTES = `CONFIG_FE_ICACHE_LINE_BYTES;
+    localparam int unsigned ICACHE_NR_SETS = `CONFIG_FE_ICACHE_NR_SETS;
+    localparam int unsigned ICACHE_NR_WAYS = `CONFIG_FE_ICACHE_NR_WAYS;
 
     // ------------------
     // BTB parameters
     // ------------------
-    localparam int unsigned PHT_WIDTH = 10;
-    localparam int unsigned UBTB_WIDTH = 4;
-    localparam int unsigned GHR_WIDTH = 12;
+    localparam int unsigned PHT_WIDTH = `CONFIG_FE_PHT_WIDTH;
+    localparam int unsigned UBTB_WIDTH = `CONFIG_FE_UBTB_WIDTH;
+    localparam int unsigned GHR_WIDTH = `CONFIG_FE_GHR_WIDTH;
     /* verilator lint_off UNUSEDPARAM */
-    localparam int unsigned MBTB_WIDTH = 11;
+    localparam int unsigned MBTB_WIDTH = `CONFIG_FE_MBTB_WIDTH;
     /* verilator lint_on UNUSEDPARAM */
 
-    // Comment out to disable the loop predictor (and its override of the
-    // tournament direction predictor).
-    `define LOOP_PRED_ON
+    // ------------------
+    // Tournament predictor parameters
+    // ------------------
+    localparam int unsigned CHOOSER_WIDTH = 10;
 
-    // Return address stack.  Comment out RAS_ON to disable it (returns then
-    // fall back to the uBTB target), and change RAS_DEPTH to resize it.
+    // Return address stack.  RAS_ON enables it; returns otherwise fall back to
+    // the uBTB target.
+`ifdef CONFIG_FE_RAS
     `define RAS_ON
-    `define TOURNAMENT_ON
-
-`ifdef LOOP_PRED_ON
-    // ------------------
-    // Loop predictor parameters
-    // ------------------
-    localparam int unsigned LOOP_ENTRIES = 256;
-    localparam int unsigned LOOP_ITER_WIDTH = 8;
-`endif
-
-`ifdef RAS_ON
     // ------------------
     // RAS parameters
     // ------------------
-    parameter int unsigned RAS_ENTRIES = 16;
+    parameter int unsigned RAS_ENTRIES = `CONFIG_FE_RAS_ENTRIES;
 `endif
 
-`ifdef TOURNAMENT_ON
+    // Loop predictor.  It overrides the direction of whichever direction
+    // predictor is selected (Bimodal or Tournament) and is independent of it.
+`ifdef CONFIG_FE_LOOP_PRED
+    `define LOOP_PRED_ON
+    // ------------------
+    // Loop predictor parameters
+    // ------------------
+    localparam int unsigned LOOP_ENTRIES = `CONFIG_FE_LOOP_ENTRIES;
+    localparam int unsigned LOOP_ITER_WIDTH = `CONFIG_FE_LOOP_ITER_WIDTH;
+`endif
+
+    // Tournament predictor.  Disabled selects the plain Bimodal + uBTB
+    // configuration (DIR_TYPE == 1).
+`ifdef CONFIG_FE_TOURNAMENT
+    `define TOURNAMENT_ON
     localparam int unsigned DIR_TYPE = 2;
 `else
     localparam int unsigned DIR_TYPE = 1;
 `endif
+
+    // Instruction cache backing bus.  Define IO_USE_AXI to use the AXI4-Lite
+    // master; leave it commented to use the miniTensor uncached memory
+    // protocol (the Mundus instruction-memory bus).
+    // `define IO_USE_AXI
 
     /*
      * CFI type
@@ -91,6 +112,8 @@ package fe_pkg;
 
 `ifdef TOURNAMENT_ON
         chooser_meta_t chooser_meta;
+`endif
+`ifdef LOOP_PRED_ON
         logic          loop_override;  // direction came from the loop predictor
 `endif
     } pred_meta_t;

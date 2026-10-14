@@ -22,19 +22,19 @@ module ubtb (
     input logic rst,
 
     // predict port
-    input  logic                                                                    req_valid,
-    input                      [fe_pkg::ADDR_WIDTH - 1:0]                          fetch_pc,
-    output logic                                                                    resp_valid,
-    output                     [fe_pkg::ADDR_WIDTH - 1:0]                          resp_pc,
-    output logic               [ fe_pkg::FETCH_WIDTH-1:0]                          pred_cfi_valid,
-    output fe_pkg::cfi_type_t [ fe_pkg::FETCH_WIDTH-1:0]                          pred_cfi_type,
-    output logic               [ fe_pkg::FETCH_WIDTH-1:0][fe_pkg::ADDR_WIDTH-1:0] pred_target,
+    input  logic                                                                 req_valid,
+    input                     [fe_pkg::ADDR_WIDTH - 1:0]                         fetch_pc,
+    output logic                                                                 resp_valid,
+    output                    [fe_pkg::ADDR_WIDTH - 1:0]                         resp_pc,
+    output logic              [ fe_pkg::FETCH_WIDTH-1:0]                         pred_cfi_valid,
+    output fe_pkg::cfi_type_t [ fe_pkg::FETCH_WIDTH-1:0]                         pred_cfi_type,
+    output logic              [ fe_pkg::FETCH_WIDTH-1:0][fe_pkg::ADDR_WIDTH-1:0] pred_target,
 
     // update port: only taken branches/jumps allocate a target
-    input logic                                                  update_en,
-    input                            [fe_pkg::ADDR_WIDTH - 1:0] update_pc,
-    input logic                                                  actual_taken,
-    input fe_pkg::btb_target_info_t                             update_target
+    input logic                                                update_en,
+    input                           [fe_pkg::ADDR_WIDTH - 1:0] update_pc,
+    input logic                                                actual_taken,
+    input fe_pkg::btb_target_info_t                            update_target
 );
     import fe_pkg::*;
 

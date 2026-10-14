@@ -16,22 +16,23 @@
 //   2 : Tournament (Gshare + Bimodal) direction predictor + uBTB
 // Both predictors of a real configuration are 1-cycle pipelined; a taken
 // direction only redirects the fetch stream when the BTB also knows a target.
-module bpu #(
-    parameter int unsigned ADDR_WIDTH = 32,
-    parameter int unsigned RESET_VEC  = 32'h8000_0000
-) (
+//
+// The RAS (RAS_ON) and the loop predictor (LOOP_PRED_ON) are independent of the
+// direction predictor choice: the loop predictor sits beside either Bimodal or
+// Tournament and only overrides a slot when it reports a high-confidence hit.
+module bpu (
     input logic clk,
     input logic rst,
 
     // redirect from the back-end
-    input logic                    flush,
-    input logic [ADDR_WIDTH - 1:0] redirect_pc,
+    input logic                            flush,
+    input logic [fe_pkg::ADDR_WIDTH - 1:0] redirect_pc,
 
     // predict request / response
-    input  logic                                   ftq_wready,
-    output logic                                   ftq_wvalid,
-    output logic                [ADDR_WIDTH - 1:0] bpu_resp_pc,
-    output fe_pkg::ftq_entry_t                    ftq_wdata,
+    input  logic                                          ftq_wready,
+    output logic                                          ftq_wvalid,
+    output logic               [fe_pkg::ADDR_WIDTH - 1:0] bpu_resp_pc,
+    output fe_pkg::ftq_entry_t                            ftq_wdata,
 
     // training input.  The DIR_TYPE-selected predictor consumes these; with
     // always-not-taken (DIR_TYPE != 1/2) they are unused.
@@ -59,10 +60,17 @@ module bpu #(
     logic       [ FETCH_WIDTH-1:0]                 dir_taken_slots;
     pred_meta_t [ FETCH_WIDTH-1:0]                 pred_meta;
 
+    // Direction of the DIR_TYPE-selected predictor, before the (optional) loop
+    // predictor override is applied.
+    logic [FETCH_WIDTH-1:0]                        base_dir_taken_slots;
+
 `ifdef TOURNAMENT_ON
     chooser_meta_t [FETCH_WIDTH-1:0] chooser_meta_slots;
 `endif
 `ifdef LOOP_PRED_ON
+    // `loop_override` is a field of `pred_meta_t` guarded by LOOP_PRED_ON, so
+    // its slot aggregate must use the same guard.  The loop predictor is
+    // instantiated once and works beside either direction predictor.
     logic [FETCH_WIDTH-1:0] loop_override_slots;
 `endif
 
@@ -193,6 +201,71 @@ module bpu #(
             pred_meta: pred_meta
         };
 
+    // -----------------------------------------------------------------------
+    // Loop predictor.  It sits beside the DIR_TYPE-selected direction predictor
+    // and only overrides a slot when it reports a high-confidence hit, so it can
+    // be enabled independently of Bimodal/Tournament.
+    // -----------------------------------------------------------------------
+`ifdef LOOP_PRED_ON
+    logic [FETCH_WIDTH-1:0] loop_taken_slots;
+    logic [FETCH_WIDTH-1:0] loop_pred_valid;
+    logic [FETCH_WIDTH-1:0] loop_high_conf;
+    logic                   loop_resp_valid;
+
+    // on-path conditional branches of the block being predicted: used by
+    // the loop predictor to advance its speculative iteration counters
+    logic [FETCH_WIDTH-1:0] spec_branch_slots;
+    logic [FETCH_WIDTH-1:0] spec_on_path_slots;
+
+    always_comb begin
+        logic reached_taken;
+        reached_taken = 1'b0;
+        for (int s = 0; s < FETCH_WIDTH; s++) begin
+            spec_branch_slots[s]  = pred_cfi_valid[s] && (pred_cfi_type[s] == CFI_BRANCH);
+            spec_on_path_slots[s] = ~reached_taken;
+            if (pred_cfi_valid[s] && pred_taken[s]) begin
+                reached_taken = 1'b1;
+            end
+        end
+    end
+
+    /* verilator lint_off PINCONNECTEMPTY */
+    loop_predictor loop_predictor_u (
+        .clk            (clk),
+        .rst            (rst),
+        .req_valid      (issue),
+        .resp_valid     (loop_resp_valid),
+        .fetch_pc       (fetch_pc),
+        .pred_taken     (loop_taken_slots),
+        .pred_valid     (loop_pred_valid),
+        .pred_high_conf (loop_high_conf),
+        .spec_valid     (ftq_wvalid),
+        .spec_branch    (spec_branch_slots),
+        .spec_on_path   (spec_on_path_slots),
+        .spec_pred_taken(pred_taken),
+        .flush          (flush),
+        .update_en      (update_en),
+        .update_pc      (update_meta.update_pc),
+        .actual_taken   (update_meta.actual_taken),
+        .is_branch      (update_meta.is_branch)
+    );
+    /* verilator lint_on PINCONNECTEMPTY */
+
+    // selector: only a confident loop prediction overrides the base direction
+    always_comb begin
+        for (int s = 0; s < FETCH_WIDTH; s++) begin
+            loop_override_slots[s] = loop_resp_valid && loop_pred_valid[s] && loop_high_conf[s];
+            if (loop_override_slots[s]) begin
+                dir_taken_slots[s] = loop_taken_slots[s];
+            end else begin
+                dir_taken_slots[s] = base_dir_taken_slots[s];
+            end
+        end
+    end
+`else
+    assign dir_taken_slots = base_dir_taken_slots;
+`endif
+
     if (DIR_TYPE == 1) begin : g_bimodal_btb
         logic dir_resp_valid;
         logic btb_resp_valid;
@@ -208,7 +281,7 @@ module bpu #(
             .req_valid       (issue),
             .fetch_pc        (fetch_pc),
             .resp_valid      (dir_resp_valid),
-            .pred_taken_slots(dir_taken_slots),
+            .pred_taken_slots(base_dir_taken_slots),
             .update_en       (update_en && update_meta.is_branch),
             .update_pc       (update_meta.update_pc),
             .actual_taken    (update_meta.actual_taken)
@@ -238,33 +311,7 @@ module bpu #(
         logic                            dir_resp_valid;
         logic                            btb_resp_valid;
 
-        logic          [FETCH_WIDTH-1:0] tour_taken_slots;
         chooser_meta_t [FETCH_WIDTH-1:0] tour_meta;
-
-`ifdef LOOP_PRED_ON
-        // loop predictor override
-        logic [FETCH_WIDTH-1:0] loop_taken_slots;
-        logic [FETCH_WIDTH-1:0] loop_pred_valid;
-        logic [FETCH_WIDTH-1:0] loop_high_conf;
-        logic                   loop_resp_valid;
-
-        // on-path conditional branches of the block being predicted: used by
-        // the loop predictor to advance its speculative iteration counters
-        logic [FETCH_WIDTH-1:0] spec_branch_slots;
-        logic [FETCH_WIDTH-1:0] spec_on_path_slots;
-
-        always_comb begin
-            logic reached_taken;
-            reached_taken = 1'b0;
-            for (int s = 0; s < FETCH_WIDTH; s++) begin
-                spec_branch_slots[s]  = pred_cfi_valid[s] && (pred_cfi_type[s] == CFI_BRANCH);
-                spec_on_path_slots[s] = ~reached_taken;
-                if (pred_cfi_valid[s] && pred_taken[s]) begin
-                    reached_taken = 1'b1;
-                end
-            end
-        end
-`endif
 
         // count the offset of the first CFI predicted taken
         logic [$clog2(FETCH_WIDTH+1)-1:0] spec_num;
@@ -287,16 +334,14 @@ module bpu #(
 
         // direction predictor (Tournament = Gshare + Bimodal)
         /* verilator lint_off PINCONNECTEMPTY */
-        tournament #(
-            .ADDR_WIDTH(ADDR_WIDTH)
-        ) tournament_u (
+        tournament tournament_u (
             .clk                 (clk),
             .rst                 (rst),
             .req_valid           (issue),
             .fetch_pc            (fetch_pc),
             .resp_valid          (dir_resp_valid),
             .resp_pc             (),
-            .pred_taken_slots    (tour_taken_slots),
+            .pred_taken_slots    (base_dir_taken_slots),
             .chooser_meta        (tour_meta),
             .flush               (flush),
             .spec_valid          (ftq_wvalid),
@@ -311,48 +356,6 @@ module bpu #(
             .update_ghr          (update_meta.pred_meta.chooser_meta.pred_ghr)
         );
         /* verilator lint_on PINCONNECTEMPTY */
-
-`ifdef LOOP_PRED_ON
-        // loop predictor (direction-level override of the tournament)
-        /* verilator lint_off PINCONNECTEMPTY */
-        loop_predictor loop_predictor_u (
-            .clk            (clk),
-            .rst            (rst),
-            .req_valid      (issue),
-            .resp_valid     (loop_resp_valid),
-            .fetch_pc       (fetch_pc),
-            .pred_taken     (loop_taken_slots),
-            .pred_valid     (loop_pred_valid),
-            .pred_high_conf (loop_high_conf),
-            .spec_valid     (ftq_wvalid),
-            .spec_branch    (spec_branch_slots),
-            .spec_on_path   (spec_on_path_slots),
-            .spec_pred_taken(pred_taken),
-            .flush          (flush),
-            .update_en      (update_en),
-            .update_pc      (update_meta.update_pc),
-            .actual_taken   (update_meta.actual_taken),
-            .is_branch      (update_meta.is_branch)
-        );
-        /* verilator lint_on PINCONNECTEMPTY */
-`endif
-
-        // selector: only a confident loop prediction overrides the tournament
-        always_comb begin
-            for (int s = 0; s < FETCH_WIDTH; s++) begin
-`ifdef LOOP_PRED_ON
-                loop_override_slots[s] = loop_resp_valid && loop_pred_valid[s] && loop_high_conf[s];
-                if (loop_override_slots[s]) begin
-                    dir_taken_slots[s] = loop_taken_slots[s];
-                end else begin
-                    dir_taken_slots[s] = tour_taken_slots[s];
-                end
-`else
-                loop_override_slots[s] = 1'b0;
-                dir_taken_slots[s]     = tour_taken_slots[s];
-`endif
-            end
-        end
 
         assign chooser_meta_slots = tour_meta;
 
@@ -389,11 +392,11 @@ module bpu #(
             end
         end
 
-        assign ftq_wvalid      = req_valid_q;
-        assign pred_cfi_valid  = '0;
-        assign pred_cfi_type   = '0;
-        assign raw_pred_target = '0;
-        assign dir_taken_slots = '0;
+        assign ftq_wvalid           = req_valid_q;
+        assign pred_cfi_valid       = '0;
+        assign pred_cfi_type        = '0;
+        assign raw_pred_target      = '0;
+        assign base_dir_taken_slots = '0;
 `ifdef TOURNAMENT_ON
         assign chooser_meta_slots = '0;
 `endif

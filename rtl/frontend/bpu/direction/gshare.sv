@@ -1,29 +1,27 @@
 /* verilator lint_off UNUSEDSIGNAL */
-module gshare #(
-    parameter int unsigned ADDR_WIDTH = 32
-) (
+module gshare (
     input logic clk,
     input logic rst,
 
     // predict port
-    input  logic                            req_valid,
-    input  logic [          ADDR_WIDTH-1:0] fetch_pc,
-    output logic                            resp_valid,
+    input  logic                           req_valid,
+    input  logic [ fe_pkg::ADDR_WIDTH-1:0] fetch_pc,
+    output logic                           resp_valid,
     output logic [fe_pkg::FETCH_WIDTH-1:0] pred_taken_slots,
     output logic [  fe_pkg::GHR_WIDTH-1:0] pred_ghr,
 
     // speculation control: advance the GHR along the just-predicted block
-    input logic                                      flush,
-    input logic                                      spec_valid,
+    input logic                                     flush,
+    input logic                                     spec_valid,
     input logic [$clog2(fe_pkg::FETCH_WIDTH+1)-1:0] spec_num,    // on-path CFIs
-    input logic                                      spec_taken,  // last one taken
+    input logic                                     spec_taken,  // last one taken
 
     // update port
     input logic                          update_en,     // any CFI: advances the committed GHR
     input logic                          is_branch,     // conditional branch: updates the PHT
-    input logic [        ADDR_WIDTH-1:0] update_pc,
+    input logic [fe_pkg::ADDR_WIDTH-1:0] update_pc,
     input logic                          actual_taken,
-    input logic [fe_pkg::GHR_WIDTH-1:0] update_ghr
+    input logic [ fe_pkg::GHR_WIDTH-1:0] update_ghr
 );
 
     import fe_pkg::*;

@@ -27,8 +27,8 @@ module loop_predictor (
     input logic rst,
 
     // predict request port
-    input  logic                           req_valid,
-    output logic                           resp_valid,
+    input  logic                          req_valid,
+    output logic                          resp_valid,
     input  logic [fe_pkg::ADDR_WIDTH-1:0] fetch_pc,
 
     output logic [fe_pkg::FETCH_WIDTH-1:0] pred_taken,
@@ -36,7 +36,7 @@ module loop_predictor (
     output logic [fe_pkg::FETCH_WIDTH-1:0] pred_high_conf,
 
     // speculative iteration update along the predicted fetch block
-    input logic                            spec_valid,
+    input logic                           spec_valid,
     input logic [fe_pkg::FETCH_WIDTH-1:0] spec_branch,     // conditional branch slot
     input logic [fe_pkg::FETCH_WIDTH-1:0] spec_on_path,    // before the first taken CFI
     input logic [fe_pkg::FETCH_WIDTH-1:0] spec_pred_taken, // final direction of the slot
@@ -45,10 +45,10 @@ module loop_predictor (
     input logic flush,
 
     // training
-    input logic                           update_en,
+    input logic                          update_en,
     input logic [fe_pkg::ADDR_WIDTH-1:0] update_pc,
-    input logic                           actual_taken,
-    input logic                           is_branch
+    input logic                          actual_taken,
+    input logic                          is_branch
 );
     import fe_pkg::*;
 

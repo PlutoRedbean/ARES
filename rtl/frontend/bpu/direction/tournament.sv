@@ -14,29 +14,26 @@
 // For FETCH_WIDTH consecutive slots, each slot has its own chooser
 // prediction, corresponding to the PC of that slot.
 
-module tournament #(
-    parameter int unsigned ADDR_WIDTH = 32,
-    parameter int unsigned CHOOSER_WIDTH = 10
-) (
+module tournament (
     input logic clk,
     input logic rst,
 
     // predict
 
-    input logic                  req_valid,
-    input logic [ADDR_WIDTH-1:0] fetch_pc,
+    input logic                          req_valid,
+    input logic [fe_pkg::ADDR_WIDTH-1:0] fetch_pc,
 
-    output logic                  resp_valid,
-    output logic [ADDR_WIDTH-1:0] resp_pc,
+    output logic                          resp_valid,
+    output logic [fe_pkg::ADDR_WIDTH-1:0] resp_pc,
 
-    output logic                   [fe_pkg::FETCH_WIDTH-1:0] pred_taken_slots,
+    output logic                  [fe_pkg::FETCH_WIDTH-1:0] pred_taken_slots,
     output fe_pkg::chooser_meta_t [fe_pkg::FETCH_WIDTH-1:0] chooser_meta,
 
     // speculative history control (forwarded to gshare)
-    input logic                                      flush,
-    input logic                                      spec_valid,
+    input logic                                     flush,
+    input logic                                     spec_valid,
     input logic [$clog2(fe_pkg::FETCH_WIDTH+1)-1:0] spec_num,
-    input logic                                      spec_taken,
+    input logic                                     spec_taken,
 
     // update
 
@@ -79,9 +76,7 @@ module tournament #(
     logic           [  GHR_WIDTH-1:0] gshare_pred_ghr;
 
     /* verilator lint_off PINCONNECTEMPTY */
-    gshare #(
-        .ADDR_WIDTH(ADDR_WIDTH)
-    ) u_gshare (
+    gshare u_gshare (
         .clk(clk),
         .rst(rst),
 

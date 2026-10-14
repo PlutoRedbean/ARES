@@ -18,9 +18,9 @@ module bimodal #(
     input logic rst,
 
     // predict port
-    input  logic                            req_valid,
-    input        [        ADDR_WIDTH - 1:0] fetch_pc,
-    output logic                            resp_valid,
+    input  logic                           req_valid,
+    input        [       ADDR_WIDTH - 1:0] fetch_pc,
+    output logic                           resp_valid,
     output logic [fe_pkg::FETCH_WIDTH-1:0] pred_taken_slots,
 
     // update port
