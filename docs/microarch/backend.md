@@ -38,6 +38,7 @@ $$
 9. Producer Map 记录最新的未提交写者。
 10. 采用非数据捕捉设计，操作数在 Issue 时从 Architectural RF 或 CIQ result 动态解析。
 11. RT-Thread 首版仅支持 M-mode、Zicsr、ECALL/MRET、机器定时器中断与有序 MMIO；具体范围见第 16–17 节。
+12. CV-X-IF（custom-0 加速器）接口与全部自定义指令，见 [CV-X-IF 接口规范](xif.md)。
 
 ---
 

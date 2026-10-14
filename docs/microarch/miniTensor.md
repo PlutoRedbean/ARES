@@ -114,6 +114,8 @@ CPU                  miniTensor
 - `commit_kill=1` 在副作用开始前取消命令并回到空闲态。
 - 正常 commit 后命令运行至完成；result 未被 CPU 接收前，顶层停留在 `S_RESULT`。
 
+> 从端的 CV-X-IF 接口与全部自定义指令编码，见 [CV-X-IF 接口规范](xif.md)。
+
 ### 4.2 外部内存接口
 
 - Load：`mem_rd_valid/ready` 发出 16-byte 对齐地址，随后等待

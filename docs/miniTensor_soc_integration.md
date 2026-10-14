@@ -140,6 +140,8 @@ enough to recreate it.
 
 ## 8. Remaining work
 
+> CV-X-IF 接口与本协处理器的全部自定义指令编码，见 [CV-X-IF 接口规范](microarch/xif.md)。
+
 | Item | Owner / dependency |
 | --- | --- |
 | Backend custom-0 decode -> issue -> commit -> CIQ result (SPEC-M6, 7 blanks) | FE/BE owners |

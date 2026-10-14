@@ -77,6 +77,8 @@ make lint-mt
 ```
 
 See [miniTensor SoC integration](docs/miniTensor_soc_integration.md) for the
-register map, sequencer rules and the remaining SPEC-M6/M7/M19 work.
+register map, sequencer rules and the remaining SPEC-M6/M7/M19 work. The
+CV-X-IF interface and all custom tensor instructions are documented in
+[CV-X-IF interface](docs/microarch/xif.md).
 
 ---
