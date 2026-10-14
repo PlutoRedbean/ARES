@@ -3,7 +3,8 @@
 > ARES 中保留本目录作为后续 RT-Thread/miniTensor 移植资料。
 > 以下地址、时序和通过记录属于旧 Mundus 仿真，不代表 ARES 验收结果。
 > 旧流程现在必须显式设置 `MUNDUS_HOME`，指向包含 `npc/` 和 RT-Thread BSP 的外部工程；
-> `MT_HOME` 默认指向当前本地 miniTensor。ARES 的 RT-Thread 工程待后续加入。
+> `MT_HOME` 默认指向当前本地 miniTensor。RT-Thread 源码已导入 `../../rtthread-nano/`，
+> 现有 BSP 仍属于 Mundus；实际 ARES 适配和启动验证待完成。
 
 本目录是 miniTensor 接入 Mundus/NPC 与 RT-Thread Nano 的**唯一真源**。
 对 `Mundus/npc` 与 `Mundus/rtthread-nano` 的所有改动都从这里派生，便于复查与重放。

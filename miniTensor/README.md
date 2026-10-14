@@ -2,7 +2,8 @@
 
 ARES 仓库中的 miniTensor 加速器源码、独立验证和软件集成资料。
 当前批准的架构见 [ARES miniTensor 微架构](../docs/microarch/miniTensor.md)。
-ARES 尚未完成真实 Core＋RT-Thread＋miniTensor 集成；RT-Thread 工程将后续加入。
+ARES 尚未完成真实 Core＋RT-Thread＋miniTensor 集成；RT-Thread 源码工程已导入
+`../rtthread-nano/`，现有 MundusJyd BSP 的 ARES 适配和启动验证仍待完成。
 
 ## 目录与入口
 

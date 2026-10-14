@@ -1612,6 +1612,24 @@ M2b 范围（§9.4 顺序的后半）：L06 `dcache_top` + L07 `dcache_arrays` +
 外部平台集成、历史资料和当前入口文档，共 16 个本地提交。源码与对应测试一起提交，
 共享 Makefile 按功能分阶段记录，生成物不入库；不推送、不重写既有历史。
 
+### 9.6c RT-Thread Nano 外部工程导入（2026-10-14）
+
+用户提供的 `rtthread-nano/` 已作为普通源码目录导入，内核头文件声明版本 3.1.5。
+保留内核、FinSH、各架构端口、全部 BSP 示例、MundusJyd 启动/中断/链接脚本、
+CoreMark 源码/生成工具/来源校验清单及许可证；构建目录、编译结果、日志/缓存和 IDE
+用户配置由该目录的 `.gitignore` 排除。上游源码保持原有格式，不作本轮 ARES 适配。
+
+此导入解除“尚未提供 RTOS 源码”这一资料缺口。MundusJyd Makefile 仍依赖旧 NPC
+配置、COE 打包器和专用 CoreMark 指令选项；ARES BSP/Timer/IRQ/控制台/固件加载与
+真实启动回归仍未完成，不据此关闭 MC4/MC5/MC6 或 SPEC-M12/M13/M20/M21。
+导入检查包含忽略规则、必要构建输入/许可证可见性及 EEMBC CoreMark 六个文件的
+SHA-256 校验；不声明 RT-Thread 已在 ARES 上编译或启动。
+
+本次外部 Backend/Memory 范围：`rtthread-nano/`（外部源码及本地忽略/入口说明）；
+根 `README.md`、`miniTensor/README.md`、`miniTensor/integration/README.md`、
+`MANIFEST.md` 与本计划（同步“源码已导入、系统适配待完成”的状态）。保留既有源码
+路径和协议；后续需由 RTOS/SoC 维护者完成上述适配，外部工程按用户授权整体提交。
+
 ### 9.7 延后项（P3，不在 core 计划内）
 
 | 延后项 | 解锁条件 | 对 core 的影响 |

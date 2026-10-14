@@ -2,7 +2,8 @@
 
 > 本清单记录旧 Mundus 平台。ARES 保留驱动、补丁、模型与测试供后续移植，
 > 根目录旧 `npc/` 副本已清理；旧仿真需要显式指定外部 `MUNDUS_HOME`。
-> RT-Thread 工程后续加入，当前通过记录不构成 ARES 端到端验证。
+> RT-Thread 源码已导入 `../../rtthread-nano/`，ARES BSP/构建适配待完成；
+> 当前通过记录不构成 ARES 端到端验证。
 
 本文件回答三个问题：**部署了什么 / 有没有训练 / 有没有改动 CPU 核**，并把改动、证据和
 复现方式集中起来。日常部署流程只看一份文档：[旧部署手册](../docs/legacy_mundus_deployment.md)。

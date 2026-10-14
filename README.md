@@ -28,6 +28,7 @@ make -C tests/cpu-tests ARCH=riscv32-ares run
 | `docs/` | microarchitecture and interface documentation |
 | `sim/` | Verilator simulation flow (test bench, DPI-C memory/device model, harness) |
 | `miniTensor/` | accelerator RTL, standalone tests, model tools and retained RT-Thread integration sources |
+| `rtthread-nano/` | imported RT-Thread Nano source snapshot and legacy MundusJyd BSP; ARES adaptation pending |
 | `fpga/vivado/` | reproducible project settings, board constraints and IP recipes |
 | `tests/abstract-machine/` | AbstractMachine subset with the ARES (riscv32-ares) bare-metal runtime |
 | `tests/cpu-tests/` | ISA regression ported from ysyx-workbench am-kernels/tests/cpu-tests |
@@ -52,8 +53,9 @@ make ARCH=riscv32-ares ALL=add run            # a single test
 See `sim/README.md` for the memory map and DPI-C contract. This verifies the
 ARES Core with a frontend stub; real frontend, RT-Thread and miniTensor SoC
 integration remain follow-up work. RT-Thread driver/BSP integration sources
-are retained under `miniTensor/integration/`; the RT-Thread project will be
-added later. Its legacy Mundus simulation script requires an explicit external
+are retained under `miniTensor/integration/`; the RT-Thread source project is
+now imported under `rtthread-nano/`, with ARES BSP/build adaptation pending.
+Its legacy Mundus simulation script requires an explicit external
 `MUNDUS_HOME`.
 
 Generated outputs belong in the ignored build directories. FPGA generation

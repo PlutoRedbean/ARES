@@ -1,0 +1,91 @@
+# Prerequisites
+*.d
+
+# Object files
+*.o
+*.ko
+*.obj
+*.elf
+
+# Linker output
+*.ilk
+*.map
+*.exp
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Libraries
+*.lib
+*.a
+*.la
+*.lo
+
+# Shared objects (inc. Windows DLLs)
+*.dll
+*.so
+*.so.*
+*.dylib
+
+# Executables
+*.exe
+*.out
+*.app
+*.i*86
+*.x86_64
+*.hex
+
+# Debug files
+*.dSYM/
+*.su
+*.idb
+*.pdb
+
+# Kernel Module Compile Results
+*.mod*
+*.cmd
+.tmp_versions/
+modules.order
+Module.symvers
+Mkfile.old
+dkms.conf
+
+# Build trees from the bundled BSPs / IDEs
+build/
+obj_dir/
+Debug/
+Release/
+Objects/
+Listings/
+Output/
+*.bin
+*.axf
+*.dblite
+.sconsign*
+
+# Runtime reports and local caches
+*.log
+__pycache__/
+.pytest_cache/
+.venv/
+.vscode/
+*.bak
+*.tmp
+*.orig
+*.rej
+*~
+.DS_Store
+Thumbs.db
+
+# Per-user debugger/session state; keep shared project and linker files
+*.uvopt
+*.uvoptx
+*.uvguix*
+*.ewt
+*.user
+*.suo
+*.swp
+*.swo
+
+sample
