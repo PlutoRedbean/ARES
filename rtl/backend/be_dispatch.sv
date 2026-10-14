@@ -28,7 +28,7 @@ module be_dispatch (
 
     //---- FE instruction interface (contract section 2) ---------------------
     input  logic [1:0]  iq_valid,
-    input  iq_entry_t   iq_inst [2],
+    input  ares_pkg::iq_entry_t   iq_inst [2],
     output logic [1:0]  iq_accept_count,
 
     //---- dispatch conditions ------------------------------------------------
@@ -37,23 +37,23 @@ module be_dispatch (
     input  logic        irq_drain,
     input  logic        redirect_active,
     input  logic [31:0] base_valid,
-    input  tag_t        base_tag [32],
-    input  tag_t        alloc_ptr,
+    input  ares_pkg::tag_t        base_tag [32],
+    input  ares_pkg::tag_t        alloc_ptr,
 
     //---- CIQ allocate -------------------------------------------------------
     output logic [1:0]        alloc_valid,
-    output queue_entry_t      alloc_entry [2],
+    output ares_pkg::queue_entry_t      alloc_entry [2],
 
     //---- Producer Map writer update ----------------------------------------
     output logic [1:0]        pm_we,
     output logic [4:0]        pm_rd [2],
-    output tag_t              pm_tag [2],
+    output ares_pkg::tag_t              pm_tag [2],
 
     //---- Branch Map Checkpoint snapshot write ------------------------------
     output logic [1:0]        cp_we,
-    output tag_t              cp_wslot [2],
+    output ares_pkg::tag_t              cp_wslot [2],
     output logic [31:0]       cp_wvalid [2],
-    output tag_t              cp_wtag [2][32],
+    output ares_pkg::tag_t              cp_wtag [2][32],
 
     //---- decode error observability (SPEC-A1 / D-C0-01) --------------------
     output logic [1:0]        decode_err
@@ -274,7 +274,7 @@ module be_dispatch (
 
     // The decode lane valid bit mirrors the IQ valid bit, and the CIQ control
     // transfer flag is exactly the decoded CFI class.
-    always_comb begin
+    always_ff @(posedge clk) if (!rst) begin
         a_dec_valid0  : assert (d_valid[0]  == iq_valid[0]);
         a_dec_valid1  : assert (d_valid[1]  == iq_valid[1]);
         a_dec_branch0 : assert (d_is_branch[0] == d_is_cfi[0]);
