@@ -5,6 +5,7 @@
 /* verilator lint_off PROCASSINIT */
 module tb_student_top;
     import ares_pkg::*;
+    import fe_pkg::*;
     logic w_cpu_clk=0, w_clk_50Mhz=0, w_clk_rst=1;
     always #2 w_cpu_clk=~w_cpu_clk;
     always #10 w_clk_50Mhz=~w_clk_50Mhz;
@@ -13,7 +14,7 @@ module tb_student_top;
     logic backend_redirect_valid, backend_redirect_actual_taken;
     logic [31:0] backend_redirect_pc;
     fe_redirect_kind_t backend_redirect_kind;
-    logic [GHR_WIDTH-1:0] backend_redirect_ghr_before;
+    logic [fe_pkg::GHR_WIDTH-1:0] backend_redirect_ghr_before;
     logic [1:0] bpu_update_valid;
     bpu_update_t bpu_update [2];
     logic [31:0] virtual_led;
@@ -41,7 +42,7 @@ module tb_student_top;
             iq_inst[0].valid=1;
             iq_inst[0].pc=RESET_PC+32'(sent*4);
             iq_inst[0].inst=program_words[sent];
-            iq_inst[0].pred_npc=RESET_PC+32'((sent+1)*4);
+            iq_inst[0].pred_meta.pred_target=RESET_PC+32'((sent+1)*4);
         end
     end
     always @(posedge w_cpu_clk) begin

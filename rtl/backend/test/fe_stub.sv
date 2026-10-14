@@ -30,27 +30,27 @@
 module fe_stub #(
     parameter logic [31:0] RESET_PC = ares_pkg::RESET_PC
 ) (
-    input  logic clk,
-    input  logic rst,
+    input logic clk,
+    input logic rst,
 
     //---- instruction interface: FE -> BE (contract section 2) --------------
-    output logic [1:0]            iq_valid,
-    output fe_pkg::iq_entry_t   iq_inst [2],
-    input  logic [1:0]            iq_accept_count,
+    output logic              [1:0] iq_valid,
+    output fe_pkg::iq_entry_t       iq_inst        [2],
+    input  logic              [1:0] iq_accept_count,
 
     //---- redirect interface: BE -> FE (contract section 3) -----------------
-    input  logic                           backend_redirect_valid,
-    input  logic [31:0]                    backend_redirect_pc,
-    input  fe_pkg::fe_redirect_kind_t    backend_redirect_kind,
-    input  logic [ares_pkg::GHR_WIDTH-1:0] backend_redirect_ghr_before,
-    input  logic                           backend_redirect_actual_taken,
+    input logic                                              backend_redirect_valid,
+    input logic                      [                 31:0] backend_redirect_pc,
+    input fe_pkg::fe_redirect_kind_t                         backend_redirect_kind,
+    input logic                      [fe_pkg::GHR_WIDTH-1:0] backend_redirect_ghr_before,
+    input logic                                              backend_redirect_actual_taken,
 
     //---- BPU update interface: BE commit -> FE (contract section 4) --------
-    output logic [1:0]            bpu_update_credit,
-    input  logic [1:0]            bpu_update_valid,
-    input  fe_pkg::bpu_update_t bpu_update [2]
+    output logic                [1:0] bpu_update_credit,
+    input  logic                [1:0] bpu_update_valid,
+    input  fe_pkg::bpu_update_t       bpu_update       [2]
 );
-/* verilator lint_on UNUSEDSIGNAL */
+    /* verilator lint_on UNUSEDSIGNAL */
 
     import ares_pkg::*;
     import fe_pkg::*;
@@ -74,11 +74,10 @@ module fe_stub #(
             rd_is_link  = (rd == 5'd1) || (rd == 5'd5);
             rs1_is_link = (rs1 == 5'd1) || (rs1 == 5'd5);
             case (inst[6:0])
-                7'h6f:   classify = rd_is_link ? CFI_CALL : CFI_DIRECT_JUMP;
-                7'h67:   classify = rd_is_link ? CFI_CALL
-                                               : (rs1_is_link ? CFI_RETURN
-                                                              : CFI_INDIRECT_JUMP);
-                7'h63:   classify = CFI_COND_BRANCH;
+                7'h6f: classify = rd_is_link ? CFI_CALL : CFI_DIRECT_JUMP;
+                7'h67:
+                classify = rd_is_link ? CFI_CALL : (rs1_is_link ? CFI_RETURN : CFI_INDIRECT_JUMP);
+                7'h63: classify = CFI_COND_BRANCH;
                 default: classify = CFI_NONE;
             endcase
         end
@@ -91,33 +90,33 @@ module fe_stub #(
     // so sequential fetch is all that is needed; the BRU recovery redirect
     // supplies every real control transfer.
     //-------------------------------------------------------------------------
-    logic [31:0] pc_f;        // address presented to the instruction port
-    logic        f1_valid;
-    logic [31:0] f1_pc;
-    logic [31:0] f1_inst;
+    logic      [31:0] pc_f;  // address presented to the instruction port
+    logic             f1_valid;
+    logic      [31:0] f1_pc;
+    logic      [31:0] f1_inst;
 
-    logic [1:0]  cnt;         // number of visible (valid) queue entries
-    iq_entry_t   slot [2];    // slot[0] = oldest
+    logic      [ 1:0] cnt;  // number of visible (valid) queue entries
+    iq_entry_t        slot                                               [2];  // slot[0] = oldest
 
     //-------------------------------------------------------------------------
     // Consumption
     //-------------------------------------------------------------------------
-    wire        redirect       = backend_redirect_valid;
+    wire              redirect = backend_redirect_valid;
     // Contract 3: the backend guarantees accept_count == 0 on a redirect; the
     // stub masks defensively so a backend bug cannot corrupt the refetch.
-    wire [1:0]  accept         = redirect ? 2'd0 : iq_accept_count;
-    wire [1:0]  pop            = (accept <= cnt) ? accept : cnt;
-    wire [1:0]  used_after_pop = cnt - pop;
-    wire        room           = (used_after_pop < 2'd2);
-    wire        push           = f1_valid && room;
-    wire        capture        = (f1_valid ? push : 1'b1) && !redirect;
-    wire [1:0]  cnt_next       = used_after_pop + (push ? 2'd1 : 2'd0);
+    wire       [ 1:0] accept = redirect ? 2'd0 : iq_accept_count;
+    wire       [ 1:0] pop = (accept <= cnt) ? accept : cnt;
+    wire       [ 1:0] used_after_pop = cnt - pop;
+    wire              room = (used_after_pop < 2'd2);
+    wire              push = f1_valid && room;
+    wire              capture = (f1_valid ? push : 1'b1) && !redirect;
+    wire       [ 1:0] cnt_next = used_after_pop + (push ? 2'd1 : 2'd0);
 
     //-------------------------------------------------------------------------
     // Entry formation (always-not-taken)
     //-------------------------------------------------------------------------
-    cfi_type_t  new_cfi;
-    iq_entry_t  new_entry;
+    cfi_type_t        new_cfi;
+    iq_entry_t        new_entry;
     always_comb begin
         new_cfi                         = classify(f1_inst);
         new_entry                       = '0;
@@ -133,14 +132,14 @@ module fe_stub #(
     //-------------------------------------------------------------------------
     // Queue next state: shift out the accepted prefix, append F1 at the tail
     //-------------------------------------------------------------------------
-    iq_entry_t  shifted [2];
-    iq_entry_t  slot_n [2];
+    iq_entry_t shifted[2];
+    iq_entry_t slot_n [2];
     always_comb begin
-        shifted[0] = (pop <= 2'd1) ? slot[pop[0]] : '0;   // pop==2 -> empty
+        shifted[0] = (pop <= 2'd1) ? slot[pop[0]] : '0;  // pop==2 -> empty
         shifted[1] = (pop == 2'd0) ? slot[1] : '0;
 
-        slot_n[0]  = (push && (used_after_pop == 2'd0)) ? new_entry : shifted[0];
-        slot_n[1]  = (push && (used_after_pop == 2'd1)) ? new_entry : shifted[1];
+        slot_n[0] = (push && (used_after_pop == 2'd0)) ? new_entry : shifted[0];
+        slot_n[1] = (push && (used_after_pop == 2'd1)) ? new_entry : shifted[1];
 
         // iq_inst[i].valid must equal iq_valid[i] (contract section 2).
         slot_n[0].valid = (cnt_next >= 2'd1);
@@ -194,34 +193,46 @@ module fe_stub #(
     //-------------------------------------------------------------------------
     // Contract assertions (contract section 6 / flow doc section 5)
     //-------------------------------------------------------------------------
-    a_no_hole: assert property (@(posedge clk) disable iff (rst)
-        iq_valid != 2'b10);
+    a_no_hole :
+    assert property (@(posedge clk) disable iff (rst) iq_valid != 2'b10);
 
-    a_accept_prefix: assert property (@(posedge clk) disable iff (rst)
-        iq_accept_count <= $countones(iq_valid));
+    a_accept_prefix :
+    assert property (@(posedge clk) disable iff (rst) iq_accept_count <= $countones(iq_valid));
 
-    a_redirect_stops: assert property (@(posedge clk) disable iff (rst)
+    a_redirect_stops :
+    assert property (@(posedge clk) disable iff (rst)
         backend_redirect_valid |-> (iq_accept_count == 2'd0));
 
-    a_head_stable: assert property (@(posedge clk) disable iff (rst)
+    a_head_stable :
+    assert property (@(posedge clk) disable iff (rst)
         (!backend_redirect_valid && iq_valid[0] && (iq_accept_count == 2'd0))
-        |=> (iq_valid[0] && $stable(iq_inst[0].pc) && $stable(iq_inst[0].inst)
-             && $stable(iq_inst[0].pred_meta)));
+        |=> (iq_valid[0] && $stable(
+        iq_inst[0].pc
+    ) && $stable(
+        iq_inst[0].inst
+    ) && $stable(
+        iq_inst[0].pred_meta
+    )));
 
-    a_slot_valid: assert property (@(posedge clk) disable iff (rst)
+    a_slot_valid :
+    assert property (@(posedge clk) disable iff (rst)
         (iq_inst[0].valid == iq_valid[0]) && (iq_inst[1].valid == iq_valid[1]));
 
-    a_is_cfi0: assert property (@(posedge clk) disable iff (rst)
+    a_is_cfi0 :
+    assert property (@(posedge clk) disable iff (rst)
         iq_inst[0].valid |-> (iq_inst[0].is_cfi == (iq_inst[0].cfi_type != CFI_NONE)));
 
-    a_is_cfi1: assert property (@(posedge clk) disable iff (rst)
+    a_is_cfi1 :
+    assert property (@(posedge clk) disable iff (rst)
         iq_inst[1].valid |-> (iq_inst[1].is_cfi == (iq_inst[1].cfi_type != CFI_NONE)));
 
     // The redirect PC is a single-cycle event: compare the next-cycle pc_f
     // against the value latched from the redirect cycle ($past), not against
     // whatever the producer drives in the following cycle.
-    a_redirect_pc_used: assert property (@(posedge clk) disable iff (rst)
-        backend_redirect_valid |=> (pc_f == $past(backend_redirect_pc)));
+    a_redirect_pc_used :
+    assert property (@(posedge clk) disable iff (rst) backend_redirect_valid |=> (pc_f == $past(
+        backend_redirect_pc
+    )));
 `endif
 
 endmodule
