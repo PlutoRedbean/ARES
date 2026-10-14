@@ -1,4 +1,5 @@
-// Instruction cache sitting between the IFU fetch FSM and the AXI master bus.
+// Instruction cache sitting between the IFU fetch FSM and the backing memory
+// bus.
 //
 // The IFU presents a single fetch address through a simple request/response
 // handshake:
@@ -7,8 +8,12 @@
 //
 // A request is looked up in the cache.  On a hit the instruction word is
 // returned after a short fixed latency; on a miss a whole line is fetched from
-// memory word-by-word over the AXI4-Lite master port (the memory model has no
-// bursts) and then the requested word is returned.
+// memory beat-by-beat and then the requested word is returned.
+//
+// The backing bus is selected by the `IO_USE_AXI macro:
+//   - defined   : AXI4-Lite master (`icache_axi_bus`), one 32-bit word per beat,
+//   - commented : miniTensor uncached read handshake (`icache_mt_bus`, see
+//                 miniTensor.md 4.2.1), one 128-bit line beat.
 //
 // The cache is set-associative with a simple LRU (age counter) replacement.
 module icache #(
@@ -30,8 +35,13 @@ module icache #(
 
     output logic [DATA_WIDTH - 1:0] resp_data[fe_pkg::FETCH_WIDTH],  // fetched instruction
     output logic [fe_pkg::FETCH_WIDTH - 1:0] resp_rmask,
+    output logic refill,  // one-cycle miss/refill pulse
 
+`ifdef IO_USE_AXI
     axi_if.master icache_axi_bus
+`else
+    miniTensor_if.master icache_mt_bus
+`endif
 );
     import fe_pkg::*;
 
@@ -40,9 +50,22 @@ module icache #(
     localparam int unsigned TAG_WIDTH = ADDR_WIDTH - OFFSET_WIDTH - INDEX_WIDTH;
     // localparam int unsigned INST_BYTES = DATA_WIDTH / 8;
     localparam int unsigned NR_INSTS = LINE_BYTES / INST_BYTES;
-    localparam int unsigned NR_INSTS_W = (NR_INSTS > 1) ? $clog2(NR_INSTS) : 1;
     localparam int unsigned WAY_IDX_W = (NR_WAYS > 1) ? $clog2(NR_WAYS) : 1;
     localparam int unsigned AGE_W = (NR_WAYS > 1) ? $clog2(NR_WAYS) : 1;
+
+    // Backing bus width and the number of bus beats per cache line.  The AXI
+    // master moves one 32-bit instruction per beat; miniTensor moves a 16-byte
+    // (128-bit) beat.  Both protocols are used through the abstract
+    // bus_req_*/bus_rsp_* handshake below.
+`ifdef IO_USE_AXI
+    localparam int unsigned BUS_DATA_WIDTH = DATA_WIDTH;
+`else
+    localparam int unsigned BUS_DATA_WIDTH = 128;
+`endif
+    localparam int unsigned BUS_BEAT_BYTES = BUS_DATA_WIDTH / 8;
+    localparam int unsigned BUS_BEAT_INSTS = BUS_BEAT_BYTES / INST_BYTES;
+    localparam int unsigned NR_BEATS = (LINE_BYTES + BUS_BEAT_BYTES - 1) / BUS_BEAT_BYTES;
+    localparam int unsigned NR_BEATS_W = (NR_BEATS > 1) ? $clog2(NR_BEATS) : 1;
 
     typedef enum logic [2:0] {
         S_IDLE,
@@ -62,25 +85,70 @@ module icache #(
         logic [AGE_W-1:0] age;
     } cache_line_t;
 
-    cache_line_t icache_mem[NR_SETS][NR_WAYS];
+    cache_line_t                                      icache_mem    [NR_SETS][NR_WAYS];
 
     // registered request (the two low byte-offset bits are unused because
     // instructions are word aligned)
-
     /* verilator lint_off UNUSEDSIGNAL */
-    logic [ADDR_WIDTH - 1:0] req_addr_r;
+    logic        [  ADDR_WIDTH - 1:0]                 req_addr_r;
     /* verilator lint_on UNUSEDSIGNAL */
 
-    logic [TAG_WIDTH-1:0] req_tag;
-    logic [INDEX_WIDTH-1:0] req_index;
-    logic [OFFSET_WIDTH-3:0] word_offset;
+    logic        [     TAG_WIDTH-1:0]                 req_tag;
+    logic        [   INDEX_WIDTH-1:0]                 req_index;
+    logic        [  OFFSET_WIDTH-3:0]                 word_offset;
 
     // line refill bookkeeping
-    logic [ADDR_WIDTH - 1:0] line_base;
-    logic [NR_INSTS_W - 1:0] refill_cnt;
-    logic ar_sent;
-    logic [NR_INSTS-1:0][DATA_WIDTH-1:0] refill_buf;
-    logic [WAY_IDX_W - 1:0] sel_way;
+    logic        [  ADDR_WIDTH - 1:0]                 line_base;
+    logic        [  NR_BEATS_W - 1:0]                 refill_cnt;
+    logic                                             req_sent;
+    logic        [      NR_INSTS-1:0][DATA_WIDTH-1:0] refill_buf;
+    logic        [   WAY_IDX_W - 1:0]                 sel_way;
+
+    // --------------------
+    // protocol-agnostic backing bus
+    //
+    // A read is offered on bus_req_* and answered on bus_rsp_*; the adaptor
+    // below maps it onto either AXI4-Lite (ar/r channels) or the miniTensor
+    // uncached handshake, selected by `IO_USE_AXI.
+    // --------------------
+    logic                                             bus_req_valid;
+    logic                                             bus_req_ready;
+    logic        [  ADDR_WIDTH - 1:0]                 bus_req_addr;
+    logic                                             bus_rsp_valid;
+    logic                                             bus_rsp_ready;
+    logic        [BUS_DATA_WIDTH-1:0]                 bus_rsp_data;
+
+`ifdef IO_USE_AXI
+    assign icache_axi_bus.arvalid = bus_req_valid;
+    assign icache_axi_bus.araddr = bus_req_addr;
+    assign bus_req_ready = icache_axi_bus.arready;
+
+    assign bus_rsp_valid = icache_axi_bus.rvalid;
+    assign bus_rsp_data = icache_axi_bus.rdata;
+    assign icache_axi_bus.rready = bus_rsp_ready;
+
+    // the cache never writes
+    assign icache_axi_bus.awaddr = '0;
+    assign icache_axi_bus.awvalid = '0;
+    assign icache_axi_bus.wdata = '0;
+    assign icache_axi_bus.wstrb = '0;
+    assign icache_axi_bus.wvalid = '0;
+    assign icache_axi_bus.bready = '0;
+`else
+    assign icache_mt_bus.mem_rd_valid = bus_req_valid;
+    assign icache_mt_bus.mem_rd_addr  = bus_req_addr;
+    assign bus_req_ready = icache_mt_bus.mem_rd_ready;
+
+    assign bus_rsp_valid = icache_mt_bus.mem_rsp_valid;
+    assign bus_rsp_data  = icache_mt_bus.mem_rsp_data;
+    assign icache_mt_bus.mem_rsp_ready = bus_rsp_ready;
+
+    // the cache never writes
+    assign icache_mt_bus.mem_wr_valid = 1'b0;
+    assign icache_mt_bus.mem_wr_addr  = '0;
+    assign icache_mt_bus.mem_wr_data  = '0;
+    assign icache_mt_bus.mem_wr_be    = '0;
+`endif
 
     assign req_tag = req_addr_r[ADDR_WIDTH-1-:TAG_WIDTH];
     assign req_index = req_addr_r[OFFSET_WIDTH+:INDEX_WIDTH];
@@ -118,8 +186,8 @@ module icache #(
     // FSM Transitions
     // --------------------
     logic refill_done;
-    assign refill_done = ar_sent && icache_axi_bus.rvalid &&
-                       icache_axi_bus.rready && (refill_cnt == NR_INSTS_W'(NR_INSTS - 1));
+    assign refill_done = req_sent && bus_rsp_valid && bus_rsp_ready &&
+                         (refill_cnt == NR_BEATS_W'(NR_BEATS - 1));
 
     always_comb begin : g_icache_fsm
         icache_n_state = icache_state;
@@ -134,21 +202,15 @@ module icache #(
     end
 
     assign req_ready = (icache_state == S_IDLE);
+    // miss/refill pulse: a request that reaches S_CHECK without a hit
+    assign refill = (icache_state == S_CHECK) && !hit;
 
     // --------------------
-    // AXI4-Lite read channel
+    // backing bus read request / response
     // --------------------
-    assign icache_axi_bus.arvalid = (icache_state == S_REFILL) && !ar_sent;
-    assign icache_axi_bus.araddr = line_base + (refill_cnt * INST_BYTES);
-    assign icache_axi_bus.rready = (icache_state == S_REFILL) && ar_sent;
-
-    // the cache never writes
-    assign icache_axi_bus.awaddr = '0;
-    assign icache_axi_bus.awvalid = '0;
-    assign icache_axi_bus.wdata = '0;
-    assign icache_axi_bus.wstrb = '0;
-    assign icache_axi_bus.wvalid = '0;
-    assign icache_axi_bus.bready = '0;
+    assign bus_req_valid = (icache_state == S_REFILL) && !req_sent;
+    assign bus_req_addr = line_base + (ADDR_WIDTH'(refill_cnt) * ADDR_WIDTH'(BUS_BEAT_BYTES));
+    assign bus_rsp_ready = (icache_state == S_REFILL) && req_sent;
 
     // --------------------
     // sequential logic
@@ -162,7 +224,7 @@ module icache #(
         if (rst) begin
             req_addr_r <= '0;
             refill_cnt <= '0;
-            ar_sent    <= 1'b0;
+            req_sent   <= 1'b0;
             sel_way    <= '0;
             resp_valid <= 1'b0;
             for (int w = 0; w < fe_pkg::FETCH_WIDTH; w++) begin
@@ -185,7 +247,7 @@ module icache #(
                         req_addr_r <= req_addr;
                     end
                     refill_cnt <= '0;
-                    ar_sent    <= 1'b0;
+                    req_sent   <= 1'b0;
                 end
 
                 S_CHECK: begin
@@ -202,12 +264,17 @@ module icache #(
                 end
 
                 S_REFILL: begin
-                    if (!ar_sent) begin
-                        if (icache_axi_bus.arvalid && icache_axi_bus.arready) ar_sent <= 1'b1;
-                    end else if (icache_axi_bus.rvalid && icache_axi_bus.rready) begin
-                        refill_buf[refill_cnt] <= icache_axi_bus.rdata;
-                        ar_sent <= 1'b0;
-                        if (refill_cnt != NR_INSTS_W'(NR_INSTS - 1))
+                    if (!req_sent) begin
+                        if (bus_req_valid && bus_req_ready) req_sent <= 1'b1;
+                    end else if (bus_rsp_valid && bus_rsp_ready) begin
+                        // a 128-bit miniTensor beat carries BUS_BEAT_INSTS
+                        // instructions; an AXI beat carries one
+                        for (int j = 0; j < BUS_BEAT_INSTS; j++) begin
+                            refill_buf[int'(refill_cnt) * BUS_BEAT_INSTS + j]
+                                <= bus_rsp_data[j*INST_WIDTH +: INST_WIDTH];
+                        end
+                        req_sent <= 1'b0;
+                        if (refill_cnt != NR_BEATS_W'(NR_BEATS - 1))
                             refill_cnt <= refill_cnt + 1'b1;
                     end
                 end
@@ -251,8 +318,12 @@ module icache #(
 
 
     always_comb begin
-        assert (req_addr[1:0] == 2'b00)
-        else $fatal("icache request address must be word-aligned");
+        // Skip the check while reset is asserted: the IFU request register may
+        // still hold its power-up value (random under `+verilator+rand+reset`).
+        if (!rst) begin
+            assert (req_addr[1:0] == 2'b00)
+            else $fatal("icache request address must be word-aligned");
+        end
     end
 
 endmodule

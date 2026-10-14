@@ -11,6 +11,11 @@ module ftq (
     input logic rready,
     output fe_pkg::ftq_entry_t rdata,
 
+    // number of valid entries currently held (for the simulation model)
+    output logic [$clog2(fe_pkg::FTQ_NUM_ENTRIES+1) - 1:0] occupancy,
+    output logic alloc,
+    output logic pop,
+
     // flush port
     /*
     * where flush signal comes from:
@@ -36,6 +41,8 @@ module ftq (
 
     assign w_fire = wvalid && wready;
     assign r_fire = rvalid && rready;
+    assign alloc  = w_fire;
+    assign pop    = r_fire;
 
     logic [PTR_W-1:0] n_wptr;
     logic [PTR_W-1:0] n_rptr;
@@ -61,6 +68,17 @@ module ftq (
     assign rdata  = ftq_mem[ridx];
     assign wready = ~maybe_full;
     assign rvalid = (wptr != rptr) || maybe_full;
+
+    /* verilator lint_off WIDTHEXPAND */
+    /* verilator lint_off WIDTHTRUNC */
+    always_comb begin
+        if (wptr == rptr) occupancy = maybe_full ?
+            $clog2(FTQ_NUM_ENTRIES+1)'(FTQ_NUM_ENTRIES) : '0;
+        else if (widx >= ridx) occupancy = $clog2(FTQ_NUM_ENTRIES+1)'(widx - ridx);
+        else occupancy = $clog2(FTQ_NUM_ENTRIES+1)'(FTQ_NUM_ENTRIES + widx - ridx);
+    end
+    /* verilator lint_on WIDTHTRUNC */
+    /* verilator lint_on WIDTHEXPAND */
 
     always_ff @(posedge clk) begin
         if (rst) begin
