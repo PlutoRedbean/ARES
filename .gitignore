@@ -2,6 +2,7 @@ AGENTS.md
 
 # Simulation / test build artefacts
 configs/build/
+/build/
 
 # Python bytecode (configuration tool self-test)
 __pycache__/
@@ -16,3 +17,24 @@ tests/abstract-machine/klib/build/
 *.fst
 *.vcd
 waveform.fst
+
+# Compiler / Verilator output (source files and test fixtures stay visible)
+obj_dir/
+*.o
+*.a
+*.d
+
+# Vivado caches, runs and reports outside the default build directory
+.Xil/
+*.cache/
+*.gen/
+*.hw/
+*.ip_user_files/
+*.runs/
+*.sim/
+*.jou
+*.str
+vivado*.log
+*.dcp
+*.bit
+*.ltx

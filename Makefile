@@ -41,7 +41,24 @@ PROGRAM ?=
 
 all: lint lint-backend lint-lsu tb-ares-pkg tb-fe-stub tb-mem-model unit unit-lsu
 
-.PHONY: lint-soc unit-soc
+# FPGA project generation is independent of legacy npc/ and vendor build files.
+# Explicit frequency keeps the requested clock visible in every team's command.
+VIVADO ?= vivado
+FPGA_CPU_MHZ ?=
+FPGA_OUT ?= $(ARES_HOME)/build/vivado/ares
+FPGA_PROFILE ?= soc
+FPGA_ARGS ?=
+.PHONY: vivado-project vivado-synth vivado-route test-vivado lint-soc unit-soc
+vivado-project vivado-synth vivado-route:
+	@test -n "$(FPGA_CPU_MHZ)" || { echo "set FPGA_CPU_MHZ to a target strictly above 200"; exit 1; }
+	@python3 "$(ARES_HOME)/scripts/vivado/create_project.py" \
+	    --profile "$(FPGA_PROFILE)" --cpu-mhz "$(FPGA_CPU_MHZ)" \
+	    --output "$(FPGA_OUT)" --vivado "$(VIVADO)" \
+	    --stage $(if $(filter vivado-synth,$@),synth,$(if $(filter vivado-route,$@),route,generate)) $(FPGA_ARGS)
+
+test-vivado:
+	@python3 "$(ARES_HOME)/scripts/vivado/test_create_project.py"
+
 ARES_SOC_SRCS := $(wildcard $(RTL_ROOT)/soc/jyd/*.sv) \
                 $(RTL_ROOT)/soc/jyd/test/memory_ip_models.sv \
                 $(RTL_ROOT)/soc/jyd/test/xpm_cdc_models.sv
