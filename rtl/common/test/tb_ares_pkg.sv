@@ -86,9 +86,9 @@ module tb_ares_pkg (
 
             //---- parameter relationships -----------------------------------
             check(CIQ_ENTRIES == (1 << CIQ_SLOT_BITS), "CIQ_ENTRIES vs tag width");
-            check(ares_pkg::FETCH_WIDTH == 4 && ares_pkg::DECODE_WIDTH == 2 && DISPATCH_WIDTH == 2
+            check(fe_pkg::FETCH_WIDTH == 4 && fe_pkg::DECODE_WIDTH == 2 && DISPATCH_WIDTH == 2
                   && ISSUE_WIDTH_MAX == 4 && COMMIT_WIDTH == 2, "pipeline widths");
-            check(ares_pkg::GHR_WIDTH == 12 && BPU_UPDATE_FIFO_DEPTH >= 2,
+            check(fe_pkg::GHR_WIDTH == 12 && BPU_UPDATE_FIFO_DEPTH >= 2,
                   "BPU interface parameters");
             //---- configuration menu (configs/Kconfig, make menuconfig) ------
             // These are the values the build actually elaborated with; they are

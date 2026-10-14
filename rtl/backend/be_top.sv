@@ -409,13 +409,13 @@ module be_top #(
     // Functional units
     //=========================================================================
     fu_alu u_alu0 (
-        .clk             (clk),
-        .rst             (rst),
-        .issue_valid     (fu_issue_valid_w[P_ALU0]),
-        .issue_req       (fu_req_w[P_ALU0]),
-        .kill_mask       (kill_mask_w),
+        .clk(clk),
+        .rst(rst),
+        .issue_valid(fu_issue_valid_w[P_ALU0]),
+        .issue_req(fu_req_w[P_ALU0]),
+        .kill_mask(kill_mask_w),
         .completion_valid(alu0_completion_valid_w),
-        .completion      (alu0_completion_w)
+        .completion(alu0_completion_w)
     );
 
     fu_alu u_alu1 (
