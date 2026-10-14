@@ -29,9 +29,49 @@ TENSOR_SOURCES := \
 	$(CURDIR)/rtl/tensor/Epilogue/tensor_epilogue_controller.sv \
 	$(CURDIR)/tb/tensor/tb_tensor_gemm_core.sv
 
-.PHONY: sim regress clean vector-sim vrf-sim ub-sim dma-sim tensor-sim tensor-controller-sim epilogue-sim
+TOP_SOURCES := \
+	$(CURDIR)/rtl/interface/core_v_xif.sv \
+	$(CURDIR)/rtl/common/minitensor_pkg.sv \
+	$(CURDIR)/rtl/tensor/tensor_pkg.sv \
+	$(CURDIR)/rtl/vector/vpu_pkg.sv \
+	$(CURDIR)/rtl/vector/vpu_vector_regfile.sv \
+	$(CURDIR)/rtl/vector/vpu_vector_alu.sv \
+	$(CURDIR)/rtl/control/vpu_vector_controller.sv \
+	$(CURDIR)/rtl/tensor/MXU/Systolic_Array/tensor_pe.sv \
+	$(CURDIR)/rtl/tensor/MXU/Systolic_Array/tensor_systolic_array.sv \
+	$(CURDIR)/rtl/tensor/MXU/INT8_GEMM/tensor_gemm_core.sv \
+	$(CURDIR)/rtl/tensor/tensor_controller.sv \
+	$(CURDIR)/rtl/tensor/Epilogue/tensor_epilogue_core.sv \
+	$(CURDIR)/rtl/tensor/Epilogue/tensor_epilogue_controller.sv \
+	$(CURDIR)/rtl/memory/unified_buffer.sv \
+	$(CURDIR)/rtl/memory/vpu_dma.sv \
+	$(CURDIR)/rtl/top/mini_tensor_top.sv \
+	$(CURDIR)/tb/top/tb_mini_tensor_top.sv
 
-sim: regress
+NPC_SOURCES := \
+	$(CURDIR)/rtl/interface/core_v_xif.sv \
+	$(CURDIR)/rtl/common/minitensor_pkg.sv \
+	$(CURDIR)/rtl/tensor/tensor_pkg.sv \
+	$(CURDIR)/rtl/vector/vpu_pkg.sv \
+	$(CURDIR)/rtl/vector/vpu_vector_regfile.sv \
+	$(CURDIR)/rtl/vector/vpu_vector_alu.sv \
+	$(CURDIR)/rtl/control/vpu_vector_controller.sv \
+	$(CURDIR)/rtl/tensor/MXU/Systolic_Array/tensor_pe.sv \
+	$(CURDIR)/rtl/tensor/MXU/Systolic_Array/tensor_systolic_array.sv \
+	$(CURDIR)/rtl/tensor/MXU/INT8_GEMM/tensor_gemm_core.sv \
+	$(CURDIR)/rtl/tensor/tensor_controller.sv \
+	$(CURDIR)/rtl/tensor/Epilogue/tensor_epilogue_core.sv \
+	$(CURDIR)/rtl/tensor/Epilogue/tensor_epilogue_controller.sv \
+	$(CURDIR)/rtl/memory/unified_buffer.sv \
+	$(CURDIR)/rtl/memory/vpu_dma.sv \
+	$(CURDIR)/rtl/top/mini_tensor_top.sv \
+	$(CURDIR)/tb/npc/mt_mem_model.sv \
+	$(CURDIR)/tb/npc/vpu_npc_model.sv \
+	$(CURDIR)/tb/top/tb_mini_tensor_npc.sv
+
+.PHONY: sim regress npc-sim vector-sim vrf-sim ub-sim dma-sim tensor-sim tensor-controller-sim epilogue-sim top-sim clean
+
+sim: top-sim
 
 regress:
 	$(MAKE) vector-sim
@@ -41,6 +81,14 @@ regress:
 	$(MAKE) tensor-sim
 	$(MAKE) tensor-controller-sim
 	$(MAKE) epilogue-sim
+	$(MAKE) top-sim
+	$(MAKE) npc-sim
+
+npc-sim:
+	mkdir -p $(OBJ_DIR)/npc
+	CCACHE_DISABLE=1 $(VERILATOR) $(COMMON_FLAGS) $(VERILATOR_FLAGS) \
+		--Mdir $(OBJ_DIR)/npc --top-module tb_mini_tensor_npc $(NPC_SOURCES)
+	$(OBJ_DIR)/npc/Vtb_mini_tensor_npc
 
 vector-sim:
 	mkdir -p $(OBJ_DIR)/vector
@@ -94,6 +142,12 @@ epilogue-sim:
 		$(CURDIR)/rtl/tensor/Epilogue/tensor_epilogue_core.sv \
 		$(CURDIR)/tb/tensor/tb_tensor_epilogue.sv
 	$(OBJ_DIR)/epilogue/Vtb_tensor_epilogue
+
+top-sim:
+	mkdir -p $(OBJ_DIR)/top
+	CCACHE_DISABLE=1 $(VERILATOR) $(COMMON_FLAGS) --Mdir $(OBJ_DIR)/top \
+		--top-module tb_mini_tensor_top $(TOP_SOURCES)
+	$(OBJ_DIR)/top/Vtb_mini_tensor_top
 
 clean:
 	rm -rf $(OBJ_DIR)
