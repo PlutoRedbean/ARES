@@ -10,7 +10,7 @@
 // returned after a short fixed latency; on a miss a whole line is fetched from
 // memory beat-by-beat and then the requested word is returned.
 //
-// The backing bus is selected by the `IO_USE_AXI macro:
+// The backing bus is selected by the `CONFIG_IO_USE_AXI macro:
 //   - defined   : AXI4-Lite master (`icache_axi_bus`), one 32-bit word per beat,
 //   - commented : miniTensor uncached read handshake (`icache_mt_bus`, see
 //                 miniTensor.md 4.2.1), one 128-bit line beat.
@@ -37,7 +37,7 @@ module icache #(
     output logic [fe_pkg::FETCH_WIDTH - 1:0] resp_rmask,
     output logic refill,  // one-cycle miss/refill pulse
 
-`ifdef IO_USE_AXI
+`ifdef CONFIG_IO_USE_AXI
     axi_if.master icache_axi_bus
 `else
     miniTensor_if.master icache_mt_bus
@@ -57,7 +57,7 @@ module icache #(
     // master moves one 32-bit instruction per beat; miniTensor moves a 16-byte
     // (128-bit) beat.  Both protocols are used through the abstract
     // bus_req_*/bus_rsp_* handshake below.
-`ifdef IO_USE_AXI
+`ifdef CONFIG_IO_USE_AXI
     localparam int unsigned BUS_DATA_WIDTH = DATA_WIDTH;
 `else
     localparam int unsigned BUS_DATA_WIDTH = 128;
@@ -109,7 +109,7 @@ module icache #(
     //
     // A read is offered on bus_req_* and answered on bus_rsp_*; the adaptor
     // below maps it onto either AXI4-Lite (ar/r channels) or the miniTensor
-    // uncached handshake, selected by `IO_USE_AXI.
+    // uncached handshake, selected by `CONFIG_IO_USE_AXI.
     // --------------------
     logic                                             bus_req_valid;
     logic                                             bus_req_ready;
@@ -118,7 +118,7 @@ module icache #(
     logic                                             bus_rsp_ready;
     logic        [BUS_DATA_WIDTH-1:0]                 bus_rsp_data;
 
-`ifdef IO_USE_AXI
+`ifdef CONFIG_IO_USE_AXI
     assign icache_axi_bus.arvalid = bus_req_valid;
     assign icache_axi_bus.araddr = bus_req_addr;
     assign bus_req_ready = icache_axi_bus.arready;

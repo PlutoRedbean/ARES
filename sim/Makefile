@@ -58,12 +58,16 @@ BIN       := $(BUILD_DIR)/ares-sim
 #-----------------------------------------------------------------------------
 # ares_pkg.sv must be listed before every module that imports it.
 ARES_PKG  := $(RTL_ROOT)/common/ares_pkg.sv
+# The front-end package belongs to the front-end build (scripts/test.mk); the
+# core simulation does not instantiate the front-end, and including it here
+# would re-define the CONFIG_* macros that are passed with -D.
+ARES_FE_PKG := $(RTL_ROOT)/common/fe_pkg.sv
 ARES_TBS  := $(SIM_HOME)/rtl/tb_ares_core.sv \
              $(SIM_HOME)/rtl/tb_mem_beat_if.sv \
              $(SIM_HOME)/rtl/tb_mmio_if.sv
 
 VSRCS  := $(ARES_PKG)
-VSRCS  += $(filter-out $(ARES_PKG), $(wildcard $(RTL_ROOT)/common/*.sv))
+VSRCS  += $(filter-out $(ARES_PKG) $(ARES_FE_PKG), $(wildcard $(RTL_ROOT)/common/*.sv))
 VSRCS  += $(wildcard $(RTL_ROOT)/common/*/*.sv)
 VSRCS  += $(wildcard $(RTL_ROOT)/backend/*.sv) $(wildcard $(RTL_ROOT)/backend/*/*.sv)
 VSRCS  += $(wildcard $(RTL_ROOT)/memory/*.sv)  $(wildcard $(RTL_ROOT)/memory/*/*.sv)

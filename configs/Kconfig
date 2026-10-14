@@ -68,3 +68,5 @@ choice LINE_BYTES
 endchoice
 
 endmenu # "Memory"
+
+source "frontend/Kconfig"

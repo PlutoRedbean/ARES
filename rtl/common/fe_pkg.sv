@@ -1,5 +1,19 @@
-`include "autoconf.vh"
+`include "ares_autoconf.vh"
+
+// The generated configuration header selects the ICache backing bus through
+// CONFIG_IO_USE_AXI, while the front-end RTL tests the shorter `IO_USE_AXI
+// macro (originally defined by rtl/frontend/include/autoconf.vh).  Bridge the
+// two here so the modules keep their historical macro name.
+`ifdef CONFIG_IO_USE_AXI
+    `define IO_USE_AXI 1
+`endif
+
 package fe_pkg;
+
+// These parameters are sized for the front-end modules.  A core-only build
+// (sim, backend/lsu lint) compiles this package without them, so the ones the
+// front-end alone consumes legitimately look unused there.
+/* verilator lint_off UNUSEDPARAM */
 
     // ------------------
     // Base parameters
@@ -37,9 +51,7 @@ package fe_pkg;
     localparam int unsigned PHT_WIDTH = `CONFIG_FE_PHT_WIDTH;
     localparam int unsigned UBTB_WIDTH = `CONFIG_FE_UBTB_WIDTH;
     localparam int unsigned GHR_WIDTH = `CONFIG_FE_GHR_WIDTH;
-    /* verilator lint_off UNUSEDPARAM */
     localparam int unsigned MBTB_WIDTH = `CONFIG_FE_MBTB_WIDTH;
-    /* verilator lint_on UNUSEDPARAM */
 
     // ------------------
     // Tournament predictor parameters
@@ -76,10 +88,11 @@ package fe_pkg;
     localparam int unsigned DIR_TYPE = 1;
 `endif
 
-    // Instruction cache backing bus.  Define IO_USE_AXI to use the AXI4-Lite
-    // master; leave it commented to use the miniTensor uncached memory
-    // protocol (the Mundus instruction-memory bus).
-    // `define IO_USE_AXI
+    // Instruction cache backing bus: `IO_USE_AXI selects the AXI4-Lite master,
+    // otherwise the miniTensor uncached read handshake is used.  The macro is
+    // derived from CONFIG_IO_USE_AXI by the bridge at the top of this file.
+
+/* verilator lint_on UNUSEDPARAM */
 
     /*
      * CFI type

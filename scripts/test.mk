@@ -19,13 +19,28 @@ TEST_SRCS = $(shell find $(TEST_DIR) -maxdepth 1 -name "tb_*.sv")
 TESTS     = $(basename $(notdir $(TEST_SRCS)))
 
 TEST_BUILD_DIR ?= $(ARES_HOME)/build/test
-TEST_INCDIRS = +incdir+$(ARES_HOME)/rtl/frontend +incdir+$(ARES_HOME)/rtl/frontend/include +incdir+$(TEST_DIR)
+TEST_INCDIRS = +incdir+$(ARES_HOME)/rtl/common \
+               +incdir+$(ARES_HOME)/rtl/frontend \
+               +incdir+$(ARES_HOME)/configs/build/vsrc/include \
+               +incdir+$(TEST_DIR)
 VERILATOR ?= verilator
+
+# fe_pkg.sv includes the generated configuration header, which comes from the
+# same Kconfig flow as the core (configs/Kconfig sources configs/frontend/Kconfig).
+ARES_KCONFIG := python3 $(ARES_HOME)/scripts/kconfig/ares_kconfig.py
+ARES_CFG_VH  := $(ARES_HOME)/configs/build/vsrc/include/ares_autoconf.vh
+
+$(ARES_CFG_VH): $(ARES_HOME)/scripts/kconfig/ares_kconfig.py \
+                $(wildcard $(ARES_HOME)/configs/Kconfig) \
+                $(wildcard $(ARES_HOME)/configs/frontend/Kconfig) \
+                $(wildcard $(ARES_HOME)/configs/build/.config)
+	@$(ARES_KCONFIG) gen >/dev/null
 
 # testbenches `include the DUT, so rebuild whenever any RTL source changes
 TEST_DEPS  = $(shell find $(ARES_HOME)/rtl/frontend -not -path "*/test/*" -not -path "*/obj_dir/*" -name "*.sv")
 TEST_DEPS += $(shell find $(ARES_HOME)/rtl/frontend -not -path "*/test/*" -not -path "*/obj_dir/*" -name "*.v")
 TEST_DEPS += $(shell find $(ARES_HOME)/rtl/frontend -not -path "*/test/*" -not -path "*/obj_dir/*" -name "*.vh")
+TEST_DEPS += $(ARES_HOME)/rtl/common/fe_pkg.sv
 
 COLOR_RED   = \033[1;31m
 COLOR_GREEN = \033[1;32m
@@ -61,7 +76,7 @@ else
 test-run: $(TEST_BUILD_DIR)/$(TOP_NAME)
 	@$(TEST_BUILD_DIR)/$(TOP_NAME)
 
-$(TEST_BUILD_DIR)/$(TOP_NAME): $(TEST_SRC) $(TEST_DEPS)
+$(TEST_BUILD_DIR)/$(TOP_NAME): $(TEST_SRC) $(TEST_DEPS) $(ARES_CFG_VH)
 	@mkdir -p $(TEST_BUILD_DIR)
 	@$(VERILATOR) --binary --timing -sv -Wno-fatal $(TEST_INCDIRS) \
 		-Mdir $(TEST_BUILD_DIR)/obj_$(TOP_NAME) \

@@ -1,0 +1,213 @@
+menu "Frontend"
+
+    menu "common parameters"
+
+        config FE_ADDR_WIDTH
+            int "Address width (bits)"
+            default 32
+            help
+              Front-end PC / address width (fe_pkg ADDR_WIDTH).  RV32 freezes
+              this at 32.
+
+        config FE_DATA_WIDTH
+            int "Data width (bits)"
+            default 32
+            help
+              Front-end datapath width (fe_pkg DATA_WIDTH).
+
+        config FE_INST_WIDTH
+            int "Instruction width (bits)"
+            default 32
+            help
+              Instruction encoding width (fe_pkg INST_WIDTH).  RV32IM without
+              the C extension keeps this at 32.
+
+        config FE_FETCH_WIDTH
+            int "Fetch width (instructions per Fetch Block)"
+            range 1 8
+            default 4
+            help
+              Instructions fetched per block / FTQ entry (frontend.md
+              section 1).  The uBTB tag width is derived from this value.
+
+        config FE_DECODE_WIDTH
+            int "Decode width (instructions per cycle)"
+            range 1 4
+            default 2
+            help
+              IQ read-port width and the width of the FE/BE instruction
+              interface (frontend_backend_contract.md section 2).
+
+    endmenu # "common parameters"
+
+    menu "BPU"
+
+        menu "Direction predictors"
+
+            config FE_TOURNAMENT
+                bool "Tournament direction predictor (gshare + bimodal chooser)"
+                default y
+                help
+                  When enabled fe_pkg selects DIR_TYPE=2 (tournament); when
+                  disabled the plain bimodal predictor is used (DIR_TYPE=1).
+                  Both share FE_PHT_WIDTH.
+
+            config FE_PHT_WIDTH
+                int "Pattern history table index width (bits)"
+                range 6 16
+                default 10
+                help
+                  log2 of the bimodal / gshare PHT entry count.
+
+            config FE_GHR_WIDTH
+                int "Global history register width (bits)"
+                range 1 32
+                default 12
+                help
+                  ghr_spec / ghr_commit width and the width of
+                  pred_meta.ghr_before in the FE/BE contract.
+
+        endmenu # "Direction predictors"
+
+        menu "Target predictors (uBTB / RAS)"
+
+            config FE_UBTB_WIDTH
+                int "uBTB tag width (bits)"
+                range 4 32
+                default 8
+                help
+                  Micro-BTB (16-entry fully-associative) tag width; the index
+                  uses the low PC bits implied by FE_FETCH_WIDTH.
+
+            config FE_MBTB_WIDTH
+                int "mBTB index width (bits)"
+                range 6 16
+                default 11
+                help
+                  Reserved for the F2/F3 main BTB (SPEC-M1).  The current RTL
+                  only declares the parameter; the SRAM BTB itself is not built.
+
+            config FE_RAS
+                bool "Return-address stack"
+                default y
+                help
+                  Enable the call/return stack.  When disabled, returns fall
+                  back to the uBTB target.
+
+            config FE_RAS_ENTRIES
+                int "Return-address stack depth (entries)"
+                range 1 64
+                default 16
+                help
+                  Number of return addresses held by the RAS.
+
+        endmenu # "Target predictors (uBTB / RAS)"
+
+        menu "Loop predictor"
+
+            config FE_LOOP_PRED
+                bool "Loop predictor"
+                default y
+                help
+                  Independent loop-iteration direction predictor that overrides
+                  the selected direction predictor near the loop trip count.
+
+            config FE_LOOP_ENTRIES
+                int "Loop predictor table entries"
+                range 1 4096
+                default 256
+                help
+                  Number of loop entries in the prediction table.
+
+            config FE_LOOP_ITER_WIDTH
+                int "Loop iteration counter width (bits)"
+                range 1 16
+                default 8
+                help
+                  Width of the per-entry iteration counter.
+
+        endmenu # "Loop predictor"
+
+    endmenu # "BPU"
+
+    menu "FTQ"
+
+        config FE_FTQ_NUM_ENTRIES
+            int "Fetch Target Queue entries"
+            range 1 64
+            default 16
+            help
+              Number of pending Fetch Blocks tracked by the FTQ
+              (frontend.md section 5).
+
+    endmenu # "FTQ"
+
+    menu "ICache"
+
+        config FE_ICACHE_LINE_BYTES
+            int "Cache line size (bytes)"
+            range 16 128
+            default 32
+            help
+              ICache line size; drives the refill beat count.  ARES uses 32.
+
+        config FE_ICACHE_LINE_32
+            bool "32-byte line geometry marker"
+            default y
+            help
+              Legacy port marker paired with FE_ICACHE_LINE_BYTES=32.  It is
+              kept so the generated macro set matches the original front-end
+              autoconf.vh; changing it alone does not change the RTL.
+
+        config FE_ICACHE_NR_SETS
+            int "Number of sets"
+            range 1 1024
+            default 64
+            help
+              ICache set count (frontend.md section 7.1).  ARES uses 64.
+
+        config FE_ICACHE_SETS_64
+            bool "64-set geometry marker"
+            default y
+            help
+              Legacy port marker paired with FE_ICACHE_NR_SETS=64.
+
+        config FE_ICACHE_NR_WAYS
+            int "Associativity (ways)"
+            range 1 16
+            default 4
+            help
+              ICache associativity (frontend.md section 7.1).  ARES uses 4-way.
+
+        config FE_ICACHE_WAYS_4
+            bool "4-way geometry marker"
+            default y
+            help
+              Legacy port marker paired with FE_ICACHE_NR_WAYS=4.
+
+        config IO_USE_AXI
+            bool "AXI4-Lite ICache backing bus"
+            default y
+            help
+              Selects the ICache master bus.  When set, the front-end exposes
+              the AXI4-Lite interface (rtl/frontend/interface/axi_if.sv); when
+              cleared it uses the miniTensor uncached read handshake.  This is
+              the `IO_USE_AXI macro in rtl/frontend/include/autoconf.vh; the
+              generated header spells it CONFIG_IO_USE_AXI.
+
+    endmenu # "ICache"
+
+    menu "IQ"
+
+        config FE_BODY_DEPTH
+            int "Instruction Queue body depth (entries)"
+            range 1 256
+            default 8
+            help
+              Body (circular queue) depth of the IQ; the total depth is
+              IQ_DEPTH = FE_BODY_DEPTH + FE_DECODE_WIDTH (the decode window is
+              the HEAD).  The ported ARES RTL uses a body of 8.
+
+    endmenu # "IQ"
+
+endmenu # "Frontend"

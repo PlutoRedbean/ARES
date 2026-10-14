@@ -1,13 +1,17 @@
 # 前端 RTL 接入说明（IFU / BPU / FTQ / IQ）
 
 > **适用范围**：`rtl/frontend/` 下的前端 RTL，供后端（ARES core）接入。
-> 本文只描述**前后端之间的接口契约**，微架构设计见同目录 [`frontend.md`](./frontend.md)。
+> 本文只描述**前后端之间的接口契约**，微架构设计见同目录 [`frontend.md`](./frontend.md)；
+> 跨模块信号的**唯一规范性定义**见 [`frontend_backend_contract.md`](./frontend_backend_contract.md)，
+> 冲突时以该契约为准。
 
 ## 1. 交付物
 
 ```
+rtl/common/
+└── fe_pkg.sv                 # 前端 package（`include 生成配置头 ares_autoconf.vh）
+
 rtl/frontend/
-├── fe_pkg.sv                 # 前端 package（由 NPC 的 npc_pkg 改名而来）
 ├── frontend.sv               # ★ 顶层 wrapper（后端只接这一个模块）
 ├── iq.sv                     # Instruction Queue
 ├── ftq.sv                    # Fetch Target Queue
@@ -23,10 +27,18 @@ rtl/frontend/
 │   ├── axi_if.sv             # icache 使用的 AXI4-Lite 接口
 │
 └── test/
-    └── tb_frontend.sv        # 自检 testbench（见 §6）
+    └── tb_iq.sv              # IQ 单元自检 testbench（见 §6）
+
+configs/frontend/Kconfig      # 前端参数（menu "Frontend"；configs/Kconfig source 之）
+scripts/test.mk               # 前端回归入口（见 §6）
 ```
 
 数据流：`BPU -> FTQ -> IFU -> ICache` 与 `IFU -> IQ --(读口)--> 后端`。
+
+前端参数由 `configs/frontend/Kconfig`（`menu "Frontend"`）配置，`make menuconfig`
+生成 `configs/build/vsrc/include/ares_autoconf.vh`；`rtl/common/fe_pkg.sv` 直接
+`` `include "ares_autoconf.vh" `` 读取 `CONFIG_FE_*`，不再有独立的
+`rtl/frontend/include/autoconf.vh`。
 
 ## 2. `frontend.sv` 顶层端口
 
@@ -42,7 +54,6 @@ module frontend #(
     // ---------- IQ 读口（前端 -> 后端） ----------
     output logic [fe_pkg::DECODE_WIDTH-1:0] iq_rvalid,
     output fe_pkg::iq_entry_t               iq_rbits [fe_pkg::DECODE_WIDTH],
-    input  logic                            iq_rready,
     input  logic [$clog2(fe_pkg::DECODE_WIDTH+1)-1:0] iq_raccept_cnt,
 
     // ---------- 后端 -> 前端 ----------
@@ -65,12 +76,16 @@ IQ 写口（`IFU -> IQ`）与 FTQ 读口（`FTQ -> IFU`）均为 wrapper 内部�
 
 IQ 对外表现为「HEAD(2-entry) + BODY(循环队列)」结构，每拍把队首若干条指令暴露给后端。
 
+读口采用**计数型握手**：后端用 `iq_raccept_cnt` 直接报告本拍消费数量，不再有 `rready`
+一类的 valid/ready 对。`iq_raccept_cnt` 是**唯一消费依据**，其组合路径为
+`iq_rvalid/iq_inst -> Decode -> iq_accept_count`，不依赖 IQ 侧任何 ready 反馈
+（[`frontend_backend_contract.md`](./frontend_backend_contract.md) §2）。
+
 | 信号 | 方向 | 含义 |
 | --- | --- | --- |
 | `iq_rvalid[DECODE_WIDTH-1:0]` | out | HEAD 中**有效指令槽**，低位连续前缀：只会是 `00 / 01 / 11`，**不会出现 `10`** |
 | `iq_rbits[DECODE_WIDTH-1:0]` | out | 对应槽的完整条目（组合输出，当拍稳定） |
-| `iq_rready` | in | 后端本拍是否消费 |
-| `iq_raccept_cnt` | in | 后端本拍**实际消费的指令数** |
+| `iq_raccept_cnt` | in | 后端本拍**实际消费的指令数**（0/1/2），唯一消费条件 |
 
 `iq_entry_t` 字段（`fe_pkg.sv`）：
 
@@ -91,18 +106,19 @@ typedef struct packed {
 available_count = $countones(iq_rvalid);   // 0/1/2
 后端组合读取 iq_rbits -> 译码/依赖绑定
 accept_count    = min(可用, CIQ 空位, ...); // 0/1/2
-assign iq_raccept_cnt = accept_count;
-assign iq_rready      = |accept_count;      // 或恒 1，靠 accept_count=0 表示不消费
+assign iq_raccept_cnt = accept_count;      // 没有 rready；0 即本拍不消费
 ```
 
-**必须遵守的契约**（否则 IQ 会错位/丢数据，仿真中仅 `$error` 提示）：
+**必须遵守的契约**（否则 IQ 会错位/丢数据，仿真中 IQ 内置断言会 `$error` 提示）：
 
 1. `iq_raccept_cnt ∈ {0, 1, 2}`（宽度 2 bit，但 `DECODE_WIDTH=2`，**不能驱动 3**）。
-2. `iq_raccept_cnt <= $countones(iq_rvalid)`，且仅在 `iq_rready` 有效时被采样。
+2. `iq_raccept_cnt <= $countones(iq_rvalid)`；`iq_raccept_cnt` 是唯一消费依据，周期末 IQ 弹出的数量等于后端 CIQ 分配的数量。
 3. **只能消费连续前缀**：不消费 / 只消费 slot0 / 同时消费 slot0+slot1，**不能只消费 slot1**。
 4. 判定有效请使用 `iq_rvalid[i]`，不要用 `iq_rbits[i].valid`（二者一致，但接口契约以 `iq_rvalid` 为准）。
-5. 后端还需额外用 CIQ 剩余容量 `free_count` 夹一下 `accept_count`（见 `backend.md` §5.1）。
+5. 后端还需额外用 CIQ 剩余容量 `free_count` 夹一下 `accept_count`（见 `backend.md` §5.1）；首版不借用同拍预计释放的容量。
 6. `iq_raccept_cnt` 允许与 `iq_rvalid`/`iq_rbits` 同拍组合产生；`iq_rbits` 在时钟沿前保持稳定，不会在消费拍改变。
+7. `iq_raccept_cnt=0` 时 IQ 保持队首指令及其 metadata 稳定（全局 Redirect/Reset 除外），后端可放心背压。
+8. 后端发出 Redirect 的同拍**必须** `iq_raccept_cnt=0`；该拍 IQ 全量清空，旧路径内容整体作废。
 
 时序：`iq_rbits` 由 IQ 队首寄存器组合译出，后端「读条目 → 决定 `accept_count` → 同拍回握手」是设计预期路径。
 
@@ -117,10 +133,11 @@ assign iq_rready      = |accept_count;      // 或恒 1，靠 accept_count=0 表
 
 作用：同一个 flush 会清空 **BPU / FTQ / IFU 流水以及 IQ**，并从 `backend_redirect_pc` 重新取指。
 
-**约束**：
+**约束**（[`frontend_backend_contract.md`](./frontend_backend_contract.md) §3）：
 
 - 必须按顺序（program order）产生，且同一时刻只能有一个 redirect；
 - redirect 只能由**最老未解析的分支/跳转**发起；若存在更老的未解析分支，不能先重定向年轻分支；
+- redirect **一拍有效、无 ready/重试**；发出的同拍 `iq_raccept_cnt` 必须为 0（IQ 内置断言检查）；
 - 未来接入 exception / CSR / serializing 时，也应通过同一路 flush 杀全前端（IQ 同样需要被清空）。
 
 ### 4.2 BPU 训练
@@ -152,35 +169,60 @@ typedef struct packed {
 
 ## 5. 与 `frontend.md` 的差异（接入时注意）
 
-| 项目 | `frontend.md` 文档 | 本 RTL 实现 |
+| 项目 | `frontend.md` / 契约 | 本 RTL 实现 |
 | --- | --- | --- |
+| IQ 读口握手 | `rvalid/rbits/raccept_cnt` 计数型握手（无 `rready`） | 一致 |
 | `cfi_type_t` 枚举名 | `CFI_COND_BRANCH` | `CFI_BRANCH`（顺序/位宽一致） |
 | `iq_entry_t` | 含 `need_redirect` | 无（未预测的 jalr 由后端 BRU 正常重定向，无需该位） |
+| `iq_entry_t` | 含 `pred_npc` | 无（生效预测后继 PC 由后端从 `pred_meta` 推得，暂未接入） |
 | `iq_entry_t` | 无 `pc` | 含 `pc`（后端算 snpc/目标必需） |
 | FTQ entry | 单 CFI | per-slot 数组（IQ 每条指令自带 `pred_meta`，后端不受影响） |
-| IQ_DEPTH | 8 | **128**（HEAD 2 + BODY 126） |
+| BPU Update 口 | 契约 §4：Commit 时 2-wide `bpu_update_valid/credit` | 当前 RTL：`bpu_update_en/update_meta_t` 单发，且在解析同拍推进 committed 状态（见 §4.2 顺序约束）；迁移到 Commit 期训练待后续 |
+| IQ_DEPTH | 8 | `FE_BODY_DEPTH + FE_DECODE_WIDTH`（当前默认 8 + 2 = 10，经 `configs/frontend/Kconfig` 配置） |
 | ICache | 4-way/64-set/32B | 一致 |
 | FTQ / FETCH_WIDTH / DECODE_WIDTH | 16 / 4 / 2 | 一致 |
 
-如需把 `IQ_DEPTH` 调到文档值 8，改 `fe_pkg.sv` 即可（IQ 内部位宽自适应）。
+如需把 `IQ_DEPTH` 调到文档值 8，改 `configs/frontend/Kconfig` 的 `FE_BODY_DEPTH` 即可
+（`IQ_DEPTH = FE_BODY_DEPTH + FE_DECODE_WIDTH`，IQ 内部位宽自适应）。
 
 ## 6. 仿真验证
 
-`test/tb_frontend.sv` 是自检 TB：内建一个只返回非控制流指令的 AXI-Lite 内存模型，并用一个简单后端模型从 `iq_*` 读口按序消费，检查：
-
-- 顺序取指时读出的 PC 每次 +4；
-- `iq_rvalid` 始终是低连续前缀（不出现 `10`）；
-- backend redirect 后 IQ 被清空并从新 PC 重新取指。
-
-运行方式（Verilator 5）：
+前端回归通过 `scripts/test.mk` 一键运行（移植自 NPC）：自动发现
+`rtl/frontend/test/tb_*.sv`，逐个用 Verilator 编译成独立仿真跑自检，
+任一失败则整体 `REGRESSION FAILED`。`ARES_HOME` 需先 export：
 
 ```bash
-cd rtl/frontend
-verilator --binary --timing -sv -Wno-fatal +incdir+. \
-    --top-module tb_frontend test/tb_frontend.sv -o /tmp/tb_frontend
-/tmp/tb_frontend
-# 期望输出：ALL TESTS PASSED (96 instructions consumed)
+export ARES_HOME=/path/to/ARES
+make -f $ARES_HOME/scripts/test.mk test
 ```
+
+当前包含一个自检 TB：
+
+- `test/tb_iq.sv`：IQ 单元测试。覆盖 HEAD/BODY 字段完整性、宽块拆分、
+  计数型握手的边界（bubble=不消费且队首稳定、accept 截断到有效前缀、
+  背压填满后按序排空、同拍读写、BODY 环回绕、flush/reset 优先级），
+  并用 scoreboard 逐条比对 FIFO 顺序，同时断言 `rvalid` 连续前缀、
+  `raccept_cnt <= popcount(rvalid)`、`raccept_cnt != 3`。
+
+单独运行某个 TB（Verilator 5）：
+
+```bash
+export ARES_HOME=/path/to/ARES
+cd $ARES_HOME/rtl/frontend
+verilator --binary --timing -sv -Wno-fatal \
+    +incdir+$ARES_HOME/rtl/common \
+    +incdir+$ARES_HOME/rtl/frontend \
+    +incdir+$ARES_HOME/configs/build/vsrc/include \
+    +incdir+test \
+    --top-module tb_iq test/tb_iq.sv -o /tmp/tb_iq
+/tmp/tb_iq
+# 期望输出：ALL TESTS PASSED (FETCH_WIDTH=4, ... checks)
+```
+
+> 注：`fe_pkg` 已移到 `rtl/common/fe_pkg.sv`，并会
+> `` `include "ares_autoconf.vh" ``（`configs/build/vsrc/include/` 下、由
+> `configs/frontend/Kconfig` 生成），因此需要上述 `+incdir`。`scripts/test.mk`
+> 已自动加入这些路径并在编译前生成配置头，一般直接用它即可。
 
 > 注：`frontend.sv` 的 AXI 端口使用了 interface modport。用 Verilator 对
 > `--top-module frontend` 直接开 `--trace-structs` 会触发上游工具的一个内部错误；
