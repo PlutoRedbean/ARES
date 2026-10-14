@@ -382,7 +382,9 @@ def write_autoconf(cfg, path):
         "",
     ]
     for name in sorted(emitted_symbols(cfg)):
+        body.append("%sifndef CONFIG_%s" % (BT, name))
         body.append("%sdefine CONFIG_%s %s" % (BT, name, sv_value(emitted_symbols(cfg)[name])))
+        body.append("%sendif" % BT)
     body += ["", BT + "endif", ""]
     write_if_changed(path, "\n".join(body))
 
