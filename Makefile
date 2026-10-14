@@ -17,6 +17,7 @@
 #   make lint-backend   backend lint (be_top, -Wall --assert, zero warnings)
 #   make unit           backend unit + integration self-tests (C1 gate)
 #   make lint-lsu       LSU/memory lint + ares_core_top (C2/C3, zero warnings)
+#   make lint-mt        miniTensor SoC integration (S09) lint
 #   make unit-lsu       LSU unit + integration self-tests (C2 gate)
 #   make all            lint + unit tests (C0 + C1 + C2 gate)
 #   make sim            build the default ARES top (tb_ares_core)
@@ -38,7 +39,7 @@ PROGRAM ?=
         tb-mem-model sim run wave isa clean menuconfig defconfig oldconfig \
         savedefconfig loaddefconfig showconfig test-config
 
-all: lint lint-backend lint-lsu tb-ares-pkg tb-fe-stub tb-mem-model unit unit-lsu
+all: lint lint-backend lint-lsu lint-mt tb-ares-pkg tb-fe-stub tb-mem-model unit unit-lsu
 
 # FPGA project generation is independent of legacy npc/ and vendor build files.
 # Explicit frequency keeps the requested clock visible in every team's command.
@@ -47,7 +48,7 @@ FPGA_CPU_MHZ ?=
 FPGA_OUT ?= $(ARES_HOME)/build/vivado/ares
 FPGA_PROFILE ?= soc
 FPGA_ARGS ?=
-.PHONY: vivado-project vivado-synth vivado-route test-vivado lint-soc unit-soc
+.PHONY: vivado-project vivado-synth vivado-route test-vivado lint-soc unit-soc lint-mt
 vivado-project vivado-synth vivado-route:
 	@test -n "$(FPGA_CPU_MHZ)" || { echo "set FPGA_CPU_MHZ to a target strictly above 200"; exit 1; }
 	@python3 "$(ARES_HOME)/scripts/vivado/create_project.py" \
@@ -61,12 +62,46 @@ test-vivado:
 ARES_SOC_SRCS := $(wildcard $(RTL_ROOT)/soc/jyd/*.sv) \
                 $(RTL_ROOT)/soc/jyd/test/memory_ip_models.sv \
                 $(RTL_ROOT)/soc/jyd/test/xpm_cdc_models.sv
+
+# miniTensor SoC integration (S09): the vendored accelerator RTL plus the ARES
+# CV-X-IF host adapter and the JYD-platform integration top ares_soc_top.
+MINITENSOR_HOME ?= $(ARES_HOME)/miniTensor
+ARES_MT_SRCS := \
+    $(RTL_ROOT)/soc/ares_mt_host_adapter.sv \
+    $(MINITENSOR_HOME)/rtl/interface/core_v_xif.sv \
+    $(MINITENSOR_HOME)/rtl/common/minitensor_pkg.sv \
+    $(MINITENSOR_HOME)/rtl/tensor/tensor_pkg.sv \
+    $(MINITENSOR_HOME)/rtl/vector/vpu_pkg.sv \
+    $(MINITENSOR_HOME)/rtl/vector/vpu_vector_regfile.sv \
+    $(MINITENSOR_HOME)/rtl/vector/vpu_vector_alu.sv \
+    $(MINITENSOR_HOME)/rtl/control/vpu_vector_controller.sv \
+    $(MINITENSOR_HOME)/rtl/tensor/MXU/Systolic_Array/tensor_pe.sv \
+    $(MINITENSOR_HOME)/rtl/tensor/MXU/Systolic_Array/tensor_systolic_array.sv \
+    $(MINITENSOR_HOME)/rtl/tensor/MXU/INT8_GEMM/tensor_gemm_core.sv \
+    $(MINITENSOR_HOME)/rtl/tensor/tensor_controller.sv \
+    $(MINITENSOR_HOME)/rtl/tensor/Epilogue/tensor_epilogue_core.sv \
+    $(MINITENSOR_HOME)/rtl/tensor/Epilogue/tensor_epilogue_controller.sv \
+    $(MINITENSOR_HOME)/rtl/memory/unified_buffer.sv \
+    $(MINITENSOR_HOME)/rtl/memory/vpu_dma.sv \
+    $(MINITENSOR_HOME)/rtl/top/mini_tensor_top.sv
+
 # Empty pins are intentional debug observations / unused mailbox status.
 lint-soc:
 	@verilator $(VERILATOR_LINT_FLAGS) -Wno-PINCONNECTEMPTY --top-module student_top \
 	    $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
 	    $(wildcard $(RTL_ROOT)/backend/*.sv) $(wildcard $(RTL_ROOT)/memory/*.sv) \
 	    $(RTL_ROOT)/top/ares_core_top.sv $(RTL_ROOT)/top/student_top.sv $(ARES_SOC_SRCS)
+
+# miniTensor SoC integration (S09): elaborate the real JYD subtree together
+# with mini_tensor_top and the ARES CV-X-IF host adapter.  The DMA master is
+# exported by ares_soc_top and left for the future Fabric (SPEC-M7/M20/M21).
+lint-mt:
+	@echo "[lint] ares_soc_top + mini_tensor_top + ares_mt_host_adapter"
+	@verilator $(VERILATOR_LINT_FLAGS) -Wno-PINCONNECTEMPTY --top-module ares_soc_top \
+	    $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
+	    $(wildcard $(RTL_ROOT)/backend/*.sv) $(wildcard $(RTL_ROOT)/memory/*.sv) \
+	    $(RTL_ROOT)/top/ares_core_top.sv $(RTL_ROOT)/top/student_top.sv \
+	    $(RTL_ROOT)/top/ares_soc_top.sv $(ARES_SOC_SRCS) $(ARES_MT_SRCS)
 
 unit-soc:
 	@mkdir -p $(ARES_HOME)/sim/build/unit/tb_jyd_bus

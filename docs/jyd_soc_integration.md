@@ -63,7 +63,9 @@ avoid overlapping dirty cached data and uncached/DMA access. The original
 miniTensor DMA bridge imports DPI unconditionally and is not synthesizable.
 Its FPGA integration requires real shared-memory arbitration and visibility
 decisions; it is not imported or silently tied to a dummy memory here.
-miniTensor control/status remains external to `student_top` for that later work.
+miniTensor control/status remains external to `student_top`; the first ARES
+control-path adaptation now connects it in a separate integration top,
+`ares_soc_top`. See [miniTensor_soc_integration.md](miniTensor_soc_integration.md).
 
 The copied counter emits a one-CPU-cycle IRQ pulse at millisecond changes after
 being enabled; it is **not** an `mtime/mtimecmp` level interrupt controller.
@@ -98,6 +100,8 @@ bus protocol. Real frontend and multi-master DMA throughput remain unverified.
   output overwrite guards, clock/profile guards, relocation/Tcl literal paths).
 - `make lint-soc`: whole `student_top`, real Core, platform helpers and IP timing
   models; intentional unconnected debug/mailbox pins are explicitly waived.
+- `make lint-mt`: elaborates `student_top` + `ares_soc_top` + `mini_tensor_top`
+  + `ares_mt_host_adapter` through the CV-X-IF host path; 0 warnings.
 - `make unit-soc`: `tb_jyd_bus` exercises the real peripheral bridge under
   random downstream stalls, arbitrary byte masks, queue full/wrap/concurrent
   enqueue/dequeue, response backpressure, reset, aliases, MMIO and LED CDC;
@@ -140,6 +144,8 @@ ignored `build/vivado/` tree.
 |---|---|
 | `rtl/top/ares_core_top.sv` | Pass the default-off JYD classification parameter to LSU; generic port/latency behavior unchanged |
 | `rtl/top/student_top.sv` | Replace old Core with ARES and expose its FE contract; FE/board owner must connect real FE and physical top later |
+| `rtl/top/ares_soc_top.sv` | Integration top: student_top + CV-X-IF host adapter + real mini_tensor_top; DMA exported for the future Fabric |
+| `rtl/soc/ares_mt_host_adapter.sv` | ARES-owned MMIO -> CV-X-IF host adapter (S09 control path) |
 | `rtl/soc/jyd/ares_jyd_bus_bridge.sv` | New 16B→32-bit board adapter; preserves accepted write ownership, read ordering and MMIO ACK |
 | `rtl/soc/jyd/perip_bridge.sv` | Migrate board map/CDC; byte-strobe caller updated with adapter; new idle observation; aliases deliberately retain copied backing semantics |
 | `rtl/soc/jyd/bram_driver.sv` | Retain hardware BRAM port wiring; independent of old simulation config/DPI memory |

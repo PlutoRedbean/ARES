@@ -51,8 +51,11 @@ make ARCH=riscv32-ares ALL=add run            # a single test
 ```
 
 See `sim/README.md` for the memory map and DPI-C contract. This verifies the
-ARES Core with a frontend stub; real frontend, RT-Thread and miniTensor SoC
-integration remain follow-up work. RT-Thread driver/BSP integration sources
+ARES Core with a frontend stub; the real frontend and RT-Thread integration
+remain follow-up work. The miniTensor control path is now instanced by the
+`ares_soc_top` integration top (real `mini_tensor_top` + ARES CV-X-IF host
+adapter over the `0x8020_1000` MMIO seam); the in-core XIF path and the
+shared-memory Fabric are still open. RT-Thread driver/BSP integration sources
 are retained under `miniTensor/integration/`; the RT-Thread source project is
 now imported under `rtthread-nano/`, with ARES BSP/build adaptation pending.
 Its legacy Mundus simulation script requires an explicit external
@@ -60,5 +63,20 @@ Its legacy Mundus simulation script requires an explicit external
 
 Generated outputs belong in the ignored build directories. FPGA generation
 and validation commands are documented in `fpga/vivado/README.md`.
+
+### miniTensor SoC control path (S09 / SPEC-M6 adaptation)
+
+`rtl/top/ares_soc_top.sv` wraps `student_top` and instantiates the real
+`mini_tensor_top`, driven by the ARES CV-X-IF host adapter
+(`rtl/soc/ares_mt_host_adapter.sv`). The accelerator 128-bit uncached DMA
+master is exported for the future Fabric. Elaborate the integrated subtree
+with:
+
+```bash
+make lint-mt
+```
+
+See [miniTensor SoC integration](docs/miniTensor_soc_integration.md) for the
+register map, sequencer rules and the remaining SPEC-M6/M7/M19 work.
 
 ---
