@@ -320,7 +320,7 @@ module icache #(
     always_comb begin
         // Skip the check while reset is asserted: the IFU request register may
         // still hold its power-up value (random under `+verilator+rand+reset`).
-        if (!rst) begin
+        if (req_valid && req_ready) begin
             assert (req_addr[1:0] == 2'b00)
             else $fatal("icache request address must be word-aligned");
         end
