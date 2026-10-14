@@ -1,6 +1,7 @@
 # ARES RTL Implementation Plan
 
-> **Status**: v0.9 / **C0/MC0 closed，C1/MC1 closed，C2 M2a+M2b 已落地（MC2 达成），C3 已落地（MC3：ISA 36/36）**
+> **Status**: v0.10 / 2026-10-14 / **C0–C3 功能门禁已达成；C4 工程/IP 与 SoC OOC 综合已执行，板级 PPA 未验证；C5 真实 FE 待迁移；C6 SoC 部分落地，miniTensor/RT-Thread 系统闭环未完成。**
+> **v0.10 变更（当前进度校准）**：更新实际资产、阶段状态、板级 baseline 前置条件和下一步任务；记录 JYD SoC/Vivado 生成器及 miniTensor 导入/整理的完成边界。250MHz 是综合约束目标，WNS=-9.888ns；没有 ARES post-route 签核结果。C1/C2 的评审/覆盖率遗留仍保留，不把功能通过等同于所有评审与性能验收完成。
 > **v0.9 变更（C2 M2b 执行）**：新增 DCache/MSHR/WB/MMIO 全套 —— `rtl/memory/dcache_arrays.sv`(L07)、`dcache_top.sv`(L06)、`mshr.sv`(L08)、`wb_buffer.sv`(L09)、`mmio_bridge.sv`(L11) 与 4 个单元 TB（`tb_dcache_arrays/tb_wb_buffer/tb_mshr/tb_mmio_bridge`）；`lsu_top` 由 M2a 单 beat staging 收敛为真 DCache 通路；`lq.sv` 增加纯附加 waiter 令牌端口（`lq_wait_pending/tag/epoch`）；M2b 接口冻结见 `LSU_INTERFACES.md` §9–§14，决策见 `docs/m2b_decisions.md`（**misaligned 明确不支持**）。`tb_lsu` 扩为 DCache 通路（hit/miss/refill/Dirty Victim WB/Store Overlay 早接管/RETRY/kill/令牌复用/MMIO + 最终内存镜像）。**证据**：`make lint-lsu` 0 warning；`tb_lsu` 4852 checks / 1006 completions / 0 mismatch；`tb_mshr` 1 205 618 checks（states 6/6, transitions 13/13）、`tb_mmio_bridge` 187 659 checks（3/3, 7/7）、`tb_dcache_arrays` 63 167 checks、`tb_wb_buffer` 26 706 checks（4/4, 4/4），16/32/64B 三档均通过；ISA 回归 36/36。集成期修复 6 处 RTL 缺陷（见 §9.4b）。**PPA 未验证**（SPEC-M10）。
 > **v0.8 变更（C2 M2a + C3 执行）**：新增 `rtl/memory/LSU_INTERFACES.md`（M2a 接口冻结）、`rtl/common/lsu_pkg.sv`、LSU 模块 `lsu_agu/lq/sq/store_forward/lsu_completion/line_adapter/lsu_top` 与 7 个自检 TB（`rtl/memory/test/unit/`）、C3 的 `rtl/top/ares_core_top.sv` 与重写的 `sim/rtl/tb_ares_core.sv`；`make lint-lsu`/`make unit-lsu` 新门禁。**ISA 回归 36/36 PASS**（FE 桩）；执行状态、集成期缺陷与遗留项见 §9.4/§9.5。
 > **v0.7 变更（C0 评审结论）**：core 范围评审通过 —— **D-C0-01 不实现 illegal Trap**、**D-C0-03 `MUL_LATENCY` 默认改为 3**（时序余量优先，menuconfig 可退回 2）、**D-C0-13 新增（SPEC-A13 关闭）：`HAS_MISA/HAS_MTVAL/HAS_MCYCLE` 默认全部关闭**，其余 [C0] 条目按 `docs/c0_decisions.md` 冻结。C0 出口判据全部满足（`ares_pkg` 冻结、`make lint` 0 warning、`fe_stub` 可编译并自检、裁决项书面结论、TB 内存模型契约），**进入 C1/C2**。
@@ -30,6 +31,40 @@
 
 ---
 
+## 当前进度与执行入口（2026-10-14）
+
+本节与 §9 的当前状态表优先用于排期；v0.4–v0.9 的变更说明和 C0–C3 实施步骤保留为历史记录。
+RT-Thread 在早期清理记录中的“后续加入”为当时状态；现已导入，当前边界见 §9.6c。
+
+| 范围 | 已完成/证据 | 尚未完成 |
+|---|---|---|
+| Backend / LSU / Core | 真实 `ares_core_top`，Backend 4 个 TB、LSU 11 个 TB、验证骨架 3 个基础 TB；FE 桩 ISA **36/36 PASS** | 独立 `tb_dcache_top`、部分覆盖率/直接观测断言及性能比较遗留，见 §9.3/§9.4b |
+| JYD SoC 子系统 | `student_top` 接入 ARES Core，存储/外设桥、IROM/BRAM 模型及 2 个 SoC TB 已通过 | 真实 FE、物理板级 `top`、完整取指存储连接、板级复位/CDC/约束验证 |
+| Vivado 工程/IP | 真实器件 `xc7k325tffg900-2`、Vivado 2025.2、原工程非源码/IP 设置；生成器 **7/7**；IP 生成与 SoC OOC 综合已执行 | `board` manifest 未提供；未跑完整 ARES 布局布线；**MC4 未达成** |
+| 前端 | `rtl/frontend/` 已有实现；后端/SoC 使用批准的 FE 契约 | 当前 FE 仍有 `rready`、单条 BPU 训练等旧接口，SPEC-C1/C2/C4/C5/I1 与 D 类问题未关闭 |
+| miniTensor / RT-Thread | `miniTensor/` RTL、测试、工具、模型输入、驱动/BSP 补丁已导入整理；独立回归 **9/9 PASS** | 不是 ARES CPU RTL 联调；RT-Thread Nano 3.1.5 工程已导入；ARES BSP/启动、真实 FPGA DMA/共享内存仍待适配验证 |
+| 仓库/提交 | 本次实现与整理已拆成 **16 个本地提交**（`05ceb33`…`1d62c0c`）；旧根目录 NPC 与临时 Mundus DUT 已退役，生成物忽略 | stash `27597f9` 中的 FPGA/RTL/脚本内容已保留，无需整体恢复；旧板级/UART/COE 工具只作为待审查移植参考 |
+
+**现在可执行**：Core/SoC 功能回归、工程/IP 生成和 `soc`/`core` OOC 综合诊断。
+**完整板级 baseline 的解锁顺序**：真实 FE 契约迁移与取指连接 → 物理 `top`（PLL/复位/UART/外部接口处理）→ 版本化 manifest/XDC/CDC 核对 → `board` 综合、布局、布线与 §8.4 签核。
+OOC 关键路径分析可以先做；板级签核需要 C5 与 SoC 板级接入的必要交付物，不能用空 FE 输入或旧 Core 替代。
+
+```bash
+make lint-all lint-backend lint-lsu lint-soc
+make unit unit-lsu unit-soc
+make tb-ares-pkg tb-fe-stub tb-mem-model isa
+make test-vivado
+make -C miniTensor regress
+# 选择一个尚不存在的输出目录；250 是约束目标，不是达到的频率。
+make vivado-synth FPGA_CPU_MHZ=250 FPGA_OUT=build/vivado/baseline-synth
+```
+
+上述通过数是此前实际执行的记录；本次计划更新不重跑功能或 Vivado 门禁。
+生成报告/快照不跟踪进 Git，当前工作树未保留 `build/vivado/soc-synth-final/reports/`；
+后续测试需从指定提交新建工程，保存输入哈希、配置、设置和报告，不把旧记录当作当前分支的重新签核。
+
+---
+
 ## 0. 术语、命名与模块 ID 约定
 
 | 前缀 | 范围 | 目录 |
@@ -39,12 +74,12 @@
 | `L` | LSU / Memory 子系统 | `rtl/memory/` |
 | `S` | SoC 集成、总线、外设、TB | `rtl/top/`, `rtl/soc/`, `sim/rtl/` |
 | `V` | 验证基础设施（TB / 断言 / 脚本） | `rtl/*/test/`, `sim/`, `tests/` |
-| `VX` | miniTensor（外部交付，集成方） | `rtl/top/mini_tensor_top.sv` 等，见 miniTensor.md §3 |
+| `VX` | miniTensor 本体与 CPU/SoC 集成 | 当前本体位于 `miniTensor/rtl/`，验证位于 `miniTensor/tb/`；系统集成另见 §9.7 |
 
 命名约定（不改变任何规范语义，仅为工程一致性）：
-- 时钟 `clk`、同步高有效复位 `rst`（单时钟域，v1 不引入 CDC，见 SPEC-M8）；
+- core 保持 `clk`、同步高有效 `rst`；JYD SoC 已引入 CPU/50MHz 外设两域及 XPM CDC，板级时钟/复位与 CDC 签核仍受 SPEC-M8 约束，见 §9.6；
 - 规范中的 `*_valid / *_ready` 信号沿用原文命名，**不得重命名**（契约 §2–§4、`fu_req_t`/`fu_completion_t` 等跨模块类型保持一致）；
-- 跨模块类型集中在**唯一共享包**中（SPEC-I3：`npc_pkg` = `fe_pkg` = 未来 `ares_pkg`，命名待定）。
+- core 跨子系统类型已在 `ares_pkg` 冻结（C0）；`lsu_pkg` 只承载 LSU 内部 helper。FE 旧 `fe_pkg` 仍需按契约对齐，不能把两套条目直接连线。
 - CIQ slot 用 4-bit `tag_t`；FE 侧 IQ 条目用 `iq_entry_t`；FU 请求/完成用 `fu_req_t`/`fu_completion_t`。
 
 ---
@@ -64,17 +99,23 @@
 | `README.md`, `sim/README.md` | — | 仿真流程、DPI-C 面、**事实上的内存映射** | 集成/TB 依据 |
 | `tests/abstract-machine/.../ares/*` | — | BSP 使用的 CSR、MMIO、EBREAK 约定 | 软件可见契约证据 |
 
-### 1.2 现有资产清单（截至本计划编写时）
+### 1.2 现有资产清单（更新至 2026-10-14）
 
-**RTL（仅前端，16 个文件）**：`frontend.sv`、`fe_pkg.sv`、`iq.sv`、`ftq.sv`、`ifu/ifu.sv`、`ifu/icache.sv`、`bpu/bpu.sv`、`bpu/gen_pc.sv`、`bpu/direction/{bimodal,gshare,tournament,loop_predictor}.sv`、`bpu/target/{ubtb,ras}.sv`、`interface/axi_if.sv`、`test/tb_frontend.sv`。
+| 资产 | 当前交付物 | 验证/边界 |
+|---|---|---|
+| Core 共享类型/配置 | `rtl/common/ares_pkg.sv`、`lsu_pkg.sv`；`configs/` 与 Kconfig 工具 | 默认 MUL_LATENCY=3、LINE_BYTES=32；core 契约布局冻结 |
+| Backend | `rtl/backend/` 与 4 个单元/集成 TB | C1 功能门禁通过；Vivado ANSI 包引用、操作数锁存器和 Dispatch 断言问题已修正 |
+| LSU / Memory | `rtl/memory/` 的 AGU/LQ/SQ/DCache/MSHR/WB/MMIO/Line Adapter 与 11 个 TB | M2a+M2b 已落地；JYD uncached 分类为默认关闭的已授权 profile |
+| Core / 仿真 | `rtl/top/ares_core_top.sv`、`sim/rtl/tb_ares_core.sv`、FE 桩、128-bit memory/MMIO 模型与 DPI harness | 默认构建本地 ARES；旧 `tb_mundus_npc`/生成 Chisel RTL/配置/脚本已删除；ISA 36/36 |
+| JYD SoC | `rtl/top/student_top.sv`、`rtl/soc/jyd/`、2 个 SoC TB | 接入实际 ARES Core；FE 契约和 miniTensor 控制接缝外露；不是完整物理板级 top |
+| Frontend | `rtl/frontend/` 的 BPU/FTQ/IFU/ICache/IQ/AXI 包装与旧 TB | 已有源码；尚未完成批准契约迁移和有判别力的真实 FE 联调 |
+| miniTensor | `miniTensor/rtl/`、`tb/`、`integration/`、模型输入及文档 | 独立回归 9/9；驱动/补丁保留；RT-Thread 源码已导入 `rtthread-nano/`，ARES 适配待完成；无真实 ARES XIF/DMA 系统闭环 |
+| FPGA 工程 | `fpga/vivado/` 与 `scripts/vivado/` | 原工程设置/约束快照 + 新 IP 配方；生成器 7/7；真实 FPGA SoC OOC 综合已执行，完整 route 未执行 |
 
-**不存在的 RTL**：整个 Backend、整个 LSU/Memory、SoC top、共享包、AXI/Fabric/Timer、miniTensor 本体（miniTensor.md §3 列出的 `rtl/top`、`rtl/memory`、`rtl/vector`… 在本仓库中均不存在）。
+cpu-tests 与 AbstractMachine 运行时保留在 `tests/`，当前回归共 **36 项（原 35 项 + dummy）**。
+完整取指桥/物理 `top`/board manifest、通用 Fabric 多主机仲裁、`mtime/mtimecmp` Timer、板级复位控制和真实 FPGA miniTensor DMA 仍未完成。
 
-**仿真环境**：`sim/` Verilator 流程当前 DUT 是 npc/Mundus Chisel RTL，TB 为 `sim/rtl/tb_mundus_npc.sv`，DPI-C 面为 `irom_read / perip_read / perip_write / init_reg / retire_event_enqueue / ebreak / interrupt_redirect / get_npc_pc*`（`sim/csrc/*.cpp`，按 `sim/README.md` 约定保持不改）。
-**测试**：`tests/cpu-tests`（35 个 ISA 用例）与 AbstractMachine 子集（`riscv32-ares`，含 `cte.c`/`trap.S`/`trm.c`/`ioe.c`）。
-**约束/PPA**：仓库内**没有** Vivado 工程、XDC、器件型号（SPEC-M10）。
-
-**现有 FE RTL 的独立审计结论**：共 21 项发现，其中 **13 项是现有 RTL 的具体缺陷/漂移**（SPEC-D1–D13，见 §7.6），**2 项阻塞联调**：D1（IQ 近满时含 JAL 的局部修正块可能整块丢失，架构性数据丢失）、D2（IQ 仍以 `rready` 限定消费，与契约「`iq_accept_count` 是唯一消费依据」冲突）；另有 D3（冻结的 1 prediction/cycle 吞吐未达）、D5（无 epoch/旧响应隔离）、D11（Predecode 对条件分支猜方向）等。修复必须在真实前端联调（C4）前完成。
+**现有 FE RTL 的独立审计结论**：共 21 项发现，其中 **13 项是现有 RTL 的具体缺陷/漂移**（SPEC-D1–D13，见 §7.6），**2 项阻塞联调**：D1（IQ 近满时含 JAL 的局部修正块可能整块丢失，架构性数据丢失）、D2（IQ 仍以 `rready` 限定消费，与契约「`iq_accept_count` 是唯一消费依据」冲突）；另有 D3（冻结的 1 prediction/cycle 吞吐未达）、D5（无 epoch/旧响应隔离）、D11（Predecode 对条件分支猜方向）等。修复必须在真实前端联调（C5）前完成；该联调又是当前完整板级 C4 baseline 的必要前置。
 
 **当前 RTL 与契约的关键差距**（详见 SPEC-C1/C2/C4/C5）：
 - 现有 FE 顶层仍是旧接口：`iq_rready + iq_raccept_cnt`、单条 `bpu_update_en/update_meta_t`、无 `backend_redirect_kind`；
@@ -86,8 +127,8 @@
 
 1. 后端与访存规范已达到「可开工」粒度：接口、状态机、同周期优先级、断言建议基本完整。
 2. 前端 RTL 存在，但需要一次契约升级（SPEC-C1/C2/C4/C5）才能与后端联调；该升级属于 Frontend 协作者职责（方案见 `docs/fe_contract_migration.md`）。**它不阻塞 Backend/Memory 的实现与验证**：用契约合规的 FE 桩即可独立完成 core 的 ISA 回归（`docs/core_verification_flow.md`）。
-3. 规范空白分两类：**阻塞 core 的**只有少数 core 侧待决项（SPEC-A1/M17、A4、A3、A12、M15/M16、A7/A8/A9）；**阻塞 SoC/加速器集成的**有 SoC 地址映射与总线/仲裁（SPEC-M7/SPEC-I2/M13/M20/M21）、CPU↔miniTensor CV-X-IF 主机侧契约（SPEC-M6）、复位/时钟架构（SPEC-M8）——这些属 P3 延后项，不影响 core 主线。
-4. 验证基础设施尚不存在，但已有明确且低成本的方案（FE 桩 + 现有 DPI 内存 + 自检 cpu-tests，`docs/core_verification_flow.md`），必须与 RTL 同步建设（§8、§9 C0–C3）。PPA 签核环境（器件/XDC）仍缺失，属 P1 门禁。
+3. 原阻塞 core 开工的 SPEC-A1/M17、A4、A3、A12、M15/M16、A7/A8/A9 已在 C0 形成裁决。SoC 地址/总线/仲裁、取指连接（SPEC-M7/I2/M13/M20/M21）、CPU↔miniTensor 主机侧契约（SPEC-M6）及板级复位/时钟（SPEC-M8）仍需分范围关闭；JYD 局部例外已获授权，不代表通用问题全部关闭，也不重开已完成的 core 功能门禁。
+4. FE 桩/Core/LSU/SoC/miniTensor 独立验证基础设施已落地并实际执行；保持已有功能门禁。器件、工程设置、XDC 快照和 IP 配方已提供；SPEC-M10 的剩余门禁是完整板级接入、有效约束/CDC 与 post-route 时序签核。
 
 ---
 
@@ -189,12 +230,20 @@
 | RESET_MTVEC | 必须由顶层定义（契约 §1） | 契约 §1 | **[?] SPEC-M8** |
 | 目标器件 / 时钟约束 | `xc7k325tffg900-2`；复用 JYD2025 `digital_twin.xpr` 综合/布线配置；CPU 时钟严格 >200 MHz | AGENTS.md、用户确认（2026-10-14），见 §9.6 | **SPEC-M10 部分解除**：生成器与 SoC OOC 综合已验证，板级接入/时序签核待完成 |
 
+上表保留的是 Core 仿真/BSP 的事实映射和通用规范问题，不是当前 JYD 板级映射。
+JYD `student_top` 已按用户授权使用 `0x8020_xxxx` MMIO 和 uncached 别名，通用 Core
+默认 `0xA000_xxxx` 不变；完整 profile 见 `docs/jyd_soc_integration.md`。
+当前 FPGA 的 DRAM 实际为 **256KiB**：扩展译码窗口 `0x8040_0000–0x83FF_FFFF`
+仍映射低 18 地址位，不提供仿真中的 12MiB 物理存储。软件不得把缓存脏数据与别名/DMA
+混用；完整模型/RTOS 容量和外存方案需要 C6 单独确认。
+
 ---
 
 ## 3. RTL 模块清单（Module Inventory）
 
 > 列「状态」含义：**保留** = 现有 RTL 基本可复用；**改造** = 现有 RTL 需按契约修改；**新增** = 需要新写；**缺失** = 规范要求但当前无实现路径。
 > 「规范出处」为权威章节；未标注 FREE 的接口/行为不得自行发明。
+> Backend/Memory 清单中的规格和原始建议文件名保留；当前完成状态以本节标题及 §9 为准，不能把原「新增」开发动作当作尚无实现。
 
 ### 3.1 Frontend（`rtl/frontend/`）
 
@@ -213,7 +262,7 @@
 | F11 | `interface/axi_if.sv` | ICache AXI4-Lite master | frontend-integration §2 | 保留（SoC 侧接入方式待定 SPEC-I2） |
 | F12 | `test/tb_frontend.sv` | 前端自检 TB | frontend-integration §6 | **改造**（补契约断言） |
 
-### 3.2 Backend（`rtl/backend/`，全部新增）
+### 3.2 Backend（`rtl/backend/`，C1 功能已落地）
 
 | ID | 文件（建议） | 职责（简） | 规范出处 |
 |---|---|---|---|
@@ -240,7 +289,7 @@
 | B21 | `be_redirect.sv` | 统一 Redirect 仲裁与 FE 事件输出（Reset > ECALL > MRET > BRU > IRQ） | backend.md §17.3、契约 §3 |
 | B22 | `be_flush.sv` | kill mask 生成、CIQ 指针/occupancy 恢复、checkpoint 恢复、FU kill 广播 | backend.md §15.1/§15.4/§15.5 |
 
-### 3.3 LSU / Memory（`rtl/memory/`，全部新增）
+### 3.3 LSU / Memory（`rtl/memory/`，M2a+M2b 功能已落地）
 
 | ID | 文件（建议） | 职责（简） | 规范出处 |
 |---|---|---|---|
@@ -257,19 +306,19 @@
 | L11 | `mmio_bridge.sv` | 单 outstanding 设备请求/完成、Write Ack 语义、设备顺序 | memory.md §3.1 |
 | L12 | `lsu_completion.sv` | Fast Path 直通 + 2-entry Completion FIFO 仲裁 | memory.md §7 |
 
-### 3.4 SoC / 集成（`rtl/top/`, `rtl/soc/`，全部新增）
+### 3.4 SoC / 集成（`rtl/top/`, `rtl/soc/`，部分落地）
 
 | ID | 文件（建议） | 职责（简） | 规范出处 | 状态 |
 |---|---|---|---|---|
-| S01 | `ares_core_top.sv` | 单 hart：Frontend + Backend + LSU + 共享包连接 | README、backend.md §2 | **新增** |
-| S02 | `ares_soc_top.sv` | core + I/D 通道 + Fabric + Timer + 地址译码 + 中断 | README | **新增 SPEC-M7** |
+| S01 | `ares_core_top.sv` | 单 hart：Backend + LSU；FE 契约端口外露，由 TB/未来真实 FE 驱动 | README、backend.md §2 | **已实现 C3**（JYD profile 参数已接入） |
+| S02 | `ares_soc_top.sv`（原建议名） | core + I/D 通道 + Fabric + Timer + 地址译码 + 中断 | README | **部分落地**：JYD `student_top` 子系统已实现；通用/物理 SoC top 和真实 FE 仍待补（SPEC-M7/M8） |
 | S03 | `soc_pkg.sv` | 地址映射、cacheable/MMIO 窗口、器件基址、`RESET_PC/RESET_MTVEC` | memory.md §3.1、sim/README | **新增（需冻结 SPEC-M7/M8）** |
-| S04 | `soc_addr_decode.sv` | 地址译码 → 内存/MMIO/Fabric 路由 | memory.md §3.1/§6.7 | **新增** |
-| S05 | `soc_fabric.sv` | 共享 WQ(4) + 单 outstanding Read owner + hazard/ordering + CPU/DMA 公平仲裁 | memory.md §6.7 | **新增**（文档指定「推荐 SoC 集成方式」） |
-| S06 | `soc_timer.sv` | `mtime/mtimecmp` 64-bit、`timer_irq` 电平 | memory.md §3.1、backend.md §16.1 | **新增 SPEC-M12** |
+| S04 | `soc_addr_decode.sv`（原建议名） | 地址译码 → 内存/MMIO/Fabric 路由 | memory.md §3.1/§6.7 | **JYD 部分已实现**于 `perip_bridge` + LSU profile；通用映射仍待冻结 |
+| S05 | `soc_fabric.sv`（原建议名） | 共享 WQ(4) + 单 outstanding Read owner + hazard/ordering + CPU/DMA 公平仲裁 | memory.md §6.7 | **部分落地**：`ares_jyd_bus_bridge` 实现 CPU 单主机队列/顺序；通用 CPU/DMA 公平仲裁仍待定义实现 |
+| S06 | `soc_timer.sv`（原建议名） | `mtime/mtimecmp` 64-bit、`timer_irq` 电平 | memory.md §3.1、backend.md §16.1 | **正式 Timer 未完成**：已有 JYD `counter.sv` 毫秒脉冲 IRQ，不满足本行契约（SPEC-M12） |
 | S07 | `soc_axil_bridge.sv` | ICache AXI4-Lite → 存储/Fabric 通道 | frontend-integration §2 | **新增 SPEC-I2** |
-| S08 | `sim/rtl/tb_ares.sv` + DPI shim | ARES TB：时钟/复位、总线从端、DPI-C 复用现有 `sim/csrc` | sim/README | **新增（V 类）** |
-| S09 | —— | miniTensor 本体 + CV-X-IF 主机侧适配 | miniTensor.md §3/§4 | **缺失 SPEC-M6** |
+| S08 | `tb_ares_core.sv` + `rtl/soc/jyd/test/` | Core/SoC 子系统 TB，时钟/复位、总线模型、DPI harness | sim/README | **已部分实现**：FE 桩 Core 与 JYD 子系统已验证；真实 FE 全系统 TB 待接入 |
+| S09 | `miniTensor/rtl/` + 后续 CPU/SoC 适配 | miniTensor 本体 + CV-X-IF 主机侧适配 | miniTensor.md §3/§4 | **本体已导入**；实际 ARES 主机侧/XIF/DMA 集成仍受 SPEC-M6 等门禁约束 |
 
 ### 3.5 验证基础设施
 
@@ -288,9 +337,9 @@
 | 项目 | 规范要求 | 现状 | 关联 SPEC |
 |---|---|---|---|
 | mBTB / TAGE / SC | frontend.md §3.2 的 F2/F3 预测器 | RTL 无，`frontend-integration` 称「Composer 简化版」 | SPEC-M1 |
-| SoC Fabric / 仲裁 / 内存控制器 | memory.md §6.7 | 无文档、无 RTL | SPEC-M7 |
+| SoC Fabric / 仲裁 / 内存控制器 | memory.md §6.7 | JYD 单 CPU 存储/外设桥已落地；通用多主机 Fabric 未完成 | SPEC-M7/M13/M20/M21 |
 | CPU↔miniTensor XIF 主机侧 | miniTensor.md §4.1 | 后端规范完全未提 | SPEC-M6 |
-| 复位控制器 / 时钟架构 | 契约 §1、memory.md §6.7 | 无 | SPEC-M8 |
+| 复位控制器 / 时钟架构 | 契约 §1、memory.md §6.7 | PLL 配方、双域接缝和 CDC helper 已有；物理顶层与复位/CDC 签核待补 | SPEC-M8 |
 | Timer（mtime/mtimecmp）与 MTIP 同步 | memory.md §3.1 | 无 | SPEC-M12 |
 
 ---
@@ -301,15 +350,15 @@
 
 | 优先级 | 范围 | 说明 |
 |---|---|---|
-| **P0-A（主线，立即开工）** | `ares_pkg`(core) + B01–B22（Backend） | 控制/存储/执行单元与 CSR/Trap 全部在主线 |
-| **P0-B（主线，与 P0-A 并行开工）** | L01–L12（LSU / Memory） | 与 Backend 只在 §5.10 接口处耦合，已冻结，互不阻塞 |
+| **P0-A（主线，功能已落地）** | `ares_pkg`(core) + B01–B22（Backend） | 控制/存储/执行单元与 CSR/Trap 全部在主线 |
+| **P0-B（主线，M2a+M2b 已落地）** | L01–L12（LSU / Memory） | 与 Backend 只在 §5.10 接口处耦合，已冻结，互不阻塞 |
 | **P0-V（验证，与实现并行）** | `fe_stub.sv` + `tb_backend` + `tb_lsu` + `tb_ares_core` + 总线/MMIO 适配 + ISA 回归 | 使 **ISA 正确性不依赖前端**（详见 `docs/core_verification_flow.md`） |
-| **P1（次优先）** | PPA：综合/实现/时序优化 | 依赖 SPEC-M10（器件/XDC/工程）到位 |
-| **P2（并行，他人主责）** | 前端迁移 F01–F12 + SPEC-D1–D13 | **不在 core 关键路径上**；只影响「真实前端对接」一步 |
-| **P3（延后）** | SoC 集成（S01–S08）、miniTensor（VX/S09） | 见 §9.7 解锁条件 |
+| **P1（当前主线）** | PPA：OOC 分析/优化 + 板级 baseline 准备 | 工程/IP/OOC 已执行；route 需真实 FE、物理 top、manifest/约束/CDC 交付 |
+| **P2（并行，FE 维护者主责）** | 前端迁移 F01–F12 + SPEC-D1–D13 | 不影响已完成的 C0–C3/当前 OOC；解锁真实 FE 联调与完整板级 baseline |
+| **P3（部分提前执行）** | SoC 板级完善、miniTensor/RT-Thread 系统集成 | JYD SoC 源码已迁，miniTensor 已导入；剩余系统解锁条件见 §9.7 |
 
 > **结论**：Backend 与 Memory 是 P0 且**互不阻塞**；前端、SoC、加速器均不是 core 的前置条件。
-> 前端迁移只在「用真实 `frontend.sv` 替换 `fe_stub`」时成为门禁（§9.6），不影响 C0–C3 的任何出口。
+> C0–C3 功能验证已完成；前端迁移不影响其出口或 OOC 综合，但当前完整板级 C4 需要真实 FE 和物理 top 接入（§9.6）。
 
 ### 4.1 依赖图
 
@@ -338,9 +387,9 @@ flowchart TD
       TBB["tb_backend 理想 LSU 桩"]
       TBL["tb_lsu 后端桩 + 内存镜像"]
       TBC["tb_ares_core + 总线/MMIO 适配"]
-      ISAREG["ISA 回归 35 用例 自检"]
+      ISAREG["ISA 回归 36 项 自检"]
     end
-    subgraph LATER["P2/P3 延后（不阻塞 core）"]
+    subgraph LATER["后续集成与 PPA（不阻塞 C0–C3）"]
       FEMIG["前端迁移 + SPEC-D1..D13"]
       SOCTOP["S01-S08 SoC 集成"]
       VX["S09/VX miniTensor"]
@@ -363,8 +412,10 @@ flowchart TD
     P0B --> TBL
     STUB --> TBC; TBB --> TBC; TBL --> TBC
     TBC --> ISAREG
-    ISAREG --> PPA
+    ISAREG -->|已解锁 OOC 诊断| PPA
     FEMIG -.->|替换 fe_stub| TBC
+    FEMIG -->|板级 route 前置| SOCTOP
+    SOCTOP -->|物理 top + 约束 + CDC| PPA
     ISAREG --> SOCTOP --> VX
 ```
 
@@ -376,10 +427,10 @@ flowchart TD
 | **L1** | **P0-A Backend**（控制 + 执行单元）与 **P0-B LSU**（队列 + Cache + 总线） | **高（两条主线并行）** | 唯一共享物是 `ares_pkg` 与 §5.10 的 LSU 接口 |
 | **L2** | 单元 TB：`tb_backend`（理想 LSU 桩）、`tb_lsu`（后端桩）、`fe_stub` | 高 | 每完成一个模块即接入，不等全做完 |
 | **L3** | Core 集成：`tb_ares_core`（FE 桩 + 真 BE + 真 LSU + DPI 内存） | 中 | **不依赖前端**；直接跑 ISA 回归 |
-| **L4** | ISA 回归（35 用例自检）→ 定向并发/边界 | 串行门禁 | core 功能验收点 |
-| **L5** | PPA（synth→impl→route） | 串行门禁 | 依赖 SPEC-M10 |
-| **P2** | 前端迁移（FE 维护者）+ 替换 `fe_stub` | 独立 | 只影响「真实前端对接」，不影响 L1–L4 |
-| **P3** | SoC 集成、miniTensor | 独立 | 延后项 |
+| **L4** | ISA 回归（36 项自检）→ 定向并发/边界 | 串行门禁 | core 功能验收点 |
+| **L5** | PPA（OOC 诊断→board synth/impl/route） | 串行门禁 | OOC 已执行；完整 board baseline 依赖 C5 必要交付与 SPEC-M10 剩余门禁 |
+| **P2** | 前端迁移（FE 维护者）+ 替换 `fe_stub` | 可并行 | 不影响已完成的 L1–L4；解锁真实前端与 board baseline |
+| **P3** | SoC 完善、miniTensor/RT-Thread | 可并行 | JYD SoC 与加速器源码已部分落地；真实系统闭环仍待完成 |
 
 **关键路径（core）**：
 `ares_pkg →（B09 GPR → B02 Decode → B06 CIQ → B04 Producer Map → B03 Dispatch → B08 Operand → B07 Issue → B17 Completion → B18 Commit → B22 Flush → B21 Redirect）→ tb_backend → tb_ares_core(fe_stub) → ISA 回归 → PPA`；
@@ -1122,6 +1173,9 @@ miniTensor.md §4.1 定义了**加速器侧主要通道**（但仍有字段缺�
 > 「处理建议」列中的方案均为**建议**，需架构作者/协作者批准；本标准不代替架构决策。
 > **对 core 主线的影响（v0.4）**：下列条目中，只有 **core 侧待决项**（A1/M17、A4、A3、A12、M15/M16、A7/A8/A9）会阻塞 C1/C2 开工；FE 相关条目（C1/C2/C4/C5/I1、D1–D13、M1/M18/M23、A15–A17）**只影响 C5「真实前端对接」**；SoC/加速器条目（M6/M7/M8/M12/M13/M19/M20/M21/M22、I2）属 P3 延后项。
 
+> **当前状态（v0.10）**：core 侧裁决已在 C0 关闭，C1–C3 功能已落地；上述 v0.4 分类保留作历史。
+> FE/取指/物理顶层/约束交付现也影响完整板级 C4；JYD profile 的局部实现不自动关闭通用 SoC/多主机/Timer/XIF 待决项，见 §9.6/§9.7。
+
 ### 7.1 矛盾（Contradictions）
 
 | ID | 问题 | 影响模块 | 规范章节 | 严重度 |
@@ -1141,12 +1195,12 @@ miniTensor.md §4.1 定义了**加速器侧主要通道**（但仍有字段缺�
 |---|---|---|---|---|
 | **SPEC-M1** | frontend.md §3.2 规定 F2/F3 精预测器（mBTB 1024、TAGE、SC），现无 RTL 且 frontend-integration 自称「Composer 简化版」；mBTB/TAGE/SC 的表参数（表数、历史长度、替换）未给出。**是"必须实现"还是"第一版可裁剪"需架构裁决** | F06/F02、训练接口 | frontend.md §3.2 vs frontend-integration §5 | **高** |
 | **SPEC-M6** | **CPU↔miniTensor CV-X-IF 主机侧契约完全缺失**（7 项空白见 §5.17）：译码归类、Issue 端口/credit、register 操作数来源、`commit_kill` 生成、result 回 CIQ 方式、DMA 与 MMIO/idle/Fabric owner 关系、软件可见性 | B02/B06/B07/B17/B18/B20、S05、S09、L11 | miniTensor.md §4.1（仅从端）vs backend.md 全文 | **阻塞**（加速器集成） |
-| **SPEC-M7** | **SoC 集成层规范缺失**：无 `ares_soc_top`/`core_top` 端口定义、无正式地址映射、无 Fabric/仲裁/内存控制器模块归属、无「ICache AXI4-Lite 通道」与「128-bit D 通道」的衔接方式（是否同一 Fabric、单 outstanding 如何共享、谁做译码）。现有事实映射仅见于 sim/README 与 BSP 头文件 | S02/S03/S04/S05/S07、L10/L11、V 全部 | memory.md §3.1/§6.7（只给要求，不给 SoC 层） | **阻塞**（集成与 TB） |
-| **SPEC-M8** | **复位/时钟架构缺失**：无复位控制器、无复位域/同步要求、无 `RESET_MTVEC` 取值（契约 §1 要求顶层定义），memory.md §6.7 只规定「协调 Cold Reset」的行为要求 | 所有模块；S01/S02/S03 | 契约 §1、memory.md §6.7 | **高** |
+| **SPEC-M7** | **SoC 集成层规范缺失**：无 `ares_soc_top`/`core_top` 端口定义、无正式地址映射、无 Fabric/仲裁/内存控制器模块归属、无「ICache AXI4-Lite 通道」与「128-bit D 通道」的衔接方式（是否同一 Fabric、单 outstanding 如何共享、谁做译码）。JYD profile 已经用户授权并记录于 `docs/jyd_soc_integration.md`，且 `student_top`/存储外设桥已落地；通用 SoC 与取指/Fabric 衔接仍待完成 | S02/S03/S04/S05/S07、L10/L11、V 全部 | memory.md §3.1/§6.7（只给要求，不给 SoC 层） | **阻塞**（集成与 TB） |
+| **SPEC-M8** | **复位/时钟架构缺失**：无复位控制器、无复位域/同步要求、无 `RESET_MTVEC` 取值（契约 §1 要求顶层定义），memory.md §6.7 只规定「协调 Cold Reset」的行为要求；已有 JYD 双域接缝/XPM CDC/PLL 配方，但板级复位同步、时钟与 CDC 验证未闭环 | 所有模块；S01/S02/S03 | 契约 §1、memory.md §6.7 | **高** |
 | **SPEC-M9** | 仿真观测/退出端口形态未定义：`sim/csrc` 需要 `retire_event_enqueue/ebreak/interrupt_redirect/init_reg/get_npc_pc`，但无规范定义 ARES core 侧端口/时序（backend.md §16.1 只说「TB 在 Commit Head 边界识别 EBREAK，可选仿真 shadow」） | B18/B20、S01/S08 | backend.md §16.1、sim/README | 中 |
 | **SPEC-M10** | **PPA 签核环境部分到位（2026-10-14）**：用户指定 JYD2025 `digital_twin.xpr`、`xc7k325tffg900-2` 与既有综合/布线配置，见 §9.6；ARES SoC OOC 生成/综合已验证；尚需真实 FE/板级接入、CPU >200 MHz 时序与完整约束校验。旧 Core 报告不能作为 ARES 签核证据 | V07、全部时序敏感模块 | AGENTS.md（要求）、用户确认 | **仍阻塞验收**（接入/时钟/约束未闭环） |
-| **SPEC-M12** | Timer 未定义：memory.md §3.1 要求 SoC 提供 64-bit `mtime/mtimecmp` + `timer_irq`，但未给地址/实现归属；现有 BSP 只有 32-bit RTC(`0xA000_0048/4C`) 与 uptime 语义；RT-Thread 需要可编程比较器 | S06、B16、B20、BSP | memory.md §3.1、backend.md §16.1 | **高** |
-| **SPEC-M13** | 下层写可见性点/旧事务隔离的责任方未落实：memory.md §6.7/§10 要求「由实际 SoC Memory Controller **证明或实现**」，当前无该模块、无证明 | S05、L10 | memory.md §6.7/§10 | **高** |
+| **SPEC-M12** | Timer 正式契约未闭环：已迁移 JYD 毫秒计数/脉冲 IRQ，但不等于 `mtime/mtimecmp`；memory.md §3.1 要求 SoC 提供 64-bit `mtime/mtimecmp` + `timer_irq`，但未给地址/实现归属；现有 BSP 只有 32-bit RTC(`0xA000_0048/4C`) 与 uptime 语义；RT-Thread 需要可编程比较器 | S06、B16、B20、BSP | memory.md §3.1、backend.md §16.1 | **高** |
+| **SPEC-M13** | 下层写可见性点/旧事务隔离的责任方未落实：memory.md §6.7/§10 要求「由实际 SoC Memory Controller **证明或实现**」，JYD 单 CPU 桥已实现写队列与 perip_order_idle 排空屏障并通过 TB；实际板级 Cold Reset、旧事务隔离和多主机可见性仍无完整证明 | S05、L10 | memory.md §6.7/§10 | **高** |
 | **SPEC-M14** | 无顶层模块/端口清单文档：README 只有目录说明；`ares_core_top`/`soc_top` 端口需从各规范拼装（本计划 §6.4 给出建议，但需评审冻结） | S01/S02 | README | 中 |
 | **SPEC-M15** | LQ/SQ credit 的口径未精确到「是否含 AGU 在途预留」：memory.md §3 只说「对应队列尚未预留的容量」；`issue_fire` 时原子预留，但 credit 是周期初登记值 | L01/L03/L04、B07 | memory.md §3 | 中 |
 | **SPEC-M16** | `store_commit_ok` 的「必要检查」清单未穷举：memory.md §5.2 仅说「地址/数据与必要检查已完成」 | L04、B18 | memory.md §5.2 | 中 |
@@ -1195,7 +1249,7 @@ miniTensor.md §4.1 定义了**加速器侧主要通道**（但仍有字段缺�
 - **候选方案**：
   (a) **以契约为准升级 FE RTL**（推荐）：`iq.sv` 去掉 `rready` 语义、`fe_pkg` 增字段、`bpu.sv` 改为 2-lane + credit、`frontend.sv` 换端口；同时把 `frontend-integration.md` 标注为历史文档（**由 FE 协作者执行**）。
   (b) 保留 RTL 旧接口，反向修订契约（**不推荐**：契约是 backend.md §18 指定的唯一规范，且后端文档已按契约编写）。
-- **不阻塞**：后端内部模块（B04–B17）可在契约下先行开发；仅真实前端联调（C4）前必须关闭。
+- **不阻塞**：后端内部模块（B04–B17）可在契约下先行开发；仅真实前端联调（C5）前必须关闭；当前 board baseline 也依赖此交付。
 
 #### SPEC-M6（CPU ↔ miniTensor XIF）
 - **证据**：miniTensor.md §4.1 只定义从端行为；backend.md 全文无 custom-0/XIF。
@@ -1221,7 +1275,7 @@ miniTensor.md §4.1 定义了**加速器侧主要通道**（但仍有字段缺�
 ### 7.6 现有前端 RTL 缺陷登记（独立审计发现，SPEC-D*）
 
 > 来源：对 `rtl/frontend/` 现有实现与规范逐条对照的独立审计（21 项，其中的规范类问题已并入本文档 §7.1–§7.4）。
-> 以下 **D 类** 是**现有 RTL 的具体缺陷或漂移**（含文件/行号证据）。它们不影响后端/LSU 开工，但**必须在 FE↔BE 联调（C4）之前修复或文档化**；其中 D1/D2 为阻塞级。
+> 以下 **D 类** 是**现有 RTL 的具体缺陷或漂移**（含文件/行号证据）。它们不影响后端/LSU 开工，但**必须在 FE↔BE 联调（C5）之前修复或文档化**；其中 D1/D2 为阻塞级。
 > 处理原则：D1/D2 属契约与架构可见正确性，需 FE 协作者 + 后端评审；D4–D13 多为 FE 内部修复（在 FREE-04/FREE-07/FREE-11 允许范围内），但 D3/D11/D12 需架构裁决。
 
 | ID | 缺陷（证据） | 影响模块 | 严重度 | 处理 |
@@ -1277,7 +1331,7 @@ miniTensor.md §4.1 定义了**加速器侧主要通道**（但仍有字段缺�
 | **L0 单元** | 每个 B/F/L 模块 | 自检 TB（Verilator）+ SVA + 定向激励 + 随机 | 本模块 §6「完成判据」全部满足；断言 0 误报；负向用例能触发断言 |
 | **L1 子系统** | `tb_backend`（FE/LSU 桩）、`tb_lsu`（后端桩）、`tb_frontend`（升级） | 参考模型比对（依赖/指针/队列/退休序） | §5 各契约断言全绿；随机 10k+ 周期无协议错误 |
 | **L2 集成** | `ares_core_top`（**FE 桩** + BE + LSU） | 契约定向用例（§8.3）+ 波形检查 | 契约 §6 全部断言 + backend.md §17.3 最低集 + memory.md §6.8 建议断言 |
-| **L3 ISA** | `ares_core_top` + `tb_ares_core`（**FE 桩，不需要前端/SoC**） | `make -C tests/cpu-tests ARCH=riscv32-ares run`（35 用例，自检） | 全部 `HIT GOOD TRAP` |
+| **L3 ISA** | `ares_core_top` + `tb_ares_core`（**FE 桩，不需要前端/SoC**） | `make -C tests/cpu-tests ARCH=riscv32-ares run`（36 项，自检） | 全部 `HIT GOOD TRAP` |
 | **L4 系统** | AM/RT-Thread 级 | ECALL→mtvec→MRET、MTIP 中断、RTC/console MMIO、后续 RT-Thread 启动 | 系统用例通过；无死锁/超时 |
 | **L5 PPA** | 综合/实现 | Vivado synth → opt → place → `route_design` | §8.4 的时序/资源门禁 |
 
@@ -1306,7 +1360,7 @@ miniTensor.md §4.1 定义了**加速器侧主要通道**（但仍有字段缺�
 
 ### 8.4 PPA 签核流程（AGENTS.md 硬性要求）
 
-1. 目标：**严格高于 200 MHz** 无违例（示例 4.8 ns ≈ 208.3 MHz；以项目真实时钟定义为准，SPEC-M10 需先提供器件/工程/XDC）。
+1. 目标：**严格高于 200 MHz** 无违例（示例 4.8 ns ≈ 208.3 MHz；以项目真实时钟定义为准，SPEC-M10 的器件/工程/XDC 快照已到位，实际板级接入和约束需先闭环）。
 2. 必须跑到 `route_design` 后看 `report_timing_summary`：setup WNS >= 0 且 TNS = 0；hold WHS >= 0 且 THS = 0；`check_timing` 无未约束路径/约束问题。
 3. 记录：最差路径、时钟周期/频率、工具版本与设置、LUT/FF/BRAM/URAM/DSP 利用率（`report_utilization`）。
 4. **不得**用综合估算、假路径、无依据 multicycle 或放宽约束宣称达标；未跑则明确写「PPA 未验证」并给出可复现步骤。
@@ -1319,7 +1373,7 @@ miniTensor.md §4.1 定义了**加速器侧主要通道**（但仍有字段缺�
 | 模块 | 代码符合 §6 规格；lint 0 warning（或全部豁免有理由）；单元 TB 自检通过；断言 0 误报；负向用例可触发断言；文件头注明自由选择项（FREE-xx）与规范出处 |
 | 子系统 | §5 契约断言全绿；随机测试 10k+ 周期无协议错误；覆盖率（状态/转移/分支）达 100%（CIQ/LSU 状态机） |
 | 集成 | 契约 §6 + backend.md §17.3 + memory.md §6.8 定向集全过；无 stale Completion/旧响应污染（core 阶段用 FE 桩） |
-| ISA | 35 个 cpu-tests 全部 HIT GOOD TRAP；无超时（**FE 桩下即可达成，不等前端**） |
+| ISA | 36 项 cpu-tests 全部 HIT GOOD TRAP（含 dummy）；无超时（**FE 桩下即可达成，不等前端**） |
 | 系统 | ECALL/MRET/MTIP/MMIO 用例通过；RT-Thread 可启动（若纳入本版验收） |
 | PPA | §8.4 全部门禁通过，且时钟严格 > 200 MHz |
 
@@ -1328,20 +1382,22 @@ miniTensor.md §4.1 定义了**加速器侧主要通道**（但仍有字段缺�
 ## 9. 分阶段开发计划（Backend + Memory 优先）
 
 > **v0.4 修订**：按讨论结论，**Backend（P0-A）与 Memory/LSU（P0-B）为最高优先级并同时开工**；验证用「SV 行为级 FE 桩 + 现有 C++ DPI 内存模型」与前端**解耦**（方案见 `docs/core_verification_flow.md`）。
-> 前端迁移（P2）与 SoC/miniTensor（P3）**不构成 core 的任何前置条件**；前端迁移只在 C5「替换 `fe_stub`」时成为门禁。
+> C0–C3 功能验证不以前端/完整 SoC 为前置条件；其门禁已经达成。当前 OOC 分析可独立推进，完整板级 C4 的 baseline 则需要 C5 必要交付与物理 SoC 接入。
 > 依赖与优先级分层见 §4.0–§4.3。
 
 ### 9.1 阶段总览
 
-| 阶段 | 优先级 | 目标 | 出口条件（门禁） | 估时 | 阻塞项 |
-|---|---|---|---|---|---|
-| **C0** | P0 | core 契约/包 + 验证骨架 + `fe_stub` 骨架 | `ares_pkg` 冻结；`make lint` 通过；`fe_stub` 可编译 | 4–6 | core 侧 SPEC 裁决 |
-| **C1** | **P0-A** | Backend 全部单元（2 轨并行） | 每模块达 §8.5 模块级 DoD；`tb_backend` 契约 §5.5–§5.9 断言绿 | 30–45 | C0 |
-| **C2** | **P0-B** | LSU / Memory 全部单元（与 C1 并行） | 每模块 DoD；`tb_lsu` 下每 operation 恰好一次 Completion；§5.11–§5.14 断言绿 | 25–35 | C0 |
-| **C3** | **P0-V** | Core 集成（FE 桩 + 真 BE + 真 LSU）+ ISA 回归 | **35 个 cpu-tests 全部 HIT GOOD TRAP**；契约 §6/backend §17.3/memory §6.8 定向集全绿 | 8–12 | C1、C2 |
-| **C4** | P1 | PPA（core 级） | `route_design` 后 WNS/TNS/WHS/THS 全绿且时钟 **> 200 MHz** | 8–15 | SPEC-M10（器件/XDC） |
-| **C5** | P2 | 真实前端对接（替换 `fe_stub`） | 契约 §6 联调断言 + ISA 回归在真实 FE 上通过 | 3–5（后端侧）+ FE 侧 10–16 | FE 迁移完成 |
-| **C6** | P3 | SoC 集成、miniTensor | 见 §9.7 | — | SPEC-M6/M7/M8/M12/M13/M20/M21 |
+| 阶段 | 优先级 | 当前状态 | 出口条件 / 剩余工作 | 依赖 |
+|---|---|---|---|---|
+| **C0 / MC0** | P0 | 已达成 | core 裁决、包和验证骨架已冻结；FE/SoC 待决项仍单独登记 | 无当前开工阻塞 |
+| **C1 / MC1** | P0-A | Backend 功能已达成 | 4 个 TB 与 lint 已通过；保留直接中断 PC 观测/覆盖率和评审遗留 | C0 已完成 |
+| **C2 / MC2** | P0-B | M2a+M2b 功能已达成 | 11 个 TB 与 lint；独立 DCache TB、性能/面积比较待补 | C0 已完成 |
+| **C3 / MC3** | P0-V | FE 桩 Core 回归已达成 | **36/36 PASS**；不等于真实 FE/SoC/RTOS 验收 | C1/C2 功能已完成 |
+| **C4 / MC4** | P1 | 工程/IP 和 SoC OOC 已执行；未签核 | 综合 WNS=-9.888ns（250MHz 约束）；完整 route 与所有时钟/路径 >200MHz 无违例待完成 | 真实 FE/物理 top/manifest/有效约束/CDC；SPEC-M10 未关闭 |
+| **C5 / MC5** | P2，协同 C4 | 未完成 | FE 契约迁移、取指连接、定向联调与真实 FE ISA 回归 | FE 待决项/缺陷关闭及维护者交付 |
+| **C6 / MC6** | P3，部分提前执行 | JYD SoC 和 miniTensor 本体资料已落地；系统未闭环 | 板级 SoC、正式 Timer、多主机/DMA、RT-Thread 与加速器系统验收 | §9.7 / SPEC-M6/M7/M8/M12/M13/M19/M20/M21/M22 |
+
+原始人日估算仅用于历史排期；后续应根据板级/FE 交付和时序分析结果重新估算，不重复启动已完成的 C0–C3。
 
 ### 9.2 C0 — core 契约冻结与验证骨架（4–6 人日，P0）
 
@@ -1351,13 +1407,13 @@ miniTensor.md §4.1 定义了**加速器侧主要通道**（但仍有字段缺�
 4. **写 `fe_stub.sv` 骨架**（`rtl/backend/test/`，仿真专用）：按契约 §2–§4 产出 `iq_valid/iq_inst`，always-not-taken，`bpu_update_credit=2'd2`，Redirect 当拍清队首；这是让 C1/C2 提早闭环的关键件。
 5. **定义 TB 内存模型契约**：`tb_mem_beat_if`/`tb_mmio_if` 实现 memory.md §6.7 的写接受/可见性/同周期 Write 先于 Read 语义（core 阶段以 TB 行为模型充当 Fabric + MC；SoC 阶段替换 → 记为 SPEC-M13/M20/M21 的临时假设）。
 
-**C0 执行状态（v0.5：实现已完成，待 core 范围评审确认裁决项）**
+**C0 执行状态（实现与 core 裁决评审已完成，MC0 达成）**
 
 | C0 任务 | 状态 | 交付物 / 证据 |
 |---|---|---|
 | 1. 冻结 `ares_pkg`（core 部分） | ✅ | `rtl/common/ares_pkg.sv`：§5.19 全部跨边界类型 + core 参数（B01+F01 合并，SPEC-I3）；布局回归护栏 `rtl/common/test/tb_ares_pkg.sv`（位宽/编码/往返，`HIT GOOD TRAP`） |
 | 2. 关闭 core 侧 SPEC | ✅ 书面结论（评审通过） | `docs/c0_decisions.md` D-C0-01…D-C0-09（A1/M17、A4、A3、A12、M15/M16、A7/A8/A9）+ **D-C0-13（A13）**；已确认：不实现 illegal Trap、`MUL_LATENCY` 默认 3、可选 CSR 默认全关 |
-| 3. 建骨架与流程 | ✅ | `rtl/common`、`rtl/backend/test`、`rtl/memory/test`；`sim/Makefile` `ARES_RTL=1` 分支 + `lint`/`lint-all`；根 `Makefile` |
+| 3. 建骨架与流程 | ✅ | `rtl/common`、`rtl/backend/test`、`rtl/memory/test`；`sim/Makefile` 的 `lint`/`lint-all`；现默认且仅构建 ARES，旧命令中的 `ARES_RTL=1` 可保留；根 `Makefile` |
 | 4. `fe_stub.sv` 骨架 | ✅（并已自检） | `rtl/backend/test/fe_stub.sv` + `tb_fe_stub.sv`：`ALL TESTS PASSED … 393 instructions, 53 redirects` → `HIT GOOD TRAP` |
 | 5. TB 内存模型契约 | ✅（并已自检） | `sim/rtl/tb_mem_beat_if.sv`、`sim/rtl/tb_mmio_if.sv` + `rtl/memory/test/tb_mem_model.sv` → `HIT GOOD TRAP` |
 | 6. 可配置参数机制（v0.6） | ✅（并已自检） | `configs/Kconfig` + `scripts/kconfig/ares_kconfig.py`；`make menuconfig`；`MUL_LATENCY`/`LINE_BYTES` 进入 `ares_pkg.sv`；`make test-config` 全绿 |
@@ -1400,7 +1456,7 @@ make all           # 以上四项（C0 门禁）
 | 门禁：lint 0 warning | ✅ | `make lint-backend`：13 个 top、`-Wall --assert`、0 warning（Verilator 5.046） |
 | 门禁：`tb_backend` 契约断言全绿 | ✅ | phase1+2：44 retires / 8 redirects（4 branch + 4 arch）/ 6 BPU events / 2 traps / 2 MRET；随机 10 轮 **10878 周期、4839 retires、9022 次 golden 比对 0 mismatch** |
 | 每模块 DoD（自检 TB + SVA） | ✅ | `tb_decode` 3106 checks、`tb_fu_exec` 224072 checks（含 `MUL_LATENCY=2/3`）、`tb_bru_csr` 10695 checks |
-| PPA 探针（§9.3 首条） | ❌ 未做 | 无器件/XDC/Vivado（SPEC-M10）；C1 出口按功能门禁判定，PPA 归 C4 |
+| PPA 探针（§9.3 首条） | 已补 OOC 诊断 | 2026-10-14 SoC + 真 Core 综合已执行（§9.6）；不能替代 C4 post-route 签核 |
 
 ```bash
 make lint-backend     # 13 个后端 top，-Wall --assert，零 warning
@@ -1427,7 +1483,7 @@ make all              # C0 + C1 门禁（lint + lint-backend + 全部单元自�
 **C1 遗留项（不阻塞 C3 开工）**
 
 1. `tb_backend` 的「中断恢复 PC」直接比对未开启（需要 `mepc` 观测口）；当前由 golden model 对恢复后的整条指令流逐条比对覆盖。C3 增加 CSR 观测口后补回直接断言。
-2. 尚未跑 synth-only 时序探针（SPEC-M10 缺失），C4 前必须补。
+2. synth-only 诊断已补齐（§9.6）；继续分析实际综合最差路径，后续优化需维持契约并重跑功能门禁，再进行板级实现签核。
 3. 未做 ECC/覆盖率（transition coverage）统计；`tb_backend` 为定向 + 固定种子随机，覆盖率收集留到 C3 与 `--coverage` 一起。
 
 ### 9.4 C2 — LSU / Memory 全部单元（25–35 人日，P0-B，与 C1 并行）
@@ -1455,7 +1511,7 @@ M2a 范围（§9.4 顺序的前半）：**L02 AGU + L03 LQ + L04 SQ + L05 Store 
 | C3 集成（core 顶层与 TB 框架） | ✅ | `rtl/top/ares_core_top.sv` + `sim/rtl/tb_ares_core.sv`（见 §9.5） |
 | 门禁：lint 0 warning | ✅ | `make lint-lsu`：`store_forward/lsu_agu/lq/sq/lsu_completion/line_adapter/lsu_top/ares_core_top` 共 8 个 top，`-Wall --assert`，0 warning（Verilator 5.046）；`make lint`/`make lint-backend` 未回归 |
 | 门禁：单元自检 | ✅ | `make unit-lsu`：7 个自检 TB 全绿（76 062 + 28 490 + 528 365 + 74 510 + 258 613 + 266 536 + 2 122 checks；`line_adapter` 另在 16/64 档分别跑 228 783 / 292 635 checks） |
-| PPA 探针（§9.3 同样要求） | ❌ 未做 | 无器件/XDC/Vivado（SPEC-M10），归 C4 |
+| PPA 探针（§9.3 同样要求） | 已补 OOC 诊断 | 真 Core + 新 SoC/IP 综合已执行；完整 PPA 仍归 C4 |
 
 **M2a staging 说明（需评审确认）**：L06–L09/L11 落地前，`lsu_top` 用 `line_adapter` 的**单 beat 端口**直连 TB 内存模型（cacheable Load = 一次 16B beat 读 + 按字选择；cacheable Store = 一次 16B beat 写 + byte enable），MMIO 单 outstanding 顺序逻辑暂置于 `lsu_top`（M2b 抽为 `mmio_bridge.sv`）。该路径**不改变**任何后端可见契约（`can_accept`/credit、恰好一次 Completion、Store Commit 握手、kill 优先、`lsu_mmio_order_idle`），只是“数据从哪来”的过渡实现；M2b 换成真 DCache/MSHR 后，LQ 的 `lookup_*`/`fill_*` 与 SQ 的 `drain_*` 接口保持不变。
 
@@ -1495,7 +1551,7 @@ M2b 范围（§9.4 顺序的后半）：L06 `dcache_top` + L07 `dcache_arrays` +
 | 门禁：`tb_lsu`（DCache 通路） | ✅ | **4790 checks / 1006 completions / 26 kills / 0 mismatch**：cold miss+refill、hit、Dirty Victim WB、Store Hit Pending Write、Store Overlay 早接管、同 Line 合并、kill+同 tag 复用（epoch）、MMIO 存储/加载与 `lsu_mmio_order_idle`、4×Set 驱逐后**物理镜像 == 架构镜像** |
 | 门禁：ISA 回归 | ✅ | `make isa`（FE 桩）**36/36 PASS** |
 | 门禁：`make unit-lsu` | ✅ | 11 个单元 TB 全绿（含 4 个 M2b TB）：`tb_lsu` 4790、`tb_mshr` 1 205 628、`tb_mmio_bridge` 187 659、`tb_dcache_arrays` 63 029、`tb_wb_buffer` 26 656、`tb_lq` 74 512（含 waiter 令牌观测：2288 次 epoch 递增 / 2001 次 pending 采样） |
-| PPA 探针 | ❌ 未做 | 无器件/XDC/Vivado（SPEC-M10），归 C4 |
+| PPA 探针 | 已补 OOC 诊断 | 真 DCache 路径在 SoC OOC 综合中保留；16/32/64B 的 Fmax/面积比较及 board route 仍未完成 |
 
 **集成期间发现并修复的 RTL 缺陷（自检/TB 判别力证据）**
 
@@ -1517,17 +1573,17 @@ M2b 范围（§9.4 顺序的后半）：L06 `dcache_top` + L07 `dcache_arrays` +
 
 1. `fe_stub` 完整化（契约断言对齐）；
 2. 组装 `ares_core_top`（`fe_stub` + Backend + LSU + 时钟/复位）与 `tb_ares_core.sv`（总线/MMIO 适配 + DPI 观测），接 `sim/csrc` 的 `irom_read/perip_read/perip_write/retire_event_enqueue/ebreak`；
-3. 跑 `tests/cpu-tests` 全量（35 用例，**自检**：失败即 HALT BAD TRAP）＋ §8.3 定向集（契约 §6、backend §17.3、memory §6.8）；
+3. 跑 `tests/cpu-tests` 全量（36 项，**自检**：失败即 HALT BAD TRAP）＋ §8.3 定向集（契约 §6、backend §17.3、memory §6.8）；
 4. 建议同时做 mini-ISS retire 差分（`docs/core_verification_flow.md` §6，2–3 人日，回报最高）。
 
-**出口**：35 用例全绿（FE 桩）；core 级断言全绿；无 stale Completion / 旧响应污染。
+**出口**：36 项全绿（FE 桩）；core 级断言全绿；无 stale Completion / 旧响应污染。
 **注意**：此出口**不需要前端**，也不需要 SoC。
 
 **C3 执行状态（framework + ISA 回归已达成）**
 
 | C3 交付物 | 状态 | 证据 |
 |---|---|---|
-| **S01 `ares_core_top`**（BE + LSU + 总线/MMIO/观测端口） | ✅ | `rtl/top/ares_core_top.sv`：实例化 `be_top` + `lsu_top`，FE 侧端口留在顶层（C3 由 `fe_stub` 驱动，C5 直接换真实 `frontend.sv`，本文件不变）；含 `RESET_MTVEC` 参数与对齐检查；修复了 `lsu_can_accept` / `store_commit_ok` 两处与后端形成的组合环（见 §9.4 集成缺陷） |
+| **S01 `ares_core_top`**（BE + LSU + 总线/MMIO/观测端口） | ✅ | `rtl/top/ares_core_top.sv`：实例化 `be_top` + `lsu_top`，FE 侧端口留在顶层（C3 由 `fe_stub` 驱动，C5 需把迁移后的 FE 接到这些端口，并完成取指连接；不假设旧 `frontend.sv` 可以直接替换）；含 `RESET_MTVEC` 参数与对齐检查；修复了 `lsu_can_accept` / `store_commit_ok` 两处与后端形成的组合环（见 §9.4 集成缺陷） |
 | **`tb_ares_core`**（fe_stub + core + 128-bit 总线/MMIO 模型 + DPI 观测） | ✅ | `sim/rtl/tb_ares_core.sv`：`retire_event_enqueue`/`ebreak`/`interrupt_redirect`；decode error 只在**退休**指令上 `$fatal`（推测路径上的非法编码不得误报，这正是 `fe_stub` 恒预测不跳转时必然出现的场景） |
 | 门禁：ISA 回归（FE 桩，自检） | ✅ | `make -C tests/cpu-tests ARCH=riscv32-ares run` → **36/36 PASS**（35 个 cpu-tests + dummy） |
 | 门禁：core 级 lint | ✅ | `make lint`（C0）/ `make lint-backend`（C1）/ `make lint-lsu`（C2 + `ares_core_top`）全部 0 warning |
@@ -1559,11 +1615,23 @@ M2b 范围（§9.4 顺序的后半）：L06 `dcache_top` + L07 `dcache_arrays` +
 
 实施/复现命令和完整板级签核步骤见 `fpga/vivado/README.md`。SPEC-M10 已从“无工程”转为“生成器可用，板级 FE/适配/完整约束及 post-route 签核待闭环”。
 
-- **C4 PPA**：SPEC-M10 提供器件/XDC/工程后，跑 synth → impl → `route_design`，按 §8.4 判定（WNS/TNS/WHS/THS、`check_timing`、时钟 > 200 MHz）；不达标回到对应模块做时序优化（保持外部契约），然后重跑 C3 回归。
-- **C5 前端对接**：FE 维护者按 `docs/fe_contract_migration.md` 完成迁移（10–16 人日）后，用真实 `frontend.sv` 替换 `fe_stub`：
-  1. 先跑 `tb_fe_be_contract.sv`（契约 §6 断言，后端提供）；
-  2. 再跑 35 用例 ISA 回归（真实预测路径）；
-  3. 若 FE 尚未就绪但要做性能预演，可临时用 `fe_legacy_adapter.sv`（限制见 `docs/core_verification_flow.md` §7，**不可用于签核**）。
+**板级 baseline 就绪检查（当前）**
+
+| 项 | 状态 | 门禁 / 交付物 |
+|---|---|---|
+| 实际器件/原工程非源码-IP 配置 | 已到位 | `xc7k325tffg900-2`、Vivado 2025.2、synth/impl 策略快照 |
+| SoC/Core/存储桥 + ROM/RAM IP | 已执行 OOC 综合 | 生成器、功能测试和无锁存器诊断通过 |
+| 真实 FE 契约及取指存储连接 | 未完成 | IQ accept_count、Redirect、2-lane BPU credit/metadata；AXI 取指与同步 IROM 的接入方案需按 SPEC-I2/I4 核对 |
+| 物理 `top` | 未提供 | 差分时钟/PLL、复位、UART、板级 I/O 与 SoC 外露接口接入；不得把空输入当作可工作的 CPU |
+| board manifest | 未提供 | 版本化列出 top、完整 FE/桥/依赖、include、额外 XDC/IP 配方 |
+| 板级时钟/I/O/CDC 约束 | 未验证 | 已有原 XDC 快照；需核对真实 primary/generated clocks、I/O 预算、复位同步和原 clock-group 例外的适用性 |
+| ARES 布局布线/签核 | 未执行 | synth → place → route → post-route phys-opt；审查 setup/hold、约束/CDC 与资源，见 §8.4 |
+
+- **C4 当前可执行**：从指定提交生成新的 `soc`/`core` OOC 工程，复核资源/关键路径，分析 BRU 操作数寄存器到 SMUL 结果寄存器的实际综合网表路径。该起终点是当前诊断证据，不等于已定位唯一根因，也不代表已测得 Fmax。优化仅允许保持现有 latency/II/接口语义；有架构影响时先评审。
+- **C4 完整 baseline**：C5 必要交付与上述板级项到位后，使用 `--profile board --manifest <版本化清单> --stage route`。当前 `soc`/`core` 明确拒绝 `route`，OOC 外部 FE 端口的 493/491 项缺 I/O 延迟不能用于板级签核。
+- **C5 真实前端对接**：FE 维护者按 `docs/fe_contract_migration.md` 完成契约迁移/缺陷处置，先定向验证 IQ/Redirect/BPU 与旧响应隔离，再接 Core/IROM，最后跑真实 FE 的 **36 项 ISA 回归**。计划中的 `tb_fe_be_contract` 属待交付验证项，不声称已运行；临时 legacy adapter 不可作为签核依据。
+- **程序镜像**：上板软件启动需要有效 IROM/DRAM COE；默认零填充只用于构建脚手架，不保证可启动。固件打包/链接地址必须匹配 JYD 实际物理容量与已授权别名策略。
+
 
 ### 9.6a 仓库清理（2026-10-14）
 
@@ -1630,33 +1698,40 @@ SHA-256 校验；不声明 RT-Thread 已在 ARES 上编译或启动。
 `MANIFEST.md` 与本计划（同步“源码已导入、系统适配待完成”的状态）。保留既有源码
 路径和协议；后续需由 RTOS/SoC 维护者完成上述适配，外部工程按用户授权整体提交。
 
-### 9.7 延后项（P3，不在 core 计划内）
+### 9.7 C6 系统集成剩余项（P3，已有部分基础）
 
-| 延后项 | 解锁条件 | 对 core 的影响 |
+| 项目 | 已有进展 | 剩余工作 / 解锁条件 |
 |---|---|---|
-| SoC 集成（`ares_soc_top`/Fabric/Timer/地址译码/AXI 桥/TB） | SPEC-M7/M8/M12/M13/M20/M21 关闭 | core 的 `lsu_top`/AXI 端口不变；TB 内存模型被真实 Fabric 替换 |
-| miniTensor 集成 | SPEC-M6/M19/M22 关闭 | 需要 CPU 侧 XIF 端口（目前不存在）→ 会新增 Issue/Commit 结构，届时回到 C1/C3 评审 |
-| 前端迁移（FE 维护者） | `docs/fe_contract_migration.md` Q1–Q6 确认 | 只影响 C5；不阻塞 C0–C3 |
+| JYD SoC 子系统 | `student_top` + Core + 外设/存储桥；2 个 SoC TB；批准的 JYD profile 已记录 | 物理 top、真实 FE/取指桥、复位/CDC；JYD 例外不等于通用 SPEC-M7/M8 全部关闭 |
+| 写可见性/多主机 Fabric | CPU 单主机写队列与排空屏障已实现并验证 | 真实 MC Cold Reset/旧事务隔离、miniTensor DMA owner/路由/可见性协议仍受 SPEC-M13/M20/M21 门禁约束 |
+| Timer / RT-Thread | RT-Thread Nano 3.1.5 与 MundusJyd BSP 已导入（§9.6c）；JYD 毫秒脉冲 IRQ、miniTensor 驱动/补丁/应用已保留 | 正式 `mtime/mtimecmp`、ARES IRQ/BSP/MMIO/构建与固件加载适配及真实 RTOS 启动未完成（SPEC-M12） |
+| miniTensor 系统接入 | 本体与行为模型独立回归 9/9；MMIO shim、DPI DMA 和模型资料保留 | CPU XIF/控制路径方案需评审（SPEC-M6/M22）；真实 FPGA DMA/仲裁与 I/D 可见性需定义（SPEC-M19/M20/M21）；不能用独立 NPC 行为模型或 DPI 结果代替 ARES 系统验收 |
+| FE 缺陷与性能契约 | 旧实现及迁移清单已有 | 关闭 SPEC-C/I/D 待决项，完成判别力 TB 与真实预测路径验证；影响 C5 与 board baseline，不重开 C0–C3 |
 
-### 9.8 里程碑
+### 9.8 里程碑（当前状态）
 
-| 里程碑 | 内容 | 门禁 |
-|---|---|---|
-| MC0 | core 契约/包/验证骨架就绪（✅ v0.7 达成） | C0 出口 |
-| MC1 | Backend 单元通过 | C1 出口（`tb_backend` 断言绿） |
-| MC2 | LSU 单元通过 | C2 出口（`tb_lsu` 断言绿） | **已达成（M2a + M2b）**：M2a（L02/L03/L04/L05/L12/L10 + 最小闭环）与 M2b（L06/L07/L08/L09/L11 + `lsu_top` 收敛）均 `make lint-lsu` 0 warning、`make unit-lsu` 11 个 TB 全绿、`tb_lsu` DCache 通路 0 mismatch；见 §9.4/§9.4b |
-| MC3 | **ISA 回归全绿（FE 桩）** | C3 出口（35/35 GOOD TRAP） | **已达成**：`ares_core_top` + `tb_ares_core` + ISA 回归 **36/36 PASS** |
-| MC4 | PPA 达标（>200 MHz 无违例） | C4 出口 |
-| MC5 | 真实前端联调通过 | C5 出口 |
-| MC6 | SoC/miniTensor 闭环 | C6 出口 |
+| 里程碑 | 内容 | 门禁 | 状态 / 证据 |
+|---|---|---|---|
+| MC0 | core 契约/包/验证骨架 | C0 出口 | 已达成，C0 core 裁决评审完成 |
+| MC1 | Backend 功能 | C1 功能出口 | 已达成，4 个 TB 与 lint 通过；评审/覆盖率遗留见 §9.3 |
+| MC2 | LSU 功能（M2a+M2b） | C2 功能出口 | 已达成，11 个 TB 与 lint、DCache 内存镜像 0 mismatch；性能比较/独立 DCache TB 仍待补 |
+| MC3 | Core ISA（FE 桩） | C3 功能出口 | 已达成，**36/36 PASS**，不包含真实 FE/RTOS/加速器系统验收 |
+| MC4 | 实际板级 PPA：>200MHz 无违例 | §8.4 post-route 出口 | **未达成**：仅 OOC 综合记录，250MHz 约束 WNS=-9.888ns；board route/完整约束未验证 |
+| MC5 | 真实 FE 联调 | 契约定向测试 + 真实 FE ISA | **未达成**：FE 仍是旧接口，取指接入待完成 |
+| MC6 | SoC/RTOS/miniTensor 系统闭环 | C6 系统出口 | **未达成**：SoC 子系统/加速器本体已部分落地，完整平台与 DMA/RTOS 接入待完成 |
 
-### 9.9 立即可执行（本周）
+### 9.9 下一步执行清单（替代已完成的 C0 开工列表）
 
-1. 开一次 core 范围评审，关闭 C0 的 SPEC 列表（A1/M17、A4、A3、A12、M15/M16、A7/A8/A9）。
-2. 创建 `rtl/common/ares_pkg.sv`（core 部分）+ `rtl/backend/`、`rtl/memory/` 目录 + `make lint`；给 `sim/Makefile` 加 `ARES_RTL=1` 分支。
-3. 写 `rtl/backend/test/fe_stub.sv` 骨架（契约合规、always-not-taken、credit=2）与 `sim/rtl/tb_ares_core.sv` 空壳，让 C1 第一天就有闭环可跑。
-4. 启动 **P0-A**：GPR → Decode → CIQ 三件套；**同时**启动 **P0-B**：AGU → LQ → DCache hit 最小闭环。
-5. 把 `docs/fe_contract_migration.md` 发给 FE 维护者（消息模板见其 §8）——**只登记与并行推进，不作为任何阶段的阻塞项**。
+| 顺序/工作线 | 任务 | 交付/完成判据 | 当前依赖 |
+|---|---|---|---|
+| 1 / C4 可立即执行 | 在新目录复现 OOC baseline，记录源码提交/输入哈希/配置/IP/设置，分析现有最差路径 | 可复现综合资源/时序报告；识别组合逻辑、扇出、RAM/DSP 推断等真实限制，不宣称 PPA 达标 | 已有生成器和实际器件，无需重新恢复 stash |
+| 2 / C5 与板级协同 | FE 维护者确认剩余契约/架构裁决，完成 FE RTL/TB 迁移及取指接入 | IQ/Redirect/BPU/旧响应定向验证 + 真实 FE Core 36 项回归 | SPEC-C/I/D 与 SPEC-I2/I4；公共接口/时序改变先评审 |
+| 3 / 板级 SoC | 编写物理 top，复核 PLL/复位/UART/I/O/miniTensor 外露端口处理，提供 manifest/完整约束 | 源码无黑盒、实际 primary/generated clocks 正确、CDC/复位与 I/O 预算可审查 | FE/取指方案、SPEC-M8；旧 stash 板级源码只作参考，须适配验证 |
+| 4 / C4 实现与优化 | 跑 board synth → place → route → post-route phys-opt；失败则保持契约优化 RTL并重跑相关功能测试 | §8.4 的 setup/hold/未约束路径/时钟 >200MHz/资源全部验收通过 | 第 2/3 项交付；不得改约束遮蔽违例 |
+| 并行 / 功能与覆盖 | 补独立 `tb_dcache_top`、C1 直接观测/覆盖率、LINE_BYTES 三档性能/面积/Fmax 比较 | 保留现有功能门禁，补充可判别测试及数据；默认配置未经授权不修改 | 既有冻结接口；板级 Fmax 比较待实现入口可用 |
+| 后续 / C6 | 适配已导入 RT-Thread 的 BSP/构建/固件加载，定义正式 Timer 与 XIF/MMIO/DMA 方案并集成 miniTensor | 实际 ARES 系统的软件/数据/IRQ/加速器闭环，而非旧 Mundus 文档或独立行为模型通过 | RTOS 源码已到位；ARES 适配与 §9.7 相关 SPEC 评审仍待完成 |
+
+本次更新仅校准计划状态与依赖，不代表已获授权改变 ISA、接口、吞吐或架构要求；实际实现仍按 AGENTS.md 和批准的微架构执行。
 
 ---
 
@@ -1664,14 +1739,15 @@ SHA-256 校验；不声明 RT-Thread 已在 ARES 上编译或启动。
 
 | 风险 | 触发条件 | 影响 | 缓解 |
 |---|---|---|---|
-| core 侧裁决延迟（**唯一影响主线**） | SPEC-A1/M17、A4、A3、A12、M15/M16、A7/A8/A9 未裁决 | C1/C2 部分模块无法定稿 | C0 一次评审关闭；未裁决前用 `ifdef` 断言占位、不写未定义行为 |
-| 延后项裁决延迟（**不影响 core**） | SPEC-C1/M6/M7/M8/M10/M13/M20/M21 未关闭 | 只影响 C5/C6（前端对接、SoC、加速器、PPA） | 与 C1–C3 并行推进；不作为 core 出口门禁 |
-| FE RTL 与契约漂移扩大 | FE 侧继续按旧接口开发 | 只影响 C5 联调（core 不受影响） | 已把迁移方案与断言清单交给 FE 维护者；后端按契约实现并用 FE 桩自测 |
-| 时序不达标（<200 MHz） | Issue 仲裁/DCache C3/SMUL/CIQ 写口路径过长 | 验收失败 | 早期综合探针（每轨模块完成后即跑 synth 时序），保留流水/结构优化方案（FREE-11/04） |
-| PPA 环境缺失 | 无器件/XDC/工程 | 无法签核 | 尽快由项目方提供真实工程（SPEC-M10）；在此之前只做资源/时序趋势分析并标注「未验证」 |
+| 新接口/架构变更超出已批准范围 | C0 已裁决内容被后续接入绕过或改变 | ISA/时序/协议与现有门禁失配 | C0 core 裁决保持冻结；新增 FE/SoC/加速器行为需相关协作者评审 |
+| 后续接入裁决未完成 | SPEC-C1/M6/M7/M8/M10/M13/M20/M21 未关闭 | 影响 C4 完整板级签核与 C5/C6；不改变已完成的 core 功能门禁 | 按 §9.9 分工作线推进，保持 OOC/功能回归与真实系统验收边界 |
+| FE RTL 与契约漂移扩大 | FE 仍是旧接口，直接接入新 Core | 阻塞 C5 与当前完整板级 baseline | 按迁移清单及判别力 TB 关闭问题；已完成 Core 功能/OOC 可以独立保持 |
+| 时序不达标（含恰好 200MHz） | 250MHz OOC 综合 WNS=-9.888ns，最差路径 BRU 操作数寄存器→SMUL 结果寄存器 | 当前综合未满足目标，post-route 结果未知 | 分析真实路径并保持 latency/II 优化；补完整 board 实现后按 §8.4 验收 |
+| 板级 PPA 环境未闭环 | 器件/设置/IP 已有，但物理 top、FE、manifest 与有效约束/CDC 未完成 | 不能生成可验收的实际板级 route baseline | 交付 §9.6 就绪项；记录源码和输入快照；OOC 不替代 MC4 |
 | 验证基础设施滞后 | TB/lint 未及时建立 | 缺陷发现晚 | C0 先建脚本骨架；每模块 DoD 强制自检 TB |
-| 未支持指令策略缺失 | SPEC-A1 未裁决 | Decode 行为不确定、测试无法判定 | 裁决前 Decode 不得把未知编码当 NOP；先用 `ifdef` 断言占位 |
+| 未支持/未对齐用例被误当支持证据 | 把旧 `unalign` 对称通过或未知编码诊断当 ISA 能力 | 错误声明软件可见行为 | 保留 D-C0-01/D-M2b-01：不支持 misaligned，不实现 illegal Trap；测试通过边界明确记录 |
 | LSU 可见性/单 outstanding 语义实现不完整 | SPEC-M13 未落实 | 数据不一致、难复现 | 在 Fabric/MC 层显式实现或证明可见性点，并加 §8.3 负向用例 |
+| 将旧仿真容量当作 FPGA 实际容量 | 使用旧 12MiB 窗口或大模型 blob，却只有 256KiB BRAM backing | 地址镜像覆盖、模型/RTOS 数据损坏 | 软件按 JYD 物理容量规划；模型外存/分块与真实 DMA 方案在 C6 冻结并验证 |
 | 文档与 RTL 双源 | frontend-integration 与契约并存 | 误用旧接口 | 在 frontend-integration 顶部加「已过期，以契约为准」提示（由 FE 协作者执行，本计划不修改规范文件） |
 
 ---
@@ -1742,14 +1818,17 @@ SHA-256 校验；不声明 RT-Thread 已在 ARES 上编译或启动。
 - 未为任何 §7.1/§7.2/§7.3 项目定义架构行为（只列候选方案）。
 
 **待批**（本计划中的工程性建议，需相关协作者确认后执行）：
-1. §3 的模块划分与文件命名（FREE-02）；
-2. §6.4 的 `ares_core_top/soc_top` 端口建议（SPEC-M14）；
-3. `soc_pkg` 的地址映射（沿用现有事实映射，SPEC-M7）；
-4. C0–C6 的排期与人力分配；
-5. 是否将 RT-Thread 启动纳入验收范围（属 P3/SoC 阶段范围，不影响 core 出口）。
+1. FE 尚未关闭的契约/架构裁决及其公共握手/吞吐影响；已冻结 core 的模块命名和本地实现选择不重新要求批准；
+2. 物理板级 top/取指桥/复位域及新增 SoC 公共接口，按 SPEC-M7/M8/I2/I4 和 AGENTS.md 评审；
+3. 通用 Fabric 多主机仲裁、地址/可见性与 CPU↔miniTensor 方案；JYD 专用地址与别名已授权，不重开该局部选择；
+4. C4–C6 剩余任务的排期与维护者分工，不重复安排已完成 C0–C3；
+5. RT-Thread 源码工程已经导入；ARES BSP/构建/启动适配范围及是否将 RTOS 启动纳入正式验收，仍需在 C6 冻结（不影响 core 功能出口）。
 
 **已确认（本轮讨论结论）**：
 1. **优先级**：Backend（P0-A）与 Memory/LSU（P0-B）为最高优先级，同时开工（§4.0）；
 2. **验证方案**：采用「SV 行为级 FE 桩（周期协议）+ 现有 C++ DPI 内存模型（数据）」的混合方案、三层 TB，ISA 回归不依赖前端（`docs/core_verification_flow.md`）；
-3. **前端迁移**：由 FE 维护者主责，按 `docs/fe_contract_migration.md` 执行，降为 P2，仅影响 C5；
-4. **SoC 与 miniTensor**：P3 延后，解锁条件见 §9.7。
+3. **前端迁移**：由 FE 维护者主责，按 `docs/fe_contract_migration.md` 执行，优先级保留 P2；不影响已完成的 C0–C3，但当前 board baseline 依赖 C5 必要交付；
+4. **SoC 与 miniTensor**：JYD SoC 子系统和 miniTensor 本体已部分落地；完整系统仍属 P3，剩余解锁条件见 §9.7。
+5. **实际 FPGA**：复用 JYD2025 工程的非源码/IP 配置与原 XDC，源码和 IP 从 ARES 新生成；旧工程报告不能作为 ARES 验收证据。
+6. **本次 SoC 边界**：保留 ARES FE 契约外露，真实 FE 后续接入；沿用复制 SoC 的地址与 uncached 别名并记录架构差异，不新增缓存一致性。
+7. **RT-Thread**：用户提供的源码工程已在 `645d6c2` 导入；现保留驱动、BSP 补丁、应用和独立模型资料，不声明已完成 ARES RTOS/加速器闭环。
