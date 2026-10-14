@@ -1,158 +1,88 @@
 # ARES simulation flow
 
-Verilator based RTL simulation for ARES, ported from the
-`ysyx-workbench/npc` environment (`npc/Makefile`, `npc/csrc/wave`,
-`npc/vsrc/testbench`).
-
-The flow is deliberately RTL agnostic: it takes a DUT, a test bench and the
-compiled test image and turns them into a pass/fail result.  Until the ARES
-RTL is complete the DUT is the npc (Mundus) core from
-`$(NPC_HOME)/vsrc`, which is what `RTL_ROOT` points at today.
+Verilator simulation of the local ARES Core (`ares_core_top`: Backend + LSU)
+with a contract-compliant frontend stub. The legacy Mundus/NPC DUT and its
+Chisel generation tools have been removed. No external NPC project is needed.
 
 ## Quick start
 
+Run from the ARES repository root:
+
 ```bash
-# build the simulator
 make -C sim
-
-# run one image
-make -C sim run PROGRAM=tests/cpu-tests/build/add-riscv32-ares.bin
-
-# build + run the whole ISA regression
+make -C sim lint-all
 make -C tests/cpu-tests ARCH=riscv32-ares run
-
-# capture a waveform
-make -C sim wave PROGRAM=...
+make -C sim run PROGRAM="$PWD/tests/cpu-tests/build/add-riscv32-ares.bin"
+make -C sim wave PROGRAM="$PWD/tests/cpu-tests/build/add-riscv32-ares.bin"
 ```
+
+`RTL_ROOT` defaults to `<ARES>/rtl`, and `TOPNAME` to `tb_ares_core`.
+Commands that still pass `ARES_RTL=1` work, but the switch is no longer needed.
+Builds use separate ignored directories for each top under `sim/build/` and
+`sim/build_wave/`. Generated configuration lives under `configs/build/`.
 
 ## Layout
 
 | Path | Contents |
 | --- | --- |
-| `sim/Makefile` | Verilator build + run rules, RTL source list, flags |
-| `sim/rtl/tb_mundus_npc.sv` | ARES owned test bench for the temporary npc DUT |
-| `sim/rtl/generated/Mundus.sv` | Chisel generated DUT, elaborated with `CONFIG_SIMULATION=true` |
-| `sim/config/autoconf.vh` | Verilog side configuration, kept in step with the DUT |
-| `sim/csrc/main.cpp` | Verilator harness: reset, clock, run loop, trap report |
-| `sim/csrc/memory.cpp` | Guest memory + MMIO model, image loading |
-| `sim/csrc/dut.cpp` | DPI-C entry points seen by the RTL |
-| `sim/scripts/gen_mundus.sh` | Re-elaborate the Chisel RTL into `rtl/generated/` |
+| `sim/Makefile` | Verilator build/run rules, ARES RTL source list and configuration |
+| `sim/rtl/tb_ares_core.sv` | ARES Core test bench with FE stub and retirement observations |
+| `sim/rtl/tb_mem_beat_if.sv` | 128-bit memory beat adapter to the DPI memory model |
+| `sim/rtl/tb_mmio_if.sv` | MMIO request/response adapter to the DPI device model |
+| `sim/csrc/main.cpp` | Reset, clock, run loop and trap reporting |
+| `sim/csrc/memory.cpp` | Guest memory/device model and image loading |
+| `sim/csrc/dut.cpp` | DPI entry points and architectural retirement tracking |
 
 ## How a test runs
 
-1. `tests/cpu-tests/Makefile` builds `<test>.bin` through the ARES
-   AbstractMachine (`ARCH=riscv32-ares`), which links the image for the memory
-   map below and appends the `mainargs` placeholder.
-2. `platform/ares.mk` calls `make -C $(SIM_HOME) run PROGRAM=...`.
-3. The harness loads the flat image at `0x8000_0000`, resets the DUT for 20
-   cycles and toggles the clock until an EBREAK retirement is reported.
-4. The DUT reports each retired instruction through `retire_event_enqueue`,
-   so the harness tracks the architectural PC and GPR file and can sample the
-   halt code (`a0`) at the EBREAK.
-5. Exit status: `0` = HIT GOOD TRAP, `1` = HIT BAD TRAP, `2` = model error,
-   `3` = cycle budget exhausted.
+1. `tests/cpu-tests/Makefile` builds a bare-metal image using the ARES
+   AbstractMachine runtime (`ARCH=riscv32-ares`).
+2. `tests/abstract-machine/scripts/platform/ares.mk` invokes `sim/Makefile`.
+3. The harness loads the image at `0x8000_0000`, applies reset, and clocks the
+   model. `fe_stub` fetches instructions and feeds the approved FE/Core contract.
+4. `ares_core_top` executes them; the test bench forwards retirement events to
+   the harness, which maintains architectural PC/GPR state.
+5. Retired EBREAK terminates the test. Exit status is 0 for GOOD TRAP, 1 for
+   BAD TRAP, 2 for a model error, or 3 for exceeding the cycle budget.
 
-## Guest memory map
+See `docs/core_verification_flow.md` for ordering, backpressure and observation
+contracts. The DPI function names inherited from the old harness are retained
+where used by ARES test benches; no legacy CPU RTL is compiled.
 
-| Range | Model |
+## Guest memory model
+
+| Range | Backing model |
 | --- | --- |
-| `0x8000_0000 + 32 KiB` | IROM, instruction port only (8 byte aligned 64 bit fetch) |
-| `0x8010_0000 + 256 KiB` | DRAM, the D-cacheable window |
-| `0x8030_0000 + 256 KiB` | uncached mirror of the cacheable window (bit 21 clear) |
-| `0x8040_0000 .. 0x80FF_FFFF` | uncached DRAM extension |
-| `0xA000_0000` | MMIO: console at `+0x3F8`, RTC at `+0x48/+0x4C` |
+| `0x8000_0000 + 32 KiB` | IROM |
+| `0x8010_0000 + 256 KiB` | cacheable DRAM window |
+| `0x8030_0000 + 256 KiB` | retained model alias, bit 21 cleared |
+| `0x8040_0000 .. 0x80FF_FFFF` | retained model extension |
+| `0xA000_0000` | MMIO console at `+0x3F8`, RTC at `+0x48/+0x4C` |
 
-The image is one flat blob loaded at `0x8000_0000`, matching the linker script
-(`tests/abstract-machine/scripts/ares-linker.ld`): IROM first, DRAM at
-`+0x10_0000`.  Anything outside the table above is a hard model error.
+The memory model retains compatibility windows; it does not establish ARES
+architectural cacheability or FPGA RAM capacity. The core regression uses the
+generic ARES MMIO profile. The migrated JYD `student_top` and its actual FPGA
+address/backing behavior are described separately in `docs/jyd_soc_integration.md`
+and exercised by `make unit-soc`.
 
-## RTL contract implemented by the test bench
+## Configuration and options
 
-The temporary DUT exposes the npc "JYD style" interface; the test bench
-reproduces the timings its `IROM_BMEM` / `perip_bridge` counterparts have in the
-ysyx-workbench SoC.  These details are contract, not decoration - each one was
-verified against the reference behaviour and getting it wrong corrupts
-execution:
+Use `make menuconfig` or `make defconfig` from the repository root. The
+configuration generator supplies MUL latency and cache line size definitions.
 
-* **Instruction port**: `io_irom_addr` is a byte address and the data is
-  **registered** (`CONFIG_IROM_READ_LATENCY=1`).  Returning the fetched word in
-  the same cycle shifts the instruction stream by one 8 byte block, which shows
-  up as AUIPC / JAL link values that are 8 bytes too small.
-* **Peripheral reads** return the **word aligned to the request address**; the
-  LSU extracts the addressed byte/half word itself.
-* **Peripheral writes** carry the payload in the low lane together with a 2 bit
-  size mask (`2'b10` word, `2'b01` half, `2'b00` byte).  The model replicates
-  the payload and derives the byte enables from the address, exactly like
-  `store_word_data` / `store_byte_enable` in `perip_bridge.sv`.  A byte store
-  must be applied to `(addr & ~3) + lane`, never to `addr + lane`.
-* **Read responses** leave a **two deep** pipeline (like `response_tag_r` /
-  `response_tag_r2`).  A deeper response queue lets the 4 entry LSU completion
-  queue overflow and trips its assertion.
-* **Writes are applied when the request handshakes**; a load captures its data
-  at handshake time, so reads never observe a younger store.
-
-## DPI-C surface
-
-Implemented for real:
-
-```
-irom_read(addr)                       instruction fetch
-perip_read(addr) / perip_write(...)   data port
-init_reg(data, idx)                   architectural initial state
-get_npc_pc / get_npc_pc_next          fetch PC visibility
-retire_event_enqueue(...)             retirement stream (PC + GPR writes)
-interrupt_redirect(target)            interrupt redirect notification
-ebreak()                              end of test
+```text
+--max-cycles=N     cycle budget (default 20000000)
+--reset-cycles=N   reset duration (default 20)
+--itrace           print retired instructions
+--perip-trace      trace memory/device requests
+-v, --verbose      extra diagnostics and register dump
+-l/--elf/--diff/--csv  accepted for AM compatibility
 ```
 
-Accepted and ignored (they are the npc performance analysis hooks, not needed
-for functional verification): `sim_stats_enabled` and the `get_*_counts`
-collectors, `record_issue_operand_stall`, `difftest_skip_ref` and the
-`branch_difftest_*` family.
+The run target retains `+verilator+rand+reset+0` for reproducible execution.
 
-## Options
+## Verification boundary
 
-```
---max-cycles=N     abort after N clock cycles        (default 20000000)
---reset-cycles=N   reset duration in cycles          (default 20)
---itrace           print every retired instruction
---perip-trace      print every peripheral request/response
--v, --verbose      extra diagnostics + register dump
--l/--elf/--diff/--csv   accepted for AM compatibility
-```
-
-`+verilator+rand+reset+0` is passed by the `run` rule: the DUT has state that
-its reset does not clear, and the reference flow also needs the zero reset
-mode rather than Verilator's random one.
-
-## Using ARES' own RTL
-
-```bash
-make -C sim RTL_ROOT=<path to ARES rtl> TOPNAME=<ares tb top>
-```
-
-The pieces to provide are a test bench that drives the ARES clock/reset and
-exposes the same DPI-C calls (`sim/csrc` stays unchanged), plus an entry in
-`VSRCS` in `sim/Makefile`.  The AM platform
-(`tests/abstract-machine/scripts/platform/ares.mk`) only needs a new linker
-script if the memory map changes.
-
-## Regenerating the Chisel DUT
-
-```bash
-sim/scripts/gen_mundus.sh [NPC_HOME] [OUTPUT]
-```
-
-It copies the npc Chisel project into `sim/build/chisel` (the npc working tree
-is never modified), enables `CONFIG_SIMULATION`, runs `mill` and writes
-`sim/rtl/generated/Mundus.sv`.  Without `CONFIG_SIMULATION` the generated
-design contains no `Mundus_DPIC` instance at all, so there would be no EBREAK
-callback and no way to detect the end of a test.
-
-## Limitations
-
-* The statistics / branch-difftest hooks are stubbed, so the npc performance
-  reports are not produced here.
-* No NEMU difftest, no instruction disassembler, no interactive debugger.
-* Single hart, no device interrupts (the interrupt input is tied low); the
-  timer interrupt path of the npc SoC is not exercised.
+This is Core/ISA verification with an FE stub. It does not validate the real
+frontend, RT-Thread, miniTensor integration, physical FPGA clocks or post-route
+PPA. NEMU difftest and an interactive debugger are not provided.

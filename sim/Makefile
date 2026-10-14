@@ -1,36 +1,24 @@
 #=============================================================================
 # ARES - RTL simulation (Verilator)
 #-----------------------------------------------------------------------------
-# Ported from ysyx-workbench/npc/Makefile.  This is the ARES owned simulation
-# flow: it builds a Verilator model of the RTL selected by RTL_ROOT (for now
-# the npc / Mundus RTL from ysyx-workbench) together with the ARES test bench
-# and the DPI-C memory model in csrc/.
+# Builds the local ARES Core with the contract-compliant frontend stub and
+# the DPI-C memory model in csrc/. The legacy Mundus DUT has been retired.
 #
-#   make            build the simulation binary
-#   make run PROGRAM=<image.bin>   run one image
-#   make wave PROGRAM=<image.bin>  same, with an FST waveform
-#   make lint       lint the RTL only
-#   make gen-rtl    re-elaborate the Chisel RTL (needs mill + the npc project)
-#   make clean
-#
-#   ARES_RTL=1 selects the ARES core RTL in this repository (rtl/) instead of
-#   the temporary npc DUT; the top module then defaults to tb_ares_core.
+#   make                         build the simulation binary
+#   make run PROGRAM=<image.bin> run one image (absolute path recommended)
+#   make wave PROGRAM=<image.bin> capture an FST waveform
+#   make lint                    lint the ARES RTL
+#   make lint-all                lint every ARES test bench top
+#   make clean                   remove simulation build output
 #
 # Variables:
-#   ARES_RTL   build the ARES core RTL                 (default 0 = npc DUT)
-#   RTL_ROOT   directory holding the DUT RTL      (default $(NPC_HOME)/vsrc)
-#   NPC_HOME   npc project directory              (default ysyx-workbench/npc)
-#   TOPNAME    Verilator top module               (default tb_mundus_npc)
+#   RTL_ROOT   directory holding ARES RTL (default <ARES>/rtl)
+#   TOPNAME    Verilator top module       (default tb_ares_core)
 #   PROGRAM    test image to run
 #   ARGS       extra simulator arguments
 #
-# ARES quick start (see docs/core_verification_flow.md section 4):
-#   make menuconfig                    # MUL_LATENCY / LINE_BYTES (configs/Kconfig)
-#   make -C sim ARES_RTL=1 RTL_ROOT=$(pwd)/rtl                       # build
-#   make -C sim ARES_RTL=1 RTL_ROOT=$(pwd)/rtl lint                  # lint only
-#   make -C sim ARES_RTL=1 RTL_ROOT=$(pwd)/rtl tb-fe-stub            # unit TB
-#   make -C sim ARES_RTL=1 RTL_ROOT=$(pwd)/rtl run \
-#        PROGRAM=tests/cpu-tests/build/add-riscv32-ares.bin
+# Existing commands passing ARES_RTL=1 remain compatible; the switch is no
+# longer needed. See docs/core_verification_flow.md and sim/README.md.
 #=============================================================================
 
 SIM_HOME  := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
@@ -39,15 +27,8 @@ ARES_HOME ?= $(abspath $(SIM_HOME)/..)
 #-----------------------------------------------------------------------------
 # DUT selection
 #-----------------------------------------------------------------------------
-NPC_HOME  ?= /home/redbean/ysyx-workbench/npc
-
-ifeq ($(ARES_RTL),1)
-  RTL_ROOT ?= $(ARES_HOME)/rtl
-  TOPNAME  ?= tb_ares_core
-else
-  RTL_ROOT ?= $(NPC_HOME)/vsrc
-  TOPNAME  ?= tb_mundus_npc
-endif
+RTL_ROOT ?= $(ARES_HOME)/rtl
+TOPNAME  ?= tb_ares_core
 
 VERILATOR ?= verilator
 
@@ -75,62 +56,38 @@ BIN       := $(BUILD_DIR)/ares-sim
 #-----------------------------------------------------------------------------
 # RTL sources
 #-----------------------------------------------------------------------------
-ifeq ($(ARES_RTL),1)
-  # ares_pkg.sv must be listed before every module that imports it.
-  ARES_PKG  := $(RTL_ROOT)/common/ares_pkg.sv
-  ARES_TBS  := $(SIM_HOME)/rtl/tb_ares_core.sv \
-               $(SIM_HOME)/rtl/tb_mem_beat_if.sv \
-               $(SIM_HOME)/rtl/tb_mmio_if.sv
+# ares_pkg.sv must be listed before every module that imports it.
+ARES_PKG  := $(RTL_ROOT)/common/ares_pkg.sv
+ARES_TBS  := $(SIM_HOME)/rtl/tb_ares_core.sv \
+             $(SIM_HOME)/rtl/tb_mem_beat_if.sv \
+             $(SIM_HOME)/rtl/tb_mmio_if.sv
 
-  VSRCS  := $(ARES_PKG)
-  VSRCS  += $(filter-out $(ARES_PKG), $(wildcard $(RTL_ROOT)/common/*.sv))
-  VSRCS  += $(wildcard $(RTL_ROOT)/common/*/*.sv)
-  VSRCS  += $(wildcard $(RTL_ROOT)/backend/*.sv) $(wildcard $(RTL_ROOT)/backend/*/*.sv)
-  VSRCS  += $(wildcard $(RTL_ROOT)/memory/*.sv)  $(wildcard $(RTL_ROOT)/memory/*/*.sv)
-  VSRCS  += $(wildcard $(RTL_ROOT)/top/*.sv)
-  VSRCS  += $(ARES_TBS)
+VSRCS  := $(ARES_PKG)
+VSRCS  += $(filter-out $(ARES_PKG), $(wildcard $(RTL_ROOT)/common/*.sv))
+VSRCS  += $(wildcard $(RTL_ROOT)/common/*/*.sv)
+VSRCS  += $(wildcard $(RTL_ROOT)/backend/*.sv) $(wildcard $(RTL_ROOT)/backend/*/*.sv)
+VSRCS  += $(wildcard $(RTL_ROOT)/memory/*.sv)  $(wildcard $(RTL_ROOT)/memory/*/*.sv)
+VSRCS  += $(RTL_ROOT)/top/ares_core_top.sv
+VSRCS  += $(ARES_TBS)
 
-  # Self-checking unit tops (docs/implementation_plan.md section 9.2).
-  ARES_UNIT_TOPS  := tb_ares_core tb_ares_pkg tb_fe_stub tb_mem_model
-  ARES_UNIT_IMAGE ?= $(ARES_HOME)/tests/cpu-tests/build/add-riscv32-ares.bin
+# Self-checking unit tops (docs/implementation_plan.md section 9.2).
+ARES_UNIT_TOPS  := tb_ares_core tb_ares_pkg tb_fe_stub tb_mem_model
+ARES_UNIT_IMAGE ?= $(ARES_HOME)/tests/cpu-tests/build/add-riscv32-ares.bin
 
-  # ---- core configuration ("make menuconfig") ------------------------------
-  # configs/build/.config drives both the Verilator -D defines and the
-  # generated SV header configs/build/vsrc/include/ares_autoconf.vh.
-  ARES_CFG_SCRIPT := $(ARES_HOME)/scripts/kconfig/ares_kconfig.py
-  ARES_CFG_DIR    := $(ARES_HOME)/configs/build
-  ARES_CFG_VH     := $(ARES_CFG_DIR)/vsrc/include/ares_autoconf.vh
-  ARES_CFG_DEPS   := $(ARES_CFG_VH)
-  ARES_CFG_DEFS   := $(shell python3 $(ARES_CFG_SCRIPT) defs 2>/dev/null)
+# ---- core configuration ("make menuconfig") ------------------------------
+# configs/build/.config drives both the Verilator -D defines and the
+# generated SV header configs/build/vsrc/include/ares_autoconf.vh.
+ARES_CFG_SCRIPT := $(ARES_HOME)/scripts/kconfig/ares_kconfig.py
+ARES_CFG_DIR    := $(ARES_HOME)/configs/build
+ARES_CFG_VH     := $(ARES_CFG_DIR)/vsrc/include/ares_autoconf.vh
+ARES_CFG_DEPS   := $(ARES_CFG_VH)
+ARES_CFG_DEFS   := $(shell python3 $(ARES_CFG_SCRIPT) defs 2>/dev/null)
 
-  V_INC_PATH := $(SIM_HOME)/config
-  V_DEF_MACRO := -D__VERILATOR__ -DCONFIG_SIMULATION $(ARES_CFG_DEFS)
-  V_ASSERT := --assert
-  VERILATOR_IGNORE := -Wno-DECLFILENAME -Wno-TIMESCALEMOD
-  VERILATOR_WARN := -Wall
-else
-  VSRCS  := $(SIM_HOME)/rtl/tb_mundus_npc.sv
-  VSRCS  += $(SIM_HOME)/rtl/generated/Mundus.sv
-  VSRCS  += $(wildcard $(RTL_ROOT)/Mundus/*.v)
-  VSRCS  += $(wildcard $(RTL_ROOT)/DPIC/*.v)
-  VSRCS  += $(wildcard $(RTL_ROOT)/testbench/IP/*.v)
-  VSRCS  += $(wildcard $(RTL_ROOT)/testbench/IP/*.sv)
-  VSRCS  += $(wildcard $(RTL_ROOT)/modules/*.v)
-
-  V_INC_PATH := $(SIM_HOME)/config $(RTL_ROOT)/include
-
-  # CORE_ENTRY seeds the reset PC of the fetch unit (see Mundus/Mundus_PC.v).
-  # Keep it in step with CONFIG_NPC_ENTRY in sim/config/autoconf.vh.
-  V_DEF_MACRO := -D__VERILATOR__ -DCONFIG_SIMULATION -DCORE_ENTRY=32\'h80000000
-
-  V_ASSERT :=
-  ARES_CFG_DEPS :=
-  VERILATOR_IGNORE := -Wno-UNUSEDSIGNAL -Wno-DECLFILENAME -Wno-PINCONNECTEMPTY \
-                      -Wno-UNDRIVEN -Wno-MULTIDRIVEN -Wno-WIDTHTRUNC \
-                      -Wno-CASEINCOMPLETE -Wno-SYNCASYNCNET -Wno-TIMESCALEMOD \
-                      -Wno-PINMISSING -Wno-VARHIDDEN
-  VERILATOR_WARN :=
-endif
+V_INC_PATH := $(ARES_CFG_DIR)/vsrc/include
+V_DEF_MACRO := -D__VERILATOR__ -DCONFIG_SIMULATION $(ARES_CFG_DEFS)
+V_ASSERT := --assert
+VERILATOR_IGNORE := -Wno-DECLFILENAME -Wno-TIMESCALEMOD
+VERILATOR_WARN := -Wall
 
 VERILATOR_FLAGS := $(VERILATOR_IGNORE) $(VERILATOR_WARN) $(V_ASSERT) \
                    --timescale "1ns/1ns" --no-timing \
@@ -162,28 +119,16 @@ export CCACHE_TEMPDIR := $(BUILD_DIR)/ccache-tmp
 #-----------------------------------------------------------------------------
 # Targets
 #-----------------------------------------------------------------------------
-# Fail early with a useful message when the temporary DUT is not where the
-# flow expects it.  The ARES core RTL lives in this repository and does not
-# have the npc include tree.
-ifneq ($(ARES_RTL),1)
-ifeq ($(wildcard $(RTL_ROOT)/include/common_para.vh),)
-  $(error RTL_ROOT ("$(RTL_ROOT)") does not look like the npc vsrc tree; \
-          set RTL_ROOT to the directory holding include/common_para.vh)
-endif
-endif
-
-.PHONY: all run wave lint lint-all clean help gen-rtl check-unit-image \
+.PHONY: all run wave lint lint-all clean help check-unit-image \
         tb-ares-pkg tb-fe-stub tb-mem-model
 
 all: $(BIN)
 
-ifeq ($(ARES_RTL),1)
 # Refresh the generated configuration header (and create .config with the
 # defaults on a first build) whenever the menu, the tool or .config changes.
 $(ARES_CFG_VH): $(ARES_CFG_SCRIPT) $(wildcard $(ARES_HOME)/configs/Kconfig) \
                 $(wildcard $(ARES_CFG_DIR)/.config)
 	@python3 $(ARES_CFG_SCRIPT) gen
-endif
 
 $(BIN): $(VSRCS) $(CXX_SRCS) $(wildcard $(CXX_INC)/*.h) $(ARES_CFG_DEPS)
 	@mkdir -p $(BUILD_DIR) $(BUILD_DIR)/ccache-tmp
@@ -253,8 +198,3 @@ clean:
 
 help:
 	@sed -n '2,20p' $(SIM_HOME)/Makefile
-
-# Re-elaborate the Chisel RTL with the simulation configuration and refresh
-# rtl/generated/Mundus.sv (requires mill and the npc project).
-gen-rtl:
-	@$(SIM_HOME)/scripts/gen_mundus.sh

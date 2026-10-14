@@ -23,7 +23,6 @@
 #   make run PROGRAM=<image.bin>    run one image
 #   make wave PROGRAM=<image.bin>   same, with an FST waveform
 #   make isa            cpu-tests ISA regression (needs the riscv toolchain)
-#   make lint-npc       lint the legacy npc/Mundus DUT (default sim flow)
 #
 # See docs/c0_decisions.md (C0 decisions + verification evidence) and
 # docs/core_verification_flow.md (test strategy).
@@ -36,7 +35,7 @@ KCONFIG   := python3 $(ARES_HOME)/scripts/kconfig/ares_kconfig.py
 PROGRAM ?=
 
 .PHONY: all lint lint-all lint-backend lint-lsu unit unit-lsu tb-ares-pkg tb-fe-stub \
-        tb-mem-model sim run wave isa lint-npc clean menuconfig defconfig oldconfig \
+        tb-mem-model sim run wave isa clean menuconfig defconfig oldconfig \
         savedefconfig loaddefconfig showconfig test-config
 
 all: lint lint-backend lint-lsu tb-ares-pkg tb-fe-stub tb-mem-model unit unit-lsu
@@ -134,7 +133,7 @@ lint-lsu:
 	verilator $(VERILATOR_LINT_FLAGS) --top-module ares_core_top \
 	    $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
 	    $(wildcard $(RTL_ROOT)/backend/*.sv) $(wildcard $(RTL_ROOT)/memory/*.sv) \
-	    $(RTL_ROOT)/top/ares_core_top.sv || exit 1
+    $(RTL_ROOT)/top/ares_core_top.sv || exit 1
 
 unit:
 	@set -e; for tb in $(ARES_UNIT_TBS); do \
@@ -216,9 +215,6 @@ wave:
 
 isa:
 	@$(MAKE) -C $(ARES_HOME)/tests/cpu-tests ARCH=riscv32-ares run
-
-lint-npc:
-	@$(MAKE) -s -C $(ARES_HOME)/sim lint
 
 clean:
 	@$(MAKE) -s -C $(ARES_HOME)/sim clean
