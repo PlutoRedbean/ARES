@@ -1,0 +1,164 @@
+# Reproducible ARES Vivado projects
+
+Run from the repository with Python 3 and **Vivado 2025.2** on PATH. No original
+Vivado checkout, `npc/`, `miniTensor/`, XCI, generated RTL, DCP or GUI setup is
+required. All generated files belong in a new output directory.
+
+```bash
+# Generate the migrated student_top subsystem project and its IROM/BRAM IP.
+# 250 is an example requested CPU frequency, not measured Fmax.
+python3 scripts/vivado/create_project.py --cpu-mhz 250
+
+# Also generate the new board PLL, ready for a future physical board wrapper.
+python3 scripts/vivado/create_project.py --cpu-mhz 250 --with-pll \
+    --output build/vivado/with-pll
+
+# Run actual subsystem synthesis, including IP synthesis.
+python3 scripts/vivado/create_project.py --cpu-mhz 250 --stage synth \
+    --jobs 4 --output build/vivado/synth
+
+# Backend/LSU only, without SoC memory IPs.
+python3 scripts/vivado/create_project.py --profile core --cpu-mhz 250 \
+    --output build/vivado/core
+
+# The Makefile provides the same entry points.
+make vivado-project FPGA_CPU_MHZ=250 FPGA_OUT=build/vivado/team
+make test-vivado lint-soc unit-soc
+```
+
+The default `soc` profile uses **`student_top` with `ares_core_top Core_cpu`**.
+IQ, Redirect and BPU training ports remain the approved ARES FE contract;
+the real frontend is intentionally deferred by the integration decision.
+Both `soc` and `core` run synthesis **out of context**. Their external FE ports
+have no board pins or final I/O timing budget. They are useful for compilation
+and resource checks; **they cannot sign off MC4 or create a working board
+bitstream**. See [SoC integration decisions](../../docs/jyd_soc_integration.md).
+
+## What is preserved
+
+`baseline.xml` is a source/IP-free settings snapshot from the user-designated
+JYD2025 `digital_twin.xpr`. It preserves:
+
+- FPGA `xc7k325tffg900-2`, project/library/simulator options;
+- `synth_1` / `Flow_PerfOptimized_high`, including explicit synthesis options;
+- `impl_1` / `Performance_ExplorePostRoutePhysOpt`, post-route phys-opt and
+  `-tns_cleanup`, plus `impl_1_copy_1` and `impl_1_copy_2` settings;
+- report strategies and dashboard configuration;
+- board pin and clock-group constraints, copied verbatim to
+  `constraints/board.xdc`. Only the **board** profile applies these constraints.
+
+Old design sources, IP-specific filesets/runs, old testbench tops, memory
+images, waveforms, checkpoint paths, compiled state and project identity are
+not reused. A fresh project ID and ARES tops are assigned. The source management
+mode becomes `All` to let Vivado order ARES packages. XPM libraries are enabled
+for the migrated CDC helpers. In OOC profiles, `-mode out_of_context` and explicit
+clock constraints are added; the requested clock is recorded as a target.
+Automatic incremental synthesis remains configured, but **no old checkpoint**
+is loaded. IP runs are created afresh. Launcher concurrency defaults to four
+jobs and can be selected with `--jobs`; effective run properties are recorded.
+
+The template uses the original 2023-named run flows under Vivado 2025.2, matching
+the designated project's settings. Other tool versions require the explicit
+`--allow-version-mismatch` switch and separate validation. Historical reports
+and old source/IP contents are not evidence about ARES timing or correctness.
+
+## Sources, configuration and IP
+
+The source set is selected deterministically from `rtl/common`, `rtl/backend`,
+`rtl/memory`, and the applicable `rtl/top` / `rtl/soc/jyd` modules. Testbenches,
+DPI models, legacy CPU sources and the unmigrated frontend are excluded.
+`ares_pkg.sv` precedes `lsu_pkg.sv`; Vivado resolves the remaining compile order.
+
+The default configuration is the versioned `configs/defconfig` plus Kconfig
+defaults: `MUL_LATENCY=3`, `LINE_BYTES=32`. Local `menuconfig` state is never
+silently consumed. Select it explicitly if required:
+
+```bash
+python3 scripts/vivado/create_project.py --cpu-mhz 250 \
+    --config configs/build/.config --output build/vivado/local-config
+```
+
+IP recipes are versioned Tcl, not inherited XCI or DCP:
+
+| Recipe | Generated IP | Contract |
+|---|---|---|
+| `ip/memories.tcl` | `IROM_BMEM`, Block Memory Generator 8.4 | 4096 × 64-bit ROM, one-cycle synchronous read, 32KiB |
+| `ip/memories.tcl` | `BRAM`, Block Memory Generator 8.4 | 65536 × 32-bit simple dual-port RAM, four byte write enables, two-cycle registered read, 256KiB |
+| `ip/pll.tcl` | `pll`, Clocking Wizard 6.0 | differential 200MHz input, 50MHz output 1, requested CPU frequency on output 2, `locked`, no reset port |
+
+ARES's own GPR, Cache and queue storage still use RTL inference. No IP replaces
+these datapaths or changes their latency. XPM comes from the installed Vivado
+library. The optional PLL is generated but not instantiated by the OOC tops.
+
+Without program/data images, the platform memories are zero-filled; the
+resulting project is a build scaffold, not a bootable software image. Supply
+COE files explicitly; their radix, widths and maximum depths are checked:
+
+```bash
+python3 scripts/vivado/create_project.py --cpu-mhz 250 \
+    --irom-coe firmware/irom64.coe --dram-coe firmware/dram32.coe \
+    --output build/vivado/firmware
+```
+
+Every output directory contains an `inputs/` source/config/IP recipe snapshot,
+`inputs.json` with SHA-256 hashes and effective configuration, `generate.tcl`,
+`ares.xpr`, `compile_order.rpt`, `ip_status.rpt`, `settings.txt` and tool logs.
+Synthesis adds `reports/`. A subsequent checkout edit cannot silently change
+the sources used by that build. Re-run the Python command into a fresh directory
+to update inputs; existing directories are refused rather than overwritten.
+Vivado rejects `$`, `[` and `]` in imported HDL paths even when Tcl-quoted;
+the launcher rejects those paths before creating the output directory.
+
+`--prepare-only` writes the inputs and project scaffold without launching
+Vivado. It does **not** generate IP or validate vendor properties. Normally
+Vivado is launched automatically. Paths in the replay Tcl are relative to its
+own directory; after relocating a prepared build, run:
+
+```bash
+cd <prepared-output>
+vivado -mode batch -source generate.tcl
+```
+
+For an already-generated project, use a fresh generated build rather than
+replaying `create_ip` into populated IP directories.
+
+## Full board integration and routing
+
+The physical `top` and real FE are not supplied by this migration. Once the
+team integrates them, add a versioned JSON manifest. Paths are relative to the
+repository; source order is maintained before Vivado updates compile order.
+
+```json
+{
+  "top": "top",
+  "sources": ["rtl/board/top.sv", "rtl/frontend/fe_pkg.sv", "rtl/frontend/frontend.sv"],
+  "include_dirs": [],
+  "constraints": ["fpga/vivado/constraints/board_io_timing.xdc"],
+  "ip_recipes": []
+}
+```
+
+This is a schema example, **not a complete frontend file list**. Include every
+required FE implementation, contract adapter and IROM interface implementation.
+User IP recipes receive `ares_ip_dir`, `ares_cpu_mhz`, `ares_irom_coe` and
+`ares_dram_coe`; use explicit catalog versions and avoid host-local paths.
+
+```bash
+python3 scripts/vivado/create_project.py --profile board --manifest fpga/board.json \
+    --cpu-mhz 250 --stage route --output build/vivado/board-route
+```
+
+Board mode retains physical `top`, applies the original board XDC, generates
+PLL and memories, and runs through post-route physical optimization when
+requested. Missing sources/tops fail explicitly. Core/SoC profiles reject
+`--stage route`, so an OOC result cannot accidentally be presented as board
+sign-off. No automatic clock-frequency sweep, timing exceptions or bitstream
+programming is performed.
+
+Routing success means the implementation completed, **not that timing passed**.
+Review `timing_routed.rpt`, `check_timing_routed.rpt`, `utilization_routed.rpt`,
+`cdc_routed.rpt`, `clocks_routed.rpt`, `methodology_routed.rpt` and
+`route_status.rpt`. MC4 still requires actual CPU clock >200MHz, setup/hold
+passing in all applicable domains, and no unresolved unconstrained paths or
+constraint problems. The retained asynchronous clock groups and I/O constraints
+must be checked against the final CDC design and real board timing budgets.

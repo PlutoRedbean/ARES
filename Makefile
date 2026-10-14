@@ -1,0 +1,255 @@
+#=============================================================================
+# ARES - top level convenience targets
+#-----------------------------------------------------------------------------
+# The real build lives in sim/ (Verilator) and tests/ (AbstractMachine).  This
+# Makefile only wires the ARES core flow together:
+#
+#   make menuconfig     configure MUL_LATENCY / LINE_BYTES (saved in .config)
+#   make test-config    self-test for the configuration tool
+#   make defconfig      write the configuration defaults (no UI)
+#   make showconfig     print the effective configuration
+#   make savedefconfig  write configs/defconfig (non-default values only)
+#   make lint           ARES core RTL lint (-Wall --assert, zero-warning gate)
+#   make lint-all       lint every ARES test bench top
+#   make tb-ares-pkg    package layout / encoding self-test
+#   make tb-fe-stub     build + run the fe_stub contract test
+#   make tb-mem-model   build + run the TB memory model test
+#   make lint-backend   backend lint (be_top, -Wall --assert, zero warnings)
+#   make unit           backend unit + integration self-tests (C1 gate)
+#   make lint-lsu       LSU/memory lint + ares_core_top (C2/C3, zero warnings)
+#   make lint-mt        miniTensor SoC integration (S09) lint
+#   make unit-lsu       LSU unit + integration self-tests (C2 gate)
+#   make all            lint + unit tests (C0 + C1 + C2 gate)
+#   make sim            build the default ARES top (tb_ares_core)
+#   make run PROGRAM=<image.bin>    run one image
+#   make wave PROGRAM=<image.bin>   same, with an FST waveform
+#   make isa            cpu-tests ISA regression (needs the riscv toolchain)
+#
+# See docs/c0_decisions.md (C0 decisions + verification evidence) and
+# docs/core_verification_flow.md (test strategy).
+#=============================================================================
+ARES_HOME := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
+RTL_ROOT  ?= $(ARES_HOME)/rtl
+SIM       := $(MAKE) -s -C $(ARES_HOME)/sim ARES_RTL=1 RTL_ROOT=$(RTL_ROOT)
+KCONFIG   := python3 $(ARES_HOME)/scripts/kconfig/ares_kconfig.py
+
+PROGRAM ?=
+
+.PHONY: all lint lint-all lint-backend lint-lsu unit unit-lsu tb-ares-pkg tb-fe-stub \
+        tb-mem-model sim run wave isa clean menuconfig defconfig oldconfig \
+        savedefconfig loaddefconfig showconfig test-config
+
+all: lint lint-backend lint-lsu lint-mt tb-ares-pkg tb-fe-stub tb-mem-model unit unit-lsu
+
+# FPGA project generation is independent of legacy npc/ and vendor build files.
+# Explicit frequency keeps the requested clock visible in every team's command.
+VIVADO ?= vivado
+FPGA_CPU_MHZ ?=
+FPGA_OUT ?= $(ARES_HOME)/build/vivado/ares
+FPGA_PROFILE ?= soc
+FPGA_ARGS ?=
+.PHONY: vivado-project vivado-synth vivado-route test-vivado lint-soc unit-soc lint-mt
+vivado-project vivado-synth vivado-route:
+	@test -n "$(FPGA_CPU_MHZ)" || { echo "set FPGA_CPU_MHZ to a target strictly above 200"; exit 1; }
+	@python3 "$(ARES_HOME)/scripts/vivado/create_project.py" \
+	    --profile "$(FPGA_PROFILE)" --cpu-mhz "$(FPGA_CPU_MHZ)" \
+	    --output "$(FPGA_OUT)" --vivado "$(VIVADO)" \
+	    --stage $(if $(filter vivado-synth,$@),synth,$(if $(filter vivado-route,$@),route,generate)) $(FPGA_ARGS)
+
+test-vivado:
+	@python3 "$(ARES_HOME)/scripts/vivado/test_create_project.py"
+
+ARES_SOC_SRCS := $(wildcard $(RTL_ROOT)/soc/jyd/*.sv) \
+                $(RTL_ROOT)/soc/jyd/test/memory_ip_models.sv \
+                $(RTL_ROOT)/soc/jyd/test/xpm_cdc_models.sv
+
+# miniTensor SoC integration (S09): the vendored accelerator RTL plus the ARES
+# CV-X-IF host adapter and the JYD-platform integration top ares_soc_top.
+MINITENSOR_HOME ?= $(ARES_HOME)/miniTensor
+ARES_MT_SRCS := \
+    $(RTL_ROOT)/soc/ares_mt_host_adapter.sv \
+    $(MINITENSOR_HOME)/rtl/interface/core_v_xif.sv \
+    $(MINITENSOR_HOME)/rtl/common/minitensor_pkg.sv \
+    $(MINITENSOR_HOME)/rtl/tensor/tensor_pkg.sv \
+    $(MINITENSOR_HOME)/rtl/vector/vpu_pkg.sv \
+    $(MINITENSOR_HOME)/rtl/vector/vpu_vector_regfile.sv \
+    $(MINITENSOR_HOME)/rtl/vector/vpu_vector_alu.sv \
+    $(MINITENSOR_HOME)/rtl/control/vpu_vector_controller.sv \
+    $(MINITENSOR_HOME)/rtl/tensor/MXU/Systolic_Array/tensor_pe.sv \
+    $(MINITENSOR_HOME)/rtl/tensor/MXU/Systolic_Array/tensor_systolic_array.sv \
+    $(MINITENSOR_HOME)/rtl/tensor/MXU/INT8_GEMM/tensor_gemm_core.sv \
+    $(MINITENSOR_HOME)/rtl/tensor/tensor_controller.sv \
+    $(MINITENSOR_HOME)/rtl/tensor/Epilogue/tensor_epilogue_core.sv \
+    $(MINITENSOR_HOME)/rtl/tensor/Epilogue/tensor_epilogue_controller.sv \
+    $(MINITENSOR_HOME)/rtl/memory/unified_buffer.sv \
+    $(MINITENSOR_HOME)/rtl/memory/vpu_dma.sv \
+    $(MINITENSOR_HOME)/rtl/top/mini_tensor_top.sv
+
+# Empty pins are intentional debug observations / unused mailbox status.
+lint-soc:
+	@verilator $(VERILATOR_LINT_FLAGS) -Wno-PINCONNECTEMPTY --top-module student_top \
+	    $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
+	    $(wildcard $(RTL_ROOT)/backend/*.sv) $(wildcard $(RTL_ROOT)/memory/*.sv) \
+	    $(RTL_ROOT)/top/ares_core_top.sv $(RTL_ROOT)/top/student_top.sv $(ARES_SOC_SRCS)
+
+# miniTensor SoC integration (S09): elaborate the real JYD subtree together
+# with mini_tensor_top and the ARES CV-X-IF host adapter.  The DMA master is
+# exported by ares_soc_top and left for the future Fabric (SPEC-M7/M20/M21).
+lint-mt:
+	@echo "[lint] ares_soc_top + mini_tensor_top + ares_mt_host_adapter"
+	@verilator $(VERILATOR_LINT_FLAGS) -Wno-PINCONNECTEMPTY --top-module ares_soc_top \
+	    $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
+	    $(wildcard $(RTL_ROOT)/backend/*.sv) $(wildcard $(RTL_ROOT)/memory/*.sv) \
+	    $(RTL_ROOT)/top/ares_core_top.sv $(RTL_ROOT)/top/student_top.sv \
+	    $(RTL_ROOT)/top/ares_soc_top.sv $(ARES_SOC_SRCS) $(ARES_MT_SRCS)
+
+unit-soc:
+	@mkdir -p $(ARES_HOME)/sim/build/unit/tb_jyd_bus
+	@verilator --binary --timing --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+	    -Wno-PINCONNECTEMPTY -DCONFIG_SIMULATION --top-module tb_jyd_bus \
+	    --Mdir $(ARES_HOME)/sim/build/unit/tb_jyd_bus -o tb_jyd_bus \
+	    $(ARES_SOC_SRCS) $(RTL_ROOT)/soc/jyd/test/tb_jyd_bus.sv
+	@$(ARES_HOME)/sim/build/unit/tb_jyd_bus/tb_jyd_bus
+	@mkdir -p $(ARES_HOME)/sim/build/unit/tb_student_top
+	@verilator --binary --timing --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+	    -Wno-PINCONNECTEMPTY -DCONFIG_SIMULATION --top-module tb_student_top \
+	    --Mdir $(ARES_HOME)/sim/build/unit/tb_student_top -o tb_student_top \
+	    $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
+	    $(wildcard $(RTL_ROOT)/backend/*.sv) $(wildcard $(RTL_ROOT)/memory/*.sv) \
+	    $(RTL_ROOT)/top/ares_core_top.sv $(RTL_ROOT)/top/student_top.sv $(ARES_SOC_SRCS) \
+	    $(RTL_ROOT)/soc/jyd/test/tb_student_top.sv
+	@$(ARES_HOME)/sim/build/unit/tb_student_top/tb_student_top
+
+#-----------------------------------------------------------------------------
+# Backend (C1): lint the backend subsystem top and run the standalone
+# self-checking benches under rtl/backend/test/unit/ (each has its own clock,
+# so they are built with "verilator --binary --timing" and are deliberately
+# outside the sim/Makefile VSRCS glob).
+#-----------------------------------------------------------------------------
+ARES_UNIT_TBS  := tb_decode tb_fu_exec tb_bru_csr tb_backend
+ARES_UNIT_SRCS := $(RTL_ROOT)/common/ares_pkg.sv $(wildcard $(RTL_ROOT)/backend/*.sv) \
+                  $(RTL_ROOT)/backend/test/lsu_stub.sv \
+                  $(wildcard $(RTL_ROOT)/backend/test/unit/*.sv)
+
+#-----------------------------------------------------------------------------
+# LSU / memory (C2): unit self-checking benches under rtl/memory/test/unit/.
+# The benches are their own top modules (own clock, no DPI model, no harness),
+# so they are built with "verilator --binary --timing" and are deliberately
+# outside the sim/Makefile VSRCS glob.
+#-----------------------------------------------------------------------------
+ARES_LSU_UNIT_TBS  := tb_lsu_agu tb_store_forward tb_sq tb_lq tb_lsu_completion \
+                      tb_line_adapter tb_lsu \
+                      tb_dcache_arrays tb_wb_buffer tb_mshr tb_mmio_bridge
+ARES_LSU_UNIT_SRCS := $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
+                      $(wildcard $(RTL_ROOT)/memory/*.sv) \
+                      $(wildcard $(RTL_ROOT)/memory/test/unit/*.sv)
+VERILATOR_LINT_FLAGS := --lint-only -Wall --assert -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+                        -DCONFIG_SIMULATION
+
+lint-backend:
+	@for top in be_top ciq be_issue_sched be_operand_read be_commit be_flush be_trap_ctrl \
+	            be_completion be_checkpoint be_producer_map be_bpu_update be_redirect be_gpr; do \
+	  echo "[lint] $$top"; \
+	  verilator $(VERILATOR_LINT_FLAGS) --top-module $$top \
+	      $(RTL_ROOT)/common/ares_pkg.sv $(wildcard $(RTL_ROOT)/backend/*.sv) || exit 1; \
+	done
+
+# LSU / memory lint, including the C3 core top (ares_core_top needs both
+# subsystems, so it is linted together with the backend and memory sources).
+lint-lsu:
+	@for top in store_forward lsu_agu lq sq lsu_completion line_adapter \
+	            dcache_arrays dcache_top mshr wb_buffer mmio_bridge lsu_top; do \
+	  echo "[lint] $$top"; \
+	  verilator $(VERILATOR_LINT_FLAGS) --top-module $$top \
+	      $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
+	      $(wildcard $(RTL_ROOT)/memory/*.sv) $(wildcard $(RTL_ROOT)/memory/test/*.sv) || exit 1; \
+	done
+	@echo "[lint] ares_core_top"; \
+	verilator $(VERILATOR_LINT_FLAGS) --top-module ares_core_top \
+	    $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
+	    $(wildcard $(RTL_ROOT)/backend/*.sv) $(wildcard $(RTL_ROOT)/memory/*.sv) \
+    $(RTL_ROOT)/top/ares_core_top.sv || exit 1
+
+unit:
+	@set -e; for tb in $(ARES_UNIT_TBS); do \
+	  d=$(ARES_HOME)/sim/build/unit/$$tb; \
+	  echo "[unit] $$tb"; \
+	  rm -rf $$d; mkdir -p $$d/ccache-tmp; \
+	  CCACHE_TEMPDIR=$$d/ccache-tmp verilator --binary --timing -sv --assert \
+	      -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD -DCONFIG_SIMULATION \
+	      --top-module $$tb --Mdir $$d -o $$d/$$tb $(ARES_UNIT_SRCS); \
+	  $$d/$$tb | tail -3; \
+	done
+
+unit-lsu:
+	@set -e; for tb in $(ARES_LSU_UNIT_TBS); do \
+	  d=$(ARES_HOME)/sim/build/unit/$$tb; \
+	  echo "[unit-lsu] $$tb"; \
+	  rm -rf $$d; mkdir -p $$d/ccache-tmp; \
+	  CCACHE_TEMPDIR=$$d/ccache-tmp verilator --binary --timing -sv --assert \
+	      -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD -DCONFIG_SIMULATION \
+	      --top-module $$tb --Mdir $$d -o $$d/$$tb $(ARES_LSU_UNIT_SRCS); \
+	  if $$d/$$tb > $$d/run.log 2>&1; then \
+	    grep -E "ALL TESTS PASSED" $$d/run.log | head -1; \
+	  else \
+	    echo "*** $$tb FAILED ***"; tail -20 $$d/run.log; exit 1; \
+	  fi; \
+	done
+
+#-----------------------------------------------------------------------------
+# Core configuration (Kconfig subset, see scripts/kconfig/README.md).
+# .config lands in configs/build/.config and drives both the Verilator -D
+# defines and the generated ares_autoconf.vh header.
+#-----------------------------------------------------------------------------
+menuconfig:
+	@$(KCONFIG) menuconfig
+
+defconfig:
+	@$(KCONFIG) defconfig
+
+oldconfig:
+	@$(KCONFIG) oldconfig
+
+savedefconfig:
+	@$(KCONFIG) savedefconfig
+
+loaddefconfig:
+	@$(KCONFIG) loaddefconfig
+
+showconfig:
+	@$(KCONFIG) show
+
+test-config:
+	@python3 $(ARES_HOME)/scripts/kconfig/test_kconfig.py
+
+lint:
+	@$(SIM) lint
+
+lint-all:
+	@$(SIM) lint-all
+
+tb-ares-pkg:
+	@$(SIM) tb-ares-pkg
+
+tb-fe-stub:
+	@$(SIM) tb-fe-stub
+
+tb-mem-model:
+	@$(SIM) tb-mem-model
+
+sim:
+	@$(SIM)
+
+run:
+	@test -n "$(PROGRAM)" || { echo "usage: make run PROGRAM=<image.bin>"; exit 1; }
+	@$(SIM) run PROGRAM=$(PROGRAM)
+
+wave:
+	@test -n "$(PROGRAM)" || { echo "usage: make wave PROGRAM=<image.bin>"; exit 1; }
+	@$(SIM) wave PROGRAM=$(PROGRAM)
+
+isa:
+	@$(MAKE) -C $(ARES_HOME)/tests/cpu-tests ARCH=riscv32-ares run
+
+clean:
+	@$(MAKE) -s -C $(ARES_HOME)/sim clean

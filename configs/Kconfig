@@ -1,0 +1,70 @@
+#=============================================================================
+# ARES core configuration menu (Kconfig subset)
+#-----------------------------------------------------------------------------
+# Read by scripts/kconfig/ares_kconfig.py (dependency-free) and driven with
+#
+#     make menuconfig        interactive menu
+#     make defconfig         write the defaults to configs/build/.config
+#     make savedefconfig     write configs/defconfig (non-default values only)
+#     make showconfig        print the effective configuration
+#
+# The generated header configs/build/vsrc/include/ares_autoconf.vh and the
+# Verilator -D flags consumed by sim/Makefile both come from the same .config.
+#
+# SUPPORTED SUBSET: mainmenu / menu / endmenu / source / config / choice /
+# endchoice / comment, the bool|int|hex|string types, prompt, default, range
+# and help.  depends on / select / imply are NOT implemented - the parser stops
+# with an explicit error instead of silently mis-evaluating a dependency.
+#
+# IMPORTANT: a symbol may only change an internal implementation parameter.
+# The cross-boundary field layout frozen in rtl/common/ares_pkg.sv
+# (docs/c0_decisions.md D-C0-02, SPEC-C5) must stay identical for every
+# configuration, otherwise separately compiled modules disagree.
+#=============================================================================
+
+mainmenu "ARES Core Configuration"
+
+menu "Pipeline"
+
+config MUL_LATENCY
+    int "Full MUL pipeline latency (stages)"
+    range 2 3
+    default 3
+    help
+      Fully pipelined MUL/MULH/MULHSU/MULHU latency (II = 1 either way),
+      backend.md section 9.4.
+
+      3 - two pipeline stages plus a final add stage; more timing margin for
+          the >200 MHz target (frozen C0 default, reviewed 2026-02).
+      2 - one stage less (fewer registers, less area) if the C4 PPA run shows
+          the multiplier is not critical and area matters more.
+
+      Neither value changes an external contract: a completion must still
+      happen exactly once and no earlier than the cycle after issue.
+
+endmenu # "Pipeline"
+
+menu "Memory"
+
+choice LINE_BYTES
+    prompt "DCache line size"
+    default LINE_BYTES_32
+    help
+      Cache line size of the 2-way write-back DCache, memory.md section 6.1.
+      Only 16/32/64 bytes are architecturally allowed.
+
+      Line size changes LINE_BEATS / ROWS_PER_LINE and therefore the MSHR,
+      writeback-buffer and line-adapter datapaths - not the memory bus
+      protocol (16B/beat) or any cross-boundary field layout.
+
+    config LINE_BYTES_16
+        bool "16 bytes (1 beat per line)"
+
+    config LINE_BYTES_32
+        bool "32 bytes (2 beats per line)"
+
+    config LINE_BYTES_64
+        bool "64 bytes (4 beats per line)"
+endchoice
+
+endmenu # "Memory"

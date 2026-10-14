@@ -1,0 +1,28 @@
+# Simulation build output
+/build/
+/obj_dir/
+/integration/npc/obj_shim/
+*.vcd
+*.fst
+*.o
+*.a
+*.d
+
+# Local Python environments / caches / scratch files
+/.venv/
+.pytest_cache/
+__pycache__/
+*.pyc
+/tmp/
+/for_ai
+
+# Runtime logs (historical summaries remain in versioned documentation)
+*.log
+/integration/logs/
+
+# Superseded nine-stage fixture backups; keep local copies if useful
+/handoff/archive/9stage/
+
+# Reproducible weight blobs; retain the ONNX model and golden headers as inputs.
+/models/yc_weights.bin
+/models/ym_weights.bin
