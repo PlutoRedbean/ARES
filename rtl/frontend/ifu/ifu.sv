@@ -1,22 +1,20 @@
-// Instruction Fetch Unit (IFU).
+// Instruction Fetch Unit (IFU) -- pipelined.
 //
 // After the BPU/IFU decoupling the IFU no longer owns a fetch PC: it pulls
 // fetch targets from the FTQ (one entry per predicted Fetch Block) and pushes
 // the fetched instructions into the IQ (the IFU-IDU interface).
 //
-// The front-end is 4-wide: every FTQ entry describes a Fetch Block, the IFU
-// asks the icache for up to FETCH_WIDTH instructions starting at `start_pc`, runs
-// a pre-decode over the returned block and hands it over to the IQ.  When the
-// BPU predicted the block's CFI taken the block is cut right behind it (the
-// BPU's next PC is the target); otherwise the block runs to its end and the
-// back-end redirects on any control-flow instruction that was not predicted.
-// The unused slots are masked off with `iq_wmask`.
+// This version splits the work into two concurrent stages connected by a
+// 2-entry fetch FIFO:
 //
-//   FTQ --(start_pc, pred_meta, cfi info)--> IFU
-//   IFU --(pc)--> icache --> IFU --(Fetch Block)--> IQ --> IDU
+//   Stage F (fetch engine): FTQ pop -> icache request -> icache response ->
+//                           push the fetched block into the FIFO.
+//   Stage P (pre-decode / check / IQ write): pop the FIFO -> pre-decode ->
+//                           check against the BPU prediction -> IQ write.
 //
-// A redirect kills any in-flight icache request (poison/drain); the IQ and the
-// FTQ are flushed by their own `flush` inputs.
+// The fetch engine can run ahead (up to the FIFO depth) while stage P is
+// pre-decoding the previous block, hiding the icache latency behind the tail
+// instead of serializing the two.
 module ifu #(
     parameter int unsigned ADDR_WIDTH = 32,
     parameter int unsigned RESET_VEC  = 32'h8000_0000
@@ -28,48 +26,41 @@ module ifu #(
     input logic [ADDR_WIDTH - 1:0] redirect_pc,
 
     // Fetch Target Queue read port
-    input  logic                ftq_rvalid,
-    output logic                ifu_rready,
+    input  logic               ftq_rvalid,
+    output logic               ifu_rready,
     input  fe_pkg::ftq_entry_t ftq_rdata,
 
     // Instruction Queue write port (IFU -> IDU)
-    output logic                                            iq_wvalid,
-    output fe_pkg::iq_entry_t                              iq_wdata [fe_pkg::FETCH_WIDTH],
-    output logic               [fe_pkg::FETCH_WIDTH - 1:0] iq_wmask,
-    input  logic                                            iq_wready,
+    output logic                                          iq_wvalid,
+    output fe_pkg::iq_entry_t                             iq_wdata [fe_pkg::FETCH_WIDTH],
+    output logic              [fe_pkg::FETCH_WIDTH - 1:0] iq_wmask,
+    input  logic                                          iq_wready,
 
     // fetch target in flight (difftest/debug side-channel)
     output logic [ADDR_WIDTH - 1:0] fetch_pc_out,
 
-    // front-end (predecode-vs-prediction) redirect: flushes BPU/FTQ and the
-    // IFU pipeline.  Valid for one cycle, together with the corrected PC.
+    // front-end (predecode-vs-prediction) redirect
     output logic                    fe_redirect_valid,
     output logic [ADDR_WIDTH - 1:0] fe_redirect_pc,
 
     // icache request/response channel
-    output logic                              icache_req_valid,
-    output logic [          ADDR_WIDTH - 1:0] icache_req_addr,
-    input  logic                              icache_req_ready,
-    input  logic                              icache_resp_valid,
-    input  logic [          ADDR_WIDTH - 1:0] icache_resp_data [fe_pkg::FETCH_WIDTH],
+    output logic                             icache_req_valid,
+    output logic [         ADDR_WIDTH - 1:0] icache_req_addr,
+    input  logic                             icache_req_ready,
+    input  logic                             icache_resp_valid,
+    input  logic [         ADDR_WIDTH - 1:0] icache_resp_data [fe_pkg::FETCH_WIDTH],
     input  logic [fe_pkg::FETCH_WIDTH - 1:0] icache_resp_rmask,
-    output logic                              icache_resp_ready
+    output logic                             icache_resp_ready
 );
     import fe_pkg::*;
 
-    typedef enum logic [2:0] {
-        S_IDLE = '0,
-        S_REQ,
-        S_RESP,
-        S_REQ_NEXT,
-        S_RESP_NEXT,
-        S_PRE_DECO,
-        S_CHECK
-    } state_t;
-
     localparam int unsigned SLOT_IDX_W = (FETCH_WIDTH > 1) ? $clog2(FETCH_WIDTH) : 1;
+    localparam int unsigned FB_DEPTH   = 2;
+    localparam int unsigned FB_CNT_W   = $clog2(FB_DEPTH + 1);
 
-    // per-slot pre-decode classification (combinational)
+    // ------------------------------------------------
+    // types
+    // ------------------------------------------------
     typedef struct packed {
         cfi_type_t cfi_type;
         logic      is_cfi;
@@ -78,212 +69,246 @@ module ifu #(
         logic      is_branch;
     } slot_dec_t;
 
-    // per-slot pre-decode result, registered one cycle before the check
     typedef struct packed {
         logic [ADDR_WIDTH-1:0] base_pc;
         logic [ADDR_WIDTH-1:0] target;
         cfi_type_t             cfi_type;
-        logic                  valid;         // valid slot inside the block
-        logic                  inrange;       // within predicted block range
+        logic                  valid;
+        logic                  inrange;
         logic                  is_cfi;
         logic                  is_jal;
         logic                  is_jalr;
         logic                  is_ret;
-        logic                  target_valid;  // direct target is computable
+        logic                  target_valid;
     } predecode_slot_t;
 
-    // ------------------------------------------------
-    // registers
-    // ------------------------------------------------
-    state_t ifu_state;
-    state_t ifu_n_state;
-
-    // fetch target and per-slot prediction latched from the FTQ
-    logic [ADDR_WIDTH - 1:0] fetch_pc_r;
-    pred_meta_t pred_meta_q[FETCH_WIDTH];
-    logic [FETCH_WIDTH - 1:0] pred_cfi_valid_q;
-    cfi_type_t [FETCH_WIDTH - 1:0] pred_cfi_type_q;
+    typedef struct packed {
+        logic [ADDR_WIDTH-1:0] pc;
+        pred_meta_t [FETCH_WIDTH-1:0] pred_meta;
+        logic [FETCH_WIDTH-1:0] pred_cfi_valid;
+        cfi_type_t [FETCH_WIDTH-1:0] pred_cfi_type;
+        logic [FETCH_WIDTH-1:0][ADDR_WIDTH-1:0] inst;
+        logic [FETCH_WIDTH-1:0] rmask;
+    } fetch_block_t;
 
     // ------------------------------------------------
-    // assembled Fetch Block
+    // redirect
     // ------------------------------------------------
-    logic [ADDR_WIDTH - 1:0] fetch_block_inst[FETCH_WIDTH];
-    logic [FETCH_WIDTH - 1:0] fetch_block_rmask;
-
-    // first icache response of a block that crosses a cache line boundary
-    logic [FETCH_WIDTH - 1:0] first_response_rmask;
-
-    // the response of an outstanding (pre-redirect) request must be dropped
-    logic drop_pending;
-    logic poison_q;
-
-    logic capture_response;
-
-    // front-end redirect (predecode-vs-prediction mismatch).  The error and the
-    // corrected PC are produced by the predecode check stage below.
     logic err_valid;
     logic [SLOT_IDX_W-1:0] err_idx;
-
-    // effective redirect applied inside the IFU; a back-end redirect has
-    // priority over the front-end one.
     wire ifu_flush = flush | fe_redirect_valid;
     wire [ADDR_WIDTH-1:0] ifu_redirect_pc = flush ? redirect_pc : fe_redirect_pc;
 
+    typedef enum logic {
+        P_IDLE  = 1'b0,
+        P_CHECK = 1'b1
+    } pstate_t;
+    pstate_t p_state;
+    pstate_t p_nstate;
+
     // ------------------------------------------------
-    // icache request/response channel (driven to/from top.sv)
+    // Stage F: fetch engine
     // ------------------------------------------------
-    wire issuing = (ifu_state == S_REQ) || (ifu_state == S_REQ_NEXT);
-    wire waiting_response = (ifu_state == S_RESP) || (ifu_state == S_RESP_NEXT);
+    typedef enum logic [1:0] {
+        F_IDLE  = '0,
+        F_RESP,
+        F_REQ2,
+        F_RESP2
+    } fstate_t;
+    fstate_t f_state;
+    fstate_t f_nstate;
 
-    assign icache_req_valid  = issuing;
-    assign icache_resp_ready = waiting_response;
+    logic [ADDR_WIDTH-1:0] f_pc;
+    logic [ADDR_WIDTH-1:0] f_second_pc;
+    pred_meta_t f_pred_meta[FETCH_WIDTH];
+    logic [FETCH_WIDTH-1:0] f_cfi_valid;
+    cfi_type_t [FETCH_WIDTH-1:0] f_cfi_type;
+    logic [ADDR_WIDTH-1:0] f_inst[FETCH_WIDTH];  // first response (line crossing)
+    logic [FETCH_WIDTH-1:0] f_first_rmask;
+    logic poison_q;
 
-    wire req_accept = icache_req_valid && icache_req_ready;
-    wire resp_accpet = icache_resp_valid && icache_resp_ready;
+    // ---- fetch FIFO ----
+    fetch_block_t fetch_block_fifo[FB_DEPTH];
+    logic [FB_CNT_W-1:0] fb_count;
+    logic fb_wptr;
+    logic fb_rptr;
+    wire fb_empty = (fb_count == '0);
+    wire fb_full = (fb_count == FB_CNT_W'(FB_DEPTH));
 
-    // pop an FTQ entry only when the IQ can take the fetched block
-    assign ifu_rready = (ifu_state == S_IDLE) && ftq_rvalid && iq_wready && !ifu_flush;
-
-    // number of instructions returned by the first icache response
-    logic [FETCH_WIDTH - 1:0] first_respond_valid_cnt;
+    // number of instructions in the incoming response
+    logic [FETCH_WIDTH-1:0] f_resp_valid_cnt;
     always_comb begin
-        first_respond_valid_cnt = '0;
+        f_resp_valid_cnt = '0;
+        for (int i = 0; i < FETCH_WIDTH; i++)
+        f_resp_valid_cnt = f_resp_valid_cnt + FETCH_WIDTH'(icache_resp_rmask[i]);
+    end
+
+    // instructions returned by the first response of a crossing block
+    logic [FETCH_WIDTH-1:0] f_first_cnt;
+    always_comb begin
+        f_first_cnt = '0;
+        for (int i = 0; i < FETCH_WIDTH; i++)
+        f_first_cnt = f_first_cnt + FETCH_WIDTH'(f_first_rmask[i]);
+    end
+
+    // block assembled for the FIFO push (registered metadata + live response)
+    logic [ ADDR_WIDTH-1:0] f_push_inst  [FETCH_WIDTH];
+    logic [FETCH_WIDTH-1:0] f_push_rmask;
+    always_comb begin
         for (int i = 0; i < FETCH_WIDTH; i++) begin
-            first_respond_valid_cnt = first_respond_valid_cnt + FETCH_WIDTH'(first_response_rmask[i]);
+            if ((f_state == F_RESP2) && (FETCH_WIDTH'(i) >= f_first_cnt)) begin
+                f_push_inst[i]  = icache_resp_data[SLOT_IDX_W'(FETCH_WIDTH'(i)-f_first_cnt)];
+                f_push_rmask[i] = icache_resp_rmask[SLOT_IDX_W'(FETCH_WIDTH'(i)-f_first_cnt)];
+            end else if (f_state == F_RESP2) begin
+                f_push_inst[i]  = f_inst[i];
+                f_push_rmask[i] = f_first_rmask[i];
+            end else begin
+                f_push_inst[i]  = icache_resp_data[i];
+                f_push_rmask[i] = icache_resp_rmask[i];
+            end
         end
     end
 
-    // number of instructions in the incoming (current) response
-    logic [FETCH_WIDTH - 1:0] resp_valid_cnt;
+    wire icache_req_accept = icache_req_valid && icache_req_ready;
+    wire icache_resp_accept = icache_resp_valid && icache_resp_ready;
+
+    // The checked block is always written to the IQ; a front-end redirect only
+    // corrects where the *next* fetch starts.  Only a back-end flush suppresses
+    // the write.
+
+    wire fb_pop = (p_state == P_CHECK) && !flush && iq_wready;
+    // Room for a push this cycle (a simultaneous pop frees a slot).
+    wire f_can_push = (fb_count < FB_CNT_W'(FB_DEPTH)) || fb_pop;
+    // A crossing first response never completes the block, so it needs no room.
+    // Any outstanding response must be drained on/after a flush.
+    wire f_resp_ready_ok = (ifu_flush || poison_q) ? 1'b1 :
+        (f_state == F_RESP)  ? (f_can_push || !(&icache_resp_rmask)) :
+        (f_state == F_RESP2) ? f_can_push : 1'b0;
+
+    wire f_block_done =
+        (f_state == F_RESP  && icache_resp_accept && (&icache_resp_rmask)) ||
+        (f_state == F_RESP2 && icache_resp_accept);
+    wire fb_push = f_block_done && !poison_q && !ifu_flush && f_can_push;
+
+
+    wire f_want_start = (f_state == F_IDLE) && !fb_full && ftq_rvalid && !ifu_flush;
+    wire f_start = f_want_start && icache_req_ready;
+
     always_comb begin
-        resp_valid_cnt = '0;
-        for (int i = 0; i < FETCH_WIDTH; i++) begin
-            resp_valid_cnt = resp_valid_cnt + FETCH_WIDTH'(icache_resp_rmask[i]);
-        end
-    end
-
-    // a crossing block needs a second request that starts right at the next
-    // cache line boundary
-    logic [ADDR_WIDTH - 1:0] second_fetch_pc_r;
-
-    always_ff @(posedge clk) begin
-        if (ifu_state == S_RESP && capture_response)
-            second_fetch_pc_r <= fetch_pc_r + (ADDR_WIDTH'(resp_valid_cnt) << 2);
-    end
-
-    assign icache_req_addr = (ifu_state == S_REQ_NEXT) ? second_fetch_pc_r : fetch_pc_r;
-
-    // ---------------------
-    // ifu state machine
-    // ---------------------
-    always_comb begin
-        ifu_n_state = ifu_state;  // default: hold the current state
-        unique case (ifu_state)
-            S_IDLE: begin
-                if (ifu_rready) ifu_n_state = S_REQ;
+        f_nstate = f_state;
+        unique case (f_state)
+            F_IDLE: begin
+                if (f_start) f_nstate = F_RESP;
             end
-            S_REQ: begin
-                if (ifu_flush && !req_accept) ifu_n_state = S_IDLE;  // cancel request
-                else if (req_accept) ifu_n_state = S_RESP;
-            end
-            S_RESP: begin
-                if (resp_accpet) begin
-                    if (poison_q || ifu_flush) ifu_n_state = S_IDLE;  // drop stale block
-                    else if (!(&icache_resp_rmask)) ifu_n_state = S_REQ_NEXT;
-                    else ifu_n_state = S_PRE_DECO;
+            F_RESP: begin
+                if (icache_resp_accept) begin
+                    if (poison_q || ifu_flush) f_nstate = F_IDLE;
+                    else if (!(&icache_resp_rmask)) f_nstate = F_REQ2;
+                    else f_nstate = F_IDLE;
                 end
             end
-            S_REQ_NEXT: begin
-                if (ifu_flush && !req_accept) ifu_n_state = S_IDLE;
-                else if (req_accept) ifu_n_state = S_RESP_NEXT;
+            F_REQ2: begin
+                if (ifu_flush && !icache_req_accept) f_nstate = F_IDLE;
+                else if (icache_req_accept) f_nstate = F_RESP2;
             end
-            S_RESP_NEXT: begin
-                if (resp_accpet) begin
-                    if (poison_q || ifu_flush) ifu_n_state = S_IDLE;
-                    else ifu_n_state = S_PRE_DECO;
-                end
+            F_RESP2: begin
+                if (icache_resp_accept) f_nstate = F_IDLE;
             end
-            S_PRE_DECO: begin
-                // predecode results are registered here; the check (and possible
-                // front-end redirect) happens in the next cycle (S_CHECK)
-                if (ifu_flush) ifu_n_state = S_IDLE;
-                else ifu_n_state = S_CHECK;
-            end
-            S_CHECK: begin
-                // The checked block is always handed to the IQ (truncated at the
-                // mispredicted slot); a front-end redirect only corrects where
-                // the *next* fetch starts, so already-fetched instructions on
-                // the correct path are not lost.
-                if (ifu_flush) ifu_n_state = S_IDLE;
-                else if (iq_wready) ifu_n_state = S_IDLE;
-            end
-            default: ifu_n_state = S_IDLE;
+            default: f_nstate = F_IDLE;
         endcase
     end
 
-    // poison flag: a response belonging to a pre-redirect request must be
-    // drained and discarded before a new request for the redirect pc.
-    assign drop_pending =
-        ifu_flush && ((issuing && req_accept) ||
-                      (waiting_response && !icache_resp_valid));
+    assign ifu_rready        = f_start;
+    assign icache_req_valid  = f_want_start || (f_state == F_REQ2);
+    assign icache_req_addr   = (f_state == F_REQ2) ? f_second_pc : ftq_rdata.start_pc;
+    assign icache_resp_ready = ((f_state == F_RESP) || (f_state == F_RESP2)) && f_resp_ready_ok;
+    assign fetch_pc_out      = f_pc;
 
-    // an icache response may only be consumed while no redirect is pending
-    assign capture_response = resp_accpet && !poison_q && !ifu_flush;
+    wire f_drop_pending =
+        ifu_flush && ((icache_req_valid && icache_req_ready) ||
+                      (((f_state == F_RESP) || (f_state == F_RESP2)) &&
+                       !icache_resp_valid));
 
+    // ---- Stage F registers ----
     always_ff @(posedge clk) begin
         if (rst) begin
-            ifu_state            <= S_IDLE;
-            fetch_pc_r           <= RESET_VEC;
-            for (int i = 0; i < FETCH_WIDTH; i++) pred_meta_q[i] <= '0;
-            pred_cfi_valid_q     <= '0;
-            pred_cfi_type_q      <= '0;
-            fetch_block_rmask    <= '0;
-            first_response_rmask <= '0;
-            poison_q             <= '0;
-            for (int i = 0; i < FETCH_WIDTH; i++) fetch_block_inst[i] <= '0;
+            f_state       <= F_IDLE;
+            f_pc          <= RESET_VEC;
+            f_second_pc   <= '0;
+            f_first_rmask <= '0;
+            poison_q      <= 1'b0;
+            for (int i = 0; i < FETCH_WIDTH; i++) begin
+                f_pred_meta[i] <= '0;
+                f_inst[i]      <= '0;
+            end
+            f_cfi_valid <= '0;
+            f_cfi_type  <= '0;
         end else begin
-            ifu_state <= ifu_n_state;
+            f_state <= f_nstate;
 
-            if (drop_pending) poison_q <= 1'b1;
-            else if (resp_accpet && poison_q) poison_q <= 1'b0;
+            if (f_drop_pending) poison_q <= 1'b1;
+            else if (icache_resp_accept && poison_q) poison_q <= 1'b0;
 
-            if (ifu_flush) begin
-                // keep the reported fetch target meaningful while the FTQ is
-                // being refilled after a redirect
-                fetch_pc_r <= ifu_redirect_pc;
-            end else if (ifu_rready) begin
-                fetch_pc_r <= ftq_rdata.start_pc;
-                for (int i = 0; i < FETCH_WIDTH; i++) pred_meta_q[i] <= ftq_rdata.pred_meta[i];
-                pred_cfi_valid_q <= ftq_rdata.pred_cfi_valid;
-                pred_cfi_type_q  <= ftq_rdata.pred_cfi_type;
+            if (ifu_flush) f_pc <= ifu_redirect_pc;
+
+            if (f_start) begin
+                f_pc <= ftq_rdata.start_pc;
+                for (int i = 0; i < FETCH_WIDTH; i++) f_pred_meta[i] <= ftq_rdata.pred_meta[i];
+                f_cfi_valid <= ftq_rdata.pred_cfi_valid;
+                f_cfi_type  <= ftq_rdata.pred_cfi_type;
             end
 
-            // latch the first response of the block
-            if (ifu_state == S_RESP && capture_response) begin
-                first_response_rmask <= icache_resp_rmask;
-                fetch_block_rmask    <= icache_resp_rmask;
-                for (int i = 0; i < FETCH_WIDTH; i++) begin
-                    fetch_block_inst[i] <= icache_resp_data[i];
-                end
-            end
-
-            // complete the block with the second response when the window
-            // crossed a cache line boundary
-            if (ifu_state == S_RESP_NEXT && capture_response) begin
-                for (int i = 0; i < FETCH_WIDTH; i++) begin
-                    if (FETCH_WIDTH'(i) >= first_respond_valid_cnt) begin
-                        fetch_block_inst[i]  <= icache_resp_data[SLOT_IDX_W'(FETCH_WIDTH'(i) - first_respond_valid_cnt)];
-                        fetch_block_rmask[i] <= icache_resp_rmask[SLOT_IDX_W'(FETCH_WIDTH'(i) - first_respond_valid_cnt)];
-                    end
-                end
+            // first response of a block (kept for a possible line-crossing merge)
+            if (f_state == F_RESP && icache_resp_accept && !poison_q && !ifu_flush) begin
+                f_first_rmask <= icache_resp_rmask;
+                for (int i = 0; i < FETCH_WIDTH; i++) f_inst[i] <= icache_resp_data[i];
+                if (!(&icache_resp_rmask))
+                    f_second_pc <= f_pc + (ADDR_WIDTH'(f_resp_valid_cnt) << 2);
             end
         end
     end
 
+    // ---- pipeline FIFO storage ----
+    always_ff @(posedge clk) begin
+        if (rst || ifu_flush) begin
+            fb_count <= '0;
+            fb_wptr  <= 1'b0;
+            fb_rptr  <= 1'b0;
+        end else begin
+            if (fb_push) begin
+                fetch_block_fifo[fb_wptr].pc             <= f_pc;
+                fetch_block_fifo[fb_wptr].rmask          <= f_push_rmask;
+                fetch_block_fifo[fb_wptr].pred_cfi_valid <= f_cfi_valid;
+                fetch_block_fifo[fb_wptr].pred_cfi_type  <= f_cfi_type;
+                for (int i = 0; i < FETCH_WIDTH; i++) begin
+                    fetch_block_fifo[fb_wptr].inst[i]      <= f_push_inst[i];
+                    fetch_block_fifo[fb_wptr].pred_meta[i] <= f_pred_meta[i];
+                end
+                fb_wptr <= ~fb_wptr;
+            end
+            if (fb_pop && !fb_empty) fb_rptr <= ~fb_rptr;
+            fb_count <= fb_count + FB_CNT_W'(fb_push) - FB_CNT_W'(fb_pop);
+        end
+    end
+
     // ------------------------------------------------
-    // pre-decode: classify the control-flow instruction of every slot
+    // Stage P: pre-decode / check / IQ write
     // ------------------------------------------------
-    slot_dec_t slot_dec[FETCH_WIDTH];
+
+
+    fetch_block_t p_blk;
+    assign p_blk = fetch_block_fifo[fb_rptr];
+    // Block latched for the check/write stage: the pre-decode and the check must
+    // both use a stable snapshot, because the fetch engine / FIFO may change
+    // while stage P holds for IQ backpressure.
+    fetch_block_t                      pd_blk;
+
+    predecode_slot_t                   predecode_r      [FETCH_WIDTH];
+    logic            [ ADDR_WIDTH-1:0] predecode_pc_r;
+    slot_dec_t                         slot_dec         [FETCH_WIDTH];
+    logic                              block_end_valid;
+    logic            [FETCH_WIDTH-1:0] block_end_index;
+    logic            [FETCH_WIDTH-1:0] fetch_block_mask;
 
     always_comb begin
         for (int i = 0; i < FETCH_WIDTH; i++) begin
@@ -292,24 +317,23 @@ module ifu #(
             slot_dec[i].is_jalr   = 1'b0;
             slot_dec[i].is_branch = 1'b0;
             slot_dec[i].cfi_type  = CFI_NONE;
-
-            unique case (fetch_block_inst[i][6:0])
-                7'b1101111: begin  // JAL
+            unique case (p_blk.inst[i][6:0])
+                7'b1101111: begin
                     slot_dec[i].is_cfi = 1'b1;
                     slot_dec[i].is_jal = 1'b1;
-                    slot_dec[i].cfi_type = (fetch_block_inst[i][11:7] == 5'd1 ||
-                                            fetch_block_inst[i][11:7] == 5'd5) ? CFI_CALL : CFI_DIRECT_JUMP;
+                    slot_dec[i].cfi_type = (p_blk.inst[i][11:7] == 5'd1 ||
+                                            p_blk.inst[i][11:7] == 5'd5) ? CFI_CALL : CFI_DIRECT_JUMP;
                 end
-                7'b1100111: begin  // JALR
+                7'b1100111: begin
                     slot_dec[i].is_cfi = 1'b1;
                     slot_dec[i].is_jalr = 1'b1;
-                    slot_dec[i].cfi_type = (fetch_block_inst[i][11:7] == 5'd0 &&
-                                            (fetch_block_inst[i][19:15] == 5'd1 ||
-                                             fetch_block_inst[i][19:15] == 5'd5)) ? CFI_RETURN :
-                                           ((fetch_block_inst[i][11:7] == 5'd1 ||
-                                             fetch_block_inst[i][11:7] == 5'd5) ? CFI_CALL : CFI_INDIRECT_JUMP);
+                    slot_dec[i].cfi_type = (p_blk.inst[i][11:7] == 5'd0 &&
+                                            (p_blk.inst[i][19:15] == 5'd1 ||
+                                             p_blk.inst[i][19:15] == 5'd5)) ? CFI_RETURN :
+                                           ((p_blk.inst[i][11:7] == 5'd1 ||
+                                             p_blk.inst[i][11:7] == 5'd5) ? CFI_CALL : CFI_INDIRECT_JUMP);
                 end
-                7'b1100011: begin  // conditional branch
+                7'b1100011: begin
                     slot_dec[i].is_cfi    = 1'b1;
                     slot_dec[i].is_branch = 1'b1;
                     slot_dec[i].cfi_type  = CFI_BRANCH;
@@ -319,47 +343,23 @@ module ifu #(
         end
     end
 
-    // Only a CFI the BPU actually predicted taken closes the Fetch Block: the
-    // BPU's next PC is then the target, so everything behind that CFI is off
-    // the predicted path.  An *unpredicted* jump still falls through for the
-    // front-end and is corrected by the back-end redirect, so the block may run
-    // past it (and past a not-taken conditional branch).
-    logic                   block_end_valid;
-    logic [FETCH_WIDTH-1:0] block_end_index;
-
     always_comb begin
         block_end_valid = 1'b0;
         block_end_index = '0;
         for (int i = FETCH_WIDTH - 1; i >= 0; i--) begin
-            if (pred_meta_q[i].pred_taken) begin
+            if (p_blk.pred_meta[i].pred_taken) begin
                 block_end_valid = 1'b1;
                 block_end_index = FETCH_WIDTH'(i);
             end
         end
     end
 
-    // valid prefix of the block
-    logic [FETCH_WIDTH - 1:0] fetch_block_mask;
-
     always_comb begin
-        for (int i = 0; i < FETCH_WIDTH; i++) begin
-            fetch_block_mask[i] = fetch_block_rmask[i] &&
-                                  (!block_end_valid || (FETCH_WIDTH'(i) <= block_end_index));
-        end
+        for (int i = 0; i < FETCH_WIDTH; i++)
+        fetch_block_mask[i] = p_blk.rmask[i] &&
+                (!block_end_valid || (FETCH_WIDTH'(i) <= block_end_index));
     end
 
-    // ------------------------------------------------
-    // pre-decode pipeline register
-    //
-    // The block gathered in S_RESP/S_RESP_NEXT is classified in S_PRE_DECO and
-    // the classification is registered here, so that the check against the BPU
-    // prediction (and the IQ write) happen one cycle later, in S_CHECK.
-    // ------------------------------------------------
-    logic            [ADDR_WIDTH-1:0] predecode_pc_r;
-    predecode_slot_t                  predecode_r    [FETCH_WIDTH];
-
-    // J-type / B-type immediates (sign extended)
-    /* verilator lint_off UNUSEDSIGNAL */
     function automatic logic [ADDR_WIDTH-1:0] jal_imm(input logic [INST_WIDTH-1:0] inst);
         jal_imm = {{11{inst[31]}}, inst[31], inst[19:12], inst[20], inst[30:21], 1'b0};
     endfunction
@@ -367,24 +367,29 @@ module ifu #(
     function automatic logic [ADDR_WIDTH-1:0] br_imm(input logic [INST_WIDTH-1:0] inst);
         br_imm = {{19{inst[31]}}, inst[31], inst[7], inst[30:25], inst[11:8], 1'b0};
     endfunction
-    /* verilator lint_on UNUSEDSIGNAL */
+
+    always_comb begin
+        p_nstate = p_state;
+        unique case (p_state)
+            P_IDLE:  if (!fb_empty && !ifu_flush) p_nstate = P_CHECK;
+            P_CHECK: if (flush) p_nstate = P_IDLE;
+ else if (iq_wready) p_nstate = P_IDLE;
+            default: p_nstate = P_IDLE;
+        endcase
+    end
 
     always_ff @(posedge clk) begin
         if (rst) begin
+            p_state        <= P_IDLE;
             predecode_pc_r <= '0;
             for (int i = 0; i < FETCH_WIDTH; i++) predecode_r[i] <= '0;
         end else begin
-            // slot base PCs are captured together with the block, one cycle
-            // early, so the target only needs a single 32-bit add
-            if (ifu_state == S_RESP && capture_response) begin
+            p_state <= p_nstate;
+            if (p_state == P_IDLE && !fb_empty && !ifu_flush) begin
+                pd_blk         <= p_blk;
+                predecode_pc_r <= p_blk.pc;
                 for (int i = 0; i < FETCH_WIDTH; i++) begin
-                    predecode_r[i].base_pc <= fetch_pc_r + ADDR_WIDTH'(i * INST_BYTES);
-                end
-            end
-
-            if (ifu_state == S_PRE_DECO && !ifu_flush) begin
-                predecode_pc_r <= fetch_pc_r;
-                for (int i = 0; i < FETCH_WIDTH; i++) begin
+                    predecode_r[i].base_pc <= p_blk.pc + ADDR_WIDTH'(i * INST_BYTES);
                     predecode_r[i].valid <= fetch_block_mask[i];
                     predecode_r[i].inrange <= (!block_end_valid) || (FETCH_WIDTH'(i) <= block_end_index);
                     predecode_r[i].is_cfi <= slot_dec[i].is_cfi;
@@ -392,15 +397,14 @@ module ifu #(
                     predecode_r[i].is_jalr <= slot_dec[i].is_jalr;
                     predecode_r[i].is_ret <= (slot_dec[i].cfi_type == CFI_RETURN);
                     predecode_r[i].cfi_type <= slot_dec[i].cfi_type;
-
                     if (slot_dec[i].is_jal) begin
-                        predecode_r[i].target <= predecode_r[i].base_pc + jal_imm(
-                            fetch_block_inst[i]
+                        predecode_r[i].target <= p_blk.pc + ADDR_WIDTH'(i * INST_BYTES) + jal_imm(
+                            p_blk.inst[i]
                         );
                         predecode_r[i].target_valid <= 1'b1;
                     end else if (slot_dec[i].is_branch) begin
-                        predecode_r[i].target <= predecode_r[i].base_pc + br_imm(
-                            fetch_block_inst[i]
+                        predecode_r[i].target <= p_blk.pc + ADDR_WIDTH'(i * INST_BYTES) + br_imm(
+                            p_blk.inst[i]
                         );
                         predecode_r[i].target_valid <= 1'b1;
                     end else begin
@@ -413,66 +417,24 @@ module ifu #(
     end
 
     // ------------------------------------------------
-    // PredChecker: compare the pre-decode result against the BPU prediction
-    // carried in the FTQ entry.  Five error classes are detected:
-    //   1. JAL  not predicted taken
-    //   2. RET  not predicted taken
-    //   3. a CFI predicted on an invalid slot
-    //   4. a CFI predicted on a valid non-CFI instruction
-    //   5. the predicted target does not match the recomputed one
+    // PredChecker
     // ------------------------------------------------
     logic [FETCH_WIDTH-1:0] slot_error;
-`ifndef SYNTHESIS
-    typedef enum logic [2:0] {
-        ERR_NONE = '0,
-        ERR_JAL,
-        ERR_RET,
-        ERR_CFI_INVALID_SLOT,
-        ERR_CFI_NON_CFI,
-        ERR_CFI_WRONG_TARGET
-    } err_type_t;
-    /* verilator lint_off UNUSEDSIGNAL */
-    err_type_t err_type[FETCH_WIDTH];
-    /* verilator lint_on UNUSEDSIGNAL */
-
-    always_comb begin : g_dbg_err_type
-        for (int i = 0; i < FETCH_WIDTH; i++) begin
-            err_type[i] = ERR_NONE;
-            if (predecode_r[i].valid && predecode_r[i].is_jal && !pred_meta_q[i].pred_taken) begin
-                err_type[i] = ERR_JAL;
-            end else if (predecode_r[i].valid && predecode_r[i].is_ret && !pred_meta_q[i].pred_taken) begin
-                err_type[i] = ERR_RET;
-            end else if (pred_cfi_valid_q[i] && predecode_r[i].inrange && !predecode_r[i].valid) begin
-                err_type[i] = ERR_CFI_INVALID_SLOT;
-            end else if (pred_cfi_valid_q[i] && predecode_r[i].valid && !predecode_r[i].is_cfi) begin
-                err_type[i] = ERR_CFI_NON_CFI;
-            end else if(pred_meta_q[i].pred_taken && predecode_r[i].valid && predecode_r[i].is_cfi &&
-                    predecode_r[i].target_valid &&
-                    ((pred_cfi_type_q[i] != predecode_r[i].cfi_type) ||
-                     (pred_meta_q[i].pred_target != predecode_r[i].target))) begin
-                err_type[i] = ERR_CFI_WRONG_TARGET;
-            end
-        end
-    end
-`endif
-
     always_comb begin
         for (int i = 0; i < FETCH_WIDTH; i++) begin
             slot_error[i] =
-            // 1. JAL inside the block but not predicted taken
-            (predecode_r[i].valid && predecode_r[i].is_jal && !pred_meta_q[i].pred_taken) ||
-            // 2. RET inside the block but not predicted taken
-            (predecode_r[i].valid && predecode_r[i].is_ret && !pred_meta_q[i].pred_taken) ||
-            // 3. a CFI predicted on an invalid slot
-            (pred_cfi_valid_q[i] && predecode_r[i].inrange && !predecode_r[i].valid) ||
-            // 4. a CFI predicted on a valid non-CFI instruction
-            (pred_cfi_valid_q[i] && predecode_r[i].valid && !predecode_r[i].is_cfi) ||
-            // 5. a direct CFI predicted taken with the wrong type or
-            //    target (indirect targets cannot be recomputed here)
-            (pred_meta_q[i].pred_taken && predecode_r[i].valid && predecode_r[i].is_cfi &&
-                 predecode_r[i].target_valid &&
-                 ((pred_cfi_type_q[i] != predecode_r[i].cfi_type) ||
-                  (pred_meta_q[i].pred_target != predecode_r[i].target)));
+                (predecode_r[i].valid && predecode_r[i].is_jal &&
+                    !pd_blk.pred_meta[i].pred_taken) ||
+                (predecode_r[i].valid && predecode_r[i].is_ret &&
+                    !pd_blk.pred_meta[i].pred_taken) ||
+                (pd_blk.pred_cfi_valid[i] && predecode_r[i].inrange &&
+                    !predecode_r[i].valid) ||
+                (pd_blk.pred_cfi_valid[i] && predecode_r[i].valid &&
+                    !predecode_r[i].is_cfi) ||
+                (pd_blk.pred_meta[i].pred_taken && predecode_r[i].valid &&
+                    predecode_r[i].is_cfi && predecode_r[i].target_valid &&
+                    ((pd_blk.pred_cfi_type[i] != predecode_r[i].cfi_type) ||
+                     (pd_blk.pred_meta[i].pred_target != predecode_r[i].target)));
         end
     end
 
@@ -487,17 +449,13 @@ module ifu #(
         end
     end
 
-    // front-end redirect: fired in the cycle after the pre-decode register
-    // (i.e. S_CHECK).  A back-end redirect always wins.
-    assign fe_redirect_valid = (ifu_state == S_CHECK) && err_valid && !flush;
+    assign fe_redirect_valid = (p_state == P_CHECK) && err_valid && !flush;
     assign fe_redirect_pc    = predecode_r[err_idx].target_valid
                              ? predecode_r[err_idx].target
                              : (predecode_pc_r + (ADDR_WIDTH'(err_idx + 1) * INST_BYTES));
 
     // ------------------------------------------------
-    // IQ write port.  The checked block is always handed over; on a prediction
-    // error it is truncated right after the mispredicted slot (that slot still
-    // executes) and the next fetch is redirected.
+    // IQ write port
     // ------------------------------------------------
     logic [FETCH_WIDTH-1:0] err_mask;
     always_comb begin
@@ -507,30 +465,30 @@ module ifu #(
         end
     end
 
-    assign iq_wvalid    = (ifu_state == S_CHECK) && !flush;
-    assign fetch_pc_out = fetch_pc_r;
+    assign iq_wvalid = (p_state == P_CHECK) && !flush;
 
     always_comb begin
         for (int i = 0; i < FETCH_WIDTH; i++) begin
-            // the per-slot prediction only applies to the slots that survive
             logic slot_pred_taken;
             logic err_slot;
-            slot_pred_taken = pred_meta_q[i].pred_taken && iq_wmask[i];
-            // the mispredicted slot carries the corrected prediction so the
-            // back-end does not immediately redirect again
-            err_slot = err_valid && (SLOT_IDX_W'(i) == err_idx) && predecode_r[i].target_valid;
+            slot_pred_taken = pd_blk.pred_meta[i].pred_taken && iq_wmask[i];
+            err_slot = err_valid && (SLOT_IDX_W'(i) == err_idx) &&
+                predecode_r[i].target_valid;
 
             iq_wdata[i] = '{
                 pc: predecode_r[i].base_pc,
                 pred_meta: '{
 `ifdef TOURNAMENT_ON
-                    chooser_meta: pred_meta_q[i].chooser_meta,
-                    loop_override: pred_meta_q[i].loop_override,
+                    chooser_meta: pd_blk.pred_meta[i].chooser_meta,
 `endif
-                    pred_target: err_slot ? predecode_r[i].target : pred_meta_q[i].pred_target,
+`ifdef LOOP_PRED_ON
+                    loop_override: pd_blk.pred_meta[i].loop_override,
+`endif
+                    pred_target: err_slot ? predecode_r[i].target
+                                            : pd_blk.pred_meta[i].pred_target,
                     pred_taken : err_slot ? 1'b1 : slot_pred_taken
                 },
-                inst: fetch_block_inst[i],
+                inst: pd_blk.inst[i],
                 valid: iq_wmask[i],
                 cfi_type: predecode_r[i].cfi_type,
                 is_cfi: predecode_r[i].is_cfi && iq_wmask[i]
