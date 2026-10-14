@@ -28,6 +28,8 @@ module bpu (
     input logic                            flush,
     input logic [fe_pkg::ADDR_WIDTH - 1:0] redirect_pc,
 
+    input fe_pkg::fe_redirect_kind_t redirect_kind,
+
     // predict request / response
     input  logic                                          ftq_wready,
     output logic                                          ftq_wvalid,
@@ -39,12 +41,32 @@ module bpu (
     input logic update_en,
 
     /* verilator lint_off UNUSEDSIGNAL */
-    input fe_pkg::update_meta_t update_meta
+    input fe_pkg::bpu_update_t update_meta
     /* verilator lint_on UNUSEDSIGNAL */
 );
     import fe_pkg::*;
 
     localparam int unsigned BLOCK_BYTES = FETCH_WIDTH * INST_BYTES;
+    localparam logic [ADDR_WIDTH-1:0] BLOCK_MASK = ADDR_WIDTH'(BLOCK_BYTES - 1);
+
+    logic [GHR_WIDTH-1:0] redirect_ghr_before;
+`ifdef TOURNAMENT_ON
+    assign redirect_ghr_before =
+        update_meta.pred_meta.chooser_meta.pred_ghr << update_meta.pred_meta.cfi_prefix;
+`else
+    assign redirect_ghr_before = '0;
+`endif
+    wire              redirect_actual_taken = update_meta.actual_taken;
+
+    wire              is_branch_meta = (update_meta.actual_cfi_type == CFI_COND_BRANCH);
+    btb_target_info_t update_target_info;
+
+    always_comb begin
+        update_target_info.start_pc   = update_meta.update_pc & ~BLOCK_MASK;
+        update_target_info.target_pc  = update_meta.actual_target;
+        update_target_info.cfi_type   = update_meta.actual_cfi_type;
+        update_target_info.cfi_offset = FETCH_WIDTH'((update_meta.update_pc & BLOCK_MASK) >> 2);
+    end
 
     logic       [ADDR_WIDTH - 1:0]                 fetch_pc;
     logic       [ADDR_WIDTH - 1:0]                 resp_pc_r;
@@ -62,15 +84,12 @@ module bpu (
 
     // Direction of the DIR_TYPE-selected predictor, before the (optional) loop
     // predictor override is applied.
-    logic [FETCH_WIDTH-1:0]                        base_dir_taken_slots;
+    logic       [ FETCH_WIDTH-1:0]                 base_dir_taken_slots;
 
 `ifdef TOURNAMENT_ON
     chooser_meta_t [FETCH_WIDTH-1:0] chooser_meta_slots;
 `endif
 `ifdef LOOP_PRED_ON
-    // `loop_override` is a field of `pred_meta_t` guarded by LOOP_PRED_ON, so
-    // its slot aggregate must use the same guard.  The loop predictor is
-    // instantiated once and works beside either direction predictor.
     logic [FETCH_WIDTH-1:0] loop_override_slots;
 `endif
 
@@ -98,7 +117,7 @@ module bpu (
     // a conditional branch takes the direction predictor, a jump is always taken
     always_comb begin
         for (int i = 0; i < FETCH_WIDTH; i++) begin
-            pred_taken[i] = pred_cfi_valid[i] && ((pred_cfi_type[i] != CFI_BRANCH) || dir_taken_slots[i]);
+            pred_taken[i] = pred_cfi_valid[i] && ((pred_cfi_type[i] != CFI_COND_BRANCH) || dir_taken_slots[i]);
         end
     end
 
@@ -140,8 +159,8 @@ module bpu (
         .spec_addr  (block_ret_addr),
         .flush      (flush),
         .update_en  (update_en),
-        .update_push(update_meta.actual_info.cfi_type == CFI_CALL),
-        .update_pop (update_meta.actual_info.cfi_type == CFI_RETURN),
+        .update_push(update_meta.actual_cfi_type == CFI_CALL),
+        .update_pop (update_meta.actual_cfi_type == CFI_RETURN),
         .update_addr(update_meta.update_pc + INST_BYTES)
     );
 `endif
@@ -179,12 +198,24 @@ module bpu (
     assign dnpc = bpu_predicted_taken ? predicted_pc : snpc;
     assign bpu_resp_pc = resp_pc_r;
 
-    // pack the per-slot prediction metadata; the DIR_TYPE-selected fields are
-    // filled by the active predictor below (defaulted here)
+    // count how many CFIs precede each slot
+    logic [$clog2(FETCH_WIDTH+1)-1:0] cfi_prefix_slots[FETCH_WIDTH];
+    always_comb begin
+        logic [$clog2(FETCH_WIDTH+1)-1:0] cfi_prefix;
+        cfi_prefix = '0;
+        for (int i = 0; i < FETCH_WIDTH; i++) begin
+            cfi_prefix_slots[i] = cfi_prefix;
+            if (pred_cfi_valid[i]) cfi_prefix = cfi_prefix + 1'b1;
+        end
+    end
+
     always_comb begin
         for (int i = 0; i < FETCH_WIDTH; i++) begin
-            pred_meta[i].pred_target = pred_target[i];
-            pred_meta[i].pred_taken  = pred_taken[i];
+            pred_meta[i].pred_target = pred_taken[i]
+                                     ? pred_target[i]
+                                     : (resp_pc_r + ADDR_WIDTH'((i + 1) * INST_BYTES));
+            pred_meta[i].pred_taken = pred_taken[i];
+            pred_meta[i].cfi_prefix = cfi_prefix_slots[i];
 `ifdef TOURNAMENT_ON
             pred_meta[i].chooser_meta = chooser_meta_slots[i];
 `endif
@@ -221,7 +252,7 @@ module bpu (
         logic reached_taken;
         reached_taken = 1'b0;
         for (int s = 0; s < FETCH_WIDTH; s++) begin
-            spec_branch_slots[s]  = pred_cfi_valid[s] && (pred_cfi_type[s] == CFI_BRANCH);
+            spec_branch_slots[s]  = pred_cfi_valid[s] && (pred_cfi_type[s] == CFI_COND_BRANCH);
             spec_on_path_slots[s] = ~reached_taken;
             if (pred_cfi_valid[s] && pred_taken[s]) begin
                 reached_taken = 1'b1;
@@ -247,7 +278,7 @@ module bpu (
         .update_en      (update_en),
         .update_pc      (update_meta.update_pc),
         .actual_taken   (update_meta.actual_taken),
-        .is_branch      (update_meta.is_branch)
+        .is_branch      (is_branch_meta)
     );
     /* verilator lint_on PINCONNECTEMPTY */
 
@@ -282,7 +313,7 @@ module bpu (
             .fetch_pc        (fetch_pc),
             .resp_valid      (dir_resp_valid),
             .pred_taken_slots(base_dir_taken_slots),
-            .update_en       (update_en && update_meta.is_branch),
+            .update_en       (update_en && is_branch_meta),
             .update_pc       (update_meta.update_pc),
             .actual_taken    (update_meta.actual_taken)
         );
@@ -300,7 +331,7 @@ module bpu (
             .pred_target   (raw_pred_target),
             .update_en     (update_en),
             .update_pc     (update_meta.update_pc),
-            .update_target (update_meta.actual_info),
+            .update_target (update_target_info),
             .actual_taken  (update_meta.actual_taken)
         );
 
@@ -308,14 +339,14 @@ module bpu (
         assign ftq_wvalid = dir_resp_valid && btb_resp_valid;
     end else if (DIR_TYPE == 2) begin : g_tournament_btb
 `ifdef TOURNAMENT_ON
-        logic                            dir_resp_valid;
-        logic                            btb_resp_valid;
+        logic                                      dir_resp_valid;
+        logic                                      btb_resp_valid;
 
-        chooser_meta_t [FETCH_WIDTH-1:0] tour_meta;
+        chooser_meta_t [          FETCH_WIDTH-1:0] tour_meta;
 
         // count the offset of the first CFI predicted taken
-        logic [$clog2(FETCH_WIDTH+1)-1:0] spec_num;
-        logic                             spec_taken;
+        logic          [$clog2(FETCH_WIDTH+1)-1:0] spec_num;
+        logic                                      spec_taken;
         always_comb begin
             logic have_cfi;
             spec_num   = '0;
@@ -335,25 +366,28 @@ module bpu (
         // direction predictor (Tournament = Gshare + Bimodal)
         /* verilator lint_off PINCONNECTEMPTY */
         tournament tournament_u (
-            .clk                 (clk),
-            .rst                 (rst),
-            .req_valid           (issue),
-            .fetch_pc            (fetch_pc),
-            .resp_valid          (dir_resp_valid),
-            .resp_pc             (),
-            .pred_taken_slots    (base_dir_taken_slots),
-            .chooser_meta        (tour_meta),
-            .flush               (flush),
-            .spec_valid          (ftq_wvalid),
-            .spec_num            (spec_num),
-            .spec_taken          (spec_taken),
-            .update_en           (update_en),
-            .is_branch           (update_meta.is_branch),
-            .update_pc           (update_meta.update_pc),
-            .actual_taken        (update_meta.actual_taken),
-            .update_gshare_taken (update_meta.pred_meta.chooser_meta.update_gshare_taken),
-            .update_bimodal_taken(update_meta.pred_meta.chooser_meta.update_bimodal_taken),
-            .update_ghr          (update_meta.pred_meta.chooser_meta.pred_ghr)
+            .clk                  (clk),
+            .rst                  (rst),
+            .req_valid            (issue),
+            .fetch_pc             (fetch_pc),
+            .resp_valid           (dir_resp_valid),
+            .resp_pc              (),
+            .pred_taken_slots     (base_dir_taken_slots),
+            .chooser_meta         (tour_meta),
+            .flush                (flush),
+            .spec_valid           (ftq_wvalid),
+            .spec_num             (spec_num),
+            .spec_taken           (spec_taken),
+            .redirect_kind        (redirect_kind),
+            .redirect_ghr_before  (redirect_ghr_before),
+            .redirect_actual_taken(redirect_actual_taken),
+            .update_en            (update_en),
+            .is_branch            (is_branch_meta),
+            .update_pc            (update_meta.update_pc),
+            .actual_taken         (update_meta.actual_taken),
+            .update_gshare_taken  (update_meta.pred_meta.chooser_meta.update_gshare_taken),
+            .update_bimodal_taken (update_meta.pred_meta.chooser_meta.update_bimodal_taken),
+            .update_ghr           (update_meta.pred_meta.chooser_meta.pred_ghr)
         );
         /* verilator lint_on PINCONNECTEMPTY */
 
@@ -372,7 +406,7 @@ module bpu (
             .pred_target   (raw_pred_target),
             .update_en     (update_en),
             .update_pc     (update_meta.update_pc),
-            .update_target (update_meta.actual_info),
+            .update_target (update_target_info),
             .actual_taken  (update_meta.actual_taken)
         );
 

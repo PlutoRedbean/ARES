@@ -16,6 +16,10 @@ module gshare (
     input logic [$clog2(fe_pkg::FETCH_WIDTH+1)-1:0] spec_num,    // on-path CFIs
     input logic                                     spec_taken,  // last one taken
 
+    input fe_pkg::fe_redirect_kind_t                         redirect_kind,
+    input logic                      [fe_pkg::GHR_WIDTH-1:0] redirect_ghr_before,
+    input logic                                              redirect_actual_taken,
+
     // update port
     input logic                          update_en,     // any CFI: advances the committed GHR
     input logic                          is_branch,     // conditional branch: updates the PHT
@@ -135,9 +139,11 @@ module gshare (
             ghr_commit <= ghr_commit_next;
 
             if (flush) begin
-                // redirect: drop the speculative path and resync to the
-                // committed history (including the branch that redirected)
-                ghr_spec <= ghr_commit_next;
+                if (redirect_kind == REDIRECT_BRANCH) begin
+                    ghr_spec <= {redirect_ghr_before[GHR_WIDTH-2:0], redirect_actual_taken};
+                end else begin
+                    ghr_spec <= ghr_commit_next;
+                end
             end else if (spec_valid) begin
                 // walk the just-predicted block: every on-path CFI shifts in its
                 // predicted direction (0 for a not-taken branch, 1 for a taken

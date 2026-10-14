@@ -34,15 +34,21 @@ module frontend #(
     // ---------- back-end -> front-end ----------
     // branch/jump resolution redirect.  Valid for one cycle; flushes the whole
     // front-end (BPU/FTQ/IFU and the IQ) and restarts fetch at `backend_redirect_pc`.
-    input logic                    backend_redirect_valid,
-    input logic [ADDR_WIDTH - 1:0] backend_redirect_pc,
+    input logic                                              backend_redirect_valid,
+    input logic                      [     ADDR_WIDTH - 1:0] backend_redirect_pc,
+    // Redirect kind (contract section 3).  The per-CFI ghr_before and
+    // actual_taken are not separate ports: the BPU reconstructs them from the
+    // redirecting CFI's echoed metadata (`bpu_update_meta`).
+    // REDIRECT_BRANCH restores ghr_spec from ghr_before + actual_taken;
+    // REDIRECT_ARCH (ECALL/MRET/IRQ) resyncs to the committed history.
+    input fe_pkg::fe_redirect_kind_t                         backend_redirect_kind,
 
     // BPU training.  Must be driven in program order, at most one CFI per cycle.
-    input logic                 bpu_update_en,
-    input fe_pkg::update_meta_t bpu_update_meta,
+    input logic                bpu_update_en,
+    input fe_pkg::bpu_update_t bpu_update_meta,
 
     // ---------- instruction cache backing memory bus ----------
-`ifdef IO_USE_AXI
+`ifdef CONFIG_IO_USE_AXI
     axi_if.master ifu_axi_bus,
 `else
     miniTensor_if.master ifu_mt_bus,
@@ -90,6 +96,12 @@ module frontend #(
     wire [ADDR_WIDTH - 1:0] fe_redirect_pc_sel =
         backend_redirect_valid ? backend_redirect_pc : fe_redirect_pc;
 
+    // Redirect kind for the BPU GHR recovery.  A front-end local
+    // (PredecodeCheck) redirect has no architectural/branch kind of its own;
+    // it keeps the historical behaviour of resyncing to the committed history,
+    // i.e. the REDIRECT_ARCH path.
+    wire fe_redirect_kind = backend_redirect_valid ? backend_redirect_kind : REDIRECT_ARCH;
+
     /* verilator lint_off UNUSEDSIGNAL */
     logic [ADDR_WIDTH - 1:0] bpu_resp_pc;
     /* verilator lint_on UNUSEDSIGNAL */
@@ -109,16 +121,17 @@ module frontend #(
     // branch prediction unit
     // ------------------------------------------------
     bpu bpu_u (
-        .clk        (clk),
-        .rst        (rst),
-        .flush      (fe_flush),
-        .redirect_pc(fe_redirect_pc_sel),
-        .ftq_wready (ftq_wready),
-        .ftq_wvalid (ftq_wvalid),
-        .bpu_resp_pc(bpu_resp_pc),
-        .ftq_wdata  (ftq_wdata),
-        .update_en  (bpu_update_en),
-        .update_meta(bpu_update_meta)
+        .clk                  (clk),
+        .rst                  (rst),
+        .flush                (fe_flush),
+        .redirect_pc          (fe_redirect_pc_sel),
+        .redirect_kind        (fe_redirect_kind),
+        .ftq_wready           (ftq_wready),
+        .ftq_wvalid           (ftq_wvalid),
+        .bpu_resp_pc          (bpu_resp_pc),
+        .ftq_wdata            (ftq_wdata),
+        .update_en            (bpu_update_en),
+        .update_meta          (bpu_update_meta)
     );
 
     // ------------------------------------------------
@@ -189,7 +202,7 @@ module frontend #(
         .resp_data     (icache_resp_data),
         .resp_rmask    (icache_resp_rmask),
         .refill        (icache_refill),
-`ifdef IO_USE_AXI
+`ifdef CONFIG_IO_USE_AXI
         .icache_axi_bus(ifu_axi_bus)
 `else
         .icache_mt_bus (ifu_mt_bus)

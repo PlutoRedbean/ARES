@@ -296,12 +296,9 @@ module ifu #(
     // ------------------------------------------------
 
 
-    fetch_block_t p_blk;
-    assign p_blk = fetch_block_fifo[fb_rptr];
-    // Block latched for the check/write stage: the pre-decode and the check must
-    // both use a stable snapshot, because the fetch engine / FIFO may change
-    // while stage P holds for IQ backpressure.
-    fetch_block_t                      pd_blk;
+    fetch_block_t p_block;
+    assign p_block = fetch_block_fifo[fb_rptr];
+    fetch_block_t                      p_block_r;
 
     predecode_slot_t                   predecode_r      [FETCH_WIDTH];
     logic            [ ADDR_WIDTH-1:0] predecode_pc_r;
@@ -317,26 +314,26 @@ module ifu #(
             slot_dec[i].is_jalr   = 1'b0;
             slot_dec[i].is_branch = 1'b0;
             slot_dec[i].cfi_type  = CFI_NONE;
-            unique case (p_blk.inst[i][6:0])
+            unique case (p_block.inst[i][6:0])
                 7'b1101111: begin
                     slot_dec[i].is_cfi = 1'b1;
                     slot_dec[i].is_jal = 1'b1;
-                    slot_dec[i].cfi_type = (p_blk.inst[i][11:7] == 5'd1 ||
-                                            p_blk.inst[i][11:7] == 5'd5) ? CFI_CALL : CFI_DIRECT_JUMP;
+                    slot_dec[i].cfi_type = (p_block.inst[i][11:7] == 5'd1 ||
+                                            p_block.inst[i][11:7] == 5'd5) ? CFI_CALL : CFI_DIRECT_JUMP;
                 end
                 7'b1100111: begin
                     slot_dec[i].is_cfi = 1'b1;
                     slot_dec[i].is_jalr = 1'b1;
-                    slot_dec[i].cfi_type = (p_blk.inst[i][11:7] == 5'd0 &&
-                                            (p_blk.inst[i][19:15] == 5'd1 ||
-                                             p_blk.inst[i][19:15] == 5'd5)) ? CFI_RETURN :
-                                           ((p_blk.inst[i][11:7] == 5'd1 ||
-                                             p_blk.inst[i][11:7] == 5'd5) ? CFI_CALL : CFI_INDIRECT_JUMP);
+                    slot_dec[i].cfi_type = (p_block.inst[i][11:7] == 5'd0 &&
+                                            (p_block.inst[i][19:15] == 5'd1 ||
+                                             p_block.inst[i][19:15] == 5'd5)) ? CFI_RETURN :
+                                           ((p_block.inst[i][11:7] == 5'd1 ||
+                                             p_block.inst[i][11:7] == 5'd5) ? CFI_CALL : CFI_INDIRECT_JUMP);
                 end
                 7'b1100011: begin
                     slot_dec[i].is_cfi    = 1'b1;
                     slot_dec[i].is_branch = 1'b1;
-                    slot_dec[i].cfi_type  = CFI_BRANCH;
+                    slot_dec[i].cfi_type  = CFI_COND_BRANCH;
                 end
                 default: ;
             endcase
@@ -347,7 +344,10 @@ module ifu #(
         block_end_valid = 1'b0;
         block_end_index = '0;
         for (int i = FETCH_WIDTH - 1; i >= 0; i--) begin
-            if (p_blk.pred_meta[i].pred_taken) begin
+            // end the block at the first predicted-taken CFI; earlier
+            // not-taken CFIs stay in the block and carry the per-CFI prefix
+            // (reconstructs ghr_before from the block-start GHR).
+            if (p_block.pred_meta[i].pred_taken) begin
                 block_end_valid = 1'b1;
                 block_end_index = FETCH_WIDTH'(i);
             end
@@ -356,7 +356,7 @@ module ifu #(
 
     always_comb begin
         for (int i = 0; i < FETCH_WIDTH; i++)
-        fetch_block_mask[i] = p_blk.rmask[i] &&
+        fetch_block_mask[i] = p_block.rmask[i] &&
                 (!block_end_valid || (FETCH_WIDTH'(i) <= block_end_index));
     end
 
@@ -386,10 +386,10 @@ module ifu #(
         end else begin
             p_state <= p_nstate;
             if (p_state == P_IDLE && !fb_empty && !ifu_flush) begin
-                pd_blk         <= p_blk;
-                predecode_pc_r <= p_blk.pc;
+                p_block_r         <= p_block;
+                predecode_pc_r <= p_block.pc;
                 for (int i = 0; i < FETCH_WIDTH; i++) begin
-                    predecode_r[i].base_pc <= p_blk.pc + ADDR_WIDTH'(i * INST_BYTES);
+                    predecode_r[i].base_pc <= p_block.pc + ADDR_WIDTH'(i * INST_BYTES);
                     predecode_r[i].valid <= fetch_block_mask[i];
                     predecode_r[i].inrange <= (!block_end_valid) || (FETCH_WIDTH'(i) <= block_end_index);
                     predecode_r[i].is_cfi <= slot_dec[i].is_cfi;
@@ -398,13 +398,13 @@ module ifu #(
                     predecode_r[i].is_ret <= (slot_dec[i].cfi_type == CFI_RETURN);
                     predecode_r[i].cfi_type <= slot_dec[i].cfi_type;
                     if (slot_dec[i].is_jal) begin
-                        predecode_r[i].target <= p_blk.pc + ADDR_WIDTH'(i * INST_BYTES) + jal_imm(
-                            p_blk.inst[i]
+                        predecode_r[i].target <= p_block.pc + ADDR_WIDTH'(i * INST_BYTES) + jal_imm(
+                            p_block.inst[i]
                         );
                         predecode_r[i].target_valid <= 1'b1;
                     end else if (slot_dec[i].is_branch) begin
-                        predecode_r[i].target <= p_blk.pc + ADDR_WIDTH'(i * INST_BYTES) + br_imm(
-                            p_blk.inst[i]
+                        predecode_r[i].target <= p_block.pc + ADDR_WIDTH'(i * INST_BYTES) + br_imm(
+                            p_block.inst[i]
                         );
                         predecode_r[i].target_valid <= 1'b1;
                     end else begin
@@ -424,17 +424,17 @@ module ifu #(
         for (int i = 0; i < FETCH_WIDTH; i++) begin
             slot_error[i] =
                 (predecode_r[i].valid && predecode_r[i].is_jal &&
-                    !pd_blk.pred_meta[i].pred_taken) ||
+                    !p_block_r.pred_meta[i].pred_taken) ||
                 (predecode_r[i].valid && predecode_r[i].is_ret &&
-                    !pd_blk.pred_meta[i].pred_taken) ||
-                (pd_blk.pred_cfi_valid[i] && predecode_r[i].inrange &&
+                    !p_block_r.pred_meta[i].pred_taken) ||
+                (p_block_r.pred_cfi_valid[i] && predecode_r[i].inrange &&
                     !predecode_r[i].valid) ||
-                (pd_blk.pred_cfi_valid[i] && predecode_r[i].valid &&
+                (p_block_r.pred_cfi_valid[i] && predecode_r[i].valid &&
                     !predecode_r[i].is_cfi) ||
-                (pd_blk.pred_meta[i].pred_taken && predecode_r[i].valid &&
+                (p_block_r.pred_meta[i].pred_taken && predecode_r[i].valid &&
                     predecode_r[i].is_cfi && predecode_r[i].target_valid &&
-                    ((pd_blk.pred_cfi_type[i] != predecode_r[i].cfi_type) ||
-                     (pd_blk.pred_meta[i].pred_target != predecode_r[i].target)));
+                    ((p_block_r.pred_cfi_type[i] != predecode_r[i].cfi_type) ||
+                     (p_block_r.pred_meta[i].pred_target != predecode_r[i].target)));
         end
     end
 
@@ -471,7 +471,7 @@ module ifu #(
         for (int i = 0; i < FETCH_WIDTH; i++) begin
             logic slot_pred_taken;
             logic err_slot;
-            slot_pred_taken = pd_blk.pred_meta[i].pred_taken && iq_wmask[i];
+            slot_pred_taken = p_block_r.pred_meta[i].pred_taken && iq_wmask[i];
             err_slot = err_valid && (SLOT_IDX_W'(i) == err_idx) &&
                 predecode_r[i].target_valid;
 
@@ -479,16 +479,17 @@ module ifu #(
                 pc: predecode_r[i].base_pc,
                 pred_meta: '{
 `ifdef TOURNAMENT_ON
-                    chooser_meta: pd_blk.pred_meta[i].chooser_meta,
+                    chooser_meta: p_block_r.pred_meta[i].chooser_meta,
 `endif
 `ifdef LOOP_PRED_ON
-                    loop_override: pd_blk.pred_meta[i].loop_override,
+                    loop_override: p_block_r.pred_meta[i].loop_override,
 `endif
                     pred_target: err_slot ? predecode_r[i].target
-                                            : pd_blk.pred_meta[i].pred_target,
-                    pred_taken : err_slot ? 1'b1 : slot_pred_taken
+                                            : p_block_r.pred_meta[i].pred_target,
+                    pred_taken : err_slot ? 1'b1 : slot_pred_taken,
+                    cfi_prefix : p_block_r.pred_meta[i].cfi_prefix
                 },
-                inst: pd_blk.inst[i],
+                inst: p_block_r.inst[i],
                 valid: iq_wmask[i],
                 cfi_type: predecode_r[i].cfi_type,
                 is_cfi: predecode_r[i].is_cfi && iq_wmask[i]

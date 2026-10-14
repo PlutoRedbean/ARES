@@ -234,8 +234,6 @@ module icache #(
             for (int s = 0; s < NR_SETS; s++) begin
                 for (int w = 0; w < NR_WAYS; w++) begin
                     icache_mem[s][w].valid <= 1'b0;
-                    icache_mem[s][w].tag   <= '0;
-                    icache_mem[s][w].data  <= '0;
                     icache_mem[s][w].age   <= AGE_W'(w);
                 end
             end
