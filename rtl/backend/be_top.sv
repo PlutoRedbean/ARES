@@ -409,83 +409,83 @@ module be_top #(
     // Functional units
     //=========================================================================
     fu_alu u_alu0 (
-        .clk(clk),
-        .rst(rst),
-        .issue_valid(fu_issue_valid_w[P_ALU0]),
-        .issue_req(fu_req_w[P_ALU0]),
-        .kill_mask(kill_mask_w),
+        .clk             (clk),
+        .rst             (rst),
+        .issue_valid     (fu_issue_valid_w[P_ALU0]),
+        .issue_req       (fu_req_w[P_ALU0]),
+        .kill_mask       (kill_mask_w),
         .completion_valid(alu0_completion_valid_w),
-        .completion(alu0_completion_w)
+        .completion      (alu0_completion_w)
     );
 
     fu_alu u_alu1 (
-        .clk(clk),
-        .rst(rst),
-        .issue_valid(fu_issue_valid_w[P_ALU1]),
-        .issue_req(fu_req_w[P_ALU1]),
-        .kill_mask(kill_mask_w),
+        .clk             (clk),
+        .rst             (rst),
+        .issue_valid     (fu_issue_valid_w[P_ALU1]),
+        .issue_req       (fu_req_w[P_ALU1]),
+        .kill_mask       (kill_mask_w),
         .completion_valid(alu1_completion_valid_w),
-        .completion(alu1_completion_w)
+        .completion      (alu1_completion_w)
     );
 
     fu_bru u_bru (
-        .clk(clk),
-        .rst(rst),
-        .issue_valid(fu_issue_valid_w[P_BRU]),
-        .issue_req(fu_req_w[P_BRU]),
-        .kill_mask(kill_mask_w),
-        .completion_valid(bru_completion_valid_w),
-        .completion(bru_completion_w),
-        .actual_npc(bru_actual_npc_w),
-        .actual_taken(bru_actual_taken_w),
-        .actual_target(bru_actual_target_w),
-        .recovery_valid(recovery_valid_w),
+        .clk                (clk),
+        .rst                (rst),
+        .issue_valid        (fu_issue_valid_w[P_BRU]),
+        .issue_req          (fu_req_w[P_BRU]),
+        .kill_mask          (kill_mask_w),
+        .completion_valid   (bru_completion_valid_w),
+        .completion         (bru_completion_w),
+        .actual_npc         (bru_actual_npc_w),
+        .actual_taken       (bru_actual_taken_w),
+        .actual_target      (bru_actual_target_w),
+        .recovery_valid     (recovery_valid_w),
         .recovery_branch_tag(recovery_tag_w),
-        .redirect_pc(redirect_pc_w)
+        .redirect_pc        (redirect_pc_w)
     );
 
     fu_smul u_smul (
-        .clk(clk),
-        .rst(rst),
-        .issue_valid(fu_issue_valid_w[P_SMUL]),
-        .issue_req(fu_req_w[P_SMUL]),
-        .kill_mask(kill_mask_w),
+        .clk             (clk),
+        .rst             (rst),
+        .issue_valid     (fu_issue_valid_w[P_SMUL]),
+        .issue_req       (fu_req_w[P_SMUL]),
+        .kill_mask       (kill_mask_w),
         .completion_valid(smul_completion_valid_w),
-        .completion(smul_completion_w)
+        .completion      (smul_completion_w)
     );
 
     fu_mul u_mul (
-        .clk(clk),
-        .rst(rst),
-        .issue_valid(fu_issue_valid_w[P_MUL]),
-        .issue_req(fu_req_w[P_MUL]),
-        .kill_mask(kill_mask_w),
+        .clk             (clk),
+        .rst             (rst),
+        .issue_valid     (fu_issue_valid_w[P_MUL]),
+        .issue_req       (fu_req_w[P_MUL]),
+        .kill_mask       (kill_mask_w),
         .completion_valid(mul_completion_valid_w),
-        .completion(mul_completion_w)
+        .completion      (mul_completion_w)
     );
 
     fu_div u_div (
-        .clk(clk),
-        .rst(rst),
-        .issue_valid(fu_issue_valid_w[P_DIV]),
-        .issue_req(fu_req_w[P_DIV]),
-        .kill_mask(kill_mask_w),
-        .can_accept(div_can_accept_w),
+        .clk             (clk),
+        .rst             (rst),
+        .issue_valid     (fu_issue_valid_w[P_DIV]),
+        .issue_req       (fu_req_w[P_DIV]),
+        .kill_mask       (kill_mask_w),
+        .can_accept      (div_can_accept_w),
         .completion_valid(div_completion_valid_w),
-        .completion(div_completion_w)
+        .completion      (div_completion_w)
     );
 
     fu_csr u_csr (
-        .clk(clk),
-        .rst(rst),
-        .issue_valid(fu_issue_valid_w[P_CSR]),
-        .issue_req(fu_req_w[P_CSR]),
-        .kill_mask(kill_mask_w),
-        .csr_raddr(csr_raddr_w),
-        .csr_rdata(csr_rdata_w),
+        .clk             (clk),
+        .rst             (rst),
+        .issue_valid     (fu_issue_valid_w[P_CSR]),
+        .issue_req       (fu_req_w[P_CSR]),
+        .kill_mask       (kill_mask_w),
+        .csr_raddr       (csr_raddr_w),
+        .csr_rdata       (csr_rdata_w),
         .completion_valid(csr_completion_valid_w),
-        .completion(csr_completion_w),
-        .csr_write_data(csr_unit_wdata_w)
+        .completion      (csr_completion_w),
+        .csr_write_data  (csr_unit_wdata_w)
     );
 
     //=========================================================================
@@ -552,39 +552,39 @@ module be_top #(
     // Commit, BPU events, flush, trap, redirect
     //=========================================================================
     be_commit u_commit (
-        .clk(clk),
-        .rst(rst),
-        .entry(entry_w),
-        .commit_ptr(commit_ptr_w),
-        .kill_mask(kill_mask_w),
-        .store_commit_ok(store_commit_ok),
-        .bpu_block(bpu_block_w),
-        .mepc(mepc_w),
-        .commit_fire(commit_fire_w),
-        .commit_tag(commit_tag_w),
-        .commit_rd_wen(commit_rd_wen_w),
-        .commit_rd(commit_rd_w),
-        .commit_wdata(commit_wdata_w),
-        .commit_pc_next(commit_pc_next_w),
-        .commit_is_cfi(commit_is_cfi_w),
-        .commit_is_mret(commit_is_mret_w),
-        .commit_pc(commit_pc_w),
-        .commit_actual_taken(commit_actual_taken_w),
-        .commit_actual_target(commit_actual_target_w),
+        .clk                   (clk),
+        .rst                   (rst),
+        .entry                 (entry_w),
+        .commit_ptr            (commit_ptr_w),
+        .kill_mask             (kill_mask_w),
+        .store_commit_ok       (store_commit_ok),
+        .bpu_block             (bpu_block_w),
+        .mepc                  (mepc_w),
+        .commit_fire           (commit_fire_w),
+        .commit_tag            (commit_tag_w),
+        .commit_rd_wen         (commit_rd_wen_w),
+        .commit_rd             (commit_rd_w),
+        .commit_wdata          (commit_wdata_w),
+        .commit_pc_next        (commit_pc_next_w),
+        .commit_is_cfi         (commit_is_cfi_w),
+        .commit_is_mret        (commit_is_mret_w),
+        .commit_pc             (commit_pc_w),
+        .commit_actual_taken   (commit_actual_taken_w),
+        .commit_actual_target  (commit_actual_target_w),
         .commit_actual_cfi_type(commit_actual_cfi_type_w),
-        .commit_pred_meta(commit_pred_meta_w),
-        .csr_commit_we(csr_commit_we_w),
-        .csr_commit_addr(csr_commit_addr_w),
-        .csr_commit_wdata(csr_commit_wdata_w),
-        .store_commit_valid(store_commit_valid),
-        .store_commit_tag(store_commit_tag),
-        .retire_valid(retire_valid),
-        .retire_pc(retire_pc),
-        .retire_pc_next(retire_pc_next),
-        .retire_rd_wen(retire_rd_wen),
-        .retire_rd(retire_rd),
-        .retire_wdata(retire_wdata),
-        .retire_is_ebreak(retire_is_ebreak)
+        .commit_pred_meta      (commit_pred_meta_w),
+        .csr_commit_we         (csr_commit_we_w),
+        .csr_commit_addr       (csr_commit_addr_w),
+        .csr_commit_wdata      (csr_commit_wdata_w),
+        .store_commit_valid    (store_commit_valid),
+        .store_commit_tag      (store_commit_tag),
+        .retire_valid          (retire_valid),
+        .retire_pc             (retire_pc),
+        .retire_pc_next        (retire_pc_next),
+        .retire_rd_wen         (retire_rd_wen),
+        .retire_rd             (retire_rd),
+        .retire_wdata          (retire_wdata),
+        .retire_is_ebreak      (retire_is_ebreak)
     );
 
     be_bpu_update u_bpu (
@@ -602,57 +602,57 @@ module be_top #(
     );
 
     be_trap_ctrl u_trap (
-        .clk(clk),
-        .rst(rst),
-        .head_is_ecall(head_is_ecall_w),
-        .head_pc(entry_w[commit_ptr_w.slot_index].pc),
-        .commit_ptr(commit_ptr_w),
-        .commit_fire(commit_fire_w),
-        .head_is_mret(head_is_mret_w),
-        .commit_pc_next(commit_pc_next_w),
-        .mstatus_mie(mstatus_mie_w),
-        .mie_mtie(mie_mtie_w),
-        .mip_mtip(mip_mtip_w),
-        .mtvec(mtvec_w),
-        .mepc(mepc_w),
-        .lsu_mmio_order_idle(lsu_mmio_order_idle),
-        .ciq_empty(occupancy_w == 5'd0),
-        .ecall_valid(ecall_valid_w),
-        .ecall_pc(ecall_pc_w),
-        .mret_valid(mret_valid_w),
-        .mret_pc(mret_pc_w),
-        .irq_valid(irq_valid_w),
-        .irq_pc(irq_pc_w),
-        .irq_accept_evt(irq_accept_w),
-        .full_flush_valid(full_flush_valid_w),
-        .full_flush_keep_head(full_flush_keep_head_w),
-        .full_flush_ptr(full_flush_ptr_w),
-        .trap_we(trap_we_w),
-        .trap_mepc(trap_mepc_w),
-        .trap_mcause(trap_mcause_w),
-        .mret_we(mret_we_w),
-        .irq_drain(irq_drain_w),
+        .clk                  (clk),
+        .rst                  (rst),
+        .head_is_ecall        (head_is_ecall_w),
+        .head_pc              (entry_w[commit_ptr_w.slot_index].pc),
+        .commit_ptr           (commit_ptr_w),
+        .commit_fire          (commit_fire_w),
+        .head_is_mret         (head_is_mret_w),
+        .commit_pc_next       (commit_pc_next_w),
+        .mstatus_mie          (mstatus_mie_w),
+        .mie_mtie             (mie_mtie_w),
+        .mip_mtip             (mip_mtip_w),
+        .mtvec                (mtvec_w),
+        .mepc                 (mepc_w),
+        .lsu_mmio_order_idle  (lsu_mmio_order_idle),
+        .ciq_empty            (occupancy_w == 5'd0),
+        .ecall_valid          (ecall_valid_w),
+        .ecall_pc             (ecall_pc_w),
+        .mret_valid           (mret_valid_w),
+        .mret_pc              (mret_pc_w),
+        .irq_valid            (irq_valid_w),
+        .irq_pc               (irq_pc_w),
+        .irq_accept_evt       (irq_accept_w),
+        .full_flush_valid     (full_flush_valid_w),
+        .full_flush_keep_head (full_flush_keep_head_w),
+        .full_flush_ptr       (full_flush_ptr_w),
+        .trap_we              (trap_we_w),
+        .trap_mepc            (trap_mepc_w),
+        .trap_mcause          (trap_mcause_w),
+        .mret_we              (mret_we_w),
+        .irq_drain            (irq_drain_w),
         .architectural_next_pc(arch_next_pc_w)
     );
 
     be_flush u_flush (
-        .entry(entry_w),
-        .commit_ptr(commit_ptr_w),
-        .commit_fire(commit_fire_w),
-        .commit_tag(commit_tag_w),
-        .recovery_valid(recovery_valid_w),
-        .recovery_branch_tag(recovery_tag_w),
-        .full_flush_valid(full_flush_valid_w),
+        .entry               (entry_w),
+        .commit_ptr          (commit_ptr_w),
+        .commit_fire         (commit_fire_w),
+        .commit_tag          (commit_tag_w),
+        .recovery_valid      (recovery_valid_w),
+        .recovery_branch_tag (recovery_tag_w),
+        .full_flush_valid    (full_flush_valid_w),
         .full_flush_keep_head(full_flush_keep_head_w),
-        .full_flush_ptr(full_flush_ptr_w),
-        .cp_rvalid(cp_rvalid_w),
-        .cp_rtag(cp_rtag_w),
-        .kill_mask(kill_mask_w),
-        .restore_valid(restore_valid_w),
-        .restore_ptr(restore_ptr_w),
-        .restore_map_valid(restore_map_valid_w),
-        .restore_map_tag(restore_map_tag_w),
-        .cp_release(cp_release_w)
+        .full_flush_ptr      (full_flush_ptr_w),
+        .cp_rvalid           (cp_rvalid_w),
+        .cp_rtag             (cp_rtag_w),
+        .kill_mask           (kill_mask_w),
+        .restore_valid       (restore_valid_w),
+        .restore_ptr         (restore_ptr_w),
+        .restore_map_valid   (restore_map_valid_w),
+        .restore_map_tag     (restore_map_tag_w),
+        .cp_release          (cp_release_w)
     );
 
     assign kill_mask = kill_mask_w;
@@ -687,32 +687,32 @@ module be_top #(
     );
 
     be_redirect u_redirect (
-        .rst(rst),
-        .ecall_valid(ecall_valid_w),
-        .ecall_pc(ecall_pc_w),
-        .mret_valid(mret_valid_w),
-        .mret_pc(mret_pc_w),
-        .branch_valid(recovery_valid_w),
-        .branch_pc(redirect_pc_w),
+        .rst                  (rst),
+        .ecall_valid          (ecall_valid_w),
+        .ecall_pc             (ecall_pc_w),
+        .mret_valid           (mret_valid_w),
+        .mret_pc              (mret_pc_w),
+        .branch_valid         (recovery_valid_w),
+        .branch_pc            (redirect_pc_w),
 `ifdef TOURNAMENT_ON
-        .branch_ghr_before(entry_w[recovery_tag_w.slot_index].pred_meta.chooser_meta.pred_ghr),
+        .branch_ghr_before    (entry_w[recovery_tag_w.slot_index].pred_meta.chooser_meta.pred_ghr),
 `else
-        .branch_ghr_before('0),
+        .branch_ghr_before    ('0),
 `endif
         // The BRU's live sideband is used here: the recovery fires in the same
         // cycle as the completion, before the CIQ entry is updated.
-        .branch_taken(bru_actual_taken_w),
-        .irq_valid(irq_valid_w),
-        .irq_pc(irq_pc_w),
-        .redirect_valid(backend_redirect_valid),
-        .redirect_pc(backend_redirect_pc),
-        .redirect_kind(backend_redirect_kind),
-        .redirect_ghr_before(backend_redirect_ghr_before),
+        .branch_taken         (bru_actual_taken_w),
+        .irq_valid            (irq_valid_w),
+        .irq_pc               (irq_pc_w),
+        .redirect_valid       (backend_redirect_valid),
+        .redirect_pc          (backend_redirect_pc),
+        .redirect_kind        (backend_redirect_kind),
+        .redirect_ghr_before  (backend_redirect_ghr_before),
         .redirect_actual_taken(backend_redirect_actual_taken),
-        .sel_ecall(sel_ecall_w),
-        .sel_mret(sel_mret_w),
-        .sel_branch(sel_branch_w),
-        .sel_irq(sel_irq_w)
+        .sel_ecall            (sel_ecall_w),
+        .sel_mret             (sel_mret_w),
+        .sel_branch           (sel_branch_w),
+        .sel_irq              (sel_irq_w)
     );
 
     assign irq_redirect_valid = irq_accept_w;
@@ -724,24 +724,24 @@ module be_top #(
     csr_file #(
         .RESET_MTVEC(RESET_MTVEC)
     ) u_csr_file (
-        .clk(clk),
-        .rst(rst),
-        .timer_irq(timer_irq),
-        .raddr(csr_raddr_w),
-        .rdata(csr_rdata_w),
-        .raddr_ok(csr_raddr_ok_w),
-        .we(csr_commit_we_w),
-        .waddr(csr_commit_addr_w),
-        .wdata(csr_commit_wdata_w),
-        .trap_we(trap_we_w),
-        .trap_mepc(trap_mepc_w),
+        .clk        (clk),
+        .rst        (rst),
+        .timer_irq  (timer_irq),
+        .raddr      (csr_raddr_w),
+        .rdata      (csr_rdata_w),
+        .raddr_ok   (csr_raddr_ok_w),
+        .we         (csr_commit_we_w),
+        .waddr      (csr_commit_addr_w),
+        .wdata      (csr_commit_wdata_w),
+        .trap_we    (trap_we_w),
+        .trap_mepc  (trap_mepc_w),
         .trap_mcause(trap_mcause_w),
-        .mret_we(mret_we_w),
+        .mret_we    (mret_we_w),
         .mstatus_mie(mstatus_mie_w),
-        .mie_mtie(mie_mtie_w),
-        .mip_mtip(mip_mtip_w),
-        .mtvec(mtvec_w),
-        .mepc(mepc_w)
+        .mie_mtie   (mie_mtie_w),
+        .mip_mtip   (mip_mtip_w),
+        .mtvec      (mtvec_w),
+        .mepc       (mepc_w)
     );
 
     //=========================================================================
