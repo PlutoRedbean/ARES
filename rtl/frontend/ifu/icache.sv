@@ -1,15 +1,5 @@
 // Instruction cache sitting between the IFU fetch FSM and the backing memory
 // bus.
-//
-// The IFU presents a single fetch address through a simple request/response
-// handshake:
-//   - `req_valid` / `req_ready` : the IFU offers a PC, the cache accepts it,
-//   - `resp_valid` / `resp_ready`: the cache returns the 32-bit instruction.
-//
-// A request is looked up in the cache.  On a hit the instruction word is
-// returned after a short fixed latency; on a miss a whole line is fetched from
-// memory beat-by-beat and then the requested word is returned.
-//
 // The backing bus is selected by the `CONFIG_IO_USE_AXI macro:
 //   - defined   : AXI4-Lite master (`icache_axi_bus`), one 32-bit word per beat,
 //   - commented : miniTensor uncached read handshake (`icache_mt_bus`, see
@@ -48,7 +38,6 @@ module icache #(
     localparam int unsigned OFFSET_WIDTH = $clog2(LINE_BYTES);
     localparam int unsigned INDEX_WIDTH = $clog2(NR_SETS);
     localparam int unsigned TAG_WIDTH = ADDR_WIDTH - OFFSET_WIDTH - INDEX_WIDTH;
-    // localparam int unsigned INST_BYTES = DATA_WIDTH / 8;
     localparam int unsigned NR_INSTS = LINE_BYTES / INST_BYTES;
     localparam int unsigned WAY_IDX_W = (NR_WAYS > 1) ? $clog2(NR_WAYS) : 1;
     localparam int unsigned AGE_W = (NR_WAYS > 1) ? $clog2(NR_WAYS) : 1;
@@ -69,54 +58,162 @@ module icache #(
 
     typedef enum logic [2:0] {
         S_IDLE,
-        S_CHECK,
+        S_LOOK,
         S_REFILL,
         S_FILL,
+        S_RELOOK,  // let the synchronous read settle on the freshly written line
         S_RESP
     } state_t;
 
     state_t icache_state;
     state_t icache_n_state;
 
-    typedef struct packed {
-        logic valid;
-        logic [TAG_WIDTH-1:0] tag;
-        logic [NR_INSTS-1:0][DATA_WIDTH-1:0] data;
-        logic [AGE_W-1:0] age;
-    } cache_line_t;
+    // Metadata (valid/tag/age) lives in FF/LUT so the tag compare runs
+    //  The line data is a *synchronous-read* array so
+    // it infers as block RAM
+    logic valid_mem[NR_SETS][NR_WAYS];
+    logic [AGE_W-1:0] age_mem[NR_SETS][NR_WAYS];
+    logic [TAG_WIDTH-1:0] tag_mem[NR_SETS][NR_WAYS];
+    (* ram_style = "block" *)
+    logic [NR_INSTS-1:0][DATA_WIDTH-1:0] data_mem[NR_WAYS][NR_SETS];
 
-    cache_line_t                                      icache_mem    [NR_SETS][NR_WAYS];
+    logic [ADDR_WIDTH - 1:0] req_pc_r;
 
-    // registered request (the two low byte-offset bits are unused because
-    // instructions are word aligned)
-    /* verilator lint_off UNUSEDSIGNAL */
-    logic        [  ADDR_WIDTH - 1:0]                 req_addr_r;
-    /* verilator lint_on UNUSEDSIGNAL */
+    // synchronous read ports
+    logic [INDEX_WIDTH-1:0] rd_index_a_r;
+    logic [INDEX_WIDTH-1:0] rd_index_b_r;
+    logic [NR_INSTS-1:0][DATA_WIDTH-1:0] data_a_r[NR_WAYS];
+    logic [NR_INSTS-1:0][DATA_WIDTH-1:0] data_b_r[NR_WAYS];
 
-    logic        [     TAG_WIDTH-1:0]                 req_tag;
-    logic        [   INDEX_WIDTH-1:0]                 req_index;
-    logic        [  OFFSET_WIDTH-3:0]                 word_offset;
+    logic resp_valid_r;
+    logic [DATA_WIDTH - 1:0] resp_data_r[fe_pkg::FETCH_WIDTH];
+    logic [fe_pkg::FETCH_WIDTH-1:0] resp_rmask_r;
 
+    // ---- request decode (from req_pc_r) ----
+    logic [ADDR_WIDTH - 1:0] line_a_base;
+    logic [ADDR_WIDTH - 1:0] line_b_base;
+    logic [TAG_WIDTH-1:0] tag_a;
+    logic [TAG_WIDTH-1:0] tag_b;
+    logic [INDEX_WIDTH-1:0] index_a;
+    logic [INDEX_WIDTH-1:0] index_b;
+    logic [OFFSET_WIDTH-3:0] word_off;  // word index in the line
+    logic need_next;
+
+    assign word_off    = req_pc_r[OFFSET_WIDTH-1:2];
+    assign need_next   = (int'(word_off) + int'(FETCH_WIDTH)) > int'(NR_INSTS);
+    assign line_a_base = {req_pc_r[ADDR_WIDTH-1:OFFSET_WIDTH], {OFFSET_WIDTH{1'b0}}};
+    assign line_b_base = line_a_base + ADDR_WIDTH'(LINE_BYTES);
+    assign tag_a       = req_pc_r[ADDR_WIDTH-1-:TAG_WIDTH];
+    assign index_a     = req_pc_r[OFFSET_WIDTH+:INDEX_WIDTH];
+    assign tag_b       = line_b_base[ADDR_WIDTH-1-:TAG_WIDTH];
+    assign index_b     = line_b_base[OFFSET_WIDTH+:INDEX_WIDTH];
+
+    // next-line read address decoded directly from the incoming req_addr, so the
+    // two BRAM read ports can be registered on the accept edge.
+    logic [ADDR_WIDTH-1:0] req_line_b_base;
+    assign req_line_b_base = {req_addr[ADDR_WIDTH-1:OFFSET_WIDTH], {OFFSET_WIDTH{1'b0}}}
+                             + ADDR_WIDTH'(LINE_BYTES);
+
+    // ---- hit detection ----
+    logic hit_a;
+    logic hit_b;
+    logic [WAY_IDX_W-1:0] way_a;
+    logic [WAY_IDX_W-1:0] way_b;
+
+    always_comb begin
+        hit_a = 1'b0;
+        way_a = '0;
+        for (int w = 0; w < NR_WAYS; w++) begin
+            if (valid_mem[index_a][w] && tag_mem[index_a][w] == tag_a) begin
+                hit_a = 1'b1;
+                way_a = WAY_IDX_W'(w);
+            end
+        end
+    end
+
+    always_comb begin
+        hit_b = 1'b0;
+        way_b = '0;
+        for (int w = 0; w < NR_WAYS; w++) begin
+            if (valid_mem[index_b][w] && tag_mem[index_b][w] == tag_b) begin
+                hit_b = 1'b1;
+                way_b = WAY_IDX_W'(w);
+            end
+        end
+    end
+
+    wire all_hit = hit_a && (!need_next || hit_b);
+
+    // ---- victim selection (oldest age) ----
+    logic [WAY_IDX_W-1:0] victim_a;
+    logic [WAY_IDX_W-1:0] victim_b;
+
+    always_comb begin
+        victim_a = '0;
+        for (int w = 0; w < NR_WAYS; w++) begin
+            if (age_mem[index_a][w] == AGE_W'(NR_WAYS - 1)) victim_a = WAY_IDX_W'(w);
+        end
+    end
+
+    always_comb begin
+        victim_b = '0;
+        for (int w = 0; w < NR_WAYS; w++) begin
+            if (age_mem[index_b][w] == AGE_W'(NR_WAYS - 1)) victim_b = WAY_IDX_W'(w);
+        end
+    end
+
+    // ---- miss target (line A has priority; line B only when crossing) ----
+    logic [   TAG_WIDTH-1:0] miss_tag;
+    logic [ INDEX_WIDTH-1:0] miss_index;
+    logic [ADDR_WIDTH - 1:0] miss_line_base;
+    logic [ WAY_IDX_W - 1:0] miss_way;
+
+    always_comb begin
+        if (!hit_a) begin
+            miss_tag       = tag_a;
+            miss_index     = index_a;
+            miss_line_base = line_a_base;
+            miss_way       = victim_a;
+        end else begin
+            miss_tag       = tag_b;
+            miss_index     = index_b;
+            miss_line_base = line_b_base;
+            miss_way       = victim_b;
+        end
+    end
+
+    logic [   TAG_WIDTH-1:0] miss_tag_r;
+    logic [ INDEX_WIDTH-1:0] miss_index_r;
+    logic [ADDR_WIDTH - 1:0] miss_line_base_r;
+    logic [ WAY_IDX_W - 1:0] miss_way_r;
+
+    // ---- window assembly from the two lines ----
+    logic [DATA_WIDTH - 1:0] asm_data[fe_pkg::FETCH_WIDTH];
+    always_comb begin
+        for (int i = 0; i < fe_pkg::FETCH_WIDTH; i++) begin
+            int wi;
+            wi = int'(word_off) + i;
+            if (wi < int'(NR_INSTS)) asm_data[i] = data_a_r[way_a][wi];
+            else asm_data[i] = data_b_r[way_b][wi-int'(NR_INSTS)];
+        end
+    end
+
+    wire out_free = !resp_valid_r || resp_ready;
+    wire commit = ((icache_state == S_LOOK) || (icache_state == S_RESP)) && all_hit && out_free;
+
+    // --------------------
     // line refill bookkeeping
-    logic        [  ADDR_WIDTH - 1:0]                 line_base;
-    logic        [  NR_BEATS_W - 1:0]                 refill_cnt;
-    logic                                             req_sent;
-    logic        [      NR_INSTS-1:0][DATA_WIDTH-1:0] refill_buf;
-    logic        [   WAY_IDX_W - 1:0]                 sel_way;
+    // --------------------
+    logic [NR_BEATS_W - 1:0] refill_cnt;
+    logic req_sent;
+    logic [NR_INSTS-1:0][DATA_WIDTH-1:0] refill_buf;
 
-    // --------------------
-    // protocol-agnostic backing bus
-    //
-    // A read is offered on bus_req_* and answered on bus_rsp_*; the adaptor
-    // below maps it onto either AXI4-Lite (ar/r channels) or the miniTensor
-    // uncached handshake, selected by `CONFIG_IO_USE_AXI.
-    // --------------------
-    logic                                             bus_req_valid;
-    logic                                             bus_req_ready;
-    logic        [  ADDR_WIDTH - 1:0]                 bus_req_addr;
-    logic                                             bus_rsp_valid;
-    logic                                             bus_rsp_ready;
-    logic        [BUS_DATA_WIDTH-1:0]                 bus_rsp_data;
+    logic bus_req_valid;
+    logic bus_req_ready;
+    logic [ADDR_WIDTH - 1:0] bus_req_addr;
+    logic bus_rsp_valid;
+    logic bus_rsp_ready;
+    logic [BUS_DATA_WIDTH-1:0] bus_rsp_data;
 
 `ifdef CONFIG_IO_USE_AXI
     assign icache_axi_bus.arvalid = bus_req_valid;
@@ -150,38 +247,6 @@ module icache #(
     assign icache_mt_bus.mem_wr_be    = '0;
 `endif
 
-    assign req_tag = req_addr_r[ADDR_WIDTH-1-:TAG_WIDTH];
-    assign req_index = req_addr_r[OFFSET_WIDTH+:INDEX_WIDTH];
-    assign word_offset = req_addr_r[OFFSET_WIDTH-1:2];
-
-    assign line_base = {req_addr_r[ADDR_WIDTH-1:OFFSET_WIDTH], {OFFSET_WIDTH{1'b0}}};
-
-    // --------------------
-    // hit / victim detection
-    // --------------------
-    logic hit;
-    logic [WAY_IDX_W - 1:0] hit_way;
-
-    always_comb begin
-        hit     = 1'b0;
-        hit_way = '0;
-        for (int w = 0; w < NR_WAYS; w++) begin
-            if (icache_mem[req_index][w].valid && icache_mem[req_index][w].tag == req_tag) begin
-                hit     = 1'b1;
-                hit_way = WAY_IDX_W'(w);
-            end
-        end
-    end
-
-    logic [WAY_IDX_W - 1:0] victim_way;
-
-    always_comb begin
-        victim_way = '0;
-        for (int w = 0; w < NR_WAYS; w++) begin
-            if (icache_mem[req_index][w].age == AGE_W'(NR_WAYS - 1)) victim_way = WAY_IDX_W'(w);
-        end
-    end
-
     // --------------------
     // FSM Transitions
     // --------------------
@@ -192,24 +257,30 @@ module icache #(
     always_comb begin : g_icache_fsm
         icache_n_state = icache_state;
         unique case (icache_state)
-            S_IDLE:   if (req_valid && req_ready) icache_n_state = S_CHECK;
-            S_CHECK:  icache_n_state = hit ? S_RESP : S_REFILL;
+            S_IDLE: if (req_valid && req_ready) icache_n_state = S_LOOK;
+            S_LOOK:
+            if (!all_hit) icache_n_state = S_REFILL;
+            else if (out_free) icache_n_state = S_IDLE;
+            else icache_n_state = S_RESP;
             S_REFILL: if (refill_done) icache_n_state = S_FILL;
-            S_FILL:   icache_n_state = S_RESP;
-            S_RESP:   if (resp_ready) icache_n_state = S_IDLE;
-            default:  icache_n_state = S_IDLE;
+            S_FILL: icache_n_state = S_RELOOK;
+            S_RELOOK: icache_n_state = S_LOOK;  // re-look up with fresh data
+            S_RESP: if (out_free) icache_n_state = S_IDLE;
+            default: icache_n_state = S_IDLE;
         endcase
     end
 
     assign req_ready = (icache_state == S_IDLE);
-    // miss/refill pulse: a request that reaches S_CHECK without a hit
-    assign refill = (icache_state == S_CHECK) && !hit;
+    // miss/refill pulse: a request that is looked up without a full hit
+    assign refill = (icache_state == S_LOOK) && !all_hit;
 
     // --------------------
     // backing bus read request / response
     // --------------------
     assign bus_req_valid = (icache_state == S_REFILL) && !req_sent;
-    assign bus_req_addr = line_base + (ADDR_WIDTH'(refill_cnt) * ADDR_WIDTH'(BUS_BEAT_BYTES));
+    assign bus_req_addr = miss_line_base_r + (ADDR_WIDTH'(refill_cnt) << $clog2(
+        ADDR_WIDTH'(BUS_BEAT_BYTES)
+    ));
     assign bus_rsp_ready = (icache_state == S_REFILL) && req_sent;
 
     // --------------------
@@ -220,53 +291,71 @@ module icache #(
         else icache_state <= icache_n_state;
     end
 
+    wire [INDEX_WIDTH-1:0] rd_addr_a =
+        (icache_state == S_IDLE) ? req_addr[OFFSET_WIDTH+:INDEX_WIDTH] : rd_index_a_r;
+    wire [INDEX_WIDTH-1:0] rd_addr_b =
+        (icache_state == S_IDLE) ? req_line_b_base[OFFSET_WIDTH+:INDEX_WIDTH] : rd_index_b_r;
+
     always_ff @(posedge clk) begin
         if (rst) begin
-            req_addr_r <= '0;
+            for (int w = 0; w < NR_WAYS; w++) begin
+                data_a_r[w] <= '0;
+                data_b_r[w] <= '0;
+            end
+        end else begin
+            for (int w = 0; w < NR_WAYS; w++) begin
+                data_a_r[w] <= data_mem[w][rd_addr_a];
+                if ((icache_state == S_FILL) && (WAY_IDX_W'(w) == miss_way_r))
+                    data_mem[w][miss_index_r] <= refill_buf;
+                else data_b_r[w] <= data_mem[w][rd_addr_b];
+            end
+        end
+    end
+
+    always_ff @(posedge clk) begin
+        if (rst) begin
+            req_pc_r <= '0;
+            rd_index_a_r <= '0;
+            rd_index_b_r <= '0;
             refill_cnt <= '0;
-            req_sent   <= 1'b0;
-            sel_way    <= '0;
-            resp_valid <= 1'b0;
+            req_sent <= 1'b0;
+            resp_valid_r <= 1'b0;
+            resp_rmask_r <= '0;
             for (int w = 0; w < fe_pkg::FETCH_WIDTH; w++) begin
-                resp_data[w]  <= '0;
-                resp_rmask[w] <= 1'b0;
+                resp_data_r[w] <= '0;
             end
             for (int s = 0; s < NR_SETS; s++) begin
                 for (int w = 0; w < NR_WAYS; w++) begin
-                    icache_mem[s][w].valid <= 1'b0;
-                    icache_mem[s][w].age   <= AGE_W'(w);
+                    // only reset the meta data
+                    valid_mem[s][w] <= 1'b0;
+                    age_mem[s][w]   <= AGE_W'(w);
                 end
             end
         end else begin
-            resp_valid <= 0;
+            if (resp_valid_r && resp_ready) resp_valid_r <= 1'b0;
+
+            if ((icache_state == S_LOOK) && !all_hit) begin
+                miss_tag_r       <= miss_tag;
+                miss_index_r     <= miss_index;
+                miss_line_base_r <= miss_line_base;
+                miss_way_r       <= miss_way;
+            end
+
             unique case (icache_state)
                 S_IDLE: begin
                     if (req_valid && req_ready) begin
-                        req_addr_r <= req_addr;
+                        req_pc_r     <= req_addr;
+                        rd_index_a_r <= req_addr[OFFSET_WIDTH+:INDEX_WIDTH];
+                        rd_index_b_r <= req_line_b_base[OFFSET_WIDTH+:INDEX_WIDTH];
                     end
                     refill_cnt <= '0;
                     req_sent   <= 1'b0;
-                end
-
-                S_CHECK: begin
-                    if (hit) begin
-                        sel_way <= hit_way;
-                        for (int w = 0; w < NR_WAYS; w++) begin
-                            if (WAY_IDX_W'(w) == hit_way) icache_mem[req_index][w].age <= '0;
-                            else if (icache_mem[req_index][w].age != AGE_W'(NR_WAYS - 1))
-                                icache_mem[req_index][w].age <= icache_mem[req_index][w].age + 1'b1;
-                        end
-                    end else begin
-                        sel_way <= victim_way;
-                    end
                 end
 
                 S_REFILL: begin
                     if (!req_sent) begin
                         if (bus_req_valid && bus_req_ready) req_sent <= 1'b1;
                     end else if (bus_rsp_valid && bus_rsp_ready) begin
-                        // a 128-bit miniTensor beat carries BUS_BEAT_INSTS
-                        // instructions; an AXI beat carries one
                         for (int j = 0; j < BUS_BEAT_INSTS; j++) begin
                             refill_buf[int'(refill_cnt) * BUS_BEAT_INSTS + j]
                                 <= bus_rsp_data[j*INST_WIDTH +: INST_WIDTH];
@@ -278,47 +367,60 @@ module icache #(
                 end
 
                 S_FILL: begin
+                    valid_mem[miss_index_r][miss_way_r] <= 1'b1;
+                    tag_mem[miss_index_r][miss_way_r] <= miss_tag_r;
 
-                    icache_mem[req_index][sel_way].valid <= 1'b1;
-                    icache_mem[req_index][sel_way].tag   <= req_tag;
-                    icache_mem[req_index][sel_way].data  <= refill_buf;
+                    refill_cnt <= '0;
+                    req_sent <= 1'b0;
 
                     // update ages: the selected way is now the youngest (age
                     // 0), and all other ways.ages + 1
                     for (int w = 0; w < NR_WAYS; w++) begin
-                        if (WAY_IDX_W'(w) == sel_way) icache_mem[req_index][w].age <= '0;
-                        else if (icache_mem[req_index][w].age != AGE_W'(NR_WAYS - 1))
-                            icache_mem[req_index][w].age <= icache_mem[req_index][w].age + 1'b1;
+                        if (WAY_IDX_W'(w) == miss_way_r) age_mem[miss_index_r][w] <= '0;
+                        else if (age_mem[miss_index_r][w] != AGE_W'(NR_WAYS - 1))
+                            age_mem[miss_index_r][w] <= age_mem[miss_index_r][w] + 1'b1;
                     end
                 end
 
-                S_RESP: begin
-                    resp_valid <= 1'b1;
-                    // A fetch window may start close to the end of a cache
-                    // line; only the words that stay inside the line are
-                    // returned, the remaining slots are masked off by
-                    // `resp_rmask` and the IFU re-issues a request for the
-                    // following line.
-                    for (int w = 0; w < fe_pkg::FETCH_WIDTH; w++) begin
-                        if (int'(word_offset) + w < int'(NR_INSTS)) begin
-                            resp_data[w] <= icache_mem[req_index][sel_way].data[word_offset+(OFFSET_WIDTH-2)'(w)];
-                            resp_rmask[w] <= 1'b1;
-                        end else begin
-                            resp_data[w]  <= '0;
-                            resp_rmask[w] <= 1'b0;
-                        end
-                    end
-                end
-
+                default: ;
             endcase
+
+            // commit the assembled window into the output holding register.
+            // Line A and line B always map to different sets (adjacent lines),
+            // so the two age updates never touch the same set.
+            if (commit) begin
+                resp_valid_r <= 1'b1;
+                resp_rmask_r <= '1;
+                for (int w = 0; w < fe_pkg::FETCH_WIDTH; w++) begin
+                    resp_data_r[w] <= asm_data[w];
+                end
+
+                for (int w = 0; w < NR_WAYS; w++) begin
+                    if (WAY_IDX_W'(w) == way_a) age_mem[index_a][w] <= '0;
+                    else if (age_mem[index_a][w] != AGE_W'(NR_WAYS - 1))
+                        age_mem[index_a][w] <= age_mem[index_a][w] + 1'b1;
+                end
+
+                if (need_next) begin
+                    for (int w = 0; w < NR_WAYS; w++) begin
+                        if (WAY_IDX_W'(w) == way_b) age_mem[index_b][w] <= '0;
+                        else if (age_mem[index_b][w] != AGE_W'(NR_WAYS - 1))
+                            age_mem[index_b][w] <= age_mem[index_b][w] + 1'b1;
+                    end
+                end
+            end
         end
     end
 
+    assign resp_valid = resp_valid_r;
+    assign resp_rmask = resp_rmask_r;
 
     always_comb begin
-        // Skip the check while reset is asserted: the IFU request register may
-        // still hold its power-up value (random under `+verilator+rand+reset`).
-        if (req_valid && req_ready) begin
+        for (int w = 0; w < fe_pkg::FETCH_WIDTH; w++) resp_data[w] = resp_data_r[w];
+    end
+
+    always_comb begin
+        if (!rst && req_valid && req_ready) begin
             assert (req_addr[1:0] == 2'b00)
             else $fatal("icache request address must be word-aligned");
         end
