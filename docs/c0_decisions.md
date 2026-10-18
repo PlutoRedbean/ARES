@@ -242,7 +242,7 @@ store_credit = 3'd(SQ_ENTRIES - sq_occupancy)      // SQ_ENTRIES = 8, 含 SPEC +
 
 1. **命名**：`ENTRY_*` 前缀（语义不变，FREE-02）。
 2. **`fu_type_t` 位宽 4**：规范未给位宽；为 SPEC-M6 的 XIF 端口预留，避免日后改跨边界布局（FREE-01）。
-3. **`chooser_meta_t.pred_ghr` 与 `pred_meta_t.ghr_before` 重复**：为兼容现有 FE 训练逻辑而保留（现有 `bpu.sv/gshare` 用 `pred_ghr` 索引）。契约的 `ghr_before` 是权威语义；建议 FE 迁移后统一使用 `ghr_before`，**布局不变**（不删字段）。
+3. **`chooser_meta_t.pred_ghr` 与 `pred_meta_t.ghr_before` 重复**：为兼容现有 FE 训练逻辑而保留（现有 `bpu.sv/gshare` 用 `pred_ghr` 索引）。C5（2026-10-18）已冻结两者的不同职责：`chooser_meta.pred_ghr` 保留预测表实际查表历史，`ghr_before` 是逐 CFI 的完整恢复快照；二者不得互相替换，预测表训练不读取最新 GHR。固定字段布局现由 `fe_pkg` 提供，见 `fe_contract_migration.md`。
 4. **`queue_entry_t` 的 `actual_*` 字段**：按 backend.md §4 原样保留（BRU Completion 登记），不新增/不删除。
 5. **未在包内冻结的项**：`RESET_MTVEC`（SPEC-M8）、SoC 地址窗口（SPEC-M7）、XIF 端口（SPEC-M6）——三者的冻结点分别在 SoC 阶段 / C5 / 加速器集成阶段，core 不为它们引入占位信号。
 6. **配置机制属于新增工程面**（不改变任何已批准微架构）：菜单里的每一项都必须是规范已允许的实现选择（[P]/FREE 类），不得用菜单引入新的架构行为；新增项按 D-C0-12 的流程走。

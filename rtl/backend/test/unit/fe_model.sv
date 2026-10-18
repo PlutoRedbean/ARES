@@ -86,7 +86,7 @@ module fe_model #(
             e.valid                 = 1'b1;
             e.pc                    = pc;
             e.inst                  = inst;
-            e.pred_meta.pred_target = pc + 32'd4;
+            e.pred_npc = pc + 32'd4;
             e.pred_meta.pred_taken  = 1'b0;
             e.cfi_type              = c;
             e.is_cfi                = (c != CFI_NONE);

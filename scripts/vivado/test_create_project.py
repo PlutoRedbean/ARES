@@ -33,6 +33,10 @@ class ProjectTest(unittest.TestCase):
             inputs = json.loads((out / "inputs.json").read_text())
             self.assertEqual(inputs["config"]["MUL_LATENCY"], 3)
             self.assertEqual(inputs["config"]["LINE_BYTES"], 32)
+            self.assertIn("inputs/rtl/common/fe_pkg.sv", inputs["inputs"])
+            self.assertIn("inputs/rtl/top/ares_cpu_top.sv", inputs["inputs"])
+            self.assertIn("inputs/rtl/frontend/frontend.sv", inputs["inputs"])
+            self.assertTrue((out/"includes/config/ares_autoconf.vh").is_file())
             self.assertFalse(any("/npc/" in p or "/miniTensor/" in p or "/test/" in p for p in inputs["inputs"]))
             moved = out.rename(Path(temp) / "moved project")
             script = (moved / "generate.tcl").read_text()
@@ -44,6 +48,18 @@ class ProjectTest(unittest.TestCase):
                 text=True, capture_output=True, check=True)
             self.assertEqual(result.stdout.splitlines()[0], "1")
             self.assertGreater(int(result.stdout.splitlines()[1]), 30)
+
+    def test_soc_frontend_configuration_guard(self):
+        with tempfile.TemporaryDirectory() as temp:
+            for index, text in enumerate(["CONFIG_FE_FETCH_WIDTH=8\n",
+                                          "CONFIG_FE_DECODE_WIDTH=1\n",
+                                          "# CONFIG_IO_USE_AXI is not set\n"]):
+                config = Path(temp)/f"config-{index}"
+                config.write_text(text)
+                out = Path(temp)/f"bad-{index}"
+                with self.assertRaisesRegex(ValueError, "C5 SoC requires"):
+                    gen.prepare(self.args(out, config=str(config)))
+                self.assertFalse(out.exists())
 
     def test_literal_tcl_word(self):
         value = 'space $env(HOME) [exec echo oops] "quotes" {braces} \\ slash\nnewline'

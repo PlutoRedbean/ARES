@@ -15,7 +15,7 @@
 //   2. iq_accept_count is the only consumption basis; pop is a contiguous prefix
 //   3. with accept=0 the head entry and its metadata stay stable
 //   4. backend_redirect_valid forces a same-cycle refetch from the new PC
-//   5. pred_meta.pred_target is the effective next PC (always pc+4), the rest
+//   5. pred_npc is the effective next PC (always pc+4); raw metadata
 //      of pred_meta is left raw
 //   6. bpu_update_credit comes from registered state (constant 2; the stub has
 //      no predictor to train and therefore drops the events)
@@ -122,7 +122,7 @@ module fe_stub #(
         new_entry                       = '0;
         new_entry.pc                    = f1_pc;
         new_entry.inst                  = f1_inst;
-        new_entry.pred_meta.pred_target = f1_pc + 32'd4;
+        new_entry.pred_npc = f1_pc + 32'd4;
         new_entry.pred_meta.pred_taken  = 1'b0;
         new_entry.cfi_type              = new_cfi;
         new_entry.is_cfi                = (new_cfi != CFI_NONE);

@@ -1,10 +1,10 @@
 # 支持RV32IM Mundus 前端架构设计文档
 
-> **Version**: Draft 1.3
+> **Version**: Draft 1.4 / C5 2026-10-18
 > **目标架构**：
 > Overview: 采用一个Composer+多个子预测器的三级流水线结构
 >
-> 1. Buffer Queue: 8-entries Instruction Queue (IQ) / 16-entries Fetch Target Queue (FTQ)
+> 1. Buffer Queue: Instruction Queue (IQ，当前默认 HEAD 2 + BODY 8) / 16-entries Fetch Target Queue (FTQ)
 > 2. Target: uBTB / mBTB
 > 3. Direction: Bimodal / TAGE / SC
 > 4. Special control-flow: RAS / Loop
@@ -300,7 +300,7 @@ for each effective predicted CFI in program order:
     ghr_spec = {ghr_spec[GHR_WIDTH-2:0], effective_pred_taken}
 ```
 
-每次推进一条 CFI 的生效预测方向；首版 IFU 在首个有效 CFI 后截断 Fetch Block，必须为该 CFI 保存推进之前的 `ghr_before`。
+每次推进一条 CFI 的生效预测方向；当前 IFU 保留多个预测不跳转 CFI，在首个预测跳转 CFI 后截断；每条 CFI 的完整 `ghr_before` 在写入 FTQ 前生成。
 
 - 发生 **BRU Recovery** 时，使用该 CFI 在预测时保存的 `pred_meta.ghr_before`（包含更老但未提交的正确历史）并追加 `actual_taken`，而非简单使用 `ghr_commit`：
 
@@ -361,9 +361,8 @@ typedef struct packed {
     cfi_type_t             pred_type;   // 原始预测 CFI 类型
     logic [GHR_WIDTH-1:0]  ghr_before;  // 逐 CFI 的预测前 GHR 快照
 
-`ifdef TOURNAMENT_ON
-    chooser_meta_t chooser_meta;
-`endif
+    chooser_meta_t chooser_meta; // 保留实际预测表索引历史，固定布局
+    logic loop_override; // 停用时置零
     
 } pred_meta_t;
 ```
@@ -372,32 +371,32 @@ typedef struct packed {
 
 ## 4. IFU-IDU接口设计(Instruction Queue)
 
-IF-ID通过一个8-entry的IQ来缓存指令块。
+IF-ID 使用参数化 IQ；当前 Kconfig 默认 HEAD=2、BODY=8，总深度 10。
 
 ```systemverilog
 module iq #(
     parameter int unsigned DECODE_W = 2,  // IDU 每拍最多读出
-    parameter int unsigned IQ_DEPTH = 8
+    parameter int unsigned IQ_DEPTH = 10
 ) (
     input logic                              clk,
     input logic                              rst,
 
     // ---------- IFU Write Port ----------
     input logic                              wvalid,
-    input npc_pkg::iq_entry_t                wdata[npc_pkg::FETCH_WIDTH],
-    input logic [npc_pkg::FETCH_WIDTH - 1:0] wmask,  // Fetch Block中Branch后的指令置为无效
+    input fe_pkg::iq_entry_t                wdata[fe_pkg::FETCH_WIDTH],
+    input logic [fe_pkg::FETCH_WIDTH - 1:0] wmask,  // Fetch Block中Branch后的指令置为无效
     output logic wready,
 
     // ---------- IDU Read Port ----------
     output logic [DECODE_W - 1:0]            rvalid,  // HEAD中有效的指令槽
     input logic [$clog2(DECODE_W+1) - 1:0]   raccept_cnt,  // 唯一消费条件：0/1/2
-    output npc_pkg::iq_entry_t               rbits[DECODE_W],
+    output fe_pkg::iq_entry_t               rbits[DECODE_W],
 
     input logic                              flush  // 仅 Backend Redirect/Reset 全队列清空；Local Redirect 保留正确 prefix
 );
 ```
 
-内部使用BODY+HEAD的FIFO结构，HEAD为2-entry，BODY为6-entry。其中HEAD仅为2个寄存器，提供给IDU。BODY则由一个6-entry的循环队列组成，提供给IFU写入。
+内部使用 BODY+HEAD FIFO；HEAD 为 2 个寄存器，BODY 为参数化循环队列（当前默认 8），提供 IFU 写入。
 
 ```text
                  一个逻辑 IB，总容量 8 条
@@ -481,10 +480,10 @@ head和tail使用独热码+左旋的方式实现。
         // Instruction PC (needed by the multi-cycle NPC back-end)
         logic [ADDR_WIDTH - 1:0] pc;
 
-        // BPU 原始预测/历史快照（Commit 训练和 BRU Recovery 用）
-        pred_meta_t pred_meta;
         // 经过前端 Predecode 修正后，该条指令生效的预测下一 PC
         logic [ADDR_WIDTH-1:0] pred_npc;
+        // BPU 原始预测/历史快照（Commit 训练和 BRU Recovery 用）
+        pred_meta_t pred_meta;
 
         // Instruction
         logic [31:0] inst;
@@ -550,12 +549,12 @@ module ftq #(
     // FTQ Write Port
     input logic wvalid,
     output logic wready,
-    input npc_pkg::ftq_entry_t wdata,
+    input fe_pkg::ftq_entry_t wdata,
 
     // FTQ Read Port
     output logic rvalid,
     input logic rready,
-    output npc_pkg::ftq_entry_t rdata,
+    output fe_pkg::ftq_entry_t rdata,
 
     // flush port
     /*
@@ -902,3 +901,11 @@ Cycle N+2:
 - **BPU Update**：接收正常 CFI Commit 的最多两个 `bpu_update` 事件，通过登记的 `bpu_update_credit` 预留事件缓冲；在接受沿更新 `ghr_commit`，预测表可按顺序延迟训练。
 
 Backend Redirect 与同周期 Local Redirect 冲突时，Backend 获胜；旧路径 ICache 响应不得重新进入 IQ。首版不支持深级预测器在某块指令入 IQ 后对该更老块进行无定位回滚。
+
+## 9. C5 implementation boundary (2026-10-18)
+
+真实 FE/BE/IROM 功能集成已验收；入口与证据见 `../fe_contract_migration.md`。
+GHR 的提交沿更新、独立恢复和预测表 FIFO 训练是三条分离路径；RAS/Loop 用于
+恢复的提交状态也在接受沿按 lane 顺序推进。原始预测 metadata 经 Predecode/BE
+保持不变；只有独立 `pred_npc` 可被本地修正。本文开头的三级深预测器、TAGE/SC/mBTB
+及 1 prediction/cycle 属目标架构；本轮没有实现这些性能项目，也没有板级 PPA 签核。

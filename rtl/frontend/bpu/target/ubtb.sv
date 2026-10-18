@@ -199,7 +199,7 @@ module ubtb (
         plru_victim = '0;
         for (int level = 0; level < UBTB_WIDTH; level++) begin
             plru_victim = (plru_victim << 1) | UBTB_WIDTH'(plru[node]);
-            node = (node << 1) + 1 + plru[node];
+            node = (node << 1) + 1 + int'(plru[node]);
         end
     end
 
@@ -230,7 +230,7 @@ module ubtb (
         node = 0;
         for (int level = UBTB_WIDTH - 1; level >= 0; level--) begin
             next_plru[node] = ~way[level];
-            node = 2 * node + 1 + way[level];
+            node = 2 * node + 1 + int'(way[level]);
         end
         return next_plru;
     endfunction

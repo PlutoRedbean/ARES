@@ -56,10 +56,9 @@ module iq (
 
     function automatic logic [BIDX_W-1:0] body_add(input logic [BIDX_W-1:0] base,
                                                    input logic [BOFF_W-1:0] off);
-        // logic [BOFF_W-1:0] sum;
-        // sum = {1'b0, base} + off;
-        // body_add = (sum >= BOFF_W'(BODY_DEPTH)) ? BIDX_W'(sum - BOFF_W'(BODY_DEPTH)) : BIDX_W'(sum);
-        body_add = base + BIDX_W'(off);
+        logic [BOFF_W-1:0] sum;
+        sum = {1'b0, base} + off;
+        body_add = (sum >= BOFF_W'(BODY_DEPTH)) ? BIDX_W'(sum - BOFF_W'(BODY_DEPTH)) : BIDX_W'(sum);
     endfunction
 
     wire  [BIDX_W-1:0] n_body_rptr = body_rptr + BIDX_W'(1);
@@ -242,8 +241,10 @@ module iq (
     // ---------------- outputs ----------------
     assign rvalid[0] = (head_state != S_H0);
     assign rvalid[1] = (head_state == S_H2);
-    assign rbits[0]  = head0_r;
-    assign rbits[1]  = head1_r;
+    always_comb begin
+        rbits[0] = head0_r; rbits[1] = head1_r;
+        rbits[0].valid = rvalid[0]; rbits[1].valid = rvalid[1];
+    end
 
     // occupancy = BODY entries + valid HEAD slots
     assign occupancy = $clog2(IQ_DEPTH + 1)'(body_occ) + $clog2(IQ_DEPTH + 1)'(head_state);

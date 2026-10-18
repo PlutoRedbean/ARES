@@ -26,11 +26,11 @@ make vivado-project FPGA_CPU_MHZ=250 FPGA_OUT=build/vivado/team
 make test-vivado lint-soc unit-soc
 ```
 
-The default `soc` profile uses **`student_top` with `ares_core_top Core_cpu`**.
-IQ, Redirect and BPU training ports remain the approved ARES FE contract;
-the real frontend is intentionally deferred by the integration decision.
-Both `soc` and `core` run synthesis **out of context**. Their external FE ports
-have no board pins or final I/O timing budget. They are useful for compilation
+The default `soc` profile uses **`student_top` with `ares_cpu_top Core_cpu` (real FE + BE/LSU + IROM bridge)**.
+The FE contract and IROM seam are now internal to the platform. CPU instruction
+fetch uses the dedicated synchronous IROM.
+Both `soc` and `core` run synthesis **out of context**. Their platform/CPU external ports
+have no final board I/O timing budget. They are useful for compilation
 and resource checks; **they cannot sign off MC4 or create a working board
 bitstream**. See [SoC integration decisions](../../docs/jyd_soc_integration.md).
 
@@ -66,8 +66,10 @@ and old source/IP contents are not evidence about ARES timing or correctness.
 
 The source set is selected deterministically from `rtl/common`, `rtl/backend`,
 `rtl/memory`, and the applicable `rtl/top` / `rtl/soc/jyd` modules. Testbenches,
-DPI models, legacy CPU sources and the unmigrated frontend are excluded.
-`ares_pkg.sv` precedes `lsu_pkg.sv`; Vivado resolves the remaining compile order.
+DPI models and legacy CPU sources are excluded. The `soc` profile now includes
+all real FE sources, interfaces, CPU wrapper and IROM bridge; `core` remains
+the BE/LSU-only OOC top. `fe_pkg.sv` precedes `ares_pkg.sv` and `lsu_pkg.sv`.
+The resolved configuration header and frontend Kconfig are snapshotted too.
 
 The default configuration is the versioned `configs/defconfig` plus Kconfig
 defaults: `MUL_LATENCY=3`, `LINE_BYTES=32`. Local `menuconfig` state is never
@@ -124,22 +126,23 @@ replaying `create_ip` into populated IP directories.
 
 ## Full board integration and routing
 
-The physical `top` and real FE are not supplied by this migration. Once the
-team integrates them, add a versioned JSON manifest. Paths are relative to the
+The real FE/IROM functional integration is supplied by C5. The physical
+`top` still requires board integration and a versioned JSON manifest. Paths are relative to the
 repository; source order is maintained before Vivado updates compile order.
 
 ```json
 {
   "top": "top",
-  "sources": ["rtl/board/top.sv", "rtl/frontend/fe_pkg.sv", "rtl/frontend/frontend.sv"],
+  "sources": ["rtl/board/top.sv"],
   "include_dirs": [],
   "constraints": ["fpga/vivado/constraints/board_io_timing.xdc"],
   "ip_recipes": []
 }
 ```
 
-This is a schema example, **not a complete frontend file list**. Include every
-required FE implementation, contract adapter and IROM interface implementation.
+This is a schema example. The SoC source set already includes the real FE, CPU
+wrapper and IROM bridge; list the physical board wrapper, extra dependencies
+and additional board constraints in the manifest.
 User IP recipes receive `ares_ip_dir`, `ares_cpu_mhz`, `ares_irom_coe` and
 `ares_dram_coe`; use explicit catalog versions and avoid host-local paths.
 

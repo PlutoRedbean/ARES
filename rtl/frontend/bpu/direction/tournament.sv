@@ -29,16 +29,7 @@ module tournament (
     output logic                  [fe_pkg::FETCH_WIDTH-1:0] pred_taken_slots,
     output fe_pkg::chooser_meta_t [fe_pkg::FETCH_WIDTH-1:0] chooser_meta,
 
-    // speculative history control (forwarded to gshare)
-    input logic                                     flush,
-    input logic                                     spec_valid,
-    input logic [$clog2(fe_pkg::FETCH_WIDTH+1)-1:0] spec_num,
-    input logic                                     spec_taken,
-
-    // redirect recovery (forwarded to gshare; section 3)
-    input fe_pkg::fe_redirect_kind_t                redirect_kind,
-    input logic [fe_pkg::GHR_WIDTH-1:0]             redirect_ghr_before,
-    input logic                                     redirect_actual_taken,
+    input logic [fe_pkg::GHR_WIDTH-1:0] predict_ghr,
 
     // update
 
@@ -92,14 +83,7 @@ module tournament (
         .pred_taken_slots(gshare_pred),
         .pred_ghr        (gshare_pred_ghr),
 
-        .flush     (flush),
-        .spec_valid(spec_valid),
-        .spec_num  (spec_num),
-        .spec_taken(spec_taken),
-
-        .redirect_kind        (redirect_kind),
-        .redirect_ghr_before  (redirect_ghr_before),
-        .redirect_actual_taken(redirect_actual_taken),
+        .predict_ghr(predict_ghr),
 
         .update_en   (update_en),
         .is_branch   (is_branch),

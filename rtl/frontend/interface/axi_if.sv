@@ -1,3 +1,4 @@
+/* verilator lint_off UNUSEDSIGNAL */ // read-only masters may ignore write channels
 interface axi_if #(
     parameter int unsigned ADDR_WIDTH = 32,
     parameter int unsigned DATA_WIDTH = 32
@@ -95,3 +96,5 @@ interface axi_if #(
     );
 
 endinterface
+
+/* verilator lint_on UNUSEDSIGNAL */

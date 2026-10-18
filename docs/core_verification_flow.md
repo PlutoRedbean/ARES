@@ -1,5 +1,7 @@
 # Core（Backend + LSU）独立仿真与功能验证方案
 
+> **C5 更新（2026-10-18）**：默认 `make isa/run` 已使用真实 FE＋IROM 的 `tb_ares_cpu`；`make isa-stub` 或 `TOPNAME=tb_ares_core` 保留本文独立后端验证路径。真实连接、协议与验收见 [C5 记录](fe_contract_migration.md)。下文为 C0–C3 骨架设计，前端“尚未接入”的描述仅适用于当时基线。
+
 > **适用**：只实现 backend + LSU（memory），前端尚未接入 / 尚未迁移到契约 v1.0
 > **环境**：Verilator 5 + 现有 `sim/` 流程（DPI-C 内存模型、`tests/cpu-tests` 自检镜像）
 > **关联**：`docs/implementation_plan.md` §8（验证策略）、§9（C0–C5）、`docs/fe_contract_migration.md`

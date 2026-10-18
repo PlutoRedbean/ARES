@@ -84,7 +84,7 @@ void full_cycle() {
 
 void usage(const char *prog) {
   printf("Usage: %s [OPTION...] IMAGE\n\n", prog);
-  printf("ARES Core Verilator simulation (contract-compliant frontend stub).\n\n");
+  printf("ARES CPU Verilator simulation (real frontend by default; TOPNAME selects stub).\n\n");
   printf("  -h, --help              show this message\n");
   printf("      --max-cycles=N      abort after N clock cycles (default %llu)\n",
          (unsigned long long)MAX_CYCLES_DEFAULT);

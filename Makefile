@@ -39,7 +39,7 @@ PROGRAM ?=
         tb-mem-model sim run wave isa clean menuconfig defconfig oldconfig \
         savedefconfig loaddefconfig showconfig test-config
 
-all: lint lint-backend lint-lsu lint-mt tb-ares-pkg tb-fe-stub tb-mem-model unit unit-lsu
+all: lint lint-backend lint-lsu lint-mt tb-ares-pkg tb-fe-stub tb-mem-model unit unit-lsu unit-frontend unit-soc
 
 # FPGA project generation is independent of legacy npc/ and vendor build files.
 # Explicit frequency keeps the requested clock visible in every team's command.
@@ -59,7 +59,7 @@ vivado-project vivado-synth vivado-route:
 test-vivado:
 	@python3 "$(ARES_HOME)/scripts/vivado/test_create_project.py"
 
-ARES_SOC_SRCS := $(wildcard $(RTL_ROOT)/soc/jyd/*.sv) \
+ARES_SOC_SRCS := $(filter-out %/ares_irom_bridge.sv,$(wildcard $(RTL_ROOT)/soc/jyd/*.sv)) \
                 $(RTL_ROOT)/soc/jyd/test/memory_ip_models.sv \
                 $(RTL_ROOT)/soc/jyd/test/xpm_cdc_models.sv
 
@@ -85,12 +85,18 @@ ARES_MT_SRCS := \
     $(MINITENSOR_HOME)/rtl/memory/vpu_dma.sv \
     $(MINITENSOR_HOME)/rtl/top/mini_tensor_top.sv
 
+ARES_FE_SRCS := $(RTL_ROOT)/frontend/interface/axi_if.sv $(RTL_ROOT)/frontend/interface/miniTensor_if.sv \
+    $(wildcard $(RTL_ROOT)/frontend/*.sv) $(wildcard $(RTL_ROOT)/frontend/bpu/*.sv) \
+    $(wildcard $(RTL_ROOT)/frontend/bpu/direction/*.sv) $(wildcard $(RTL_ROOT)/frontend/bpu/target/*.sv) \
+    $(wildcard $(RTL_ROOT)/frontend/ifu/*.sv) $(RTL_ROOT)/soc/jyd/ares_irom_bridge.sv \
+    $(RTL_ROOT)/top/ares_cpu_top.sv
+
 # Empty pins are intentional debug observations / unused mailbox status.
 lint-soc: config-gen
 	@verilator $(VERILATOR_LINT_FLAGS) -Wno-PINCONNECTEMPTY --top-module student_top \
 	    $(RTL_ROOT)/common/fe_pkg.sv $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
 	    $(wildcard $(RTL_ROOT)/backend/*.sv) $(wildcard $(RTL_ROOT)/memory/*.sv) \
-	    $(RTL_ROOT)/top/ares_core_top.sv $(RTL_ROOT)/top/student_top.sv $(ARES_SOC_SRCS)
+	    $(RTL_ROOT)/top/ares_core_top.sv $(RTL_ROOT)/top/student_top.sv $(ARES_FE_SRCS) $(ARES_SOC_SRCS)
 
 # miniTensor SoC integration (S09): elaborate the real JYD subtree together
 # with mini_tensor_top and the ARES CV-X-IF host adapter.  The DMA master is
@@ -101,9 +107,10 @@ lint-mt: config-gen
 	    $(RTL_ROOT)/common/fe_pkg.sv $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
 	    $(wildcard $(RTL_ROOT)/backend/*.sv) $(wildcard $(RTL_ROOT)/memory/*.sv) \
 	    $(RTL_ROOT)/top/ares_core_top.sv $(RTL_ROOT)/top/student_top.sv \
-	    $(RTL_ROOT)/top/ares_soc_top.sv $(ARES_SOC_SRCS) $(ARES_MT_SRCS)
+	    $(RTL_ROOT)/top/ares_soc_top.sv $(ARES_FE_SRCS) $(ARES_SOC_SRCS) $(ARES_MT_SRCS)
 
 unit-soc: config-gen
+	@python3 $(ARES_HOME)/scripts/build_soc_smoke.py
 	@mkdir -p $(ARES_HOME)/sim/build/unit/tb_jyd_bus
 	@verilator --binary --timing --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
 	    -Wno-PINCONNECTEMPTY -DCONFIG_SIMULATION $(ARES_CFG_INC) --top-module tb_jyd_bus \
@@ -116,9 +123,9 @@ unit-soc: config-gen
 	    --Mdir $(ARES_HOME)/sim/build/unit/tb_student_top -o tb_student_top \
 	    $(RTL_ROOT)/common/fe_pkg.sv $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
 	    $(wildcard $(RTL_ROOT)/backend/*.sv) $(wildcard $(RTL_ROOT)/memory/*.sv) \
-	    $(RTL_ROOT)/top/ares_core_top.sv $(RTL_ROOT)/top/student_top.sv $(ARES_SOC_SRCS) \
+	    $(RTL_ROOT)/top/ares_core_top.sv $(RTL_ROOT)/top/student_top.sv $(ARES_FE_SRCS) $(ARES_SOC_SRCS) \
 	    $(RTL_ROOT)/soc/jyd/test/tb_student_top.sv
-	@$(ARES_HOME)/sim/build/unit/tb_student_top/tb_student_top
+	@$(ARES_HOME)/sim/build/unit/tb_student_top/tb_student_top +IROM_HEX=$(ARES_HOME)/sim/build/soc-smoke/irom.hex +DRAM_HEX=$(ARES_HOME)/sim/build/soc-smoke/dram.hex
 
 #-----------------------------------------------------------------------------
 # Backend (C1): lint the backend subsystem top and run the standalone
@@ -258,3 +265,35 @@ isa:
 
 clean:
 	@$(MAKE) -s -C $(ARES_HOME)/sim clean
+
+.PHONY: unit-frontend lint-frontend isa-stub isa-real-fe
+lint-frontend: config-gen
+	@$(SIM) TOPNAME=tb_ares_cpu lint
+
+FE_UNIT_TBS ?= tb_iq tb_bpu_contract tb_bpu_history tb_fe_be_contract tb_irom_bridge
+FE_UNIT_BUILD ?= $(ARES_HOME)/sim/build/unit
+unit-frontend: config-gen
+	@set -e; for tb in $(FE_UNIT_TBS); do \
+	  d=$(FE_UNIT_BUILD)/$$tb; mkdir -p $$d; \
+	  echo "[unit-frontend] $$tb"; \
+	  verilator --binary -j 4 --timing --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+	      -Wno-PINCONNECTEMPTY -Wno-UNUSEDSIGNAL -Wno-BLKSEQ -DCONFIG_SIMULATION $(ARES_CFG_INC) \
+	      --top-module $$tb --Mdir $$d -o $$d/$$tb \
+	      $(RTL_ROOT)/common/fe_pkg.sv $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
+	      $(wildcard $(RTL_ROOT)/backend/*.sv) $(wildcard $(RTL_ROOT)/memory/*.sv) \
+	      $(RTL_ROOT)/top/ares_core_top.sv $(ARES_FE_SRCS) $(RTL_ROOT)/frontend/test/$$tb.sv; \
+	  $$d/$$tb; \
+	done
+
+isa-stub:
+	@$(MAKE) -C $(ARES_HOME)/tests/cpu-tests ARCH=riscv32-ares TOPNAME=tb_ares_core run
+
+isa-real-fe:
+	@$(MAKE) -C $(ARES_HOME)/tests/cpu-tests ARCH=riscv32-ares TOPNAME=tb_ares_cpu run
+
+.PHONY: unit-frontend-modes test-images
+unit-frontend-modes:
+	@python3 $(ARES_HOME)/scripts/test_frontend_modes.py
+
+test-images:
+	@python3 $(ARES_HOME)/scripts/test_split_image.py

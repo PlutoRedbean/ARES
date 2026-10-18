@@ -6,6 +6,10 @@
 > adaptation** only; the in-core XIF path and the shared-memory Fabric remain
 > open (SPEC-M6 / SPEC-M7).
 
+> **C5 update (2026-10-18)**: `student_top` now contains the real Frontend and
+> IROM path; FE injection/ifetch ports were removed from both platform and
+> `ares_soc_top`. This does not complete CPU/DMA arbitration, in-core XIF or RTOS.
+
 ## 1. Scope
 
 Done in this change:

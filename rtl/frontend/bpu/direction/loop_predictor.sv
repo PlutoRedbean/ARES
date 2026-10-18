@@ -13,10 +13,10 @@
 // The front-end predicts blocks far ahead of the back-end, so the committed
 // iteration index lags the branch being fetched.  Like the gem5 LoopPredictor
 // the entry therefore keeps two counters:
-//   * iter_commit : advanced when the branch resolves (used to learn the trip
+//   * iter_train : advanced when the branch resolves (used to learn the trip
 //                   count and the confidence),
 //   * iter_spec   : advanced when the branch is *predicted* along the fetch
-//                   path (used for the prediction), and repaired to iter_commit
+//                   path (used for the prediction), and repaired to iter_train
 //                   on a redirect.
 //
 // The prediction path is 1-cycle pipelined so its response lines up with the
@@ -48,7 +48,9 @@ module loop_predictor (
     input logic                          update_en,
     input logic [fe_pkg::ADDR_WIDTH-1:0] update_pc,
     input logic                          actual_taken,
-    input logic                          is_branch
+    input logic                          is_branch,
+    input logic [1:0] commit_valid,
+    input fe_pkg::bpu_update_t commit_update [2]
 );
     import fe_pkg::*;
 
@@ -61,12 +63,44 @@ module loop_predictor (
         logic                       valid;
         logic [TAG_WIDTH-1:0]       tag;
         logic [LOOP_ITER_WIDTH-1:0] num_iter;     // learned trip count
-        logic [LOOP_ITER_WIDTH-1:0] iter_commit;  // architectural iteration index
+        logic [LOOP_ITER_WIDTH-1:0] iter_train;  // architectural iteration index
         logic [LOOP_ITER_WIDTH-1:0] iter_spec;    // speculative iteration index
         logic [1:0]                 confidence;   // 2-bit confidence counter
     } loop_entry_t;
 
     loop_entry_t                                        loop_table  [LOOP_ENTRIES];
+
+    typedef struct packed {
+        logic valid;
+        logic [TAG_WIDTH-1:0] tag;
+        logic [LOOP_ITER_WIDTH-1:0] iter;
+    } commit_iter_t;
+    commit_iter_t committed [LOOP_ENTRIES], committed_next [LOOP_ENTRIES];
+    always_comb begin
+        for (int j=0; j<LOOP_ENTRIES; j++) committed_next[j] = committed[j];
+        for (int l=0; l<2; l++) begin
+            int idx;
+            logic [TAG_WIDTH-1:0] tag;
+            idx = 0; tag = '0;
+            if (commit_valid[l] && commit_update[l].actual_cfi_type == CFI_COND_BRANCH) begin
+                idx = int'(commit_update[l].update_pc[IDX_WIDTH+1:2]);
+                tag = commit_update[l].update_pc[ADDR_WIDTH-1:IDX_WIDTH+2];
+                if (!committed_next[idx].valid || committed_next[idx].tag != tag) begin
+                    committed_next[idx].valid = 1'b1;
+                    committed_next[idx].tag = tag;
+                    committed_next[idx].iter = '0;
+                end
+                if (!commit_update[l].actual_taken) committed_next[idx].iter = '0;
+                else if (committed_next[idx].iter != '1)
+                    committed_next[idx].iter = committed_next[idx].iter + 1'b1;
+            end
+        end
+    end
+    always_ff @(posedge clk) begin
+        for (int j=0; j<LOOP_ENTRIES; j++)
+            if (rst) committed[j] <= '0;
+            else committed[j] <= committed_next[j];
+    end
 
     // Combinational read of the four slots of the current fetch block.
     logic        [FETCH_WIDTH-1:0]                      hit;
@@ -162,7 +196,7 @@ module loop_predictor (
                     // predictor would have produced for this committed
                     // iteration.  Only entries that know a trip count count.
                     if (loop_table[upd_idx].num_iter != 0) begin
-                        if ((loop_table[upd_idx].iter_commit < loop_table[upd_idx].num_iter - 1'b1)
+                        if ((loop_table[upd_idx].iter_train < loop_table[upd_idx].num_iter - 1'b1)
                             == actual_taken) begin
                             if (loop_table[upd_idx].confidence != CONF_SAT) begin
                                 loop_table[upd_idx].confidence <= loop_table[upd_idx].confidence + 1'b1;
@@ -174,21 +208,21 @@ module loop_predictor (
 
                     if (!actual_taken) begin
                         // drop out of loop, record trip count
-                        if (loop_table[upd_idx].iter_commit > 0) begin
-                            loop_table[upd_idx].num_iter <= loop_table[upd_idx].iter_commit + 1'b1;
+                        if (loop_table[upd_idx].iter_train > 0) begin
+                            loop_table[upd_idx].num_iter <= loop_table[upd_idx].iter_train + 1'b1;
                         end
-                        loop_table[upd_idx].iter_commit <= '0;
+                        loop_table[upd_idx].iter_train <= '0;
                     end else begin
                         // continue in loop, increment current iteration
-                        if (loop_table[upd_idx].iter_commit < {LOOP_ITER_WIDTH{1'b1}}) begin
-                            loop_table[upd_idx].iter_commit <= loop_table[upd_idx].iter_commit + 1'b1;
+                        if (loop_table[upd_idx].iter_train < {LOOP_ITER_WIDTH{1'b1}}) begin
+                            loop_table[upd_idx].iter_train <= loop_table[upd_idx].iter_train + 1'b1;
                         end
                     end
                 end else if (actual_taken) begin
                     loop_table[upd_idx].valid       <= 1'b1;
                     loop_table[upd_idx].tag         <= upd_tag;
                     loop_table[upd_idx].num_iter    <= '0;
-                    loop_table[upd_idx].iter_commit <= LOOP_ITER_WIDTH'(1);
+                    loop_table[upd_idx].iter_train <= LOOP_ITER_WIDTH'(1);
                     loop_table[upd_idx].iter_spec   <= LOOP_ITER_WIDTH'(1);
                     loop_table[upd_idx].confidence  <= '0;
                 end
@@ -199,7 +233,9 @@ module loop_predictor (
             // ------------------------------------------------------------
             if (flush) begin
                 for (int j = 0; j < LOOP_ENTRIES; j++) begin
-                    loop_table[j].iter_spec <= loop_table[j].iter_commit;
+                    loop_table[j].iter_spec <=
+                        committed_next[j].valid && committed_next[j].tag == loop_table[j].tag
+                        ? committed_next[j].iter : '0;
                 end
             end
         end

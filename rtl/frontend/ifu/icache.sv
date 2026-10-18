@@ -1,3 +1,4 @@
+/* verilator lint_off UNUSEDSIGNAL */ // partial instruction/address fields are intentional
 // Instruction cache sitting between the IFU fetch FSM and the backing memory
 // bus.
 // The backing bus is selected by the `CONFIG_IO_USE_AXI macro:
@@ -100,7 +101,8 @@ module icache #(
     logic need_next;
 
     assign word_off    = req_pc_r[OFFSET_WIDTH-1:2];
-    assign need_next   = (int'(word_off) + int'(FETCH_WIDTH)) > int'(NR_INSTS);
+    assign need_next   = (int'(word_off) + int'(FETCH_WIDTH)) > int'(NR_INSTS) &&
+                       line_b_base < 32'h8000_8000;
     assign line_a_base = {req_pc_r[ADDR_WIDTH-1:OFFSET_WIDTH], {OFFSET_WIDTH{1'b0}}};
     assign line_b_base = line_a_base + ADDR_WIDTH'(LINE_BYTES);
     assign tag_a       = req_pc_r[ADDR_WIDTH-1-:TAG_WIDTH];
@@ -390,9 +392,10 @@ module icache #(
             // so the two age updates never touch the same set.
             if (commit) begin
                 resp_valid_r <= 1'b1;
-                resp_rmask_r <= '1;
+
                 for (int w = 0; w < fe_pkg::FETCH_WIDTH; w++) begin
                     resp_data_r[w] <= asm_data[w];
+                    resp_rmask_r[w] <= req_pc_r + 32'(w*INST_BYTES) < 32'h8000_8000;
                 end
 
                 for (int w = 0; w < NR_WAYS; w++) begin
@@ -427,3 +430,5 @@ module icache #(
     end
 
 endmodule
+
+/* verilator lint_on UNUSEDSIGNAL */

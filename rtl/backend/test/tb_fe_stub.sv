@@ -49,7 +49,7 @@ module tb_fe_stub (
     logic                  backend_redirect_valid;
     logic [31:0]           backend_redirect_pc;
     fe_redirect_kind_t     backend_redirect_kind;
-    logic [ares_pkg::GHR_WIDTH-1:0]  backend_redirect_ghr_before;
+    logic [fe_pkg::GHR_WIDTH-1:0]  backend_redirect_ghr_before;
     logic                  backend_redirect_actual_taken;
 
     logic [1:0]            bpu_update_credit;
@@ -215,7 +215,7 @@ module tb_fe_stub (
             if (iq_valid[0]) begin
                 check(iq_inst[0].inst == 32'(irom_read(int'(iq_inst[0].pc))),
                       "fetched word != memory image");
-                check(iq_inst[0].pred_meta.pred_target == (iq_inst[0].pc + 32'd4),
+                check(iq_inst[0].pred_npc == (iq_inst[0].pc + 32'd4),
                       "pred_target != pc+4");
                 check(iq_inst[0].cfi_type == ref_classify(iq_inst[0].inst),
                       "cfi_type != reference classification");

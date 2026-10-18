@@ -57,10 +57,10 @@ module tb_ares_pkg (
             check($bits(cfi_type_t)         == 3,   "cfi_type_t width");
             check($bits(fe_redirect_kind_t) == 1,   "fe_redirect_kind_t width");
             check($bits(chooser_meta_t)     == 14,  "chooser_meta_t width");
-            check($bits(pred_meta_t)        == 48,  "pred_meta_t width (fe_pkg)");
-            check($bits(iq_entry_t)         == 117, "iq_entry_t width (fe_pkg)");
-            check($bits(bpu_update_t)       == 116, "bpu_update_t width (fe_pkg)");
-            check($bits(queue_entry_t)      == 401, "queue_entry_t width");
+            check($bits(pred_meta_t)        == 63,  "pred_meta_t width (fe_pkg)");
+            check($bits(iq_entry_t)         == 164, "iq_entry_t width (fe_pkg)");
+            check($bits(bpu_update_t)       == 131, "bpu_update_t width (fe_pkg)");
+            check($bits(queue_entry_t)      == 416, "queue_entry_t width");
             check($bits(fu_req_t)           == 183, "fu_req_t width");
             check($bits(fu_completion_t)    == 101, "fu_completion_t width");
 
@@ -117,6 +117,8 @@ module tb_ares_pkg (
             pm = '0;
             pm.pred_target   = 32'h8000_1234;
             pm.pred_taken    = 1'b1;
+            pm.pred_type = CFI_CALL;
+            pm.ghr_before = 12'habc;
             pm.chooser_meta.update_gshare_taken  = 1'b1;
             pm.chooser_meta.update_bimodal_taken = 1'b0;
             pm.chooser_meta.pred_ghr             = 12'h123;
@@ -124,6 +126,7 @@ module tb_ares_pkg (
 
             iq = '0;
             iq.pc            = 32'h8000_0100;
+            iq.pred_npc = 32'h8000_9874;
             iq.pred_meta     = pm;
             iq.inst          = 32'h00c58533;   // add a0, a1, a2
             iq.valid         = 1'b1;
@@ -134,6 +137,8 @@ module tb_ares_pkg (
                   && iq.cfi_type == CFI_RETURN && iq.is_cfi
                   && iq.pred_meta.pred_target == 32'h8000_1234
                   && iq.pred_meta.pred_taken
+                  && iq.pred_npc == 32'h8000_9874
+                  && iq.pred_meta.pred_type == CFI_CALL && iq.pred_meta.ghr_before == 12'habc
                   && iq.pred_meta.chooser_meta.pred_ghr == 12'h123
                   && iq.pred_meta.loop_override, "iq_entry_t round trip");
 

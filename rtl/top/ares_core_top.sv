@@ -13,9 +13,8 @@
 //     (backend.md 16.1 / plan 5.18)
 //
 // The frontend itself is instantiated by the parent, exactly like the plan
-// requires: C3 drives the ports from rtl/backend/test/fe_stub.sv, C5 replaces
-// that instance with the real rtl/frontend/frontend.sv without touching this
-// file.  No module-internal semantics are changed here - this file is wiring,
+// requires: C3 drives the ports from rtl/backend/test/fe_stub.sv; the C5
+// ares_cpu_top parent connects the real rtl/frontend/frontend.sv.  No module-internal semantics are changed here - this file is wiring,
 // reset distribution and the RESET_* consistency check.
 //
 // Spec sources: README, backend.md 2 / 9.6 / 16.1 / 17, memory.md 3 / 6.7,

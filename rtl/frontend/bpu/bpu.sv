@@ -29,6 +29,10 @@ module bpu (
     input logic [fe_pkg::ADDR_WIDTH - 1:0] redirect_pc,
 
     input fe_pkg::fe_redirect_kind_t redirect_kind,
+    input logic [fe_pkg::GHR_WIDTH-1:0] redirect_ghr_before,
+    input logic redirect_actual_taken,
+    input logic local_repair_valid,
+    input logic [fe_pkg::GHR_WIDTH-1:0] local_repair_ghr,
 
     // predict request / response
     input  logic                                          ftq_wready,
@@ -36,27 +40,35 @@ module bpu (
     output logic               [fe_pkg::ADDR_WIDTH - 1:0] bpu_resp_pc,
     output fe_pkg::ftq_entry_t                            ftq_wdata,
 
-    // training input.  The DIR_TYPE-selected predictor consumes these; with
-    // always-not-taken (DIR_TYPE != 1/2) they are unused.
-    input logic update_en,
-
-    /* verilator lint_off UNUSEDSIGNAL */
-    input fe_pkg::bpu_update_t update_meta
-    /* verilator lint_on UNUSEDSIGNAL */
+    input logic [1:0] bpu_update_valid,
+    input fe_pkg::bpu_update_t bpu_update [2],
+    output logic [1:0] bpu_update_credit
 );
     import fe_pkg::*;
 
     localparam int unsigned BLOCK_BYTES = FETCH_WIDTH * INST_BYTES;
     localparam logic [ADDR_WIDTH-1:0] BLOCK_MASK = ADDR_WIDTH'(BLOCK_BYTES - 1);
 
-    logic [GHR_WIDTH-1:0] redirect_ghr_before;
-`ifdef TOURNAMENT_ON
-    assign redirect_ghr_before =
-        update_meta.pred_meta.chooser_meta.pred_ghr << update_meta.pred_meta.cfi_prefix;
-`else
-    assign redirect_ghr_before = '0;
-`endif
-    wire              redirect_actual_taken = update_meta.actual_taken;
+    logic update_en;
+    bpu_update_t update_meta;
+    logic [GHR_WIDTH-1:0] ghr_spec, ghr_at_lookup, ghr_commit_next, block_ghr_next;
+    bpu_commit_queue commit_queue (
+        .clk(clk), .rst(rst), .train_ready(1'b1), .update_valid(bpu_update_valid), .update(bpu_update),
+        .credit(bpu_update_credit), .train_valid(update_en), .train(update_meta),
+        .ghr_commit_next(ghr_commit_next)
+    );
+    always_ff @(posedge clk) begin
+        if (rst) begin ghr_spec <= '0; ghr_at_lookup <= '0; end
+        else begin
+            if (issue) ghr_at_lookup <= ghr_spec;
+            if (flush) begin
+                if (local_repair_valid) ghr_spec <= local_repair_ghr;
+                else if (redirect_kind == REDIRECT_BRANCH)
+                    ghr_spec <= (redirect_ghr_before << 1) | GHR_WIDTH'(redirect_actual_taken);
+                else ghr_spec <= ghr_commit_next;
+            end else if (ftq_wvalid && ftq_wready) ghr_spec <= block_ghr_next;
+        end
+    end
 
     wire              is_branch_meta = (update_meta.actual_cfi_type == CFI_COND_BRANCH);
     btb_target_info_t update_target_info;
@@ -158,10 +170,8 @@ module bpu (
         .spec_pop   (ftq_wvalid && block_pop),
         .spec_addr  (block_ret_addr),
         .flush      (flush),
-        .update_en  (update_en),
-        .update_push(update_meta.actual_cfi_type == CFI_CALL),
-        .update_pop (update_meta.actual_cfi_type == CFI_RETURN),
-        .update_addr(update_meta.update_pc + INST_BYTES)
+        .commit_valid(bpu_update_valid),
+        .commit_update(bpu_update)
     );
 `endif
 
@@ -198,31 +208,31 @@ module bpu (
     assign dnpc = bpu_predicted_taken ? predicted_pc : snpc;
     assign bpu_resp_pc = resp_pc_r;
 
-    // count how many CFIs precede each slot
-    logic [$clog2(FETCH_WIDTH+1)-1:0] cfi_prefix_slots[FETCH_WIDTH];
+    // Materialize full recovery snapshots before the FTQ. Predictor lookup
+    // history remains separately captured in chooser_meta for exact training.
     always_comb begin
-        logic [$clog2(FETCH_WIDTH+1)-1:0] cfi_prefix;
-        cfi_prefix = '0;
-        for (int i = 0; i < FETCH_WIDTH; i++) begin
-            cfi_prefix_slots[i] = cfi_prefix;
-            if (pred_cfi_valid[i]) cfi_prefix = cfi_prefix + 1'b1;
-        end
-    end
-
-    always_comb begin
-        for (int i = 0; i < FETCH_WIDTH; i++) begin
-            pred_meta[i].pred_target = pred_taken[i]
-                                     ? pred_target[i]
-                                     : (resp_pc_r + ADDR_WIDTH'((i + 1) * INST_BYTES));
+        logic [GHR_WIDTH-1:0] h;
+        logic on_path;
+        h = ghr_at_lookup;
+        on_path = 1'b1;
+        for (int i=0; i<FETCH_WIDTH; i++) begin
+            pred_meta[i] = '0;
+            pred_meta[i].pred_target = pred_target[i];
             pred_meta[i].pred_taken = pred_taken[i];
-            pred_meta[i].cfi_prefix = cfi_prefix_slots[i];
+            pred_meta[i].pred_type = pred_cfi_valid[i] ? pred_cfi_type[i] : CFI_NONE;
+            pred_meta[i].ghr_before = h;
 `ifdef TOURNAMENT_ON
             pred_meta[i].chooser_meta = chooser_meta_slots[i];
 `endif
 `ifdef LOOP_PRED_ON
             pred_meta[i].loop_override = loop_override_slots[i];
 `endif
+            if (on_path && pred_cfi_valid[i]) begin
+                h = (h << 1) | GHR_WIDTH'(pred_taken[i]);
+                if (pred_taken[i]) on_path = 1'b0;
+            end
         end
+        block_ghr_next = h;
     end
 
     assign ftq_wdata = '{
@@ -278,7 +288,8 @@ module bpu (
         .update_en      (update_en),
         .update_pc      (update_meta.update_pc),
         .actual_taken   (update_meta.actual_taken),
-        .is_branch      (is_branch_meta)
+        .is_branch      (is_branch_meta),
+        .commit_valid(bpu_update_valid), .commit_update(bpu_update)
     );
     /* verilator lint_on PINCONNECTEMPTY */
 
@@ -344,25 +355,6 @@ module bpu (
 
         chooser_meta_t [          FETCH_WIDTH-1:0] tour_meta;
 
-        // count the offset of the first CFI predicted taken
-        logic          [$clog2(FETCH_WIDTH+1)-1:0] spec_num;
-        logic                                      spec_taken;
-        always_comb begin
-            logic have_cfi;
-            spec_num   = '0;
-            spec_taken = 1'b0;
-            have_cfi   = 1'b0;
-            for (int i = 0; i < FETCH_WIDTH; i++) begin
-                if (!have_cfi && pred_cfi_valid[i]) begin
-                    spec_num = spec_num + 1'b1;
-                    if (pred_taken[i]) begin
-                        spec_taken = 1'b1;
-                        have_cfi   = 1'b1;
-                    end
-                end
-            end
-        end
-
         // direction predictor (Tournament = Gshare + Bimodal)
         /* verilator lint_off PINCONNECTEMPTY */
         tournament tournament_u (
@@ -374,13 +366,7 @@ module bpu (
             .resp_pc              (),
             .pred_taken_slots     (base_dir_taken_slots),
             .chooser_meta         (tour_meta),
-            .flush                (flush),
-            .spec_valid           (ftq_wvalid),
-            .spec_num             (spec_num),
-            .spec_taken           (spec_taken),
-            .redirect_kind        (redirect_kind),
-            .redirect_ghr_before  (redirect_ghr_before),
-            .redirect_actual_taken(redirect_actual_taken),
+            .predict_ghr          (ghr_spec),
             .update_en            (update_en),
             .is_branch            (is_branch_meta),
             .update_pc            (update_meta.update_pc),

@@ -1,8 +1,8 @@
 #=============================================================================
 # ARES - RTL simulation (Verilator)
 #-----------------------------------------------------------------------------
-# Builds the local ARES Core with the contract-compliant frontend stub and
-# the DPI-C memory model in csrc/. The legacy Mundus DUT has been retired.
+# Builds the local ARES CPU with its real frontend/IROM path and
+# the DPI-C data memory model. TOPNAME=tb_ares_core retains the FE-stub bench.
 #
 #   make                         build the simulation binary
 #   make run PROGRAM=<image.bin> run one image (absolute path recommended)
@@ -13,7 +13,7 @@
 #
 # Variables:
 #   RTL_ROOT   directory holding ARES RTL (default <ARES>/rtl)
-#   TOPNAME    Verilator top module       (default tb_ares_core)
+#   TOPNAME    Verilator top module       (default tb_ares_cpu)
 #   PROGRAM    test image to run
 #   ARGS       extra simulator arguments
 #
@@ -28,7 +28,7 @@ ARES_HOME ?= $(abspath $(SIM_HOME)/..)
 # DUT selection
 #-----------------------------------------------------------------------------
 RTL_ROOT ?= $(ARES_HOME)/rtl
-TOPNAME  ?= tb_ares_core
+TOPNAME  ?= tb_ares_cpu
 
 VERILATOR ?= verilator
 
@@ -71,10 +71,15 @@ VSRCS  += $(wildcard $(RTL_ROOT)/common/*/*.sv)
 VSRCS  += $(wildcard $(RTL_ROOT)/backend/*.sv) $(wildcard $(RTL_ROOT)/backend/*/*.sv)
 VSRCS  += $(wildcard $(RTL_ROOT)/memory/*.sv)  $(wildcard $(RTL_ROOT)/memory/*/*.sv)
 VSRCS  += $(RTL_ROOT)/top/ares_core_top.sv
-VSRCS  += $(ARES_TBS)
+VSRCS  += $(ARES_TBS) $(SIM_HOME)/rtl/tb_ares_cpu.sv
+VSRCS  += $(RTL_ROOT)/top/ares_cpu_top.sv $(RTL_ROOT)/soc/jyd/ares_irom_bridge.sv
+VSRCS  += $(RTL_ROOT)/frontend/interface/axi_if.sv $(RTL_ROOT)/frontend/interface/miniTensor_if.sv
+VSRCS  += $(wildcard $(RTL_ROOT)/frontend/*.sv) $(wildcard $(RTL_ROOT)/frontend/bpu/*.sv)
+VSRCS  += $(wildcard $(RTL_ROOT)/frontend/bpu/direction/*.sv) $(wildcard $(RTL_ROOT)/frontend/bpu/target/*.sv)
+VSRCS  += $(wildcard $(RTL_ROOT)/frontend/ifu/*.sv)
 
 # Self-checking unit tops (docs/implementation_plan.md section 9.2).
-ARES_UNIT_TOPS  := tb_ares_core tb_ares_pkg tb_fe_stub tb_mem_model
+ARES_UNIT_TOPS  := tb_ares_cpu tb_ares_core tb_ares_pkg tb_fe_stub tb_mem_model
 ARES_UNIT_IMAGE ?= $(ARES_HOME)/tests/cpu-tests/build/add-riscv32-ares.bin
 
 # ---- core configuration ("make menuconfig") ------------------------------
@@ -129,7 +134,7 @@ all: $(BIN)
 
 # Refresh the generated configuration header (and create .config with the
 # defaults on a first build) whenever the menu, the tool or .config changes.
-$(ARES_CFG_VH): $(ARES_CFG_SCRIPT) $(wildcard $(ARES_HOME)/configs/Kconfig) \
+$(ARES_CFG_VH): $(ARES_CFG_SCRIPT) $(wildcard $(ARES_HOME)/configs/Kconfig) $(wildcard $(ARES_HOME)/configs/frontend/Kconfig) \
                 $(wildcard $(ARES_CFG_DIR)/.config)
 	@python3 $(ARES_CFG_SCRIPT) gen
 
@@ -151,13 +156,13 @@ wave:
 	@$(MAKE) MODE=wave run PROGRAM=$(PROGRAM) \
 		ARGS="$(ARGS) --wave=$(SIM_HOME)/build_wave/waveform.fst"
 
-lint:
+lint: $(ARES_CFG_VH)
 	$(VERILATOR) --lint-only $(VERILATOR_IGNORE) $(VERILATOR_WARN) $(V_ASSERT) \
 		$(V_DEF_MACRO) $(addprefix -I, $(V_INC_PATH)) \
 		--top-module $(TOPNAME) $(VSRCS)
 
 # Lint every ARES top module (C0 exit gate: zero warnings).
-lint-all:
+lint-all: $(ARES_CFG_VH)
 	@rc=0; \
 	for top in $(ARES_UNIT_TOPS); do \
 	  echo "[lint] $$top"; \

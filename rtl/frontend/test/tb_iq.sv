@@ -1,8 +1,9 @@
+/* verilator lint_off PROCASSINIT */
+/* verilator lint_off BLKSEQ */
 // Self-checking testbench for the instruction queue (iq.sv).
 //
-// It is a standalone Verilator testbench: the package and the DUT are pulled
-// in with `include so that the regression rule can compile every
-// rtl/frontend/test/tb_*.sv on its own (TOP_NAME = the testbench module).
+// Built with the explicit package/source ordering in make unit-frontend;
+// scripts/test.mk retains the historical test entrypoint.
 // Ported from ysyx-workbench/npc/vsrc/test/tb_iq.sv and adapted to the
 // counting handshake of docs/microarch/frontend_backend_contract.md §2.
 //
@@ -32,8 +33,6 @@
 // testbench therefore only drives low-contiguous masks (checked in press_block).
 `timescale 1ns / 1ps
 
-`include "fe_pkg.sv"
-`include "iq.sv"
 
 module tb_iq;
     import fe_pkg::*;
@@ -76,7 +75,10 @@ module tb_iq;
         e = '0;
         e.pc = pc[31:0];
         e.inst = 32'hDEAD_0000 ^ (32'(pc) * 32'h0001_0001);
-        e.valid = pc[0];
+        e.valid = 1'b1; // visible valid is queue state, not an opaque payload bit
+        e.pred_npc=32'h80000004 + 32'(pc*4);
+        e.pred_meta.ghr_before=GHR_WIDTH'(pc ^ 123);
+        e.pred_meta.pred_type=CFI_COND_BRANCH;
         e.pred_meta.pred_taken = pc[1];
         e.pred_meta.pred_target = 32'h8000_0000 + (32'(pc) << 2);
 `ifdef TOURNAMENT_ON
@@ -99,7 +101,8 @@ module tb_iq;
              (a.valid == b.valid) &&
              (a.cfi_type == b.cfi_type) &&
              (a.is_cfi == b.is_cfi) &&
-             (a.pred_meta.pred_taken == b.pred_meta.pred_taken) &&
+             (a.pred_npc == b.pred_npc) && (a.pred_meta.ghr_before == b.pred_meta.ghr_before) &&
+             (a.pred_meta.pred_type == b.pred_meta.pred_type) && (a.pred_meta.pred_taken == b.pred_meta.pred_taken) &&
              (a.pred_meta.pred_target == b.pred_meta.pred_target);
 `ifdef TOURNAMENT_ON
         ok = ok &&
@@ -602,3 +605,6 @@ module tb_iq;
         end
     end
 endmodule
+
+/* verilator lint_on BLKSEQ */
+/* verilator lint_on PROCASSINIT */

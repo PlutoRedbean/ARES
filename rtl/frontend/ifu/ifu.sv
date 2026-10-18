@@ -1,3 +1,4 @@
+/* verilator lint_off UNUSEDSIGNAL */ // partial instruction/address fields are intentional
 // Instruction Fetch Unit (IFU)
 //  it pulls
 // fetch targets from the FTQ (one entry per predicted Fetch Block) and pushes
@@ -29,6 +30,7 @@ module ifu #(
     // front-end (predecode-vs-prediction) redirect
     output logic                    fe_redirect_valid,
     output logic [ADDR_WIDTH - 1:0] fe_redirect_pc,
+    output logic [fe_pkg::GHR_WIDTH-1:0] fe_repair_ghr,
 
     // icache request/response channel
     output logic                             icache_req_valid,
@@ -133,7 +135,8 @@ module ifu #(
     // in S_IDLE and accepts), removing the F_IDLE bubble so the block period
     // drops from 3 to 2 cycles.  Never start on a kill (poison/flush).
     wire f_back_to_back = (f_state == F_RESP) && icache_resp_accept && !poison_q && !ifu_flush;
-    wire f_want_start = ((f_state == F_IDLE) || f_back_to_back) && !fb_full && ftq_rvalid && !ifu_flush;
+    wire f_want_start = ((f_state == F_IDLE) || f_back_to_back) && !fb_full && ftq_rvalid && !ifu_flush &&
+                        ftq_rdata.start_pc >= 32'h8000_0000 && ftq_rdata.start_pc < 32'h8000_8000;
     wire f_start = f_want_start && icache_req_ready;
 
     always_comb begin
@@ -355,84 +358,61 @@ module ifu #(
     // Stage PC: PredChecker / redirect / IQ write
     // ------------------------------------------------
     logic [FETCH_WIDTH-1:0] slot_error;
+    logic [ADDR_WIDTH-1:0] effective_npc [FETCH_WIDTH];
+    logic effective_taken [FETCH_WIDTH];
     always_comb begin
-        for (int i = 0; i < FETCH_WIDTH; i++) begin
-            slot_error[i] =
-                (pd_r.pre[i].valid && pd_r.pre[i].is_jal &&
-                    !pd_r.blk.pred_meta[i].pred_taken) ||
-                (pd_r.pre[i].valid && pd_r.pre[i].is_ret &&
-                    !pd_r.blk.pred_meta[i].pred_taken) ||
-                (pd_r.blk.pred_cfi_valid[i] && pd_r.pre[i].inrange &&
-                    !pd_r.pre[i].valid) ||
-                (pd_r.blk.pred_cfi_valid[i] && pd_r.pre[i].valid &&
-                    !pd_r.pre[i].is_cfi) ||
-                (pd_r.blk.pred_meta[i].pred_taken && pd_r.pre[i].valid &&
-                    pd_r.pre[i].is_cfi && pd_r.pre[i].target_valid &&
-                    ((pd_r.blk.pred_cfi_type[i] != pd_r.pre[i].cfi_type) ||
-                     (pd_r.blk.pred_meta[i].pred_target != pd_r.pre[i].target)));
+        for (int i=0; i<FETCH_WIDTH; i++) begin
+            effective_npc[i] = pd_r.pre[i].pc + INST_BYTES;
+            effective_taken[i] = 1'b0;
+            if (pd_r.pre[i].is_jal) begin
+                effective_npc[i] = pd_r.pre[i].target;
+                effective_taken[i] = 1'b1;
+            end else if (pd_r.pre[i].is_jalr) begin
+                // No target prediction: keep fetching pc+4, never wait for BRU.
+                effective_taken[i] = 1'b1;
+                if (pd_r.blk.pred_meta[i].pred_taken &&
+                    pd_r.blk.pred_meta[i].pred_type == pd_r.pre[i].cfi_type)
+                    effective_npc[i] = pd_r.blk.pred_meta[i].pred_target;
+            end else if (pd_r.pre[i].cfi_type == CFI_COND_BRANCH) begin
+                effective_taken[i] = pd_r.blk.pred_meta[i].pred_type == CFI_COND_BRANCH &&
+                                     pd_r.blk.pred_meta[i].pred_taken;
+                if (effective_taken[i]) effective_npc[i] = pd_r.pre[i].target;
+            end
+            slot_error[i] = pd_r.pre[i].valid &&
+                ((pd_r.blk.pred_meta[i].pred_type != pd_r.pre[i].cfi_type) ||
+                 (pd_r.pre[i].is_jal && !pd_r.blk.pred_meta[i].pred_taken) ||
+                 (pd_r.blk.pred_meta[i].pred_taken &&
+                  effective_npc[i] != pd_r.blk.pred_meta[i].pred_target));
         end
     end
-
     always_comb begin
         err_valid = 1'b0;
-        err_idx   = '0;
-        for (int i = FETCH_WIDTH - 1; i >= 0; i--) begin
-            if (slot_error[i]) begin
-                err_valid = 1'b1;
-                err_idx   = SLOT_IDX_W'(i);
-            end
-        end
+        err_idx = '0;
+        for (int i=FETCH_WIDTH-1; i>=0; i--)
+            if (slot_error[i]) begin err_valid=1'b1; err_idx=SLOT_IDX_W'(i); end
     end
-
-    assign fe_redirect_valid = pd_valid && err_valid && !flush;
-    assign fe_redirect_pc    = pd_r.pre[err_idx].target_valid
-                             ? pd_r.pre[err_idx].target
-                             : (pd_r.pre_pc + (ADDR_WIDTH'(err_idx + 1) * INST_BYTES));
-
-    // ------------------------------------------------
-    // IQ write port
-    // ------------------------------------------------
-    logic [FETCH_WIDTH-1:0] err_mask;
+    // A local correction cannot retire until its entire valid prefix is kept.
+    assign fe_redirect_valid = pc_wr && err_valid;
+    assign fe_redirect_pc = effective_npc[err_idx];
     always_comb begin
-        for (int i = 0; i < FETCH_WIDTH; i++) begin
-            err_mask[i] = !err_valid || (FETCH_WIDTH'(i) <= FETCH_WIDTH'(err_idx));
-            iq_wmask[i] = pd_r.pre[i].valid & err_mask[i];
-        end
+        fe_repair_ghr = pd_r.blk.pred_meta[err_idx].ghr_before;
+        if (pd_r.pre[err_idx].is_cfi)
+            fe_repair_ghr = (fe_repair_ghr << 1) | GHR_WIDTH'(effective_taken[err_idx]);
     end
-
     assign iq_wvalid = pd_valid && !flush;
-
     always_comb begin
-        for (int i = 0; i < FETCH_WIDTH; i++) begin
-            logic slot_pred_taken;
-            logic err_slot;
-            slot_pred_taken = pd_r.blk.pred_meta[i].pred_taken && iq_wmask[i];
-            err_slot = err_valid && (SLOT_IDX_W'(i) == err_idx) && pd_r.pre[i].target_valid;
-
-            iq_wdata[i] = '{
-                pc: pd_r.pre[i].pc,
-                pred_meta: '{
-`ifdef TOURNAMENT_ON
-                    chooser_meta: pd_r.blk.pred_meta[i].chooser_meta,
-`endif
-`ifdef LOOP_PRED_ON
-                    loop_override: pd_r.blk.pred_meta[i].loop_override,
-`endif
-                    pred_target:
-                    err_slot
-                    ?
-                    pd_r.pre[i].target
-                    :
-                    pd_r.blk.pred_meta[i].pred_target,
-                    pred_taken : err_slot ? 1'b1 : slot_pred_taken,
-                    cfi_prefix : pd_r.blk.pred_meta[i].cfi_prefix
-                },
-                inst: pd_r.blk.inst[i],
-                valid: iq_wmask[i],
-                cfi_type: pd_r.pre[i].cfi_type,
-                is_cfi: pd_r.pre[i].is_cfi && iq_wmask[i]
-            };
+        for (int i=0; i<FETCH_WIDTH; i++) begin
+            iq_wmask[i] = pd_r.pre[i].valid && (!err_valid || SLOT_IDX_W'(i) <= err_idx);
+            iq_wdata[i] = '0;
+            iq_wdata[i].pc = pd_r.pre[i].pc;
+            iq_wdata[i].pred_npc = effective_npc[i];
+            iq_wdata[i].pred_meta = pd_r.blk.pred_meta[i];
+            iq_wdata[i].inst = pd_r.blk.inst[i];
+            iq_wdata[i].valid = iq_wmask[i];
+            iq_wdata[i].cfi_type = pd_r.pre[i].cfi_type;
+            iq_wdata[i].is_cfi = pd_r.pre[i].is_cfi && iq_wmask[i];
         end
     end
-
 endmodule
+
+/* verilator lint_on UNUSEDSIGNAL */

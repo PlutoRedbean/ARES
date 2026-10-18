@@ -1,5 +1,7 @@
 # 前端 RTL 接入说明（IFU / BPU / FTQ / IQ）
 
+> **历史接口快照**：已被 C5 契约迁移取代；当前接口以 [FE/BE 契约](frontend_backend_contract.md) 和 [C5 验收记录](../fe_contract_migration.md) 为准。本文旧端口示例不再用于接线。
+
 > **适用范围**：`rtl/frontend/` 下的前端 RTL，供后端（ARES core）接入。
 > 本文只描述**前后端之间的接口契约**，微架构设计见同目录 [`frontend.md`](./frontend.md)；
 > 跨模块信号的**唯一规范性定义**见 [`frontend_backend_contract.md`](./frontend_backend_contract.md)，

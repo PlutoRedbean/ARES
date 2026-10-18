@@ -15,8 +15,8 @@
 //     mt_mem_* so it can be attached to the future Fabric / shared-memory
 //     arbitration (SPEC-M7/M20/M21).  No CPU/DMA arbitration or cache-coherency
 //     policy is invented here; software must still use uncached addresses.
-//   * student_top itself is unchanged; it keeps the FE contract and the
-//     platform-level mt_* seam external, exactly as documented in
+//   * student_top contains the real CPU and IROM; its platform mt_* seam
+//     is connected here as documented in
 //     docs/jyd_soc_integration.md.
 //
 // Reset/clock: single CPU clock w_cpu_clk, synchronous active-high w_clk_rst,
@@ -36,23 +36,6 @@ module ares_soc_top (
     output logic uart_tx_start,
     output logic [31:0] virtual_led,
     output logic [39:0] virtual_seg,
-
-    // Synchronous 32 KiB IROM seam for the future real frontend (C5).
-    input  logic [31:0] ifetch_addr,
-    output logic [63:0] ifetch_data,
-
-    // FE contract (external until C5).
-    input  logic                      [                  1:0] iq_valid,
-    input  fe_pkg::iq_entry_t                                 iq_inst                      [2],
-    output logic                      [                  1:0] iq_accept_count,
-    output logic                                              backend_redirect_valid,
-    output logic                      [                 31:0] backend_redirect_pc,
-    output fe_pkg::fe_redirect_kind_t                         backend_redirect_kind,
-    output logic                      [fe_pkg::GHR_WIDTH-1:0] backend_redirect_ghr_before,
-    output logic                                              backend_redirect_actual_taken,
-    input  logic                      [                  1:0] bpu_update_credit,
-    output logic                      [                  1:0] bpu_update_valid,
-    output fe_pkg::bpu_update_t                               bpu_update                   [2],
 
     // miniTensor 128-bit uncached DMA master (future Fabric boundary).
     output logic         mt_mem_rd_valid,
@@ -91,25 +74,12 @@ module ares_soc_top (
         .uart_tx_start(uart_tx_start),
         .virtual_led(virtual_led),
         .virtual_seg(virtual_seg),
-        .ifetch_addr(ifetch_addr),
-        .ifetch_data(ifetch_data),
         .mt_wr_en(mt_wr_en),
         .mt_wr_idx(mt_wr_idx),
         .mt_wr_data(mt_wr_data),
         .mt_status_rd(mt_status_rd),
         .mt_status(mt_status),
-        .mt_result(mt_result),
-        .iq_valid(iq_valid),
-        .iq_inst(iq_inst),
-        .iq_accept_count(iq_accept_count),
-        .backend_redirect_valid(backend_redirect_valid),
-        .backend_redirect_pc(backend_redirect_pc),
-        .backend_redirect_kind(backend_redirect_kind),
-        .backend_redirect_ghr_before(backend_redirect_ghr_before),
-        .backend_redirect_actual_taken(backend_redirect_actual_taken),
-        .bpu_update_credit(bpu_update_credit),
-        .bpu_update_valid(bpu_update_valid),
-        .bpu_update(bpu_update)
+        .mt_result(mt_result)
     );
 
     ares_mt_host_adapter u_mt_host (

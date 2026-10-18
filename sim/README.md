@@ -1,7 +1,7 @@
 # ARES simulation flow
 
-Verilator simulation of the local ARES Core (`ares_core_top`: Backend + LSU)
-with a contract-compliant frontend stub. The legacy Mundus/NPC DUT and its
+Verilator simulation of `ares_cpu_top`: real Frontend + Backend/LSU +
+AXI-Lite-to-registered-IROM bridge. The legacy Mundus/NPC DUT and its
 Chisel generation tools have been removed. No external NPC project is needed.
 
 ## Quick start
@@ -16,7 +16,7 @@ make -C sim run PROGRAM="$PWD/tests/cpu-tests/build/add-riscv32-ares.bin"
 make -C sim wave PROGRAM="$PWD/tests/cpu-tests/build/add-riscv32-ares.bin"
 ```
 
-`RTL_ROOT` defaults to `<ARES>/rtl`, and `TOPNAME` to `tb_ares_core`.
+`RTL_ROOT` defaults to `<ARES>/rtl`, and `TOPNAME` to `tb_ares_cpu`.
 Commands that still pass `ARES_RTL=1` work, but the switch is no longer needed.
 Builds use separate ignored directories for each top under `sim/build/` and
 `sim/build_wave/`. Generated configuration lives under `configs/build/`.
@@ -26,7 +26,8 @@ Builds use separate ignored directories for each top under `sim/build/` and
 | Path | Contents |
 | --- | --- |
 | `sim/Makefile` | Verilator build/run rules, ARES RTL source list and configuration |
-| `sim/rtl/tb_ares_core.sv` | ARES Core test bench with FE stub and retirement observations |
+| `sim/rtl/tb_ares_cpu.sv` | Default real-FE CPU bench, registered IROM, retirement and metadata scoreboards |
+| `sim/rtl/tb_ares_core.sv` | Retained independent Core bench with FE stub |
 | `sim/rtl/tb_mem_beat_if.sv` | 128-bit memory beat adapter to the DPI memory model |
 | `sim/rtl/tb_mmio_if.sv` | MMIO request/response adapter to the DPI device model |
 | `sim/csrc/main.cpp` | Reset, clock, run loop and trap reporting |
@@ -39,7 +40,7 @@ Builds use separate ignored directories for each top under `sim/build/` and
    AbstractMachine runtime (`ARCH=riscv32-ares`).
 2. `tests/abstract-machine/scripts/platform/ares.mk` invokes `sim/Makefile`.
 3. The harness loads the image at `0x8000_0000`, applies reset, and clocks the
-   model. `fe_stub` fetches instructions and feeds the approved FE/Core contract.
+   model. The synchronous IROM model supplies the real ICache/IFU/BPU/IQ path.
 4. `ares_core_top` executes them; the test bench forwards retirement events to
    the harness, which maintains architectural PC/GPR state.
 5. Retired EBREAK terminates the test. Exit status is 0 for GOOD TRAP, 1 for
@@ -83,6 +84,31 @@ The run target retains `+verilator+rand+reset+0` for reproducible execution.
 
 ## Verification boundary
 
-This is Core/ISA verification with an FE stub. It does not validate the real
-frontend, RT-Thread, miniTensor integration, physical FPGA clocks or post-route
-PPA. NEMU difftest and an interactive debugger are not provided.
+The default is real-FE Core/ISA verification; `make isa-stub` selects the
+retained C3 path. `make unit-soc` separately tests actual JYD RTL memory/peripheral
+bridges with a program fetched autonomously from IROM. These do not validate
+RT-Thread, miniTensor shared-memory DMA, physical FPGA clocks or post-route PPA. NEMU difftest and an interactive debugger are not provided.
+
+## C5 regression and program images
+
+```bash
+make isa                       # real FE: 36/36
+make isa-stub                  # retained FE stub: 36/36
+make unit-frontend             # IQ/FIFO/history/protocol/IROM bridge, strict assertions
+make unit-frontend-modes       # Tournament/RAS/Loop disabled; independent GHR remains
+make unit-soc                  # real CPU, IROM, JYD DRAM/MMIO/UART/LED
+make test-images               # physical image split guards
+python3 scripts/split_image.py path/to/program.bin build/program
+```
+
+The flat binary may include a 1MiB address gap before DRAM. Split by address:
+first 32KiB -> `irom.hex` (4096 x 64-bit), +0x100000 -> `dram.hex`
+(65536 x 32-bit). Nonzero bytes in the hole or bytes beyond physical DRAM are
+rejected. SoC simulation IP models accept `+IROM_HEX=... +DRAM_HEX=...` and keep
+the hardware's one-cycle IROM / two-cycle RAM read timing. The test fixture
+uses `tests/soc-tests/c5_smoke.S`, not direct IQ injection.
+
+The C5 CPU configuration requires `CONFIG_IO_USE_AXI=y`, Fetch=4 and Decode=2.
+Only 0x80000000–0x80007fff is executable. Final-ROM windows have a masked suffix;
+out-of-window speculation waits for Redirect. There is no new fetch Trap or
+DRAM execution support. A real unsupported target fails the simulation watchdog.

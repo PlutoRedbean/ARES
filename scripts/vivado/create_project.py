@@ -58,11 +58,15 @@ def prepare(args):
     top = extra.get("top", "ares_core_top" if args.profile == "core" else "student_top")
     if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_$]*", top):
         raise ValueError("invalid top module name")
-    sources = [ROOT / "rtl/common/ares_pkg.sv", ROOT / "rtl/common/lsu_pkg.sv"]
+    sources = [ROOT / "rtl/common/fe_pkg.sv", ROOT / "rtl/common/ares_pkg.sv", ROOT / "rtl/common/lsu_pkg.sv"]
     for directory in ["rtl/backend", "rtl/memory"]:
         sources += sorted((ROOT / directory).glob("*.sv"))
     sources.append(ROOT / "rtl/top/ares_core_top.sv")
     if args.profile != "core":
+        sources += [ROOT / "rtl/frontend/interface/axi_if.sv", ROOT / "rtl/frontend/interface/miniTensor_if.sv"]
+        for directory in ["rtl/frontend", "rtl/frontend/bpu", "rtl/frontend/bpu/direction", "rtl/frontend/bpu/target", "rtl/frontend/ifu"]:
+            sources += sorted((ROOT / directory).glob("*.sv"))
+        sources.append(ROOT / "rtl/top/ares_cpu_top.sv")
         sources += sorted((ROOT / "rtl/soc/jyd").glob("*.sv"))
         sources.append(ROOT / "rtl/top/student_top.sv")
     sources += [checked_file(p) for p in extra.get("sources", [])]
@@ -99,6 +103,9 @@ def prepare(args):
     cfg = kc.build_config()
     kc.resolve(cfg, kc.load_dot_config(config_file))
     symbols = kc.emitted_symbols(cfg)
+    if args.profile != "core" and (symbols.get("FE_FETCH_WIDTH") != 4 or
+            symbols.get("FE_DECODE_WIDTH") != 2 or not symbols.get("IO_USE_AXI")):
+        raise ValueError("C5 SoC requires Fetch=4, Decode=2 and IO_USE_AXI=y")
     defines = [f"CONFIG_{name}={kc.sv_value(value)}" for name, value in sorted(symbols.items())]
     out = Path(args.output).resolve()
     check_vendor_path(out)
@@ -116,7 +123,7 @@ def prepare(args):
     # in a teammate's checkout. Generated IP and vendor outputs stay in out/.
     copied = {}
     inputs = sources + constraints + recipes + [config_file, ASSETS / "baseline.xml",
-        ROOT / "configs/Kconfig", ROOT / "scripts/kconfig/ares_kconfig.py",
+        ROOT / "configs/Kconfig", ROOT / "configs/frontend/Kconfig", ROOT / "scripts/kconfig/ares_kconfig.py",
         Path(__file__), Path(__file__).with_name("generate.tcl")]
     if args.manifest:
         inputs.append(checked_file(args.manifest))
@@ -139,6 +146,12 @@ def prepare(args):
         dest = out / "includes" / str(index)
         shutil.copytree(p, dest)
         inc_snapshots.append(dest)
+    cfg_include = out / "includes/config"
+    cfg_include.mkdir(parents=True)
+    (cfg_include / "ares_autoconf.vh").write_text("".join(
+        f"`ifndef CONFIG_{name}\n`define CONFIG_{name} {kc.sv_value(value)}\n`endif\n"
+        for name, value in sorted(symbols.items())))
+    inc_snapshots.append(cfg_include)
     values = {
         "ares_project": out / "ares.xpr", "ares_profile": args.profile,
         "ares_top": top, "ares_stage": args.stage, "ares_jobs": args.jobs,

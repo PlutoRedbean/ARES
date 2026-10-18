@@ -215,8 +215,8 @@ typedef struct packed {
 
   logic [31:0]       pc;
   logic [31:0]       pred_npc; // BRU：Frontend 修正后生效的预测下一 PC
-  npc_pkg::pred_meta_t pred_meta; // CFI：原始 BPU 预测/训练元数据及 ghr_before
-  npc_pkg::cfi_type_t actual_cfi_type; // CFI：Decode 确认的真实类别
+  fe_pkg::pred_meta_t pred_meta; // CFI：原始 BPU 预测/训练元数据及 ghr_before
+  fe_pkg::cfi_type_t actual_cfi_type; // CFI：Decode 确认的真实类别
   logic [31:0]       actual_npc; // BRU Completion 登记，供精确中断下一 PC 使用
   logic              actual_taken; // BRU Completion 登记，供 BPU 更新/历史恢复
   logic [31:0]       actual_target; // BRU Completion 登记，用于 BTB 训练

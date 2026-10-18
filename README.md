@@ -35,8 +35,8 @@ make -C tests/cpu-tests ARCH=riscv32-ares run
 
 ## Simulation and regression
 
-The simulation flow builds the local `ares_core_top` (Backend + LSU) with a
-contract-compliant frontend stub. The legacy Mundus/NPC DUT has been removed;
+The default simulation builds `ares_cpu_top`: real Frontend + `ares_core_top`
+(Backend + LSU) + the registered IROM bridge. The legacy Mundus/NPC DUT has been removed;
 no external NPC project is needed for these commands:
 
 ```bash
@@ -51,8 +51,9 @@ make ARCH=riscv32-ares ALL=add run            # a single test
 ```
 
 See `sim/README.md` for the memory map and DPI-C contract. This verifies the
-ARES Core with a frontend stub; the real frontend and RT-Thread integration
-remain follow-up work. The miniTensor control path is now instanced by the
+real ARES Frontend/Core with IROM-only instruction fetch. `make isa-stub`
+retains the independent Backend/LSU regression. `make unit-frontend unit-frontend-modes unit-soc` exercises protocol, predictor-feature switches
+and autonomous JYD SoC execution. RT-Thread adaptation remains follow-up work. The miniTensor control path is now instanced by the
 `ares_soc_top` integration top (real `mini_tensor_top` + ARES CV-X-IF host
 adapter over the `0x8020_1000` MMIO seam); the in-core XIF path and the
 shared-memory Fabric are still open. RT-Thread driver/BSP integration sources

@@ -8,8 +8,10 @@ module BRAM (
 );
     logic [31:0] memory [65536];
     logic [31:0] read_q;
+    string image;
     initial begin
         foreach (memory[i]) memory[i] = 0;
+        if ($value$plusargs("DRAM_HEX=%s",image)) $readmemh(image,memory);
         read_q = 0;
         doutb = 0;
     end
@@ -26,6 +28,11 @@ module IROM_BMEM (
     input logic [11:0] addra,
     output logic [63:0] douta
 );
-    // A pair of RV32 NOPs; used only for student_top elaboration/smoke tests.
-    always_ff @(posedge clka) douta <= {32'h00000013, 32'h00000013} ^ {52'd0, addra};
+    logic [63:0] memory [4096];
+    string image;
+    initial begin
+        foreach (memory[i]) memory[i] = 64'h0000001300000013;
+        if ($value$plusargs("IROM_HEX=%s",image)) $readmemh(image,memory);
+    end
+    always_ff @(posedge clka) douta <= memory[addra];
 endmodule

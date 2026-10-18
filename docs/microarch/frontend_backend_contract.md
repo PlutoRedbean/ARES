@@ -1,6 +1,6 @@
 # Frontend ↔ Backend Interface Contract
 
-> **Status**: v1.0 / RTL integration baseline  
+> **Status**: v1.1 / C5 integration baseline / 2026-10-18
 > **Scope**: RV32IM, 4-wide Fetch, 2-wide Decode/Dispatch, 16-entry CIQ, 2-wide Commit  
 > **Normative ownership**: 本文仅约束 Frontend/Backend 交界。Frontend 的 BPU/FTQ/IFU/IQ 内部实现见 `frontend.md`；Backend 的 Decode/CIQ/BRU/Commit/Trap 见 `backend.md`。冲突时优先遵守本文的跨模块协议。
 
@@ -19,7 +19,7 @@
 ```systemverilog
 // FE -> BE
 logic [1:0] iq_valid;       // 仅允许 00 / 01 / 11；低位为最老指令
-npc_pkg::iq_entry_t iq_inst[2];
+fe_pkg::iq_entry_t iq_inst[2];
 // BE -> FE
 logic [1:0] iq_accept_count; // 0 / 1 / 2；表示本周期成功入 CIQ 的数量
 ```
@@ -28,19 +28,18 @@ logic [1:0] iq_accept_count; // 0 / 1 / 2；表示本周期成功入 CIQ 的数�
 - `iq_accept_count` **是唯一消费依据**。周期末 FE IQ 弹出相应数量，BE 将同样数量的指令分配到 CIQ，并依程序顺序更新 Producer Map。旧版 IQ 的 `rready` 删除；不再与 `raccept_cnt` 并列判定握手。
 - `iq_accept_count` 在当前 CIQ 容量、Serializing Dispatch Gate、IRQ Drain 与全局 Redirect/Reset 条件下由 BE 组合产生；不依赖 IQ 的后续 `ready`。正常同周期 Commit 可依据 Backend 的既有 `dispatch_base_map` 更新依赖，但首版 `free_count` **不借用**预计本周期释放的 CIQ 容量。
 - 当 `iq_accept_count=0` 时，FE 必须保持队首指令及其 metadata 稳定（发生有效全局 Redirect/Reset 除外）。FE 可以继续预取到自身缓冲满；该行为不改变 BE 的背压协议。
-- IQ 内部可沿用 2-entry Head + 6-entry Body 和 IFU→IQ `wvalid/wready/wmask`。当部分写入不足容纳有效 prefix 时，IFU 保持该块等待；无条件丢弃有效指令是协议错误。
+- IQ 内部可沿用 2-entry Head + 参数化 Body（当前默认 8，总 IQ 深度 10） 和 IFU→IQ `wvalid/wready/wmask`。当部分写入不足容纳有效 prefix 时，IFU 保持该块等待；无条件丢弃有效指令是协议错误。
 
 ### 2.1 每条指令的控制信息
 
-`npc_pkg::iq_entry_t` 的跨边界字段固定为 `pc, inst, pred_npc, pred_meta, need_redirect, cfi_type, is_cfi, valid`（详细声明见 `frontend.md` 第 4.3 节）。`iq_inst[i].valid` 必须与 `iq_valid[i]` 一致；不得通过重复的 valid 位产生不同的消费判断。其中：
+`fe_pkg::iq_entry_t` 的跨边界字段固定为 `pc, inst, pred_npc, pred_meta, cfi_type, is_cfi, valid`（详细声明见 `frontend.md` 第 4.3 节）。`iq_inst[i].valid` 必须与 `iq_valid[i]` 一致；不得通过重复的 valid 位产生不同的消费判断。其中：
 
 - `pred_npc` 是**经 FE 最终修正、与这条指令绑定的有效预测下一 PC**；条件分支预测不跳转时为 `pc+4`，预测跳转时为生效目标。BE BRU 只用它比较 `actual_npc`；不得将 `pred_meta.pred_target` 无条件当作 `pred_npc`。
-- `pred_meta` 保留**原始 BPU 预测**（`pred_taken/pred_target/pred_type`、训练所需索引/chooser metadata、`ghr_before`），允许与经 Predecode 修正后的 `pred_npc` 不同；用于预测器训练与 BRU 恢复历史，而非判断当前路径正确性。Backend 对预测器私有 metadata **原样保存并回传**，不得重新解码、压缩或根据最新预测器状态重建；具体可选 TAGE/SC/Loop/RAS 的 metadata 位宽由 FE 在共享 `npc_pkg::pred_meta_t` 中定义，且必须保持该接口类型编译一致。
-- `pred_meta.ghr_before` 是**此条 CFI 被预测前**的推测 GHR 快照，已按程序顺序计入所有更老 CFI 的预测历史；不得把一个 Fetch Block 的不正确共享快照同时当作不同 CFI 的快照。当前 IFU 在首个有效 CFI 后截断块；以后放宽时需提供逐 CFI 快照。
+- `pred_meta` 保留**原始 BPU 预测**（`pred_taken/pred_target/pred_type`、训练所需索引/chooser metadata、`ghr_before`），允许与经 Predecode 修正后的 `pred_npc` 不同；用于预测器训练与 BRU 恢复历史，而非判断当前路径正确性。Backend 对预测器私有 metadata **原样保存并回传**，不得重新解码、压缩或根据最新预测器状态重建；具体可选 TAGE/SC/Loop/RAS 的 metadata 位宽由 FE 在共享 `fe_pkg::pred_meta_t` 中定义，且必须保持该接口类型编译一致。
+- `pred_meta.ghr_before` 是**此条 CFI 被预测前**的推测 GHR 快照，已按程序顺序计入所有更老 CFI 的预测历史；不得把一个 Fetch Block 的不正确共享快照同时当作不同 CFI 的快照。当前保留块内多个预测不跳转的 CFI，在首个预测跳转 CFI 后截断；BPU 在写入 FTQ 前按槽生成完整快照，禁止下游通过块快照与前缀计数重建。预测表实际使用的索引历史单独保留，不被恢复快照替换。
 - `cfi_type/is_cfi` 描述 Predecode 识别出的**实际指令类型**，Decode 必须与 `inst` 核对；原始预测类型属于 `pred_meta`。非 CFI 不参与 BPU CFI 更新。
-- `need_redirect=1` 仅用于**未获可用目标预测且已停止错误路径取指**的 JALR 等控制流，要求 BE BRU **无条件发出一次有效恢复**，即使 `actual_npc == pred_npc`。它不是独立的前端 Flush 请求；这条指令必须先进入 CIQ 并正常执行。
 
-Decode 将 CFI 的 `pred_npc/pred_meta/need_redirect/actual cfi_type` 随指令保存至 CIQ，直至其正常 Commit 或被 Flush。Issue BRU 时继续传递 `need_redirect`；BRU Completion 另登记 `actual_npc/actual_taken/actual_target`。未被接受的 IQ 内容不进入后端状态。
+Decode 将 CFI 的 `pred_npc/pred_meta/actual cfi_type` 随指令保存至 CIQ，直至其正常 Commit 或被 Flush。Issue BRU 时传递独立的 `pred_npc`；BRU Completion 另登记 `actual_npc/actual_taken/actual_target`。未被接受的 IQ 内容不进入后端状态。
 
 ## 3. Redirect Interface：Backend → Frontend
 
@@ -54,7 +53,7 @@ logic [GHR_WIDTH-1:0] backend_redirect_ghr_before; // BRANCH only
 logic              backend_redirect_actual_taken;     // BRANCH only
 ```
 
-- Backend 独占最终架构级 Redirect 仲裁：`Reset > ECALL Trap > MRET > BRU Recovery > IRQ Boundary Redirect`；仅向 FE 输出**一个获胜事件**。`REDIRECT_ARCH` 覆盖 ECALL、MRET、IRQ 边界/取消中断后的重新取指；`REDIRECT_BRANCH` 表示 BRU 误预测或 `need_redirect` 强制恢复。PC 必须是 BE 已仲裁的正确目标。
+- Backend 独占最终架构级 Redirect 仲裁：`Reset > ECALL Trap > MRET > BRU Recovery > IRQ Boundary Redirect`；仅向 FE 输出**一个获胜事件**。`REDIRECT_ARCH` 覆盖 ECALL、MRET、IRQ 边界/取消中断后的重新取指；`REDIRECT_BRANCH` 表示 BRU 下一 PC 误预测。PC 必须是 BE 已仲裁的正确目标。
 - `backend_redirect_valid` 与 BE 的 `kill/Dispatch block` 同周期生效。该周期 `iq_accept_count=0`；周期末 FE 丢弃 IQ 中全部尚未被 Dispatch 的旧路径指令、清除 FTQ 和错误路径预测流水，并使所有旧路径 IFU/ICache **在途响应不可再次入 IQ**。BE 的年龄选择性 CIQ squash/Trap 全队列恢复仍按 `backend.md` 执行，FE 不决定 CIQ kill 范围。
 - IFU/ICache 必须有可靠的旧响应过滤机制（可用内部 epoch/transaction 标识或取消+drain），保证 Redirect 后旧请求即使迟到也不会污染新路径；标识复用不得与仍在途的旧请求混淆。实现技术属于 FE 内部，不扩展 BE `tag_t`。
 - 在 BE Redirect 同周期，FE 的 Predecode/深级预测修正无效，不能覆盖 BE 目标 PC、不能将旧路径 Fetch Block 写入 IQ。Reset 具有最高优先级。
@@ -68,7 +67,7 @@ logic              backend_redirect_actual_taken;     // BRANCH only
 - Frontend Local Redirect 保留已经入 IQ、按程序顺序位于修正点**之前**的有效指令；修正 Fetch Block 自身仅将经检查的有效 prefix 按序入 IQ，并在成功入队后才允许完成修正。清除的是更年轻的 FTQ/IFU/预测路径及其在途响应，而非无条件清空整个 IQ。
 - 此规则要求 IFU 以程序顺序向 IQ 入队、修正点不早于 IQ 中已经入队的最年轻指令。任何晚到的深级 BPU 修正若可能指向已入 IQ 的更老指令，必须**在入 IQ 前解决**；第一版不支持在 IQ 中选择性回滚任意 suffix。
 - Frontend Local Redirect 改写该 CFI 的**生效** `pred_npc`，但保留原始 `pred_meta` 以便 Commit 训练；同时基于此 CFI 的 `ghr_before` 和本地确定的生效方向修复后续 `ghr_spec`。Backend 不做 CIQ Flush。对于未预测到的条件分支，Frontend 只能将其明确视为**预测不跳转**（`pred_npc=pc+4`、有效 `actual_taken` 未知），并把该 CFI 的有效预测历史补入 `ghr_spec`；若早已发出的年轻预测使用了错误 GHR，则必须在前端局部重启预测，不能继续使用该错误历史。
-- 未预测 JALR：保留并派发 JALR（`need_redirect=1`），停止其后新的可见取指/入 IQ，直到 BE BRU Redirect；即使 PC 数值恰好相同仍必须解除等待并重新取指。
+- 未预测目标的 JALR：`pred_npc=pc+4`，正常派发并继续推测执行，不进入等待状态；BRU 仅在 `actual_npc != pred_npc` 时恢复。JALR 的生效 CFI 历史方向为 1；若 BPU 漏识别，Predecode 保留该指令并从 `pc+4` 局部重启年轻预测以修复历史，不等待 BRU。
 
 ## 4. BPU Update Interface：Commit → Predictor
 
@@ -80,7 +79,7 @@ logic [1:0] bpu_update_valid;
 bpu_update_t bpu_update[2];
 ```
 
-`bpu_update_t` 的固定跨边界数据格式为（建议放入 `npc_pkg`，避免前后端重复声明）：
+`bpu_update_t` 的固定跨边界数据格式为（建议放入 `fe_pkg`，避免前后端重复声明）：
 
 ```systemverilog
 typedef struct packed {
@@ -119,11 +118,27 @@ typedef struct packed {
 
 - `iq_valid inside {00,01,11}`；`iq_accept_count <= $countones(iq_valid)`；接受 2 条时两个 slot 均有效；任何时钟沿 FE pop 数等于 BE CIQ allocate 数。
 - `backend_redirect_valid |-> iq_accept_count==0`；Backend Redirect 后旧 epoch 的 ICache response 永远不能写入 IQ；BE 和 FE 选用同一个 Redirect PC。
-- `need_redirect` 的 JALR 到达 BRU 后必须产生一次 Branch Redirect，不以数值 `actual_npc != pred_npc` 为必要条件。
+- 未预测 JALR 使用 `pred_npc=pc+4`；验证目标不等于该值时恢复，目标恰好等于该值时不恢复且执行继续。
 - `bpu_update_valid[i] -> commit_fire[i] && is_cfi[i]`；本周期事件总数 `<= bpu_update_credit`；事件按 lane 顺序排列入训练 FIFO；无丢失、无重复。
 - Branch Recovery 的 `ghr_spec` 由 `ghr_before + actual_taken` 恢复；Architectural Redirect 从已接受的 Commit 历史恢复；验证两个未 Commit CFI、较老 CFI 同周期 Commit 与年轻 Branch 误预测。
-- 定向覆盖：`IQ 01/11 + accept 0/1/2`、IB 满/空的局部 JAL 修正、未知目标 JALR 强制恢复、BE Redirect 与 FE Predecode 同周期、IRQ Drain 期间 IQ 留存、无效旧 ICache 响应、连续两条 CFI Commit、BPU credit=0/1/2。
+- 定向覆盖：`IQ 01/11 + accept 0/1/2`、IB 满/空的局部 JAL 修正、未知目标 JALR 的相等/不等目标、BE Redirect 与 FE Predecode 同周期、IRQ Drain 期间 IQ 留存、无效旧 ICache 响应、连续两条 CFI Commit、BPU credit=0/1/2。
 
 ## 7. 本契约之外仍待设计的前端内部项目
 
 本契约不代替 Frontend 内部尚未完成的 `RAS / Loop` 细节、TAGE/SC 表参数与更新细则、IFU/ICache miss/refill 内部逐周期协议，亦不代替 Backend 的 LSU/CSR/Trap 内部契约。这些问题不应导致 FE↔BE 接口另行发明信号语义。
+
+## 8. C5 IROM profile and shared-type ownership
+
+`rtl/common/fe_pkg.sv` owns FE/BE types; `ares_pkg` owns Backend/LSU types.
+`iq_entry_t.pred_npc` is independent of raw `pred_meta`. The fixed metadata
+layout includes `pred_type`, full `ghr_before`, chooser lookup metadata and
+`loop_override`; feature switches never remove fields. Disabled fields are zero.
+
+`ares_cpu_top` contains the real FE, `ares_core_top` (BE+LSU), and a read-only
+AXI-Lite to synchronous 64-bit IROM bridge. It supports 4-wide Fetch / 2-wide
+Decode and `CONFIG_IO_USE_AXI=y`. Fetch is limited to 0x80000000–0x80007fff;
+the final response masks slots outside this range. An out-of-window speculative
+PC waits for Redirect; an actual unsupported execution fails the simulation
+watchdog, without adding an instruction-access Trap. The dedicated IROM read
+port does not use the D-memory/DMA Fabric. DRAM execution and instruction-cache
+maintenance remain outside this profile.

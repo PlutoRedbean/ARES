@@ -10,18 +10,10 @@ module gshare (
     output logic [fe_pkg::FETCH_WIDTH-1:0] pred_taken_slots,
     output logic [  fe_pkg::GHR_WIDTH-1:0] pred_ghr,
 
-    // speculation control: advance the GHR along the just-predicted block
-    input logic                                     flush,
-    input logic                                     spec_valid,
-    input logic [$clog2(fe_pkg::FETCH_WIDTH+1)-1:0] spec_num,    // on-path CFIs
-    input logic                                     spec_taken,  // last one taken
-
-    input fe_pkg::fe_redirect_kind_t                         redirect_kind,
-    input logic                      [fe_pkg::GHR_WIDTH-1:0] redirect_ghr_before,
-    input logic                                              redirect_actual_taken,
+    input logic [fe_pkg::GHR_WIDTH-1:0] predict_ghr,
 
     // update port
-    input logic                          update_en,     // any CFI: advances the committed GHR
+    input logic                          update_en,     // queued table-training event
     input logic                          is_branch,     // conditional branch: updates the PHT
     input logic [fe_pkg::ADDR_WIDTH-1:0] update_pc,
     input logic                          actual_taken,
@@ -40,12 +32,6 @@ module gshare (
     (* ram_style = "distributed" *)
     logic [1:0] gshare_pht[ENTRIES];
 
-    // speculative history (used for prediction) and committed history (used to
-    // repair the speculative one on a redirect)
-    logic [GHR_WIDTH-1:0] ghr_spec;
-    logic [GHR_WIDTH-1:0] ghr_commit;
-    logic [GHR_WIDTH-1:0] ghr_commit_next;
-
     logic [PHT_WIDTH-1:0] pred_pc_idx;
     logic [PHT_WIDTH-1:0] update_pc_idx;
     logic [PHT_WIDTH-1:0] update_idx;
@@ -53,8 +39,6 @@ module gshare (
     assign pred_pc_idx   = fetch_pc[PHT_WIDTH+1:2];
     assign update_pc_idx = update_pc[PHT_WIDTH+1:2];
     assign update_idx    = update_pc_idx ^ PHT_WIDTH'(update_ghr);
-
-    assign ghr_commit_next = update_en ? {ghr_commit[GHR_WIDTH-2:0], actual_taken} : ghr_commit;
 
     // 1-cycle pipelined response
     logic [ADDR_WIDTH-1:0] req_pc_r;
@@ -107,8 +91,6 @@ module gshare (
     always_ff @(posedge clk) begin
         if (rst) begin
             req_ghr_r  <= '0;
-            ghr_spec   <= '0;
-            ghr_commit <= '0;
 
             for (i = 0; i < FETCH_WIDTH; i = i + 1) begin
                 counter_r[i] <= WNTK;
@@ -125,30 +107,10 @@ module gshare (
             // -----------------------------
 
             req_pc_r  <= fetch_pc;
-            req_ghr_r <= ghr_spec;
+            req_ghr_r <= predict_ghr;
 
             for (i = 0; i < FETCH_WIDTH; i = i + 1) begin
-                counter_r[i] <= gshare_pht[(pred_pc_idx+PHT_WIDTH'(i))^PHT_WIDTH'(ghr_spec)];
-            end
-
-            // -----------------------------
-            // History maintenance
-            // -----------------------------
-
-            // committed history advances when a CFI resolves
-            ghr_commit <= ghr_commit_next;
-
-            if (flush) begin
-                if (redirect_kind == REDIRECT_BRANCH) begin
-                    ghr_spec <= {redirect_ghr_before[GHR_WIDTH-2:0], redirect_actual_taken};
-                end else begin
-                    ghr_spec <= ghr_commit_next;
-                end
-            end else if (spec_valid) begin
-                // walk the just-predicted block: every on-path CFI shifts in its
-                // predicted direction (0 for a not-taken branch, 1 for a taken
-                // one, which ends the block)
-                ghr_spec <= (ghr_spec << spec_num) | {{(GHR_WIDTH - 1) {1'b0}}, spec_taken};
+                counter_r[i] <= gshare_pht[(pred_pc_idx+PHT_WIDTH'(i))^PHT_WIDTH'(predict_ghr)];
             end
 
             // -----------------------------

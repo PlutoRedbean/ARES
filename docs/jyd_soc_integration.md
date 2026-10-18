@@ -1,6 +1,22 @@
 # JYD SoC migration decisions and boundary
 
-## Approved scope (2026-10-14)
+## Current C5 integration (2026-10-18)
+
+`student_top` now instantiates `ares_cpu_top Core_cpu`: real FE, Backend/LSU and
+IROM bridge. IQ/Redirect/BPU and `ifetch_*` are internal; the 32KiB synchronous
+IROM connects directly to the CPU. External platform ports remain clocks/reset,
+GPIO, UART byte handshake and miniTensor control/status. `ares_soc_top` uses the
+same real CPU platform; accelerator DMA remains external.
+
+`make unit-soc` passes the bus TB (2864 checks) and autonomous program TB
+(25 retires, UART/LED, DRAM miss/hit, uncached, branch/call/JALR). Program inputs
+are memory hex images; no IQ injection is used. Registered memory IP timing is
+preserved. Both real-FE and retained stub ISA regressions pass 36/36; see
+[C5 verification](fe_contract_migration.md). Physical board timing/CDC, formal
+Timer and RTOS/DMA remain unverified. The 2026-10-14 OOC figures below describe
+the earlier BE/LSU subsystem, not a new real-FE synthesis result.
+
+## Initial approved migration scope (2026-10-14, historical)
 
 The user selected the JYD2025 FPGA/project configuration and copied the platform
 into `npc/` for migration. Historical reports and old Core/IP contents are not
@@ -16,7 +32,8 @@ trusted implementation evidence. The user explicitly approved:
 40 SEG signals), CPU/peripheral clocks and active-high reset. Additional ports
 carry IQ/Redirect/BPU Update unchanged from `ares_core_top`, a synchronous IROM
 address/data seam for the future FE, and miniTensor control/status signals.
-This is a subsystem integration top, not a complete physical board top.
+Those external FE seams describe the initial migration; C5 has internalized
+them as above. This remains a subsystem integration top, not a physical board top.
 
 The transplanted helpers reside in `rtl/soc/jyd/`. They do not include legacy
 Core RTL, legacy `autoconf.vh`, old vendor IP or DMA DPI implementations.

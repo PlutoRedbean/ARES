@@ -57,6 +57,7 @@ package fe_pkg;
     // Tournament predictor parameters
     // ------------------
     localparam int unsigned CHOOSER_WIDTH = 10;
+    localparam int unsigned BPU_UPDATE_FIFO_DEPTH = 8;
 
     // Return address stack.  RAS_ON enables it; returns otherwise fall back to
     // the uBTB target.
@@ -125,28 +126,14 @@ package fe_pkg;
         logic [GHR_WIDTH-1:0] pred_ghr;
     } chooser_meta_t;
 
+    // Fixed cross-boundary layout, independent of predictor feature switches.
     typedef struct packed {
-        logic [ADDR_WIDTH-1:0] pred_target;
-        logic                  pred_taken;
-
-`ifdef TOURNAMENT_ON
-        chooser_meta_t chooser_meta;
-`endif
-`ifdef LOOP_PRED_ON
-        logic          loop_override;  // direction came from the loop predictor
-`endif
-
-        // Per-CFI speculative-GHR snapshot (frontend_backend_contract.md 2.1 /
-        // 3), stored compactly as the number of predicted CFIs that precede
-        // this slot inside its fetch block.  The block-start GHR
-        // (chooser_meta.pred_ghr) advances by one bit per on-path CFI and all
-        // not-taken predecessors shift in a zero, so the full per-CFI snapshot
-        // is recovered exactly on a redirect with
-        //     ghr_before = chooser_meta.pred_ghr << cfi_prefix
-        // This avoids storing a second, fully derivable GHR per instruction.
-        // A block ends at the first predicted-taken CFI, so it may still hold
-        // several not-taken CFIs and cfi_prefix can be non-zero.
-        logic [$clog2(FETCH_WIDTH+1)-1:0] cfi_prefix;
+        logic [ADDR_WIDTH-1:0] pred_target;  // original predictor target
+        logic pred_taken;
+        cfi_type_t pred_type;
+        logic [GHR_WIDTH-1:0] ghr_before;    // full per-slot recovery snapshot
+        chooser_meta_t chooser_meta;        // actual table lookup history
+        logic loop_override;
     } pred_meta_t;
 
     /*
@@ -173,7 +160,8 @@ package fe_pkg;
         // Instruction PC (needed by the multi-cycle NPC back-end)
         logic [ADDR_WIDTH - 1:0] pc;
 
-        // BPU metadata
+        logic [ADDR_WIDTH-1:0] pred_npc; // effective next PC after predecode
+        // Original prediction, never rewritten by predecode/backend.
         pred_meta_t pred_meta;
 
         // Instruction

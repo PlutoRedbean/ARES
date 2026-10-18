@@ -10,7 +10,7 @@
 // exposes only:
 //   * the IQ read port          (`iq_*`), consumed by the back-end decoder,
 //   * the back-end redirect      (flush + corrected PC),
-//   * the BPU training port      (update_en + update_meta),
+//   * the BPU commit/credit port (two events; queued table training),
 //   * the icache AXI master bus.
 //
 // The IQ write port (IFU -> IQ) and the FTQ read port (FTQ -> IFU) are
@@ -36,16 +36,14 @@ module frontend #(
     // front-end (BPU/FTQ/IFU and the IQ) and restarts fetch at `backend_redirect_pc`.
     input logic                                              backend_redirect_valid,
     input logic                      [     ADDR_WIDTH - 1:0] backend_redirect_pc,
-    // Redirect kind (contract section 3).  The per-CFI ghr_before and
-    // actual_taken are not separate ports: the BPU reconstructs them from the
-    // redirecting CFI's echoed metadata (`bpu_update_meta`).
-    // REDIRECT_BRANCH restores ghr_spec from ghr_before + actual_taken;
-    // REDIRECT_ARCH (ECALL/MRET/IRQ) resyncs to the committed history.
+    // Independent recovery information belongs to the redirecting BRU event.
     input fe_pkg::fe_redirect_kind_t                         backend_redirect_kind,
 
-    // BPU training.  Must be driven in program order, at most one CFI per cycle.
-    input logic                bpu_update_en,
-    input fe_pkg::bpu_update_t bpu_update_meta,
+    input logic [fe_pkg::GHR_WIDTH-1:0] backend_redirect_ghr_before,
+    input logic backend_redirect_actual_taken,
+    input logic [1:0] bpu_update_valid,
+    input fe_pkg::bpu_update_t bpu_update [2],
+    output logic [1:0] bpu_update_credit,
 
     // ---------- instruction cache backing memory bus ----------
 `ifdef CONFIG_IO_USE_AXI
@@ -90,17 +88,16 @@ module frontend #(
     // front-end (PredecodeCheck) redirect
     logic fe_redirect_valid;
     logic [ADDR_WIDTH - 1:0] fe_redirect_pc;
+    logic [GHR_WIDTH-1:0] fe_repair_ghr;
 
     // back-end redirect wins over the front-end one
     wire fe_flush = backend_redirect_valid | fe_redirect_valid;
     wire [ADDR_WIDTH - 1:0] fe_redirect_pc_sel =
         backend_redirect_valid ? backend_redirect_pc : fe_redirect_pc;
 
-    // Redirect kind for the BPU GHR recovery.  A front-end local
-    // (PredecodeCheck) redirect has no architectural/branch kind of its own;
-    // it keeps the historical behaviour of resyncing to the committed history,
-    // i.e. the REDIRECT_ARCH path.
-    wire fe_redirect_kind = backend_redirect_valid ? backend_redirect_kind : REDIRECT_ARCH;
+    // BE selects architectural/branch recovery. Local correction supplies its
+    // own history snapshot and takes a separate path inside the BPU.
+    wire fe_redirect_kind_t fe_redirect_kind = backend_redirect_valid ? backend_redirect_kind : REDIRECT_ARCH;
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic [ADDR_WIDTH - 1:0] bpu_resp_pc;
@@ -130,8 +127,13 @@ module frontend #(
         .ftq_wvalid           (ftq_wvalid),
         .bpu_resp_pc          (bpu_resp_pc),
         .ftq_wdata            (ftq_wdata),
-        .update_en            (bpu_update_en),
-        .update_meta          (bpu_update_meta)
+        .redirect_ghr_before  (backend_redirect_ghr_before),
+        .redirect_actual_taken(backend_redirect_actual_taken),
+        .local_repair_valid   (fe_redirect_valid && !backend_redirect_valid),
+        .local_repair_ghr     (fe_repair_ghr),
+        .bpu_update_valid     (bpu_update_valid),
+        .bpu_update           (bpu_update),
+        .bpu_update_credit    (bpu_update_credit)
     );
 
     // ------------------------------------------------
@@ -173,6 +175,7 @@ module frontend #(
         .fetch_pc_out     (fetch_pc_out),
         .fe_redirect_valid(fe_redirect_valid),
         .fe_redirect_pc   (fe_redirect_pc),
+        .fe_repair_ghr    (fe_repair_ghr),
         .icache_req_valid (icache_req_valid),
         .icache_req_addr  (icache_req_addr),
         .icache_req_ready (icache_req_ready),
@@ -230,4 +233,16 @@ module frontend #(
         .flush      (backend_redirect_valid)
     );
 
+`ifdef CONFIG_SIMULATION
+    a_iq_prefix: assert property (@(posedge clk) disable iff (rst) iq_rvalid != 2'b10);
+    a_iq_count: assert property (@(posedge clk) disable iff (rst)
+        iq_raccept_cnt <= $countones(iq_rvalid));
+    a_redirect_blocks: assert property (@(posedge clk) disable iff (rst)
+        backend_redirect_valid |-> iq_raccept_cnt == 0);
+    a_head_holds: assert property (@(posedge clk) disable iff (rst)
+        (!backend_redirect_valid && iq_rvalid[0] && iq_raccept_cnt == 0)
+        |=> (backend_redirect_valid || (iq_rvalid[0] && $stable(iq_rbits[0]))));
+    a_local_prefix_kept: assert property (@(posedge clk) disable iff (rst)
+        fe_redirect_valid |-> iq_wvalid && iq_wready);
+`endif
 endmodule

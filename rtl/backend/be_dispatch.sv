@@ -184,9 +184,8 @@ module be_dispatch (
             alloc_entry[l].state           = ENTRY_WAIT;
 
             alloc_entry[l].pc              = iq_inst[l].pc;
-            // Effective predicted next PC: the front-end already stores it in
-            // pred_meta.pred_target (taken target, else the slot's pc+4).
-            alloc_entry[l].pred_npc        = iq_inst[l].pred_meta.pred_target;
+            // The effective next PC is independent of raw training metadata.
+            alloc_entry[l].pred_npc        = iq_inst[l].pred_npc;
             alloc_entry[l].pred_meta       = iq_inst[l].pred_meta;
             alloc_entry[l].actual_cfi_type = d_cfi_type[l];
 

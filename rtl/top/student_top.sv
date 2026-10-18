@@ -1,4 +1,4 @@
-// JYD platform migration. Core FE remains an external ARES contract.
+// JYD platform with real ARES frontend and dedicated synchronous IROM.
 // Approved board map / aliases and limitations: docs/jyd_soc_integration.md.
 module student_top (
     input logic w_cpu_clk, w_clk_50Mhz, w_clk_rst,
@@ -10,35 +10,18 @@ module student_top (
     output logic uart_tx_start,
     output logic [31:0] virtual_led,
     output logic [39:0] virtual_seg,
-    // Synchronous 32KiB IROM; response is the 64-bit pair one cycle later.
-    /* verilator lint_off UNUSEDSIGNAL */ // 32KiB ROM decodes only word-pair index
-    input logic [31:0] ifetch_addr,
-    /* verilator lint_on UNUSEDSIGNAL */
-    output logic [63:0] ifetch_data,
     // miniTensor control seam: DMA integration remains a later milestone.
     output logic mt_wr_en,
     output logic [2:0] mt_wr_idx,
     output logic [31:0] mt_wr_data,
     output logic mt_status_rd,
-    input logic [31:0] mt_status, mt_result,
-    // FE contract remains external until C5.
-    input  logic [1:0]                       iq_valid,
-    input  fe_pkg::iq_entry_t              iq_inst [2],
-    output logic [1:0]                       iq_accept_count,
-
-    //---- Redirect: BE -> FE (contract section 3) ---------------------------
-    output logic                             backend_redirect_valid,
-    output logic [31:0]                      backend_redirect_pc,
-    output fe_pkg::fe_redirect_kind_t      backend_redirect_kind,
-    output logic [ares_pkg::GHR_WIDTH-1:0]   backend_redirect_ghr_before,
-    output logic                             backend_redirect_actual_taken,
-
-    //---- BPU update: Commit -> FE (contract section 4) ---------------------
-    input  logic [1:0]                       bpu_update_credit,
-    output logic [1:0]                       bpu_update_valid,
-    output fe_pkg::bpu_update_t            bpu_update [2]
+    input logic [31:0] mt_status, mt_result
 );
     logic timer_irq;
+    /* verilator lint_off UNUSEDSIGNAL */ // physical IROM indexes only bits 14:3
+    logic [31:0] ifetch_addr;
+    /* verilator lint_on UNUSEDSIGNAL */
+    logic [63:0] ifetch_data;
     logic mem_rd_valid, mem_rd_ready, mem_rsp_valid, mem_rsp_ready;
     logic mem_wr_valid, mem_wr_ready;
     logic [31:0] mem_rd_addr, mem_wr_addr;
@@ -52,22 +35,12 @@ module student_top (
     logic [31:0] perip_addr, perip_wdata, perip_rdata;
     logic [3:0] perip_wstrb;
 
-    ares_core_top #(
+    ares_cpu_top #(
         .MMIO_BASE(32'h8020_0000), .MMIO_MASK(32'hFFF0_0000),
         .JYD_UNCACHED_WINDOWS(1'b1)
     ) Core_cpu (
         .clk(w_cpu_clk), .rst(w_clk_rst), .timer_irq(timer_irq),
-        .iq_valid(iq_valid),
-        .iq_inst(iq_inst),
-        .iq_accept_count(iq_accept_count),
-        .backend_redirect_valid(backend_redirect_valid),
-        .backend_redirect_pc(backend_redirect_pc),
-        .backend_redirect_kind(backend_redirect_kind),
-        .backend_redirect_ghr_before(backend_redirect_ghr_before),
-        .backend_redirect_actual_taken(backend_redirect_actual_taken),
-        .bpu_update_credit(bpu_update_credit),
-        .bpu_update_valid(bpu_update_valid),
-        .bpu_update(bpu_update),
+        .irom_addr(ifetch_addr), .irom_data(ifetch_data),
         .mem_rd_valid(mem_rd_valid),
         .mem_rd_ready(mem_rd_ready),
         .mem_rd_addr(mem_rd_addr),

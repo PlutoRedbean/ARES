@@ -694,11 +694,7 @@ module be_top #(
         .mret_pc              (mret_pc_w),
         .branch_valid         (recovery_valid_w),
         .branch_pc            (redirect_pc_w),
-`ifdef TOURNAMENT_ON
-        .branch_ghr_before    (entry_w[recovery_tag_w.slot_index].pred_meta.chooser_meta.pred_ghr),
-`else
-        .branch_ghr_before    ('0),
-`endif
+        .branch_ghr_before    (entry_w[recovery_tag_w.slot_index].pred_meta.ghr_before),
         // The BRU's live sideband is used here: the recovery fires in the same
         // cycle as the completion, before the CIQ entry is updated.
         .branch_taken         (bru_actual_taken_w),

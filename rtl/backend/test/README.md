@@ -11,7 +11,7 @@ this directory is synthesizable or part of the delivered core.
 | `unit/fe_model.sv` | Instruction fetch model with a program image (`imem`), contract-shaped `iq_valid/iq_accept_count`, same-cycle redirect and no holes. |
 | `unit/tb_decode.sv` | `be_decode` unit test: every RV32IM/Zicsr encoding, immediate formats, CFI classification, `csr_write_en` table, all `decode_err` classes (3106 checks, fixed seed). |
 | `unit/tb_fu_exec.sv` | `fu_alu` / `fu_smul` / `fu_mul` / `fu_div` unit test: boundary tables + 100k/20k randomised reference comparisons, II=1 throughput, kill semantics, both `MUL_LATENCY` settings (224072 checks). |
-| `unit/tb_bru_csr.sv` | `fu_bru` / `csr_file` / `fu_csr` unit test: branch/jump resolution, forced `need_redirect` recovery, every CSR field mask and priority, all six Zicsr forms (10695 checks, fixed seed). |
+| `unit/tb_bru_csr.sv` | `fu_bru` / `csr_file` / `fu_csr` unit test: branch/jump resolution, pred_npc match/mismatch recovery, every CSR field mask and priority, all six Zicsr forms (10695 checks, fixed seed). |
 | `unit/tb_backend.sv` | **C1 integration gate**: `be_top` + `fe_model` + `lsu_stub`, independent RV32IM golden model. |
 
 ## Running (C1 gate)
@@ -32,8 +32,7 @@ not pick them up; `make unit` builds each top explicitly.
 
 * phase 1 - directed program checked instruction by instruction against an
   independent golden model (retire PC, `rd`, value): dependency chains,
-  taken/not-taken branches, JAL, JALR with `need_redirect=1` and
-  `actual_npc == pred_npc` (forced recovery), loads/stores, MUL/DIV/REM,
+  taken/not-taken branches, JAL, JALR with matching `actual_npc == pred_npc` (no recovery) and mismatching targets, loads/stores, MUL/DIV/REM,
   serialising CSR write/read, 2-wide dispatch and store commit handshake;
 * phase 2 - `ECALL` -> `mtvec` handler -> `MRET` and a machine timer interrupt:
   2 trap entries, 2 MRET retires, `mepc/mcause/mstatus` path, interrupt
