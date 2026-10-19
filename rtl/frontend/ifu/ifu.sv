@@ -1,7 +1,24 @@
-// Instruction Fetch Unit (IFU)
-//  it pulls
+// Instruction Fetch Unit (IFU) -- pipelined.
+//
+// After the BPU/IFU decoupling the IFU no longer owns a fetch PC: it pulls
 // fetch targets from the FTQ (one entry per predicted Fetch Block) and pushes
 // the fetched instructions into the IQ (the IFU-IDU interface).
+//
+// This version splits the work into two concurrent stages connected by a
+// 2-entry fetch FIFO:
+//
+//   Stage F (fetch engine): FTQ pop -> icache request -> icache response ->
+//                           push the fetched block into the FIFO.
+//   Stage P (pre-decode / check / IQ write): pop the FIFO -> pre-decode ->
+//                           check against the BPU prediction -> IQ write.
+//
+// The fetch engine can run ahead (up to the FIFO depth) while stage P is
+// pre-decoding the previous block, hiding the icache latency behind the tail
+// instead of serializing the two.
+//
+// The icache now returns the whole FETCH_WIDTH window in a single response and
+// stitches a line-crossing window internally, so the fetch engine no longer
+// issues a second, crossing request (the old F_REQ2/F_RESP2 path).
 module ifu #(
     parameter int unsigned ADDR_WIDTH = 32,
     parameter int unsigned RESET_VEC  = 32'h8000_0000
@@ -104,7 +121,7 @@ module ifu #(
     pred_meta_t f_pred_meta[FETCH_WIDTH];
     logic [FETCH_WIDTH-1:0] f_cfi_valid;
     cfi_type_t [FETCH_WIDTH-1:0] f_cfi_type;
-    logic poison_q;
+    logic poison_r;
 
     // ---- fetch FIFO ----
     fetch_block_t fetch_block_fifo[FB_DEPTH];
@@ -117,32 +134,34 @@ module ifu #(
     wire icache_req_accept = icache_req_valid && icache_req_ready;
     wire icache_resp_accept = icache_resp_valid && icache_resp_ready;
 
+    // The checked block is always written to the IQ; a front-end redirect only
+    // corrects where the *next* fetch starts.  Only a back-end flush suppresses
+    // the write.
 
     // fb_pop is driven by the Stage P load condition (see below).
     wire fb_pop;
     // Room for a push this cycle (a simultaneous pop frees a slot).
     wire f_can_push = (fb_count < FB_CNT_W'(FB_DEPTH)) || fb_pop;
     // Any outstanding response must be drained on/after a flush.
-    wire f_resp_ready_ok = (ifu_flush || poison_q) ? 1'b1 : f_can_push;
+    wire f_resp_ready_ok = (ifu_flush || poison_r) ? 1'b1 : f_can_push;
 
     wire f_block_done = (f_state == F_RESP) && icache_resp_accept;
-    wire fb_push = f_block_done && !poison_q && !ifu_flush && f_can_push;
+    wire fb_push = f_block_done && !poison_r && !ifu_flush && f_can_push;
 
     // Back-to-back fetch: when the current response is accepted this cycle, the
     // fetch engine may issue the next request in the SAME cycle (the icache is
     // in S_IDLE and accepts), removing the F_IDLE bubble so the block period
     // drops from 3 to 2 cycles.  Never start on a kill (poison/flush).
-    wire f_back_to_back = (f_state == F_RESP) && icache_resp_accept && !poison_q && !ifu_flush;
+    wire f_back_to_back = (f_state == F_RESP) && icache_resp_accept && !poison_r && !ifu_flush;
     wire f_want_start = ((f_state == F_IDLE) || f_back_to_back) && !fb_full && ftq_rvalid && !ifu_flush;
     wire f_start = f_want_start && icache_req_ready;
 
     always_comb begin
         f_nstate = f_state;
         unique case (f_state)
-            F_IDLE:  if (f_start) f_nstate = F_RESP;
-            F_RESP:
-            if (icache_resp_accept) begin
-                if (poison_q || ifu_flush) f_nstate = F_IDLE;
+            F_IDLE: if (f_start) f_nstate = F_RESP;
+            F_RESP: if (icache_resp_accept) begin
+                if (poison_r || ifu_flush) f_nstate = F_IDLE;
                 else if (f_start) f_nstate = F_RESP;
                 else f_nstate = F_IDLE;
             end
@@ -165,15 +184,15 @@ module ifu #(
         if (rst) begin
             f_state     <= F_IDLE;
             f_pc        <= RESET_VEC;
-            poison_q    <= 1'b0;
+            poison_r    <= 1'b0;
             f_cfi_valid <= '0;
             f_cfi_type  <= '0;
             for (int i = 0; i < FETCH_WIDTH; i++) f_pred_meta[i] <= '0;
         end else begin
             f_state <= f_nstate;
 
-            if (f_drop_pending) poison_q <= 1'b1;
-            else if (icache_resp_accept && poison_q) poison_q <= 1'b0;
+            if (f_drop_pending) poison_r <= 1'b1;
+            else if (icache_resp_accept && poison_r) poison_r <= 1'b0;
 
             if (ifu_flush) f_pc <= ifu_redirect_pc;
 
@@ -234,10 +253,10 @@ module ifu #(
     assign p_block = fetch_block_fifo[fb_rptr];
 
     // ---- Stage PD: combinational whole-block pre-decode ----
-    slot_dec_t                   slot_dec         [FETCH_WIDTH];
-    logic                        block_end_valid;
-    logic      [FETCH_WIDTH-1:0] block_end_index;
-    logic      [FETCH_WIDTH-1:0] fetch_block_mask;
+    slot_dec_t                         slot_dec  [FETCH_WIDTH];
+    logic                              block_end_valid;
+    logic            [FETCH_WIDTH-1:0] block_end_index;
+    logic            [FETCH_WIDTH-1:0] fetch_block_mask;
 
     always_comb begin
         for (int i = 0; i < FETCH_WIDTH; i++) begin
@@ -305,21 +324,19 @@ module ifu #(
         pd_next.blk    = p_block;
         pd_next.pre_pc = p_block.pc;
         for (int i = 0; i < FETCH_WIDTH; i++) begin
-            pd_next.pre[i].pc       = p_block.pc + ADDR_WIDTH'(i * INST_BYTES);
-            pd_next.pre[i].valid    = fetch_block_mask[i];
-            pd_next.pre[i].inrange  = (!block_end_valid) || (FETCH_WIDTH'(i) <= block_end_index);
-            pd_next.pre[i].is_cfi   = slot_dec[i].is_cfi;
-            pd_next.pre[i].is_jal   = slot_dec[i].is_jal;
-            pd_next.pre[i].is_jalr  = slot_dec[i].is_jalr;
-            pd_next.pre[i].is_ret   = (slot_dec[i].cfi_type == CFI_RETURN);
-            pd_next.pre[i].cfi_type = slot_dec[i].cfi_type;
+            pd_next.pre[i].pc          = p_block.pc + ADDR_WIDTH'(i * INST_BYTES);
+            pd_next.pre[i].valid       = fetch_block_mask[i];
+            pd_next.pre[i].inrange     = (!block_end_valid) || (FETCH_WIDTH'(i) <= block_end_index);
+            pd_next.pre[i].is_cfi      = slot_dec[i].is_cfi;
+            pd_next.pre[i].is_jal      = slot_dec[i].is_jal;
+            pd_next.pre[i].is_jalr     = slot_dec[i].is_jalr;
+            pd_next.pre[i].is_ret      = (slot_dec[i].cfi_type == CFI_RETURN);
+            pd_next.pre[i].cfi_type    = slot_dec[i].cfi_type;
             if (slot_dec[i].is_jal) begin
-                pd_next.pre[i].target = p_block.pc + ADDR_WIDTH'(i * INST_BYTES) +
-                    jal_imm(p_block.inst[i]);
+                pd_next.pre[i].target       = p_block.pc + ADDR_WIDTH'(i * INST_BYTES) + jal_imm(p_block.inst[i]);
                 pd_next.pre[i].target_valid = 1'b1;
             end else if (slot_dec[i].is_branch) begin
-                pd_next.pre[i].target = p_block.pc + ADDR_WIDTH'(i * INST_BYTES) +
-                    br_imm(p_block.inst[i]);
+                pd_next.pre[i].target       = p_block.pc + ADDR_WIDTH'(i * INST_BYTES) + br_imm(p_block.inst[i]);
                 pd_next.pre[i].target_valid = 1'b1;
             end else begin
                 pd_next.pre[i].target       = '0;
@@ -329,26 +346,24 @@ module ifu #(
     end
 
     // ---- PD / PC handshake ----
-    wire pc_wr = pd_valid && !flush && iq_wready;  // IQ write completes
-    wire pc_kill = flush;  // back-end flush: drop
-    wire pc_retire = pc_wr || pc_kill;  // pd_r frees this cycle
-    wire pd_free = !pd_valid || pc_retire;  // pd_r usable this cycle
-    wire pd_load = !fb_empty && pd_free && !ifu_flush;
+    wire pc_wr     = pd_valid && !flush && iq_wready;   // IQ write completes
+    wire pc_kill   = flush;                             // back-end flush: drop
+    wire pc_retire = pc_wr || pc_kill;                  // pd_r frees this cycle
+    wire pd_free   = !pd_valid || pc_retire;            // pd_r usable this cycle
+    wire pd_load   = !fb_empty && pd_free && !ifu_flush;
 
     assign fb_pop = pd_load;
 
     always_ff @(posedge clk) begin
         if (rst) pd_valid <= 1'b0;
-        else pd_valid <= pd_load || (pd_valid && !pc_retire);
+        else     pd_valid <= pd_load || (pd_valid && !pc_retire);
     end
 
 `ifdef SYNTHESIS
     // Wide register: no reset in synthesis (outputs are gated by pd_valid).
     always_ff @(posedge clk) if (pd_load) pd_r <= pd_next;
 `else
-    always_ff @(posedge clk)
-        if (rst) pd_r <= '0;
-        else if (pd_load) pd_r <= pd_next;
+    always_ff @(posedge clk) if (rst) pd_r <= '0; else if (pd_load) pd_r <= pd_next;
 `endif
 
     // ------------------------------------------------
@@ -407,23 +422,24 @@ module ifu #(
             logic slot_pred_taken;
             logic err_slot;
             slot_pred_taken = pd_r.blk.pred_meta[i].pred_taken && iq_wmask[i];
-            err_slot = err_valid && (SLOT_IDX_W'(i) == err_idx) && pd_r.pre[i].target_valid;
+            err_slot = err_valid && (SLOT_IDX_W'(i) == err_idx) &&
+                pd_r.pre[i].target_valid;
 
             iq_wdata[i] = '{
                 pc: pd_r.pre[i].pc,
                 pred_meta: '{
-`ifdef TOURNAMENT_ON
+`ifdef CONFIG_FE_TOURNAMENT
                     chooser_meta: pd_r.blk.pred_meta[i].chooser_meta,
 `endif
-`ifdef LOOP_PRED_ON
+`ifdef CONFIG_FE_LOOP_PRED
                     loop_override: pd_r.blk.pred_meta[i].loop_override,
+                    loop_taken: pd_r.blk.pred_meta[i].loop_taken,
 `endif
-                    pred_target:
-                    err_slot
-                    ?
-                    pd_r.pre[i].target
-                    :
-                    pd_r.blk.pred_meta[i].pred_target,
+`ifdef CONFIG_FE_TAGE
+                    tage_meta: pd_r.blk.pred_meta[i].tage_meta,
+`endif
+                    pred_target: err_slot ? pd_r.pre[i].target
+                                            : pd_r.blk.pred_meta[i].pred_target,
                     pred_taken : err_slot ? 1'b1 : slot_pred_taken,
                     cfi_prefix : pd_r.blk.pred_meta[i].cfi_prefix
                 },
@@ -434,5 +450,6 @@ module ifu #(
             };
         end
     end
+
 
 endmodule

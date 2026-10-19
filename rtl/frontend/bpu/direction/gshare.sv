@@ -54,6 +54,18 @@ module gshare (
     assign update_pc_idx = update_pc[PHT_WIDTH+1:2];
     assign update_idx    = update_pc_idx ^ PHT_WIDTH'(update_ghr);
 
+    // GHR used to index the prediction.  In the 1-block/cycle loop the block that
+    // precedes the one being predicted is available (and accepted) in the same
+    // cycle it is consumed, so its directions must be folded in combinationally
+    // (otherwise the index would lag by one block).
+    logic [GHR_WIDTH-1:0] ghr_pred;
+    always_comb begin
+        ghr_pred = ghr_spec;
+        if (spec_valid) begin
+            ghr_pred = (ghr_spec << spec_num) | {{(GHR_WIDTH - 1) {1'b0}}, spec_taken};
+        end
+    end
+
     assign ghr_commit_next = update_en ? {ghr_commit[GHR_WIDTH-2:0], actual_taken} : ghr_commit;
 
     // 1-cycle pipelined response
@@ -114,9 +126,8 @@ module gshare (
                 counter_r[i] <= WNTK;
             end
 
-            for (i = 0; i < ENTRIES; i = i + 1) begin
-                gshare_pht[i] <= WNTK;
-            end
+            // The PHT is data, not a flag array: do not reset it so it can be
+            // inferred as RAM (as in icache).  Verilator zero-initialises it.
 
         end else begin
 
@@ -124,11 +135,14 @@ module gshare (
             // Prediction
             // -----------------------------
 
-            req_pc_r  <= fetch_pc;
-            req_ghr_r <= ghr_spec;
+            // Hold the response data while no request is accepted (BPU stall).
+            if (req_valid) begin
+                req_pc_r  <= fetch_pc;
+                req_ghr_r <= ghr_pred;
 
-            for (i = 0; i < FETCH_WIDTH; i = i + 1) begin
-                counter_r[i] <= gshare_pht[(pred_pc_idx+PHT_WIDTH'(i))^PHT_WIDTH'(ghr_spec)];
+                for (i = 0; i < FETCH_WIDTH; i = i + 1) begin
+                    counter_r[i] <= gshare_pht[(pred_pc_idx+PHT_WIDTH'(i))^PHT_WIDTH'(ghr_pred)];
+                end
             end
 
             // -----------------------------

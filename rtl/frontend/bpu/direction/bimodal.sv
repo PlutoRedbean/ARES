@@ -82,14 +82,17 @@ module bimodal #(
             for (i = 0; i < FETCH_WIDTH; i = i + 1) begin
                 counter_r[i] <= WNTK;
             end
-            for (i = 0; i < ENTRIES; i = i + 1) begin
-                bm_pht[i] <= WNTK;
-            end
+            // The PHT is data, not a flag array: do not reset it so it can be
+            // inferred as RAM (as in icache).  Verilator zero-initialises it.
         end else begin
             req_valid_r <= req_valid;
-            req_pc_r    <= fetch_pc;
-            for (i = 0; i < FETCH_WIDTH; i = i + 1) begin
-                counter_r[i] <= bm_pht[pred_idx+PHT_WIDTH'(i)];
+            // Hold the response data while no request is accepted so the BPU can
+            // stall on FTQ backpressure without losing the pending response.
+            if (req_valid) begin
+                req_pc_r    <= fetch_pc;
+                for (i = 0; i < FETCH_WIDTH; i = i + 1) begin
+                    counter_r[i] <= bm_pht[pred_idx+PHT_WIDTH'(i)];
+                end
             end
 
             if (update_en) begin

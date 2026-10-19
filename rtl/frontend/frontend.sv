@@ -32,16 +32,9 @@ module frontend #(
     input logic [$clog2(fe_pkg::DECODE_WIDTH + 1) - 1:0] iq_raccept_cnt,  // instructions accepted
 
     // ---------- back-end -> front-end ----------
-    // branch/jump resolution redirect.  Valid for one cycle; flushes the whole
-    // front-end (BPU/FTQ/IFU and the IQ) and restarts fetch at `backend_redirect_pc`.
-    input logic                                              backend_redirect_valid,
-    input logic                      [     ADDR_WIDTH - 1:0] backend_redirect_pc,
-    // Redirect kind (contract section 3).  The per-CFI ghr_before and
-    // actual_taken are not separate ports: the BPU reconstructs them from the
-    // redirecting CFI's echoed metadata (`bpu_update_meta`).
-    // REDIRECT_BRANCH restores ghr_spec from ghr_before + actual_taken;
-    // REDIRECT_ARCH (ECALL/MRET/IRQ) resyncs to the committed history.
-    input fe_pkg::fe_redirect_kind_t                         backend_redirect_kind,
+    input logic                                         backend_redirect_valid,
+    input logic                      [ADDR_WIDTH - 1:0] backend_redirect_pc,
+    input fe_pkg::fe_redirect_kind_t                    backend_redirect_kind,
 
     // BPU training.  Must be driven in program order, at most one CFI per cycle.
     input logic                bpu_update_en,
@@ -87,6 +80,16 @@ module frontend #(
     logic ftq_rvalid;
     logic ifu_rready;
 
+    // FTQ write index + BPU mbtb correction
+    logic [FTQ_NUM_ENTRIES-1:0] ftq_widx;
+    logic ftq_corr_hit;
+    logic bpu_corr_valid;
+    logic [FTQ_NUM_ENTRIES-1:0] bpu_corr_idx;
+    logic bpu_corr_wr_en;
+    logic [FTQ_NUM_ENTRIES-1:0] bpu_corr_wr_idx;
+    ftq_entry_t bpu_corr_wr_data;
+    logic [ADDR_WIDTH-1:0] bpu_corr_start_pc;
+
     // front-end (PredecodeCheck) redirect
     logic fe_redirect_valid;
     logic [ADDR_WIDTH - 1:0] fe_redirect_pc;
@@ -121,17 +124,25 @@ module frontend #(
     // branch prediction unit
     // ------------------------------------------------
     bpu bpu_u (
-        .clk                  (clk),
-        .rst                  (rst),
-        .flush                (fe_flush),
-        .redirect_pc          (fe_redirect_pc_sel),
-        .redirect_kind        (fe_redirect_kind),
-        .ftq_wready           (ftq_wready),
-        .ftq_wvalid           (ftq_wvalid),
-        .bpu_resp_pc          (bpu_resp_pc),
-        .ftq_wdata            (ftq_wdata),
-        .update_en            (bpu_update_en),
-        .update_meta          (bpu_update_meta)
+        .clk              (clk),
+        .rst              (rst),
+        .flush            (fe_flush),
+        .redirect_pc      (fe_redirect_pc_sel),
+        .redirect_kind    (fe_redirect_kind),
+        .ftq_wready       (ftq_wready),
+        .ftq_wvalid       (ftq_wvalid),
+        .bpu_resp_pc      (bpu_resp_pc),
+        .ftq_wdata        (ftq_wdata),
+        .update_en        (bpu_update_en),
+        .update_meta      (bpu_update_meta),
+        .ftq_widx         (ftq_widx),
+        .ftq_corr_hit     (ftq_corr_hit),
+        .bpu_corr_valid   (bpu_corr_valid),
+        .bpu_corr_idx     (bpu_corr_idx),
+        .bpu_corr_wr_en   (bpu_corr_wr_en),
+        .bpu_corr_wr_idx  (bpu_corr_wr_idx),
+        .bpu_corr_wr_data (bpu_corr_wr_data),
+        .bpu_corr_start_pc(bpu_corr_start_pc)
     );
 
     // ------------------------------------------------
@@ -149,7 +160,16 @@ module frontend #(
         .rdata(ftq_rdata),
         .occupancy(ftq_occupancy),
         .alloc(ftq_alloc),
-        .pop(ftq_pop)
+        .pop(ftq_pop),
+        .wr_idx_oh(ftq_widx),
+        // mbtb correction port (P3), driven by the BPU
+        .corr_idx(bpu_corr_idx),
+        .corr_valid(bpu_corr_valid),
+        .corr_hit(ftq_corr_hit),
+        .corr_wr_en(bpu_corr_wr_en),
+        .corr_wr_idx(bpu_corr_wr_idx),
+        .corr_wr_data(bpu_corr_wr_data),
+        .corr_start_pc(bpu_corr_start_pc)
     );
 
     // ------------------------------------------------

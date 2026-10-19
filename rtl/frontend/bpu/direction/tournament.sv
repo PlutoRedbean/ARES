@@ -44,7 +44,7 @@ module tournament (
 
     input logic                  update_en,    // any CFI: advances the GHR
     input logic                  is_branch,    // conditional branch: trains the tables
-    input logic [ADDR_WIDTH-1:0] update_pc,
+    input logic [fe_pkg::ADDR_WIDTH-1:0] update_pc,
     input logic                  actual_taken,
 
     input logic update_gshare_taken,
@@ -246,16 +246,19 @@ module tournament (
                 chooser_slots_r[i] <= WBM;
             end
 
-            for (i = 0; i < ENTRIES; i = i + 1) begin
-                chooser_pht[i] <= WBM;
-            end
+            // The chooser PHT is data, not a flag array: do not reset it so it
+            // can be inferred as RAM (as in icache).  Verilator zero-initialises
+            // it to SBM, which still selects bimodal.
 
         end else begin
             req_valid_r <= req_valid;
-            req_pc_r    <= fetch_pc;
 
-            for (i = 0; i < FETCH_WIDTH; i = i + 1) begin
-                chooser_slots_r[i] <= chooser_pht[pred_base_idx+CHOOSER_WIDTH'(i)];
+            // Hold the response data while no request is accepted (BPU stall).
+            if (req_valid) begin
+                req_pc_r    <= fetch_pc;
+                for (i = 0; i < FETCH_WIDTH; i = i + 1) begin
+                    chooser_slots_r[i] <= chooser_pht[pred_base_idx+CHOOSER_WIDTH'(i)];
+                end
             end
 
             // Chooser update (conditional branches only); read-modify-write at
