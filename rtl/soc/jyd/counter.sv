@@ -16,6 +16,7 @@ module counter(
     input  logic         cpu_clk,
     input  logic         cnt_clk,
     input  logic         rst,
+    input  logic         cnt_rst,
 
     input  logic         cnt_enable_cpu,
     output logic [31:0]  perip_rdata,
@@ -50,7 +51,7 @@ module counter(
     );
 
     always_ff @(posedge cnt_clk) begin
-        if (rst) begin
+        if (cnt_rst) begin
             cnt_1ms    <= 19'd0;
             cnt_ms_bin <= 32'd0;
         end else if (cnt_enable_cnt) begin

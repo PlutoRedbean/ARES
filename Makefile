@@ -63,6 +63,31 @@ ARES_SOC_SRCS := $(filter-out %/ares_irom_bridge.sv,$(wildcard $(RTL_ROOT)/soc/j
                 $(RTL_ROOT)/soc/jyd/test/memory_ip_models.sv \
                 $(RTL_ROOT)/soc/jyd/test/xpm_cdc_models.sv
 
+.PHONY: board-firmware lint-board unit-board
+board-firmware:
+	@python3 $(ARES_HOME)/scripts/build_board_smoke.py
+
+ARES_BOARD_SRCS := $(RTL_ROOT)/board/ares_uart.sv $(RTL_ROOT)/board/top.sv \
+                   $(RTL_ROOT)/board/test/pll_model.sv
+ARES_BOARD_PLATFORM = $(RTL_ROOT)/common/fe_pkg.sv $(RTL_ROOT)/common/ares_pkg.sv \
+    $(RTL_ROOT)/common/lsu_pkg.sv $(wildcard $(RTL_ROOT)/backend/*.sv) \
+    $(wildcard $(RTL_ROOT)/memory/*.sv) $(RTL_ROOT)/top/ares_core_top.sv \
+    $(RTL_ROOT)/top/student_top.sv $(ARES_FE_SRCS) $(ARES_SOC_SRCS) $(ARES_BOARD_SRCS)
+
+lint-board: config-gen
+	@verilator $(VERILATOR_LINT_FLAGS) -Wno-PINCONNECTEMPTY --timing --top-module top $(ARES_BOARD_PLATFORM)
+
+unit-board: config-gen board-firmware
+	@mkdir -p $(ARES_HOME)/sim/build/unit/tb_board_io $(ARES_HOME)/sim/build/unit/tb_board
+	@verilator --binary -j 4 --timing --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+	    --top-module tb_board_io --Mdir $(ARES_HOME)/sim/build/unit/tb_board_io -o tb_board_io \
+	    $(RTL_ROOT)/soc/jyd/ares_reset_sync.sv $(RTL_ROOT)/board/ares_uart.sv $(RTL_ROOT)/board/test/tb_board_io.sv
+	@$(ARES_HOME)/sim/build/unit/tb_board_io/tb_board_io
+	@verilator --binary -j 4 --timing --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+	    -Wno-PINCONNECTEMPTY -DCONFIG_SIMULATION $(ARES_CFG_INC) --top-module tb_board \
+	    --Mdir $(ARES_HOME)/sim/build/unit/tb_board -o tb_board $(ARES_BOARD_PLATFORM) $(RTL_ROOT)/board/test/tb_board.sv
+	@$(ARES_HOME)/sim/build/unit/tb_board/tb_board +IROM_HEX=$(ARES_HOME)/build/firmware/c4-board/irom.hex +DRAM_HEX=$(ARES_HOME)/build/firmware/c4-board/dram.hex
+
 # miniTensor SoC integration (S09): the vendored accelerator RTL plus the ARES
 # CV-X-IF host adapter and the JYD-platform integration top ares_soc_top.
 MINITENSOR_HOME ?= $(ARES_HOME)/miniTensor

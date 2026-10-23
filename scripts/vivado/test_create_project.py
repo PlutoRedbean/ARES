@@ -113,6 +113,25 @@ class ProjectTest(unittest.TestCase):
             self.assertEqual(inp["config"]["MUL_LATENCY"], 2)
             self.assertTrue(any(p.endswith("image.coe") for p in inp["inputs"]))
 
+    def test_real_board_manifest_has_only_synthesis_sources(self):
+        with tempfile.TemporaryDirectory() as temp:
+            out = gen.prepare(self.args(Path(temp)/"board", profile="board",
+                                       manifest="fpga/board.json"))
+            inp = json.loads((out/"inputs.json").read_text())
+            self.assertEqual(inp["top"], "top")
+            self.assertIn("inputs/rtl/board/top.sv", inp["inputs"])
+            self.assertIn("inputs/rtl/soc/jyd/ares_reset_sync.sv", inp["inputs"])
+            self.assertIn("inputs/fpga/vivado/constraints/board_timing.xdc", inp["inputs"])
+            self.assertFalse(any("/test/" in p or "ares_soc_top" in p for p in inp["inputs"]))
+            self.assertEqual(len(inp["source_revision"]), 40)
+
+    def test_board_implementation_requires_real_images(self):
+        with tempfile.TemporaryDirectory() as temp:
+            out = Path(temp)/"board"
+            with self.assertRaisesRegex(ValueError, "startup images"):
+                gen.prepare(self.args(out, profile="board", manifest="fpga/board.json", stage="route"))
+            self.assertFalse(out.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

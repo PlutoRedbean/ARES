@@ -35,15 +35,29 @@
 
 ## 当前进度与执行入口（2026-10-18）
 
+**后续执行决策**：用户已选择 miniTensor 后续新增 **Core 内 XIF**，并同意
+先收敛当前 C5 基线的 C4、首版板级 CPU/存储/串口和裸机启动，再推进
+深预测器与 C6 系统闭环。冻结范围和验证边界见
+[`c4_execution_decisions.md`](c4_execution_decisions.md)。以下状态由实际验证结果更新。
+
+本轮已交付物理 `top`/manifest、复位/UART/裸机镜像、独立 DCache TB、
+CIQ 覆盖率与 IRQ 直接断言，以及三档 line size 仿真测量。首个真实 FE
+板级综合发现 LUT 超容量和 uBTB 长优先链，正在保持契约优化存储结构；
+用户已指定 ICache/DCache 数据阵列使用 BRAM IP，现由版本化 Tcl 配方生成，
+并分别保留普通仿真模型与厂商模型验证入口。
+**MC4 尚未达成**。详细证据和报告边界见
+[`c4_execution_results.md`](c4_execution_results.md)。下文旧“物理 top/manifest
+未提供”和“独立 DCache TB 未实现”的状态由此记录取代。
+
 本节、C5 验收记录与 §9 的当前状态表优先用于排期；原模块实施规格及 §7 问题登记保留问题发现时的描述，C5 关闭范围以本节为准，不能把历史待办当作当前阻塞。
 RT-Thread 在早期清理记录中的“后续加入”为当时状态；现已导入，当前边界见 §9.6c。
 
 | 范围 | 已完成/证据 | 尚未完成 |
 | --- | --- | --- |
-| Backend / LSU / Core | Backend 4 个 TB、LSU 11 个 TB、基础 3 个 TB；`ares_cpu_top` 真实 FE＋IROM 与 FE 桩 ISA 均 **36/36 PASS** | 独立 `tb_dcache_top`、部分覆盖率/直接观测断言及性能比较遗留，见 §9.3/§9.4b |
-| JYD SoC 子系统 | `student_top` 内置真实 CPU/IROM；总线 TB 2864 checks、自主程序退休 25 条，验证 Cache miss/hit、uncached、UART/LED 和 JAL/JALR | 物理板级 `top`、复位/CDC/约束验证 |
-| Vivado 工程/IP | 真实器件 `xc7k325tffg900-2`、Vivado 2025.2、原工程非源码/IP 设置；生成器 **7/7**；IP 生成与 SoC OOC 综合已执行 | `board` manifest 未提供；未跑完整 ARES 布局布线；**MC4 未达成** |
-| 前端 | C5 契约迁移完成；默认 5 个 TB、关闭可选预测器 2 个 TB；完整快照／独立恢复／双提交 FIFO／旧响应隔离与 IROM 边界通过 | 深预测器、目标吞吐和板级时序仍未验收，不声明旧 SPEC 全部关闭 |
+| Backend / LSU / Core | Backend 5 个 TB、LSU 12 个 TB、基础 3 个 TB；真实 FE＋IROM 与 FE 桩 ISA 均 **36/36 PASS**；独立 DCache、IRQ 直接断言、CIQ 覆盖门禁和三档 line size 测量已落地 | 板级性能/面积门禁及后续系统联调 |
+| JYD SoC 子系统 | 真实 CPU/IROM；总线 TB 2864 checks、自主程序退休 25 条；物理 `top`、PLL/分域复位/UART、裸机镜像和两次启动/串口回显仿真通过 | 实际板级时序、CDC/约束签核和实板运行 |
+| Vivado 工程/IP | 真实器件 `xc7k325tffg900-2`、Vivado 2025.2、原工程非源码/IP 设置；生成器 **10/10**；board manifest/XDC 与缓存数据 BRAM IP 配方已提供 | 新 IP 版本全板综合/布局布线/约束复核；**MC4 未达成** |
+| 前端 | C5 契约迁移完成；默认 7 个 TB、关闭可选预测器 2 个 TB；快照／恢复／双提交 FIFO／旧响应隔离与 IROM 边界，以及 uBTB/存储等价验证通过 | 深预测器、目标吞吐和板级时序仍未验收，不声明旧 SPEC 全部关闭 |
 | miniTensor / RT-Thread | `miniTensor/` RTL、测试、工具、模型输入、驱动/BSP 补丁已导入整理；独立回归 **9/9 PASS** | 不是 ARES CPU RTL 联调；RT-Thread Nano 3.1.5 工程已导入；ARES BSP/启动、真实 FPGA DMA/共享内存仍待适配验证 |
 | 仓库/提交 | 本次实现与整理已拆成 **16 个本地提交**（`05ceb33`…`1d62c0c`）；旧根目录 NPC 与临时 Mundus DUT 已退役，生成物忽略 | stash `27597f9` 中的 FPGA/RTL/脚本内容已保留，无需整体恢复；旧板级/UART/COE 工具只作为待审查移植参考 |
 
@@ -61,7 +75,8 @@ make -C miniTensor regress
 make vivado-synth FPGA_CPU_MHZ=250 FPGA_OUT=build/vivado/baseline-synth
 ```
 
-C5 验收数来自本轮实际执行；2026-10-14 的 Vivado 综合数仍是旧子系统历史记录，本轮未重新综合或布局布线。
+C5 验收数来自实际执行；2026-10-14 的 Vivado 综合数仍是旧子系统历史记录。
+2026-10-18 的板级综合诊断和后续缓存 IP 结果见 `c4_execution_results.md`，尚无 routed 签核。
 生成报告/快照不跟踪进 Git，当前工作树未保留 `build/vivado/soc-synth-final/reports/`；
 后续测试需从指定提交新建工程，保存输入哈希、配置、设置和报告，不把旧记录当作当前分支的重新签核。
 

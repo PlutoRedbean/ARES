@@ -159,9 +159,34 @@ replaying `create_ip` into populated IP directories.
 
 ## Full board integration and routing
 
-The real FE/IROM functional integration is supplied by C5. The physical
-`top` still requires board integration and a versioned JSON manifest. Paths are relative to the
-repository; source order is maintained before Vivado updates compile order.
+The physical `rtl/board/top.sv` and versioned `fpga/board.json` now connect
+the real CPU/IROM/DRAM platform, PLL/reset conditioners and an 8N1 115200-baud
+UART console. The 200MHz differential clock and original pin assignments are
+retained. Virtual switches/keys are zero; miniTensor is reserved for C6 Core
+XIF and is not instantiated in this first board baseline. There is no defined
+external reset pin; power-up/PLL lock loss triggers a cold reset. Decisions:
+[`c4_execution_decisions.md`](../../docs/c4_execution_decisions.md).
+
+Build the nonzero boot image before synthesis or routing:
+
+```bash
+make board-firmware lint-board unit-board
+make vivado-route FPGA_PROFILE=board FPGA_CPU_MHZ=250 \
+  FPGA_OUT=build/vivado/board-route \
+  FPGA_ARGS='--manifest fpga/board.json --jobs 1 --irom-coe build/firmware/c4-board/irom.coe --dram-coe build/firmware/c4-board/dram.coe'
+```
+
+Firmware prints `ARES C4 OK`, sets LED=0x123 and echoes received UART bytes.
+It checks the DRAM initializer, cache miss/hit and ECALL/MRET using the reset
+trap vector at 0x80000100. This does not sign off the legacy pulse timer or
+RTOS interrupts. `unit-board` uses explicit test-only PLL/BRAM models, tests
+serial framing and two autonomous boots separated by PLL loss; it does not
+prove operation on physical hardware. Board synth/route rejects missing
+IROM/DRAM images. General Vivado worker concurrency is capped at two threads;
+run concurrency is separately selected by `--jobs`.
+
+Paths in the additive manifest are relative to the repository; source order
+is maintained before Vivado updates compile order. For example:
 
 ```json
 {
@@ -173,7 +198,7 @@ repository; source order is maintained before Vivado updates compile order.
 }
 ```
 
-This is a schema example. The SoC source set already includes the real FE, CPU
+This is a schema example; use the actual `fpga/board.json`. The SoC source set already includes the real FE, CPU
 wrapper and IROM bridge; list the physical board wrapper, extra dependencies
 and additional board constraints in the manifest.
 User IP recipes receive `ares_ip_dir`, `ares_cpu_mhz`, `ares_irom_coe` and
@@ -196,5 +221,9 @@ Review `timing_routed.rpt`, `check_timing_routed.rpt`, `utilization_routed.rpt`,
 `cdc_routed.rpt`, `clocks_routed.rpt`, `methodology_routed.rpt` and
 `route_status.rpt`. MC4 still requires actual CPU clock >200MHz, setup/hold
 passing in all applicable domains, and no unresolved unconstrained paths or
-constraint problems. The retained asynchronous clock groups and I/O constraints
-must be checked against the final CDC design and real board timing budgets.
+constraint problems. The legacy blanket asynchronous clock groups have been
+removed. The timing XDC constrains reset-conditioner preset pins, synchronizer
+first stages and stable UART bundled-data paths; it gives display/UART outputs
+a 2ns external budget. The clock wizard supplies primary/generated clocks.
+Review these assumptions and actual exception matches in every final build;
+unmatched constraints or incomplete CDC analysis prevent sign-off.

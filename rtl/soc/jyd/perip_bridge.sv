@@ -21,7 +21,9 @@
 module perip_bridge #(parameter int STORE_QUEUE_DEPTH = 4) (
     input  logic         clk,
     input  logic         cnt_clk,
+    /* verilator lint_off SYNCASYNCNET */ // CPU reset also asserts the peripheral reset chain
     input  logic         rst,
+    /* verilator lint_on SYNCASYNCNET */
 
     input  logic         perip_valid,
     output logic         perip_ready,
@@ -71,6 +73,11 @@ module perip_bridge #(parameter int STORE_QUEUE_DEPTH = 4) (
     localparam logic [31:0] MT_STATUS_ADDR  = 32'h8020_1010;
     localparam logic [31:0] MT_RESULT_ADDR  = 32'h8020_1014;
     localparam logic [2:0]  MT_IDX_STATUS   = 3'd4;
+
+    // rst belongs to the CPU domain. Release the peripheral reset only on
+    // cnt_clk edges, including when PLL lock returns at an arbitrary phase.
+    logic cnt_rst;
+    ares_reset_sync u_cnt_reset (.clk(cnt_clk), .async_rst(rst), .rst(cnt_rst));
 
     // Read-response source tag. Address decoding is completed when the
     // request enters the bridge; only this compact tag follows the two-cycle
@@ -320,7 +327,7 @@ module perip_bridge #(parameter int STORE_QUEUE_DEPTH = 4) (
     end
 
     always_ff @(posedge cnt_clk) begin
-        if (rst) begin
+        if (cnt_rst) begin
             console_tx_req_sync_cnt <= 2'b00;
             console_tx_ack_cnt      <= 1'b0;
             uart_tx_data            <= 8'd0;
@@ -331,7 +338,7 @@ module perip_bridge #(parameter int STORE_QUEUE_DEPTH = 4) (
             uart_tx_start <= 1'b0;
 
             if ((console_tx_req_sync_cnt[1] != console_tx_ack_cnt) &&
-                !uart_tx_busy) begin
+                !uart_tx_busy && !uart_tx_start) begin
                 uart_tx_data       <= console_tx_data_cpu;
                 uart_tx_start      <= 1'b1;
                 console_tx_ack_cnt <= console_tx_req_sync_cnt[1];
@@ -343,7 +350,7 @@ module perip_bridge #(parameter int STORE_QUEUE_DEPTH = 4) (
     // clocks, so accept only its rising edge.  One unread byte is retained
     // until the CPU reads CONSOLE_RX.
     always_ff @(posedge cnt_clk) begin
-        if (rst) begin
+        if (cnt_rst) begin
             console_rx_ack_sync_cnt <= 2'b00;
             uart_rx_ready_d         <= 1'b0;
             console_rx_data_cnt     <= 8'd0;
@@ -665,7 +672,7 @@ module perip_bridge #(parameter int STORE_QUEUE_DEPTH = 4) (
         .src_valid  (ledseg_src_valid),
         .src_busy   (/* unused: mailbox retains newest snapshot */),
         .dest_clk   (cnt_clk),
-        .dest_rst   (rst),
+        .dest_rst   (cnt_rst),
         .dest_data  (ledseg_cnt_data),
         .dest_valid (ledseg_cnt_valid)
     );
@@ -673,7 +680,7 @@ module perip_bridge #(parameter int STORE_QUEUE_DEPTH = 4) (
     // Latch a transferred snapshot only when the handshake destination pulse arrives.
     // This consumes ledseg_cnt_valid explicitly and avoids using invalid intermediate data.
     always_ff @(posedge cnt_clk) begin
-        if (rst) begin
+        if (cnt_rst) begin
             seg_wdata_cnt <= 32'd0;
             LED_cnt       <= 32'd0;
         end else if (ledseg_cnt_valid) begin
@@ -686,7 +693,7 @@ module perip_bridge #(parameter int STORE_QUEUE_DEPTH = 4) (
     // signals consumed by twin_controller stay in the same clock domain.
     display_seg seg_driver (
         .clk  (cnt_clk),
-        .rst  (rst),
+        .rst  (cnt_rst),
         .s    (seg_wdata_cnt),
         .seg1 (seg_output_comb[6:0]),
         .seg2 (seg_output_comb[16:10]),
@@ -702,7 +709,7 @@ module perip_bridge #(parameter int STORE_QUEUE_DEPTH = 4) (
     assign seg_output_comb[37] = 1'b0;
 
     always_ff @(posedge cnt_clk) begin
-        if (rst) begin
+        if (cnt_rst) begin
             seg_output_q <= 40'd0;
             led_output_q <= 32'd0;
         end else begin
@@ -732,6 +739,7 @@ module perip_bridge #(parameter int STORE_QUEUE_DEPTH = 4) (
         .cpu_clk        (clk),
         .cnt_clk        (cnt_clk),
         .rst            (rst),
+        .cnt_rst        (cnt_rst),
         .cnt_enable_cpu (cnt_enable_cfg),
         .perip_rdata    (cnt_rdata),
         .timer_irq      (timer_irq)

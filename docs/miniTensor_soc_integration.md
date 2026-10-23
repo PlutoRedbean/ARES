@@ -6,6 +6,12 @@
 > adaptation** only; the in-core XIF path and the shared-memory Fabric remain
 > open (SPEC-M6 / SPEC-M7).
 
+> **2026-10-18 direction selected by the user**: add **in-core CV-X-IF** in
+> the subsequent C6 stage. The present MMIO adapter remains a diagnostic
+> subsystem asset. It does not replace custom-0 decode/issue/commit/kill/result
+> integration. The seven SPEC-M6 contracts must still be frozen before that
+> implementation; see `c4_execution_decisions.md`.
+
 > **C5 update (2026-10-18)**: `student_top` now contains the real Frontend and
 > IROM path; FE injection/ifetch ports were removed from both platform and
 > `ares_soc_top`. This does not complete CPU/DMA arbitration, in-core XIF or RTOS.

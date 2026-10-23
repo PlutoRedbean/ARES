@@ -1,6 +1,8 @@
 // JYD platform with real ARES frontend and dedicated synchronous IROM.
 // Approved board map / aliases and limitations: docs/jyd_soc_integration.md.
-module student_top (
+module student_top #(
+    parameter logic [31:0] RESET_MTVEC = ares_pkg::RESET_PC
+) (
     input logic w_cpu_clk, w_clk_50Mhz, w_clk_rst,
     input logic [7:0] virtual_key,
     input logic [63:0] virtual_sw,
@@ -36,6 +38,7 @@ module student_top (
     logic [3:0] perip_wstrb;
 
     ares_cpu_top #(
+        .RESET_MTVEC(RESET_MTVEC),
         .MMIO_BASE(32'h8020_0000), .MMIO_MASK(32'hFFF0_0000),
         .JYD_UNCACHED_WINDOWS(1'b1)
     ) Core_cpu (

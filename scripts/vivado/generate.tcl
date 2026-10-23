@@ -1,4 +1,5 @@
 # Called with ares_* variables from create_project.py; no legacy sources/IPs.
+set_param general.maxThreads 2
 if {[version -short] ne "2025.2" && !$ares_allow_version_mismatch} {
     error "Expected Vivado 2025.2, found [version -short]; explicitly opt in to other versions"
 }
@@ -79,10 +80,13 @@ if {$ares_stage ne "generate"} {
     file mkdir $reports
     check_timing -verbose -file [file join $reports check_timing_synth.rpt]
     report_utilization -file [file join $reports utilization_synth.rpt]
+    report_utilization -hierarchical -hierarchical_depth 6 -file [file join $reports hierarchy_synth.rpt]
     report_timing_summary -report_unconstrained -file [file join $reports timing_synth.rpt]
+    report_timing -max_paths 100 -file [file join $reports paths_synth.rpt]
     report_cdc -file [file join $reports cdc_synth.rpt]
     if {$ares_stage eq "route"} {
-        launch_runs impl_1 -to_step post_route_phys_opt_design -jobs $ares_jobs
+        # Vivado 2025.2 calls this run step "phys_opt_design (Post-Route)".
+        launch_runs impl_1 -to_step {phys_opt_design (Post-Route)} -jobs $ares_jobs
         wait_on_run impl_1
         if {[get_property PROGRESS [get_runs impl_1]] ne "100%"} { error "ARES implementation failed" }
         open_run impl_1
@@ -93,6 +97,9 @@ if {$ares_stage ne "generate"} {
         report_clocks -file [file join $reports clocks_routed.rpt]
         report_methodology -file [file join $reports methodology_routed.rpt]
         report_route_status -file [file join $reports route_status.rpt]
+        report_bus_skew -file [file join $reports bus_skew_routed.rpt]
+        report_timing -max_paths 100 -file [file join $reports paths_routed.rpt]
+        report_exceptions -file [file join $reports exceptions_routed.rpt]
     }
 }
 puts "ARES_PROJECT_GENERATED=$ares_project"

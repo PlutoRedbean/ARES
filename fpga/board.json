@@ -1,0 +1,7 @@
+{
+  "top": "top",
+  "sources": ["rtl/board/ares_uart.sv", "rtl/board/top.sv"],
+  "include_dirs": [],
+  "constraints": ["fpga/vivado/constraints/board_timing.xdc"],
+  "ip_recipes": []
+}

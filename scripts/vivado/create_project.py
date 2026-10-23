@@ -54,7 +54,7 @@ def prepare(args):
         if unknown:
             raise ValueError(f"unknown manifest keys: {sorted(unknown)}")
     if args.profile == "board" and not args.manifest:
-        raise ValueError("board profile requires --manifest (ARES board top/real FE are not integrated yet)")
+        raise ValueError("board profile requires --manifest (use fpga/board.json for the first board baseline)")
     top = extra.get("top", "ares_core_top" if args.profile == "core" else "student_top")
     if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_$]*", top):
         raise ValueError("invalid top module name")
@@ -96,6 +96,8 @@ def prepare(args):
     for image, width, depth in [(irom, 64, 4096), (dram, 32, 65536)]:
         if image:
             validate_coe(image, width, depth)
+    if args.profile == "board" and args.stage != "generate" and not (irom and dram):
+        raise ValueError("board synth/route requires both --irom-coe and --dram-coe startup images")
     spec = importlib.util.spec_from_file_location("ares_kconfig", ROOT / "scripts/kconfig/ares_kconfig.py")
     kc = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = kc
@@ -186,6 +188,12 @@ def prepare(args):
                            for d in inc_snapshots for p in sorted(d.rglob("*")) if p.is_file()},
         "expected_vivado": "2025.2", "ppa_verified": False,
     }
+    revision = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT,
+                              text=True, capture_output=True, check=False)
+    status = subprocess.run(["git", "status", "--porcelain=v1"], cwd=ROOT,
+                            text=True, capture_output=True, check=False)
+    provenance["source_revision"] = revision.stdout.strip() if revision.returncode == 0 else None
+    provenance["worktree_dirty"] = bool(status.stdout) if status.returncode == 0 else None
     (out / "inputs.json").write_text(json.dumps(provenance, indent=2) + "\n")
     return out
 

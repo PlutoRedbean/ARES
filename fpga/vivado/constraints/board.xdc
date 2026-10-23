@@ -1,6 +1,7 @@
-set_clock_groups -asynchronous \
-    -group [get_clocks clk_out1_pll] \
-    -group [get_clocks clk_out2_pll]
+# Original pin assignments retained. Blanket clock-group exceptions from the
+# legacy design are removed: both clocks come from one PLL. Only documented
+# synchronizer first stages and stable bundled-data transfers are constrained
+# in board_timing.xdc; ordinary CPU paths remain timed.
 
 set_property PACKAGE_PIN D18 [get_ports i_uart_rx]
 set_property IOSTANDARD LVCMOS33 [get_ports i_uart_rx]
