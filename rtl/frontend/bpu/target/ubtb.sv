@@ -46,6 +46,26 @@ module ubtb (
     localparam int unsigned CFI_CNT_W    = $clog2(FETCH_WIDTH + 1);
     localparam int unsigned SLOT_OFF_W   = $clog2(2 * FETCH_WIDTH);
 
+    // Balanced priority tree, preserving the old highest-match / lowest-free
+    // selection. A serial 256-entry priority walk inferred >100 LUT levels.
+    function automatic logic [UBTB_WIDTH-1:0] select_index(
+        input logic [ENTRIES-1:0] mask, input logic prefer_low);
+        logic [2*ENTRIES-2:0] node_valid;
+        logic [UBTB_WIDTH-1:0] node_index [2*ENTRIES-1];
+        for (int n=0;n<ENTRIES;n++) begin
+            node_valid[ENTRIES-1+n]=mask[n];
+            node_index[ENTRIES-1+n]=UBTB_WIDTH'(n);
+        end
+        for (int n=ENTRIES-2;n>=0;n--) begin
+            node_valid[n]=node_valid[2*n+1] || node_valid[2*n+2];
+            if (prefer_low)
+                node_index[n]=node_valid[2*n+1] ? node_index[2*n+1] : node_index[2*n+2];
+            else
+                node_index[n]=node_valid[2*n+2] ? node_index[2*n+2] : node_index[2*n+1];
+        end
+        return node_valid[0] ? node_index[0] : '0;
+    endfunction
+
     (* ram_style = "distributed" *)
     btb_entry_t btb_mem[ENTRIES];
 
@@ -74,24 +94,15 @@ module ubtb (
     logic [UBTB_WIDTH-1:0] idx_lo;
     logic                  hit_hi;
     logic [UBTB_WIDTH-1:0] idx_hi;
+    logic [ENTRIES-1:0] pred_matches_lo, pred_matches_hi;
 
     always_comb begin
-        hit_lo = 1'b0;
-        idx_lo = '0;
-        hit_hi = 1'b0;
-        idx_hi = '0;
         for (int i = 0; i < ENTRIES; i++) begin
-            if (btb_mem[i].useful_cnt != '0) begin
-                if (btb_mem[i].tag == pred_tag_lo) begin
-                    hit_lo = 1'b1;
-                    idx_lo = UBTB_WIDTH'(i);
-                end
-                if (btb_mem[i].tag == pred_tag_hi) begin
-                    hit_hi = 1'b1;
-                    idx_hi = UBTB_WIDTH'(i);
-                end
-            end
+            pred_matches_lo[i]=(btb_mem[i].useful_cnt != '0) && (btb_mem[i].tag == pred_tag_lo);
+            pred_matches_hi[i]=(btb_mem[i].useful_cnt != '0) && (btb_mem[i].tag == pred_tag_hi);
         end
+        hit_lo=|pred_matches_lo; idx_lo=select_index(pred_matches_lo,1'b0);
+        hit_hi=|pred_matches_hi; idx_hi=select_index(pred_matches_hi,1'b0);
     end
 
     // map the CFI records of both blocks to the slots of this fetch window
@@ -149,15 +160,13 @@ module ubtb (
     // -------- update ---------
     logic                  update_has_match;
     logic [UBTB_WIDTH-1:0] update_match_idx;
+    logic [ENTRIES-1:0] update_matches;
     always_comb begin
-        update_has_match = 1'b0;
-        update_match_idx = '0;
         for (int i = 0; i < ENTRIES; i++) begin
-            if (btb_mem[i].tag == update_tag) begin
-                update_has_match = 1'b1;
-                update_match_idx = UBTB_WIDTH'(i);
-            end
+            update_matches[i]=(btb_mem[i].tag == update_tag);
         end
+        update_has_match=|update_matches;
+        update_match_idx=select_index(update_matches,1'b0);
     end
 
     // does the block entry already carry a CFI at this offset?
@@ -206,15 +215,13 @@ module ubtb (
     // lowest-index entry whose useful counter has already decayed to 0
     logic                  has_useful_zero;
     logic [UBTB_WIDTH-1:0] useful_zero_idx;
+    logic [ENTRIES-1:0] useful_zero_mask;
     always_comb begin
-        has_useful_zero = 1'b0;
-        useful_zero_idx = '0;
         for (int i = 0; i < ENTRIES; i++) begin
-            if (!has_useful_zero && (btb_mem[i].useful_cnt == '0)) begin
-                has_useful_zero = 1'b1;
-                useful_zero_idx = UBTB_WIDTH'(i);
-            end
+            useful_zero_mask[i]=(btb_mem[i].useful_cnt == '0);
         end
+        has_useful_zero=|useful_zero_mask;
+        useful_zero_idx=select_index(useful_zero_mask,1'b1);
     end
 
     // replacement victim: a dead entry if any, otherwise the PLRU way

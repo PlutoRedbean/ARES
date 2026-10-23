@@ -66,7 +66,7 @@ package fe_pkg;
     // ------------------
     // RAS parameters
     // ------------------
-    parameter int unsigned RAS_ENTRIES = `CONFIG_FE_RAS_ENTRIES;
+    localparam int unsigned RAS_ENTRIES = `CONFIG_FE_RAS_ENTRIES;
 `endif
 
     // Loop predictor.  It overrides the direction of whichever direction

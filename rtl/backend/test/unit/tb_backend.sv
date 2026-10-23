@@ -609,6 +609,24 @@ module tb_backend;
     int unsigned branch_redirects, arch_redirects;
     logic [31:0] irq_target_q, expect_resume_pc_q;
     logic        irq_target_valid_q, expect_resume_q;
+    int unsigned irq_pc_checks;
+    logic [3:0] ciq_states_seen;
+    logic [15:0] ciq_transitions_seen;
+    entry_state_t ciq_previous [CIQ_ENTRIES];
+    initial begin ciq_states_seen='0; ciq_transitions_seen='0; end
+    // Real registered state observations, accumulated across all phases.
+    /* verilator lint_off BLKSEQ */
+    always @(negedge clk) begin
+        for (int i=0;i<CIQ_ENTRIES;i++) begin
+            if (rst) ciq_previous[i] = ENTRY_FREE;
+            else begin
+                ciq_states_seen[int'(u_dut.entry_w[i].state)] = 1'b1;
+                ciq_transitions_seen[4*int'(ciq_previous[i])+int'(u_dut.entry_w[i].state)] = 1'b1;
+                ciq_previous[i] = u_dut.entry_w[i].state;
+            end
+        end
+    end
+    /* verilator lint_on BLKSEQ */
 
     /* verilator lint_off UNUSEDSIGNAL */  // only the opcode field is inspected
     function automatic logic is_cfi_word(input logic [31:0] w);
@@ -624,6 +642,7 @@ module tb_backend;
             expect_resume_q    <= 1'b0;
             irq_target_q       <= 32'd0;
             expect_resume_pc_q <= 32'd0;
+            irq_pc_checks      <= 0;
         end else begin
             if (redirect_valid) begin
                 if (redirect_kind == REDIRECT_BRANCH) branch_redirects <= branch_redirects + 1;
@@ -637,15 +656,21 @@ module tb_backend;
                 irq_target_valid_q <= 1'b1;
             end
 
+            if (irq_target_valid_q && u_dut.mepc_w !== irq_target_q)
+                fail("IRQ mepc does not equal captured architectural_next_pc");
+            // Check only the first lane of the resumed prefix. A second
+            // retire in that cycle has its own successor PC.
+            if (expect_resume_q && retire_valid[0]) begin
+                if (retire_pc[0] !== expect_resume_pc_q)
+                    fail("interrupt restore PC mismatch");
+                expect_resume_q <= 1'b0;
+                irq_pc_checks <= irq_pc_checks + 1;
+            end
+
             for (int unsigned l = 0; l < 2; l++) begin
                 if (retire_valid[l]) begin
                     // The first retire after an interrupt MRET must be the
                     // architectural restore PC captured at the redirect.
-                    if (1'b0 && expect_resume_q && (retire_pc[l] !== expect_resume_pc_q)) begin
-                        fail("interrupt restore PC mismatch");
-                        $display("  expected %h got %h", expect_resume_pc_q, retire_pc[l]);
-                    end
-                    expect_resume_q <= 1'b0;
 
                     // Ordinary (non-CFI, non-MRET) successors are pc+4.
                     if (!is_cfi_word(imem[retire_pc[l][11:2]])
@@ -691,6 +716,7 @@ module tb_backend;
             $display("  fe=%0d tb=%0d", redirect_count, redirects_seen);
         end
         if (arch_redirects < 3) fail("expected >= 3 architectural redirects (ECALL, MRET, IRQ)");
+        if (irq_pc_checks != 1) fail("IRQ restore assertion was not exercised exactly once");
         $display("phase1+2: %0d retires, %0d redirects (%0d branch / %0d arch), %0d bpu events, %0d traps, %0d MRETs, %0d cycles",
                  retire_count, redirects_seen, branch_redirects, arch_redirects, bpu_events_seen, handler_entries, mret_count, cycles);
 
@@ -708,6 +734,13 @@ module tb_backend;
         end
         if (p3_cycles < 10000) fail("phase 3: random phase ran fewer than 10000 cycles");
         if (p3_retires < 1000) fail("phase 3: too few retires");
+        // Six legal non-self transitions: allocate, issue, completion,
+        // retirement and WAIT/EXEC cancellation. DONE cancellation shares
+        // the ordinary DONE->FREE state transition.
+        if (ciq_states_seen != 4'b1111 ||
+            (ciq_transitions_seen & 16'h1952) != 16'h1952)
+            fail("CIQ state/transition coverage incomplete");
+        $display("CIQ coverage: states %b transitions %h (required 1952); IRQ restore PC directly checked",ciq_states_seen,ciq_transitions_seen);
         $display("phase3: %0d cycles, %0d retires, %0d redirects, golden checks %0d (%0d unchecked)",
                  p3_cycles, p3_retires, redirects_seen, gold_checked, gold_unchecked);
 

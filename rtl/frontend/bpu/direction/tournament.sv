@@ -35,7 +35,7 @@ module tournament (
 
     input logic                  update_en,    // any CFI: advances the GHR
     input logic                  is_branch,    // conditional branch: trains the tables
-    input logic [ADDR_WIDTH-1:0] update_pc,
+    input logic [fe_pkg::ADDR_WIDTH-1:0] update_pc,
     input logic                  actual_taken,
 
     input logic update_gshare_taken,

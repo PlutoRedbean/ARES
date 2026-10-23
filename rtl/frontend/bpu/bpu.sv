@@ -49,6 +49,8 @@ module bpu (
     localparam int unsigned BLOCK_BYTES = FETCH_WIDTH * INST_BYTES;
     localparam logic [ADDR_WIDTH-1:0] BLOCK_MASK = ADDR_WIDTH'(BLOCK_BYTES - 1);
 
+    wire issue = ftq_wready && !ftq_wvalid && !flush;
+
     logic update_en;
     bpu_update_t update_meta;
     logic [GHR_WIDTH-1:0] ghr_spec, ghr_at_lookup, ghr_commit_next, block_ghr_next;
@@ -111,7 +113,6 @@ module bpu (
 
     // one prediction every other cycle: never issue while the previous one is
     // being returned (keeps the 1-cycle predictor/FTQ write hazard-free)
-    wire                   issue = ftq_wready && !ftq_wvalid && !flush;
 
     gen_pc #(
         .ADDR_WIDTH(ADDR_WIDTH),

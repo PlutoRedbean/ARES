@@ -129,18 +129,21 @@ module ciq (
             w_npc[i]    = 32'd0;
             w_taken[i]  = 1'b0;
             w_tgt[i]    = 32'd0;
-        end
-        for (int unsigned p = 0; p < NCOMPL; p++) begin
-            if (cmpl_we[p]) begin
-                w_hit[cmpl_tag[p].slot_index]   = 1'b1;
-                w_result[cmpl_tag[p].slot_index] = cmpl_result[p];
-                w_exc[cmpl_tag[p].slot_index]    = cmpl_exception[p];
-                w_cause[cmpl_tag[p].slot_index]  = cmpl_cause[p];
-                w_tval[cmpl_tag[p].slot_index]   = cmpl_tval[p];
-                w_csr[cmpl_tag[p].slot_index]    = cmpl_csr_write_data[p];
-                w_npc[cmpl_tag[p].slot_index]    = cmpl_actual_npc[p];
-                w_taken[cmpl_tag[p].slot_index]  = cmpl_actual_taken[p];
-                w_tgt[cmpl_tag[p].slot_index]    = cmpl_actual_target[p];
+            for (int unsigned p = 0; p < NCOMPL; p++) begin
+                // Tags are mutually exclusive per entry (be_completion
+                // invariant). Decode once per port/entry and OR the masked
+                // payloads instead of synthesizing a wide priority write mux.
+                if (cmpl_we[p] && cmpl_tag[p].slot_index == 4'(i)) begin
+                    w_hit[i]    = 1'b1;
+                    w_result[i] |= cmpl_result[p];
+                    w_exc[i]    |= cmpl_exception[p];
+                    w_cause[i]  = exception_cause_t'(32'(w_cause[i]) | 32'(cmpl_cause[p]));
+                    w_tval[i]   |= cmpl_tval[p];
+                    w_csr[i]    |= cmpl_csr_write_data[p];
+                    w_npc[i]    |= cmpl_actual_npc[p];
+                    w_taken[i]  |= cmpl_actual_taken[p];
+                    w_tgt[i]    |= cmpl_actual_target[p];
+                end
             end
         end
     end

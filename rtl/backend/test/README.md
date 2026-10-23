@@ -36,12 +36,19 @@ not pick them up; `make unit` builds each top explicitly.
   serialising CSR write/read, 2-wide dispatch and store commit handshake;
 * phase 2 - `ECALL` -> `mtvec` handler -> `MRET` and a machine timer interrupt:
   2 trap entries, 2 MRET retires, `mepc/mcause/mstatus` path, interrupt
-  restore point verified through the golden model;
+  restore point verified through the golden model and direct `mepc`/first
+  resumed-retire PC checks;
 * phase 3 - fixed-seed random programs (10 rounds), >10k cycles with the golden
   model checking every retire and the contract assertions running throughout:
   `backend_redirect_valid |-> iq_accept_count == 0`, `lsu_issue_valid ->
   lsu_can_accept`, BPU events <= registered credit, no `decode_err`, no
   dependency-pointer protocol error, no deadlock.
+
+The bench now requires all four CIQ states and six legal non-self state
+transitions, observed from registered entries across all phases. This is CIQ
+state-transition coverage, not a claim of full RTL line/toggle coverage.
+The `make unit` launcher preserves the simulator exit status and saves each
+bench's output in `sim/build/unit/<tb>/run.log`.
 
 Result of the current run:
 

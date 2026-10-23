@@ -130,6 +130,7 @@ module be_issue_sched (
     logic [2:0] c_port;
     logic [2:0] fu_sel      [ISSUE_WIDTH_MAX];
     logic       fu_sel_valid[ISSUE_WIDTH_MAX];
+    logic [ISSUE_WIDTH_MAX-1:0] selected;
 
     always_comb begin
         remaining = fu_can_accept;
@@ -138,6 +139,7 @@ module be_issue_sched (
 
         for (int unsigned i = 0; i < ISSUE_WIDTH_MAX; i++) begin
             issue_grant[i]          = 1'b0;
+            selected[i]             = 1'b0;
             issue_tag[i].slot_index = issue_ptr.slot_index + 4'(i);
             fu_sel[i]               = P_ALU0;
             fu_sel_valid[i]         = 1'b0;
@@ -159,8 +161,12 @@ module be_issue_sched (
 
             c_found = pick_port(cand[i].fu_type, smul_ok[i], c_credit_ok, remaining, c_port);
 
-            issue_grant[i] = prefix_ok && c_ok && c_found && !block_all;
-            if (issue_grant[i]) begin
+            // Resolve payload selection independently of global recovery.
+            // Recovery suppresses only valid/grant, keeping the BRU restore
+            // path out of operand muxes and the single-cycle SMUL datapath.
+            selected[i] = prefix_ok && c_ok && c_found;
+            issue_grant[i] = selected[i] && !block_all;
+            if (selected[i]) begin
                 remaining[c_port] = 1'b0;
                 fu_sel[i]         = c_port;
                 fu_sel_valid[i]   = 1'b1;
@@ -168,7 +174,7 @@ module be_issue_sched (
 
             // A granted serializing instruction issues alone; any other grant
             // requires every older candidate to have been granted.
-            prefix_ok = issue_grant[i] && !cand[i].is_serializing;
+            prefix_ok = selected[i] && !cand[i].is_serializing;
         end
     end
 
@@ -180,8 +186,8 @@ module be_issue_sched (
         for (int unsigned p = 0; p < 8; p++) fu_req[p] = '0;
 
         for (int unsigned i = 0; i < ISSUE_WIDTH_MAX; i++) begin
-            if (issue_grant[i] && fu_sel_valid[i]) begin
-                fu_issue_valid[fu_sel[i]]      = 1'b1;
+            if (fu_sel_valid[i]) begin
+                fu_issue_valid[fu_sel[i]]      = issue_grant[i];
                 fu_req[fu_sel[i]].tag          = issue_tag[i];
                 fu_req[fu_sel[i]].op           = cand[i].op;
                 fu_req[fu_sel[i]].src1         = src1[i];
