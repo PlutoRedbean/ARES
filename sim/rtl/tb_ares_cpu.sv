@@ -16,6 +16,28 @@ module tb_ares_cpu (
     localparam logic [31:0] RESET_MTVEC = RESET_PC;
 
 `ifdef CONFIG_SIMULATION
+    // Read-only benchmark counters. Misses count new load MSHR allocations;
+    // merged waiters and store allocations are deliberately separate events.
+    longint unsigned perf_lookups, perf_hits, perf_load_misses, perf_reads, perf_read_busy;
+    logic perf_read_pending;
+    always_ff @(posedge clk) begin
+        if (rst) begin
+            perf_lookups<=0; perf_hits<=0; perf_load_misses<=0;
+            perf_reads<=0; perf_read_busy<=0; perf_read_pending<=0;
+        end else begin
+            if (u_core.u_core.u_lsu.lq_lookup_valid_w && u_core.u_core.u_lsu.lq_lookup_ready_w)
+                perf_lookups<=perf_lookups+1;
+            if (u_core.u_core.u_lsu.dc_hit_fill_valid_w) perf_hits<=perf_hits+1;
+            if (u_core.u_core.u_lsu.mshr_resv_valid_w && u_core.u_core.u_lsu.mshr_resv_ready_w &&
+                !u_core.u_core.u_lsu.mshr_resv_is_store_w) perf_load_misses<=perf_load_misses+1;
+            if (mem_rd_valid && mem_rd_ready) begin perf_reads<=perf_reads+1; perf_read_pending<=1; end
+            if (mem_rsp_valid && mem_rsp_ready) perf_read_pending<=0;
+            if (perf_read_pending || (mem_rd_valid && mem_rd_ready)) perf_read_busy<=perf_read_busy+1;
+        end
+    end
+    final $display("ARES_PERF line=%0d lookups=%0d load_hits=%0d load_misses=%0d reads=%0d read_busy=%0d",
+        ares_pkg::LINE_BYTES,perf_lookups,perf_hits,perf_load_misses,perf_reads,perf_read_busy);
+
     //-------------------------------------------------------------------------
     // Observation hooks (backend.md section 16.1 / plan section 5.18).
     //-------------------------------------------------------------------------

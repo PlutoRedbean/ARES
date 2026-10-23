@@ -148,6 +148,7 @@ ARES_UNIT_SRCS += $(wildcard $(RTL_ROOT)/backend/test/unit/reference/*.sv)
 ARES_LSU_UNIT_TBS  := tb_lsu_agu tb_store_forward tb_sq tb_lq tb_lsu_completion \
                       tb_line_adapter tb_lsu \
                       tb_dcache_arrays tb_dcache_top tb_wb_buffer tb_mshr tb_mmio_bridge
+LSU_UNIT_BUILD ?= $(ARES_HOME)/sim/build/unit
 ARES_LSU_UNIT_SRCS := $(RTL_ROOT)/common/fe_pkg.sv $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
                       $(wildcard $(RTL_ROOT)/memory/*.sv) \
                       $(wildcard $(RTL_ROOT)/memory/test/unit/*.sv)
@@ -200,7 +201,7 @@ unit: config-gen
 
 unit-lsu: config-gen
 	@set -e; for tb in $(ARES_LSU_UNIT_TBS); do \
-	  d=$(ARES_HOME)/sim/build/unit/$$tb; \
+	  d=$(abspath $(LSU_UNIT_BUILD))/$$tb; \
 	  echo "[unit-lsu] $$tb"; \
 	  rm -rf $$d; mkdir -p $$d/ccache-tmp; \
 	  CCACHE_TEMPDIR=$$d/ccache-tmp verilator --binary --timing -sv --assert \
