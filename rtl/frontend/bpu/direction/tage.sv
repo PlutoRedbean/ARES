@@ -144,6 +144,7 @@ module tage (
                 .rd_tag(tbl_rd_tag[t]),
                 .rd_ctr(tbl_rd_ctr[t]),
                 .rd_useful(tbl_rd_useful[t]),
+                .up_rd_en(update_en),
                 .up_idx(update_meta.idx[t]),
                 .up_valid(tbl_up_valid[t]),
                 .up_tag(tbl_up_tag[t]),
@@ -453,12 +454,36 @@ module tage (
     logic         [BANK_W-1:0] alloc_bank_c;
     tage_update_t              upd_c;
 
+    // The tagged-table update read is registered (see tage_tag_array.sv), so
+    // the update request must be held for one cycle while the read completes.
+    // This is what lets the tables map to BRAM; training is off the critical
+    // path, so the extra latency is free.
+    logic       update_en_d;
+    logic       is_branch_d;
+    logic       actual_taken_d;
+    tage_meta_t update_meta_d;
+
+    always_ff @(posedge clk) begin
+        if (rst) begin
+            update_en_d    <= 1'b0;
+            is_branch_d    <= 1'b0;
+            actual_taken_d <= 1'b0;
+            update_meta_d  <= '0;
+        end else begin
+            update_en_d <= update_en;
+            if (update_en) begin
+                is_branch_d    <= is_branch;
+                actual_taken_d <= actual_taken;
+                update_meta_d  <= update_meta;
+            end
+        end
+    end
+
     always_comb begin
         upd_c = tage_update_compute(
-            update_en,
-            is_branch,
-            actual_taken,
-            update_meta,
+            update_en_d,
+            actual_taken_d,
+            update_meta_d,
             tbl_up_valid,
             tbl_up_tag,
             tbl_up_ctr,
@@ -475,10 +500,14 @@ module tage (
             tbl_wr_ctr[t]    = upd_c.wr_ctr[t];
             tbl_wr_useful[t] = upd_c.wr_useful[t];
         end
-        t0_wr_en      = upd_c.t0_en;
-        t0_wr_bank    = upd_c.t0_bank;
-        t0_wr_idx     = upd_c.t0_idx;
-        t0_wr_ctr     = upd_c.t0_ctr;
+        // T0 has no update read: it is a pure 2-bit counter updated from the
+        // commit metadata.  Keep it on the original (unpipelined) timing so the
+        // registered tagged-table update pipeline does not delay base-table
+        // training by an extra cycle.
+        t0_wr_en      = update_en && is_branch;
+        t0_wr_bank    = update_meta.slot_id;
+        t0_wr_idx     = update_meta.base_idx;
+        t0_wr_ctr     = tage_sat2(update_meta.base_ctr, actual_taken);
         alloc_trig_c  = upd_c.alloc_trig;
         alloc_found_c = upd_c.alloc_found;
         alloc_bank_c  = upd_c.alloc_bank;
@@ -555,7 +584,8 @@ module tage (
             useful_reset_ctr <= '0;
             use_alt_na       <= 4'b1000;
         end else begin
-            if (update_en && update_meta.valid && update_meta.provided && alloc_trig_c) begin
+            if (update_en_d && update_meta_d.valid && update_meta_d.provided
+                && alloc_trig_c) begin
                 if (alloc_found_c) begin
                     if (useful_reset_ctr == 12'hFFF) begin
                         useful_epoch[alloc_bank_c] <= ~useful_epoch[alloc_bank_c];
@@ -569,14 +599,14 @@ module tage (
             end
 
             // Global use_alt_on_na training, matching native TageDirection.v.
-            if (TAGE_USE_ALT_ON_NA && update_en && is_branch && update_meta.valid
-                && update_meta.provided
-                && ((update_meta.provider_ctr == '0)
-                    || (&update_meta.provider_ctr))
-                && (update_meta.provider_pred != update_meta.alt_pred)) begin
-                if ((update_meta.provider_pred != actual_taken) && !use_alt_na[3])
+            if (TAGE_USE_ALT_ON_NA && update_en_d && is_branch_d
+                && update_meta_d.valid && update_meta_d.provided
+                && ((update_meta_d.provider_ctr == '0)
+                    || (&update_meta_d.provider_ctr))
+                && (update_meta_d.provider_pred != update_meta_d.alt_pred)) begin
+                if ((update_meta_d.provider_pred != actual_taken_d) && !use_alt_na[3])
                     use_alt_na <= use_alt_na + 1'b1;
-                else if ((update_meta.alt_pred != actual_taken) && (|use_alt_na))
+                else if ((update_meta_d.alt_pred != actual_taken_d) && (|use_alt_na))
                     use_alt_na <= use_alt_na - 1'b1;
             end
         end

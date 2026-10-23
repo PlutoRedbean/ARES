@@ -570,17 +570,13 @@ package tage_pkg;
         logic [TAGE_NUM_TABLES-1:0][TAGE_TAG_WIDTH-1:0]    wr_tag;
         logic [TAGE_NUM_TABLES-1:0][TAGE_CTR_WIDTH-1:0]    wr_ctr;
         logic [TAGE_NUM_TABLES-1:0][TAGE_USEFUL_WIDTH-1:0] wr_useful;
-        logic                                              t0_en;
-        logic [TAGE_SLOT_ID_WIDTH-1:0]                     t0_bank;
-        logic [TAGE_BASE_INDEX_WIDTH-1:0]                  t0_idx;
-        logic [1:0]                                        t0_ctr;
         logic                                              alloc_trig;
         logic                                              alloc_found;
         logic [$clog2(TAGE_NUM_BANKS)-1:0]                 alloc_bank;
     } tage_update_t;
 
     function automatic tage_update_t tage_update_compute(
-        input logic upd_en, input logic upd_is_branch, input logic upd_taken, input tage_meta_t m,
+        input logic upd_en, input logic upd_taken, input tage_meta_t m,
         input logic [TAGE_NUM_TABLES-1:0][TAGE_NUM_SLOTS-1:0] up_valid,
         input logic [TAGE_NUM_TABLES-1:0][TAGE_NUM_SLOTS-1:0][TAGE_TAG_WIDTH-1:0] up_tag,
         input logic [TAGE_NUM_TABLES-1:0][TAGE_NUM_SLOTS-1:0][TAGE_CTR_WIDTH-1:0] up_ctr,
@@ -608,13 +604,6 @@ package tage_pkg;
             u.wr_ctr[t]    = '0;
             u.wr_useful[t] = '0;
         end
-        u.t0_en   = 1'b0;
-        u.t0_bank = m.slot_id;
-        u.t0_idx  = m.base_idx;
-        u.t0_ctr  = tage_sat2(m.base_ctr, upd_taken);
-
-        if (upd_en && upd_is_branch) u.t0_en = 1'b1;
-
         if (upd_en && m.valid) begin
             // ---- provider counter + useful ----
             if (m.provider != '0) begin
