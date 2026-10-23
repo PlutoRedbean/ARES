@@ -44,64 +44,150 @@ menu "Frontend"
 
         menu "Direction predictors"
 
+            choice FE_BASE_PREDICTOR
+                prompt "S1 base direction predictor"
+                default FE_TOURNAMENT
+
+            config FE_BIMODAL
+                bool "Bimodal direction predictor"
+                default n
+                help
+                  One-cycle bimodal predictor.  Exactly one of FE_BIMODAL /
+                  FE_TOURNAMENT must be enabled; bpu.sv checks this at time 0.
+
             config FE_TOURNAMENT
                 bool "Tournament direction predictor (gshare + bimodal chooser)"
                 default y
                 help
-                  When enabled fe_pkg selects DIR_TYPE=2 (tournament); when
-                  disabled the plain bimodal predictor is used (DIR_TYPE=1).
-                  Both share FE_PHT_WIDTH.
+                  One-cycle gshare + bimodal tournament.  When FE_TAGE is
+                  enabled the full TAGE still owns the S2 precise direction and
+                  the tournament only supplies the S1 base direction.
+
+            endchoice
 
             config FE_PHT_WIDTH
-                int "Pattern history table index width (bits)"
-                range 6 16
-                default 10
+                int "PHT index width (bits)"
+                range 4 16
+                default 8
                 help
-                  log2 of the bimodal / gshare PHT entry count.
+                  log2 of the gshare / bimodal / chooser entry count.
 
             config FE_GHR_WIDTH
                 int "Global history register width (bits)"
-                range 1 32
+                range 2 24
                 default 12
                 help
-                  ghr_spec / ghr_commit width and the width of
-                  pred_meta.ghr_before in the FE/BE contract.
+                  Width of the speculative global history register.
 
         endmenu # "Direction predictors"
 
-        menu "Target predictors (uBTB / RAS)"
+        menu "TAGE (S2 precise direction)"
+
+            config FE_TAGE
+                bool "Enable TAGE"
+                default y
+                help
+                  Tagged geometric-history predictor for the S2 precise
+                  direction and correction stage.
+
+            config FE_TAGE_NUM_TABLES
+                int "Tagged tables (T1..Tn)"
+                range 1 8
+                default 8
+
+            config FE_TAGE_GHV_WIDTH
+                int "Global branch history width (bits)"
+                range 160 512
+                default 160
+                help
+                  Must cover the longest enabled history length (144 with the
+                  default 8 tables).
+
+            config FE_TAGE_INDEX_WIDTH
+                int "Tagged table index width (bits)"
+                range 8 14
+                default 8
+
+            config FE_TAGE_TAG_WIDTH
+                int "Partial tag width (bits)"
+                range 4 14
+                default 10
+
+            config FE_TAGE_CTR_WIDTH
+                int "Signed counter width (bits)"
+                range 2 8
+                default 4
+
+            config FE_TAGE_USEFUL_WIDTH
+                int "Useful counter width (bits)"
+                range 1 4
+                default 1
+
+            config FE_TAGE_CKPT_DEPTH
+                int "History checkpoint depth (entries)"
+                range 8 512
+                default 64
+
+            config FE_TAGE_USE_ALT_ON_NA
+                bool "Use the alternate prediction for weak providers"
+                default y
+
+            config FE_UTAGE
+                bool "Enable uTAGE as the S1 fast direction predictor"
+                default n
+                help
+                  Small MicroTage-style predictor (few tagged tables with short
+                  folded histories) for the S1 direction.  The full TAGE still
+                  owns S2.  With the current single speculative history this
+                  trades accuracy for a shorter S1 select path, so it defaults
+                  off; see docs/tage-design notes in the ported RTL.
+
+        endmenu # "TAGE (S2 precise direction)"
+
+        menu "Target predictors (uBTB / mBTB / RAS)"
+
+            config FE_UBTB
+                bool "Enable uBTB target predictor"
+                default y
 
             config FE_UBTB_WIDTH
-                int "uBTB tag width (bits)"
-                range 4 32
-                default 8
+                int "uBTB entry-count width (log2 entries)"
+                range 4 8
+                default 7
                 help
-                  Micro-BTB (16-entry fully-associative) tag width; the index
-                  uses the low PC bits implied by FE_FETCH_WIDTH.
+                  log2 of the uBTB entry count (7 -> 128 entries).  The RTL
+                  splits them into 16 banks x (entries/16) ways.
+
+            config FE_MBTB
+                bool "Enable mBTB target predictor"
+                default y
+                help
+                  Region BTB used as the S2 target refiner and the second CFI
+                  provider for the S2 TAGE merge.
 
             config FE_MBTB_WIDTH
-                int "mBTB index width (bits)"
-                range 6 16
-                default 11
+                int "mBTB set index width (log2 sets)"
+                range 4 16
+                default 7
                 help
-                  Reserved for the F2/F3 main BTB (SPEC-M1).  The current RTL
-                  only declares the parameter; the SRAM BTB itself is not built.
+                  log2 of the mBTB set count; 4 ways per set (7 -> 128 sets,
+                  512 entries).
 
             config FE_RAS
                 bool "Return-address stack"
                 default y
                 help
                   Enable the call/return stack.  When disabled, returns fall
-                  back to the uBTB target.
+                  back to the uBTB/mBTB target.
 
             config FE_RAS_ENTRIES
                 int "Return-address stack depth (entries)"
-                range 1 64
-                default 16
+                range 2 256
+                default 64
                 help
                   Number of return addresses held by the RAS.
 
-        endmenu # "Target predictors (uBTB / RAS)"
+        endmenu # "Target predictors (uBTB / mBTB / RAS)"
 
         menu "Loop predictor"
 
@@ -114,17 +200,13 @@ menu "Frontend"
 
             config FE_LOOP_ENTRIES
                 int "Loop predictor table entries"
-                range 1 4096
-                default 256
-                help
-                  Number of loop entries in the prediction table.
+                range 16 4096
+                default 32
 
             config FE_LOOP_ITER_WIDTH
                 int "Loop iteration counter width (bits)"
-                range 1 16
-                default 8
-                help
-                  Width of the per-entry iteration counter.
+                range 2 16
+                default 16
 
         endmenu # "Loop predictor"
 
@@ -134,8 +216,8 @@ menu "Frontend"
 
         config FE_FTQ_NUM_ENTRIES
             int "Fetch Target Queue entries"
-            range 1 64
-            default 16
+            range 2 64
+            default 24
             help
               Number of pending Fetch Blocks tracked by the FTQ
               (frontend.md section 5).

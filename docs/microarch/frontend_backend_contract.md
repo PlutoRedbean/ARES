@@ -51,6 +51,7 @@ logic [31:0]       backend_redirect_pc;
 fe_redirect_kind_t backend_redirect_kind;
 logic [GHR_WIDTH-1:0] backend_redirect_ghr_before; // BRANCH only
 logic              backend_redirect_actual_taken;     // BRANCH only
+bpu_update_t       backend_redirect_info;             // BRANCH only; independent of training FIFO
 ```
 
 - Backend 独占最终架构级 Redirect 仲裁：`Reset > ECALL Trap > MRET > BRU Recovery > IRQ Boundary Redirect`；仅向 FE 输出**一个获胜事件**。`REDIRECT_ARCH` 覆盖 ECALL、MRET、IRQ 边界/取消中断后的重新取指；`REDIRECT_BRANCH` 表示 BRU 下一 PC 误预测。PC 必须是 BE 已仲裁的正确目标。
@@ -58,6 +59,7 @@ logic              backend_redirect_actual_taken;     // BRANCH only
 - IFU/ICache 必须有可靠的旧响应过滤机制（可用内部 epoch/transaction 标识或取消+drain），保证 Redirect 后旧请求即使迟到也不会污染新路径；标识复用不得与仍在途的旧请求混淆。实现技术属于 FE 内部，不扩展 BE `tag_t`。
 - 在 BE Redirect 同周期，FE 的 Predecode/深级预测修正无效，不能覆盖 BE 目标 PC、不能将旧路径 Fetch Block 写入 IQ。Reset 具有最高优先级。
 - `REDIRECT_BRANCH` 时 FE 以 `backend_redirect_ghr_before` 为基准，计入该 CFI 的 `actual_taken` 恢复 `ghr_spec`，保留所有更老、但尚未 Commit 的正确路径预测历史；禁止只用 `ghr_commit + actual_taken` 恢复。
+- 启用 TAGE/RAS 检查点时，`backend_redirect_info` 同步携带获胜 BRU 指令的 CIQ 原始 `pred_meta`、PC 和 Decode 确认的 CFI 类别；方向/目标取本周期 BRU 的实际结果。该事件不进入训练 FIFO，也不消耗 Commit credit。不得用延迟训练队首的 metadata 替代恢复快照。ARCH 事件将此 sideband 置零；本地 Predecode 修正使用 IFU 自己保留的检查点。
 - `REDIRECT_ARCH` 时 FE 以**本周期已接受的正常 Commit CFI 更新之后**的 `ghr_commit` 重建 `ghr_spec`。在所有 Redirect 后 FE 重新从 `backend_redirect_pc` 开始预测/取指。
 - 所有恢复请求均为一次性事件；没有 ready、retry 或隐式接受延迟。Frontend 若需要清空/屏蔽自身流水线，应在有效事件时锁存正确 PC 并启动本地恢复。
 
@@ -97,6 +99,8 @@ typedef struct packed {
 - BE 在形成 Commit 连续前缀时，把候选前缀所需 CFI 事件数与**已登记** `bpu_update_credit` 比较，不得超额；资源不足时阻止对应 CFI 及其年轻 Commit（但允许不需要事件的较老 Commit）。因此有效事件无需独立 ready，且不会丢失。BE 沿用最多 2-wide 的 Store Commit/CSR 条件，BPU credit 只是额外的 Commit 候选约束。
 - FE BPU 在该沿按 lane0 → lane1 顺序接受事件，**立即**推进 `ghr_commit`（含一个周期两条 CFI）；用于训练表项的事件进入 FE 内部有界 FIFO，按 Commit 顺序训练。正常 Branch/Trap/MRET/IRQ Redirect **不清空已经接受的训练 FIFO**，因为其中都是已退休 CFI；只有 Cold Reset 清空。`bpu_update_credit` 仅表示**FIFO 当前已空出的槽位**，不借用当前预计 dequeue 的空间；训练允许滞后，但不得丢失或乱序改变所需的预测索引/metadata。
 - 训练读写冲突、同一预测表项连续更新由 FE BPU 自己串行化/旁路，最终表现为按 Commit 顺序应用事件；这不改变后端 2-wide Commit 的合法性。credit 为登记状态，不得组合依赖当前 `bpu_update_valid`，避免 BE→FE→BE 组合环路。
+- uBTB/mBTB 的后台更新流水均有有界 pending 槽；只有两者都可接受当前训练事件时才从训练 FIFO 出队。RAS、基础 GHR 与 TAGE 的已提交条件历史仍在接受两条 Commit lane 的当沿更新，不等待表训练。
+- S2 修正保留被修正块自己的 TAGE/RAS 检查点，重启流从其下一检查点位置分配；该块仍可能在进入 CIQ 后发生 BRU 恢复。FTQ 修正与读取同沿发生时，读取释放的容量必须在 poison 窗口结束后可供写入。
 - FE 的 `ghr_spec` 在正常运行按**实际生效的预测路径**前进（本设计按 CFI 记录 taken bit，包括 JAL/JALR）；Branch Recovery 使用第 3 节的每 CFI `ghr_before`，Trap/MRET/IRQ 使用最新 `ghr_commit`。BPU predictor table 使用预测时保存的 `pred_meta` 进行索引/chooser 等训练。
 
 ## 5. 同周期优先级与时序

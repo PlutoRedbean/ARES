@@ -110,9 +110,10 @@ ARES_MT_SRCS := \
     $(MINITENSOR_HOME)/rtl/memory/vpu_dma.sv \
     $(MINITENSOR_HOME)/rtl/top/mini_tensor_top.sv
 
-ARES_FE_SRCS := $(RTL_ROOT)/frontend/interface/axi_if.sv $(RTL_ROOT)/frontend/interface/miniTensor_if.sv \
+ARES_FE_SRCS := $(RTL_ROOT)/frontend/bpu/direction/tage_pkg.sv \
+    $(RTL_ROOT)/frontend/interface/axi_if.sv $(RTL_ROOT)/frontend/interface/miniTensor_if.sv \
     $(wildcard $(RTL_ROOT)/frontend/*.sv) $(wildcard $(RTL_ROOT)/frontend/bpu/*.sv) \
-    $(wildcard $(RTL_ROOT)/frontend/bpu/direction/*.sv) $(wildcard $(RTL_ROOT)/frontend/bpu/target/*.sv) \
+    $(filter-out $(RTL_ROOT)/frontend/bpu/direction/tage_pkg.sv,$(wildcard $(RTL_ROOT)/frontend/bpu/direction/*.sv)) $(wildcard $(RTL_ROOT)/frontend/bpu/target/*.sv) \
     $(wildcard $(RTL_ROOT)/frontend/ifu/*.sv) $(RTL_ROOT)/soc/jyd/ares_irom_bridge.sv \
     $(RTL_ROOT)/top/ares_cpu_top.sv
 
@@ -301,7 +302,7 @@ clean:
 lint-frontend: config-gen
 	@$(SIM) TOPNAME=tb_ares_cpu lint
 
-FE_UNIT_TBS ?= tb_iq tb_bpu_contract tb_bpu_history tb_fe_be_contract tb_irom_bridge tb_ubtb_equiv tb_icache_way
+FE_UNIT_TBS ?= tb_iq tb_bpu_contract tb_bpu_history tb_fe_be_contract tb_irom_bridge tb_ubtb_equiv tb_icache_way tb_ftq_correction tb_bpu_s2
 FE_UNIT_BUILD ?= $(ARES_HOME)/sim/build/unit
 unit-frontend: config-gen
 	@set -e; for tb in $(FE_UNIT_TBS); do \

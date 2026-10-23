@@ -63,6 +63,7 @@ def prepare(args):
         sources += sorted((ROOT / directory).glob("*.sv"))
     sources.append(ROOT / "rtl/top/ares_core_top.sv")
     if args.profile != "core":
+        sources.append(ROOT / "rtl/frontend/bpu/direction/tage_pkg.sv")
         sources += [ROOT / "rtl/frontend/interface/axi_if.sv", ROOT / "rtl/frontend/interface/miniTensor_if.sv"]
         for directory in ["rtl/frontend", "rtl/frontend/bpu", "rtl/frontend/bpu/direction", "rtl/frontend/bpu/target", "rtl/frontend/ifu"]:
             sources += sorted((ROOT / directory).glob("*.sv"))

@@ -63,6 +63,7 @@ module ares_cpu_top #(
     logic [1:0] iq_valid, iq_accept_count, bpu_update_credit, bpu_update_valid;
     fe_pkg::iq_entry_t iq_inst [2];
     fe_pkg::bpu_update_t bpu_update [2];
+    fe_pkg::bpu_update_t backend_redirect_info;
     logic backend_redirect_valid, backend_redirect_actual_taken;
     logic [31:0] backend_redirect_pc;
     fe_pkg::fe_redirect_kind_t backend_redirect_kind;
@@ -74,6 +75,7 @@ module ares_cpu_top #(
         .backend_redirect_pc(backend_redirect_pc), .backend_redirect_kind(backend_redirect_kind),
         .backend_redirect_ghr_before(backend_redirect_ghr_before),
         .backend_redirect_actual_taken(backend_redirect_actual_taken),
+        .backend_redirect_info(backend_redirect_info),
         .bpu_update_credit(bpu_update_credit), .bpu_update_valid(bpu_update_valid), .bpu_update(bpu_update),
         .ifu_axi_bus(ifetch_bus), .fetch_pc_out(), .iq_occupancy(), .iq_enq_count(), .iq_deq_count(),
         .ftq_occupancy(), .ftq_alloc(), .ftq_pop(), .icache_refill(), .icache_req_fire()
@@ -93,6 +95,7 @@ module ares_cpu_top #(
         .backend_redirect_kind(backend_redirect_kind),
         .backend_redirect_ghr_before(backend_redirect_ghr_before),
         .backend_redirect_actual_taken(backend_redirect_actual_taken),
+        .backend_redirect_info(backend_redirect_info),
         .bpu_update_credit(bpu_update_credit),
         .bpu_update_valid(bpu_update_valid),
         .bpu_update(bpu_update),

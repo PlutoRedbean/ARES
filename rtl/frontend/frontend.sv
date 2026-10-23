@@ -41,6 +41,7 @@ module frontend #(
 
     input logic [fe_pkg::GHR_WIDTH-1:0] backend_redirect_ghr_before,
     input logic backend_redirect_actual_taken,
+    input fe_pkg::bpu_update_t backend_redirect_info,
     input logic [1:0] bpu_update_valid,
     input fe_pkg::bpu_update_t bpu_update [2],
     output logic [1:0] bpu_update_credit,
@@ -85,10 +86,21 @@ module frontend #(
     logic ftq_rvalid;
     logic ifu_rready;
 
+    // FTQ write index + BPU mbtb correction
+    logic [FTQ_NUM_ENTRIES-1:0] ftq_widx;
+    logic ftq_corr_hit;
+    logic bpu_corr_valid;
+    logic [FTQ_NUM_ENTRIES-1:0] bpu_corr_idx;
+    logic bpu_corr_wr_en;
+    logic [FTQ_NUM_ENTRIES-1:0] bpu_corr_wr_idx;
+    ftq_entry_t bpu_corr_wr_data;
+    logic [ADDR_WIDTH-1:0] bpu_corr_start_pc;
+
     // front-end (PredecodeCheck) redirect
     logic fe_redirect_valid;
     logic [ADDR_WIDTH - 1:0] fe_redirect_pc;
     logic [GHR_WIDTH-1:0] fe_repair_ghr;
+    bpu_update_t fe_repair_info;
 
     // back-end redirect wins over the front-end one
     wire fe_flush = backend_redirect_valid | fe_redirect_valid;
@@ -131,9 +143,14 @@ module frontend #(
         .redirect_actual_taken(backend_redirect_actual_taken),
         .local_repair_valid   (fe_redirect_valid && !backend_redirect_valid),
         .local_repair_ghr     (fe_repair_ghr),
+        .redirect_info(backend_redirect_valid ? backend_redirect_info : fe_repair_info),
         .bpu_update_valid     (bpu_update_valid),
         .bpu_update           (bpu_update),
-        .bpu_update_credit    (bpu_update_credit)
+        .bpu_update_credit    (bpu_update_credit),
+        .ftq_widx(ftq_widx), .ftq_corr_hit(ftq_corr_hit),
+        .bpu_corr_valid(bpu_corr_valid), .bpu_corr_idx(bpu_corr_idx),
+        .bpu_corr_wr_en(bpu_corr_wr_en), .bpu_corr_wr_idx(bpu_corr_wr_idx),
+        .bpu_corr_wr_data(bpu_corr_wr_data), .bpu_corr_start_pc(bpu_corr_start_pc)
     );
 
     // ------------------------------------------------
@@ -151,7 +168,16 @@ module frontend #(
         .rdata(ftq_rdata),
         .occupancy(ftq_occupancy),
         .alloc(ftq_alloc),
-        .pop(ftq_pop)
+        .pop(ftq_pop),
+        .wr_idx_oh(ftq_widx),
+        // mbtb correction port (P3), driven by the BPU
+        .corr_idx(bpu_corr_idx),
+        .corr_valid(bpu_corr_valid),
+        .corr_hit(ftq_corr_hit),
+        .corr_wr_en(bpu_corr_wr_en),
+        .corr_wr_idx(bpu_corr_wr_idx),
+        .corr_wr_data(bpu_corr_wr_data),
+        .corr_start_pc(bpu_corr_start_pc)
     );
 
     // ------------------------------------------------
@@ -176,6 +202,7 @@ module frontend #(
         .fe_redirect_valid(fe_redirect_valid),
         .fe_redirect_pc   (fe_redirect_pc),
         .fe_repair_ghr    (fe_repair_ghr),
+        .fe_repair_info   (fe_repair_info),
         .icache_req_valid (icache_req_valid),
         .icache_req_addr  (icache_req_addr),
         .icache_req_ready (icache_req_ready),

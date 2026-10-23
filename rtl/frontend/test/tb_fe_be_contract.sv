@@ -27,6 +27,7 @@ module tb_fe_be_contract;
     logic [31:0] words [8192];
     frontend dut(.clk(clk),.rst(rst),.iq_rvalid(valid),.iq_rbits(inst),.iq_raccept_cnt(accept),
         .backend_redirect_valid(redirect),.backend_redirect_pc(redirect_pc),.backend_redirect_kind(REDIRECT_BRANCH),
+        .backend_redirect_info('0),
         .backend_redirect_ghr_before(redirect_history),.backend_redirect_actual_taken(actual_taken),
         .bpu_update_credit(credit),.bpu_update_valid(updates_valid),.bpu_update(updates),.ifu_axi_bus(bus),
         .fetch_pc_out(fetch_pc),.iq_occupancy(),.iq_enq_count(),.iq_deq_count(),.ftq_occupancy(),

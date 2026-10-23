@@ -41,6 +41,7 @@ module ares_core_top #(
     output fe_pkg::fe_redirect_kind_t                         backend_redirect_kind,
     output logic                      [fe_pkg::GHR_WIDTH-1:0] backend_redirect_ghr_before,
     output logic                                              backend_redirect_actual_taken,
+    output fe_pkg::bpu_update_t                               backend_redirect_info,
 
     //---- BPU update: Commit -> FE (contract section 4) ---------------------
     input  logic                [1:0] bpu_update_credit,
@@ -152,6 +153,7 @@ module ares_core_top #(
         .backend_redirect_kind        (backend_redirect_kind),
         .backend_redirect_ghr_before  (backend_redirect_ghr_before),
         .backend_redirect_actual_taken(backend_redirect_actual_taken),
+        .backend_redirect_info(backend_redirect_info),
         .bpu_update_credit            (bpu_update_credit),
         .bpu_update_valid             (bpu_update_valid),
         .bpu_update                   (bpu_update),

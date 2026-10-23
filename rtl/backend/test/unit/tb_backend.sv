@@ -58,6 +58,9 @@ module tb_backend;
     logic                  redirect_taken;
     logic [1:0]            bpu_credit, bpu_valid;
     bpu_update_t           bpu_update [2];
+    /* verilator lint_off UNUSEDSIGNAL */
+    bpu_update_t unused_redirect_info;
+    /* verilator lint_on UNUSEDSIGNAL */
     logic                  d_can_accept;
     logic [2:0]            d_load_credit;
     logic [3:0]            d_store_credit;
@@ -108,6 +111,7 @@ module tb_backend;
         .backend_redirect_kind(redirect_kind),
         .backend_redirect_ghr_before(redirect_ghr),
         .backend_redirect_actual_taken(redirect_taken),
+        .backend_redirect_info(unused_redirect_info),
         .bpu_update_credit(bpu_credit), .bpu_update_valid(bpu_valid), .bpu_update(bpu_update),
         .lsu_can_accept(d_can_accept), .load_credit(d_load_credit), .store_credit(d_store_credit),
         .lsu_issue_valid(d_issue_valid), .lsu_issue_req(d_issue_req),

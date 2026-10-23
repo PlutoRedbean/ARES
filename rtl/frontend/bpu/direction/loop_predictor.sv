@@ -13,10 +13,10 @@
 // The front-end predicts blocks far ahead of the back-end, so the committed
 // iteration index lags the branch being fetched.  Like the gem5 LoopPredictor
 // the entry therefore keeps two counters:
-//   * iter_train : advanced when the branch resolves (used to learn the trip
+//   * iter_commit : advanced when the branch resolves (used to learn the trip
 //                   count and the confidence),
 //   * iter_spec   : advanced when the branch is *predicted* along the fetch
-//                   path (used for the prediction), and repaired to iter_train
+//                   path (used for the prediction), and repaired to iter_commit
 //                   on a redirect.
 //
 // The prediction path is 1-cycle pipelined so its response lines up with the
@@ -43,10 +43,20 @@ module loop_predictor (
 
     // redirect: repair the speculative iteration counters
     input logic flush,
+    // internal S2 correction restart: the speculative path was discarded
+    input logic corr,
+
+    // S2 final-path cursor update (native BPU: the loop cursor follows the
+    // direction actually released to the frontend, after TAGE/loop selection).
+    input logic                           s2_spec_valid,
+    input logic [fe_pkg::ADDR_WIDTH-1:0]  s2_fetch_pc,
+    input logic [fe_pkg::FETCH_WIDTH-1:0] s2_loop_branch,
+    input logic [fe_pkg::FETCH_WIDTH-1:0] s2_taken,
 
     // training
     input logic                          update_en,
     input logic [fe_pkg::ADDR_WIDTH-1:0] update_pc,
+    input logic [fe_pkg::ADDR_WIDTH-1:0] update_target,
     input logic                          actual_taken,
     input logic                          is_branch,
     input logic [1:0] commit_valid,
@@ -63,8 +73,9 @@ module loop_predictor (
         logic                       valid;
         logic [TAG_WIDTH-1:0]       tag;
         logic [LOOP_ITER_WIDTH-1:0] num_iter;     // learned trip count
-        logic [LOOP_ITER_WIDTH-1:0] iter_train;  // architectural iteration index
+        logic [LOOP_ITER_WIDTH-1:0] iter_commit;  // architectural iteration index
         logic [LOOP_ITER_WIDTH-1:0] iter_spec;    // speculative iteration index
+        logic                       body_taken;   // direction inside the loop body
         logic [1:0]                 confidence;   // 2-bit confidence counter
     } loop_entry_t;
 
@@ -107,6 +118,7 @@ module loop_predictor (
     logic        [FETCH_WIDTH-1:0][      IDX_WIDTH-1:0] pred_idx;
     logic        [FETCH_WIDTH-1:0][LOOP_ITER_WIDTH-1:0] num_iter_r;
     logic        [FETCH_WIDTH-1:0][LOOP_ITER_WIDTH-1:0] iter_spec_r;
+    logic        [FETCH_WIDTH-1:0]                      body_taken_rd;
     logic        [FETCH_WIDTH-1:0][                1:0] conf_r;
 
     generate
@@ -119,6 +131,7 @@ module loop_predictor (
             assign pred_idx[i] = idx;
             assign num_iter_r[i] = loop_table[idx].num_iter;
             assign iter_spec_r[i] = loop_table[idx].iter_spec;
+            assign body_taken_rd[i] = loop_table[idx].body_taken;
             assign conf_r[i] = loop_table[idx].confidence;
         end
     endgenerate
@@ -133,6 +146,27 @@ module loop_predictor (
     logic [FETCH_WIDTH-1:0]                      spec_hit_r;
     logic [FETCH_WIDTH-1:0][      IDX_WIDTH-1:0] spec_idx_r;
     logic [FETCH_WIDTH-1:0][LOOP_ITER_WIDTH-1:0] spec_iter_r;
+    logic [FETCH_WIDTH-1:0]                       body_taken_r;
+
+    // Combinational read for the S2 final-path cursor update.
+    logic [FETCH_WIDTH-1:0]                      s2_hit_c;
+    logic [FETCH_WIDTH-1:0][      IDX_WIDTH-1:0] s2_idx_c;
+    logic [FETCH_WIDTH-1:0][LOOP_ITER_WIDTH-1:0] s2_iter_c;
+    logic [FETCH_WIDTH-1:0]                      s2_body_taken_c;
+    always_comb begin
+        for (int s = 0; s < FETCH_WIDTH; s++) begin
+            logic [ADDR_WIDTH-1:0] pc;
+            logic [ IDX_WIDTH-1:0] idx;
+            logic [ TAG_WIDTH-1:0] tag;
+            pc  = s2_fetch_pc + ADDR_WIDTH'(s * INST_BYTES);
+            idx = pc[IDX_WIDTH+1:2];
+            tag = pc[ADDR_WIDTH-1:IDX_WIDTH+2];
+            s2_hit_c[s]  = loop_table[idx].valid && (loop_table[idx].tag == tag);
+            s2_idx_c[s]  = idx;
+            s2_iter_c[s] = loop_table[idx].iter_spec;
+            s2_body_taken_c[s] = loop_table[idx].body_taken;
+        end
+    end
 
     // Registered response, one cycle after the request.
     always_ff @(posedge clk) begin
@@ -145,19 +179,26 @@ module loop_predictor (
             spec_hit_r     <= '0;
             spec_idx_r     <= '0;
             spec_iter_r    <= '0;
+            body_taken_r   <= '0;
         end else begin
             resp_valid <= req_valid;
-            req_pc_r <= fetch_pc;
 
-            spec_hit_r <= hit;
-            spec_idx_r <= pred_idx;
-            spec_iter_r <= iter_spec_r;
+            // Hold the response data while no request is accepted (BPU stall).
+            if (req_valid) begin
+                req_pc_r <= fetch_pc;
 
-            for (int i = 0; i < FETCH_WIDTH; i++) begin
-                pred_valid[i] <= req_valid && hit[i] && (num_iter_r[i] != 0);
-                pred_taken[i] <= req_valid && hit[i] && (num_iter_r[i] != 0)
-                                 && (iter_spec_r[i] < num_iter_r[i] - 1'b1);
-                pred_high_conf[i] <= req_valid && hit[i] && conf_r[i][1];
+                spec_hit_r <= hit;
+                spec_idx_r <= pred_idx;
+                spec_iter_r <= iter_spec_r;
+                body_taken_r <= body_taken_rd;
+
+                for (int i = 0; i < FETCH_WIDTH; i++) begin
+                    pred_valid[i]     <= hit[i] && (num_iter_r[i] != 0);
+                    pred_taken[i]     <= hit[i] && (num_iter_r[i] != 0)
+                                         && ((iter_spec_r[i] == num_iter_r[i])
+                                             ? ~body_taken_rd[i] : body_taken_rd[i]);
+                    pred_high_conf[i] <= hit[i] && conf_r[i][1];
+                end
             end
         end
     end
@@ -168,7 +209,9 @@ module loop_predictor (
     always_ff @(posedge clk) begin
         if (rst) begin
             for (int j = 0; j < LOOP_ENTRIES; j++) begin
-                loop_table[j] <= '0;
+                // Only the validity flag is reset; the entry data is left alone
+                // so the table can be inferred as RAM (as in icache).
+                loop_table[j].valid <= 1'b0;
             end
         end else begin
 
@@ -188,48 +231,64 @@ module loop_predictor (
             end
 
             // ------------------------------------------------------------
-            // 2) commit update: learn trip count / confidence
+            // 2) commit update: learn trip count / body direction / confidence
+            //    (same semantics as the native BimodalRas loop predictor)
             // ------------------------------------------------------------
             if (update_en && is_branch) begin
                 if (loop_table[upd_idx].valid && loop_table[upd_idx].tag == upd_tag) begin
-                    // Train the confidence counter with the direction the loop
-                    // predictor would have produced for this committed
-                    // iteration.  Only entries that know a trip count count.
-                    if (loop_table[upd_idx].num_iter != 0) begin
-                        if ((loop_table[upd_idx].iter_train < loop_table[upd_idx].num_iter - 1'b1)
-                            == actual_taken) begin
-                            if (loop_table[upd_idx].confidence != CONF_SAT) begin
+                    if (actual_taken == loop_table[upd_idx].body_taken) begin
+                        // still iterating through the loop body.  While the
+                        // selector is not using the loop, keep the speculative
+                        // cursor tracking the committed count exactly.
+                        if (loop_table[upd_idx].iter_commit != {LOOP_ITER_WIDTH{1'b1}}) begin
+                            loop_table[upd_idx].iter_commit <= loop_table[upd_idx].iter_commit + 1'b1;
+                        end
+                    end else begin
+                        // loop exit: learn the trip count and confidence.  The
+                        // speculative cursor must restart at zero for the next
+                        // loop instance regardless of whether the loop was
+                        // selected on this path.
+                        if ((loop_table[upd_idx].iter_commit != 0)
+                            && (loop_table[upd_idx].iter_commit == loop_table[upd_idx].num_iter)) begin
+                            if (loop_table[upd_idx].confidence != CONF_SAT)
                                 loop_table[upd_idx].confidence <= loop_table[upd_idx].confidence + 1'b1;
-                            end
                         end else begin
+                            if (loop_table[upd_idx].iter_commit != 0)
+                                loop_table[upd_idx].num_iter <= loop_table[upd_idx].iter_commit;
                             loop_table[upd_idx].confidence <= '0;
                         end
-                    end
-
-                    if (!actual_taken) begin
-                        // drop out of loop, record trip count
-                        if (loop_table[upd_idx].iter_train > 0) begin
-                            loop_table[upd_idx].num_iter <= loop_table[upd_idx].iter_train + 1'b1;
-                        end
-                        loop_table[upd_idx].iter_train <= '0;
-                    end else begin
-                        // continue in loop, increment current iteration
-                        if (loop_table[upd_idx].iter_train < {LOOP_ITER_WIDTH{1'b1}}) begin
-                            loop_table[upd_idx].iter_train <= loop_table[upd_idx].iter_train + 1'b1;
-                        end
+                        loop_table[upd_idx].iter_commit <= '0;
                     end
                 end else if (actual_taken) begin
+                    logic body_taken_new;
+                    body_taken_new = (update_target < update_pc);
                     loop_table[upd_idx].valid       <= 1'b1;
                     loop_table[upd_idx].tag         <= upd_tag;
                     loop_table[upd_idx].num_iter    <= '0;
-                    loop_table[upd_idx].iter_train <= LOOP_ITER_WIDTH'(1);
-                    loop_table[upd_idx].iter_spec   <= LOOP_ITER_WIDTH'(1);
+                    loop_table[upd_idx].body_taken  <= body_taken_new;
+                    loop_table[upd_idx].iter_commit <= body_taken_new ? LOOP_ITER_WIDTH'(1) : '0;
+                    loop_table[upd_idx].iter_spec   <= body_taken_new ? LOOP_ITER_WIDTH'(1) : '0;
                     loop_table[upd_idx].confidence  <= '0;
                 end
             end
 
             // ------------------------------------------------------------
-            // 3) redirect: drop the speculative path, resync the counters
+            // 3) S2 final-path cursor update (per loop-overridden branch)
+            // ------------------------------------------------------------
+            if (s2_spec_valid) begin
+                for (int s = 0; s < FETCH_WIDTH; s++) begin
+                    if (s2_loop_branch[s] && s2_hit_c[s]) begin
+                        if (s2_taken[s] == s2_body_taken_c[s]) begin
+                            loop_table[s2_idx_c[s]].iter_spec <= s2_iter_c[s] + 1'b1;
+                        end else begin
+                            loop_table[s2_idx_c[s]].iter_spec <= '0;
+                        end
+                    end
+                end
+            end
+
+            // ------------------------------------------------------------
+            // 4) redirect: drop the speculative path, resync the counters
             // ------------------------------------------------------------
             if (flush) begin
                 for (int j = 0; j < LOOP_ENTRIES; j++) begin

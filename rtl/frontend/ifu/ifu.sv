@@ -31,6 +31,7 @@ module ifu #(
     output logic                    fe_redirect_valid,
     output logic [ADDR_WIDTH - 1:0] fe_redirect_pc,
     output logic [fe_pkg::GHR_WIDTH-1:0] fe_repair_ghr,
+    output fe_pkg::bpu_update_t fe_repair_info,
 
     // icache request/response channel
     output logic                             icache_req_valid,
@@ -395,6 +396,12 @@ module ifu #(
     assign fe_redirect_valid = pc_wr && err_valid;
     assign fe_redirect_pc = effective_npc[err_idx];
     always_comb begin
+        fe_repair_info = '0;
+        fe_repair_info.update_pc = pd_r.pre[err_idx].pc;
+        fe_repair_info.pred_meta = pd_r.blk.pred_meta[err_idx];
+        fe_repair_info.actual_cfi_type = pd_r.pre[err_idx].cfi_type;
+        fe_repair_info.actual_taken = effective_taken[err_idx];
+        fe_repair_info.actual_target = effective_npc[err_idx];
         fe_repair_ghr = pd_r.blk.pred_meta[err_idx].ghr_before;
         if (pd_r.pre[err_idx].is_cfi)
             fe_repair_ghr = (fe_repair_ghr << 1) | GHR_WIDTH'(effective_taken[err_idx]);

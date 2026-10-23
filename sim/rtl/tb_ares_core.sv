@@ -120,9 +120,13 @@ module tb_ares_core (
     logic [ 2:0] dbg_lq_used;
     logic [ 3:0] dbg_sq_used;
 
+    /* verilator lint_off UNUSEDSIGNAL */
+    bpu_update_t unused_redirect_info;
+    /* verilator lint_on UNUSEDSIGNAL */
     ares_core_top #(
         .RESET_MTVEC(RESET_MTVEC)
     ) u_core (
+        .backend_redirect_info(unused_redirect_info),
         .clk                          (clk),
         .rst                          (rst),
         .iq_valid                     (iq_valid),

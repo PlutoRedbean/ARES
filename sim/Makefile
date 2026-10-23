@@ -65,7 +65,7 @@ ARES_TBS  := $(SIM_HOME)/rtl/tb_ares_core.sv \
              $(SIM_HOME)/rtl/tb_mem_beat_if.sv \
              $(SIM_HOME)/rtl/tb_mmio_if.sv
 
-VSRCS  := $(ARES_FE_PKG) $(ARES_PKG)
+VSRCS  := $(ARES_FE_PKG) $(ARES_PKG) $(RTL_ROOT)/frontend/bpu/direction/tage_pkg.sv
 VSRCS  += $(filter-out $(ARES_PKG) $(ARES_FE_PKG), $(wildcard $(RTL_ROOT)/common/*.sv))
 VSRCS  += $(wildcard $(RTL_ROOT)/common/*/*.sv)
 VSRCS  += $(wildcard $(RTL_ROOT)/backend/*.sv) $(wildcard $(RTL_ROOT)/backend/*/*.sv)
@@ -75,7 +75,7 @@ VSRCS  += $(ARES_TBS) $(SIM_HOME)/rtl/tb_ares_cpu.sv
 VSRCS  += $(RTL_ROOT)/top/ares_cpu_top.sv $(RTL_ROOT)/soc/jyd/ares_irom_bridge.sv
 VSRCS  += $(RTL_ROOT)/frontend/interface/axi_if.sv $(RTL_ROOT)/frontend/interface/miniTensor_if.sv
 VSRCS  += $(wildcard $(RTL_ROOT)/frontend/*.sv) $(wildcard $(RTL_ROOT)/frontend/bpu/*.sv)
-VSRCS  += $(wildcard $(RTL_ROOT)/frontend/bpu/direction/*.sv) $(wildcard $(RTL_ROOT)/frontend/bpu/target/*.sv)
+VSRCS  += $(filter-out $(RTL_ROOT)/frontend/bpu/direction/tage_pkg.sv,$(wildcard $(RTL_ROOT)/frontend/bpu/direction/*.sv)) $(wildcard $(RTL_ROOT)/frontend/bpu/target/*.sv)
 VSRCS  += $(wildcard $(RTL_ROOT)/frontend/ifu/*.sv)
 
 # Self-checking unit tops (docs/implementation_plan.md section 9.2).

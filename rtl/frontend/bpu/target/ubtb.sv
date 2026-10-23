@@ -1,21 +1,24 @@
-// Multi-target BTB.
+// Micro BTB (ubtb), rewritten per docs/ubtb-mbtb-refactor-plan.md (R1/R4/R5).
 //
-// Direction prediction lives in bpu/direction/*; this module only answers
-// "which control-flow instructions does this fetch window contain, and what are
-// their targets".  The response is 1-cycle pipelined so it lines up with the
-// direction predictor.
+// Small, fast target predictor.  It is keyed by a 32B region and stores at most
+// two taken CFI per region (`slot[2]`).  A slot has NO `taken` field: direction
+// is owned by the direction predictor, and slot[0]/slot[1] participate in
+// `pred_taken` independently (R1).
 //
-// The table is a fully-associative uBTB keyed by the FETCH_WIDTH aligned block.
-// Each entry holds up to FETCH_WIDTH CFI slots (a block of N instructions can
-// contain at most N control-flow instructions), so a block with several
-// branches no longer aliases into a single entry.  The per-entry `useful_cnt`
-// plays the role of both the valid bit and an "always-taken" confidence
-// counter (valid == useful_cnt > 0).  On replacement a dead entry
-// (useful_cnt == 0) is preferred, otherwise the tree-PLRU way is evicted.
+// Storage is split into UBTB_BANKS x UBTB_WAYS (bank = tag low bits) so the
+// fully-associative tag compare and the CFI select are shallow and can be
+// reduced one-hot instead of through a wide priority mux (R6 timing).
 //
-// A fetch window may start unaligned, in which case its tail reaches into the
-// *next* block; the predictor therefore looks up both the block containing
-// `fetch_pc` and the following block and merges their slots.
+// `useful_cnt` is PER-SLOT (R4): valid == useful_cnt > 0.
+//
+// Timing structure (important):
+//   * PREDICTION is a single registered level and must NOT be pipelined further:
+//       request -> read btb_mem / one-hot map -> response register.
+//   * UPDATE is a separate 4-stage background pipeline so the
+//       `btb_mem -> match/PLRU/victim -> btb_mem.D` path is cut by registers:
+//       U0 sample+address, U1 read the bank + PLRU and register, U2 match /
+//       victim / new entry, U3 write back + PLRU touch.
+//     Update latency is 4 cycles and does not affect prediction latency.
 /* verilator lint_off UNUSEDSIGNAL */
 module ubtb (
     input logic clk,
@@ -32,119 +35,114 @@ module ubtb (
 
     // update port: only taken branches/jumps allocate a target
     input logic                                                update_en,
+    output logic update_ready,
     input                           [fe_pkg::ADDR_WIDTH - 1:0] update_pc,
     input logic                                                actual_taken,
+    input logic                                                update_pred_taken,
     input fe_pkg::btb_target_info_t                            update_target
 );
     import fe_pkg::*;
 
-    localparam int unsigned ENTRIES      = 1 << UBTB_WIDTH;
-    localparam int unsigned OFFSET_WIDTH = $clog2(FETCH_WIDTH * INST_BYTES);
-    localparam int unsigned TAG_WIDTH    = ADDR_WIDTH - OFFSET_WIDTH;
-    localparam int unsigned BLOCK_BYTES  = FETCH_WIDTH * INST_BYTES;
-    localparam int unsigned PLRU_BITS    = ENTRIES - 1;
-    localparam int unsigned CFI_CNT_W    = $clog2(FETCH_WIDTH + 1);
-    localparam int unsigned SLOT_OFF_W   = $clog2(2 * FETCH_WIDTH);
-
-    // Balanced priority tree, preserving the old highest-match / lowest-free
-    // selection. A serial 256-entry priority walk inferred >100 LUT levels.
-    function automatic logic [UBTB_WIDTH-1:0] select_index(
-        input logic [ENTRIES-1:0] mask, input logic prefer_low);
-        logic [2*ENTRIES-2:0] node_valid;
-        logic [UBTB_WIDTH-1:0] node_index [2*ENTRIES-1];
-        for (int n=0;n<ENTRIES;n++) begin
-            node_valid[ENTRIES-1+n]=mask[n];
-            node_index[ENTRIES-1+n]=UBTB_WIDTH'(n);
-        end
-        for (int n=ENTRIES-2;n>=0;n--) begin
-            node_valid[n]=node_valid[2*n+1] || node_valid[2*n+2];
-            if (prefer_low)
-                node_index[n]=node_valid[2*n+1] ? node_index[2*n+1] : node_index[2*n+2];
-            else
-                node_index[n]=node_valid[2*n+2] ? node_index[2*n+2] : node_index[2*n+1];
-        end
-        return node_valid[0] ? node_index[0] : '0;
-    endfunction
+    localparam int unsigned WAY_IDX_W  = (UBTB_WAYS > 1) ? $clog2(UBTB_WAYS) : 1;
+    localparam int unsigned SLOT_IDX_W = (UBTB_SLOT_NUM > 1) ? $clog2(UBTB_SLOT_NUM) : 1;
+    localparam int unsigned PLRU_BITS  = UBTB_WAYS - 1;
+    localparam int unsigned POS_MASK_W = UBTB_POS_WIDTH;
 
     (* ram_style = "distributed" *)
-    btb_entry_t btb_mem[ENTRIES];
+    ubtb_entry_t btb_mem [UBTB_BANKS][UBTB_WAYS];
 
-    logic [PLRU_BITS-1:0] plru;
+    // per-bank tree-PLRU state
+    logic [UBTB_BANKS-1:0][PLRU_BITS-1:0] plru;
 
-    // ------ index -------
-
-    logic [ADDR_WIDTH-1:0] pred_block_pc;
-    logic [ADDR_WIDTH-1:0] pred_next_block_pc;
-    logic [ADDR_WIDTH-1:0] update_block_pc;
-    logic [TAG_WIDTH-1:0] pred_tag_lo;
-    logic [TAG_WIDTH-1:0] pred_tag_hi;
-    logic [TAG_WIDTH-1:0] update_tag;
-
-    // implement a cross-block lookup to handle the issue
-    // that fetch pc isn't aligned to the fetch block
-    assign pred_block_pc      = fetch_pc & ~(BLOCK_BYTES - 1);
-    assign pred_next_block_pc = pred_block_pc + BLOCK_BYTES;
-    assign update_block_pc    = update_pc & ~(BLOCK_BYTES - 1);
-    assign pred_tag_lo        = pred_block_pc[ADDR_WIDTH-1:OFFSET_WIDTH];
-    assign pred_tag_hi        = pred_next_block_pc[ADDR_WIDTH-1:OFFSET_WIDTH];
-    assign update_tag         = update_block_pc[ADDR_WIDTH-1:OFFSET_WIDTH];
-
-    // ------ predict ------
-    logic                  hit_lo;
-    logic [UBTB_WIDTH-1:0] idx_lo;
-    logic                  hit_hi;
-    logic [UBTB_WIDTH-1:0] idx_hi;
-    logic [ENTRIES-1:0] pred_matches_lo, pred_matches_hi;
-
-    always_comb begin
-        for (int i = 0; i < ENTRIES; i++) begin
-            pred_matches_lo[i]=(btb_mem[i].useful_cnt != '0) && (btb_mem[i].tag == pred_tag_lo);
-            pred_matches_hi[i]=(btb_mem[i].useful_cnt != '0) && (btb_mem[i].tag == pred_tag_hi);
+    // ------- PLRU helpers -------
+    function automatic logic [WAY_IDX_W-1:0] plru_victim_fn(input logic [PLRU_BITS-1:0] cur);
+        logic [WAY_IDX_W-1:0] vic;
+        int node;
+        vic  = '0;
+        node = 0;
+        for (int level = 0; level < WAY_IDX_W; level++) begin
+            vic  = (vic << 1) | WAY_IDX_W'(cur[node]);
+            node = (node << 1) + 1 + cur[node];
         end
-        hit_lo=|pred_matches_lo; idx_lo=select_index(pred_matches_lo,1'b0);
-        hit_hi=|pred_matches_hi; idx_hi=select_index(pred_matches_hi,1'b0);
-    end
+        return vic;
+    endfunction
 
-    // map the CFI records of both blocks to the slots of this fetch window
-    logic [FETCH_WIDTH-1:0] fetch_block_offset;
-    assign fetch_block_offset = FETCH_WIDTH'(fetch_pc[OFFSET_WIDTH-1:2]);
+    function automatic logic [PLRU_BITS-1:0] plru_touch(input logic [PLRU_BITS-1:0] cur,
+                                                        input logic [WAY_IDX_W-1:0] way);
+        logic [PLRU_BITS-1:0] next_plru;
+        int node;
+        next_plru = cur;
+        node = 0;
+        for (int level = WAY_IDX_W - 1; level >= 0; level--) begin
+            next_plru[node] = ~way[level];
+            node = 2 * node + 1 + way[level];
+        end
+        return next_plru;
+    endfunction
+
+    // =======================================================================
+    // PREDICTION: single registered level (do NOT add pipeline stages)
+    // =======================================================================
+    logic [ADDR_WIDTH-1:0] pred_region_lo;
+    logic [ADDR_WIDTH-1:0] pred_region_hi;
+    logic [UBTB_TAG_WIDTH-1:0] pred_tag_lo;
+    logic [UBTB_TAG_WIDTH-1:0] pred_tag_hi;
+
+    assign pred_region_lo = fetch_pc & ~ADDR_WIDTH'(UBTB_REGION_BYTES - 1);
+    assign pred_region_hi = pred_region_lo + ADDR_WIDTH'(UBTB_REGION_BYTES);
+    assign pred_tag_lo    = pred_region_lo[ADDR_WIDTH-1:UBTB_REGION_WIDTH];
+    assign pred_tag_hi    = pred_region_hi[ADDR_WIDTH-1:UBTB_REGION_WIDTH];
 
     logic      [FETCH_WIDTH-1:0]                 pred_cfi_valid_comb;
     cfi_type_t [FETCH_WIDTH-1:0]                 pred_cfi_type_comb;
     logic      [FETCH_WIDTH-1:0][ADDR_WIDTH-1:0] pred_target_comb;
 
     always_comb begin
+        logic [ADDR_WIDTH-1:0] cfi_pc;
+        logic [ADDR_WIDTH-1:0] off;
+        cfi_pc = '0;
+        off    = '0;
+
         for (int i = 0; i < FETCH_WIDTH; i++) begin
-            logic [SLOT_OFF_W-1:0] slot_offset;
-            slot_offset            = SLOT_OFF_W'(fetch_block_offset) + SLOT_OFF_W'(i);
             pred_cfi_valid_comb[i] = 1'b0;
             pred_cfi_type_comb[i]  = CFI_NONE;
             pred_target_comb[i]    = '0;
+        end
 
-            if (slot_offset < SLOT_OFF_W'(FETCH_WIDTH)) begin
-                for (int r = 0; r < FETCH_WIDTH; r++) begin
-                    if (hit_lo && (r < int'(btb_mem[idx_lo].cfi_count)) &&
-                        (SLOT_OFF_W'(btb_mem[idx_lo].cfi[r].cfi_offset) == slot_offset)) begin
-                        pred_cfi_valid_comb[i] = 1'b1;
-                        pred_cfi_type_comb[i]  = btb_mem[idx_lo].cfi[r].cfi_type;
-                        pred_target_comb[i]    = btb_mem[idx_lo].cfi[r].target_pc;
+        for (int b = 0; b < UBTB_BANKS; b++) begin
+            for (int w = 0; w < UBTB_WAYS; w++) begin
+                if (btb_mem[b][w].tag == pred_tag_lo) begin
+                    for (int s = 0; s < UBTB_SLOT_NUM; s++) begin
+                        if (btb_mem[b][w].slot[s].useful_cnt != '0) begin
+                            cfi_pc = pred_region_lo
+                                   + ADDR_WIDTH'({btb_mem[b][w].slot[s].position, 2'b00});
+                            off = cfi_pc - fetch_pc;
+                            if (off < ADDR_WIDTH'(FETCH_WIDTH * INST_BYTES)) begin
+                                pred_cfi_valid_comb[off[3:2]] = 1'b1;
+                                pred_cfi_type_comb[off[3:2]]  = btb_mem[b][w].slot[s].cfi_type;
+                                pred_target_comb[off[3:2]]    = btb_mem[b][w].slot[s].target;
+                            end
+                        end
                     end
                 end
-            end else begin
-                for (int r = 0; r < FETCH_WIDTH; r++) begin
-                    if (hit_hi && (r < int'(btb_mem[idx_hi].cfi_count)) &&
-                        (SLOT_OFF_W'(btb_mem[idx_hi].cfi[r].cfi_offset) +
-                         SLOT_OFF_W'(FETCH_WIDTH) == slot_offset)) begin
-                        pred_cfi_valid_comb[i] = 1'b1;
-                        pred_cfi_type_comb[i]  = btb_mem[idx_hi].cfi[r].cfi_type;
-                        pred_target_comb[i]    = btb_mem[idx_hi].cfi[r].target_pc;
+                if (btb_mem[b][w].tag == pred_tag_hi) begin
+                    for (int s = 0; s < UBTB_SLOT_NUM; s++) begin
+                        if (btb_mem[b][w].slot[s].useful_cnt != '0) begin
+                            cfi_pc = pred_region_hi
+                                   + ADDR_WIDTH'({btb_mem[b][w].slot[s].position, 2'b00});
+                            off = cfi_pc - fetch_pc;
+                            if (off < ADDR_WIDTH'(FETCH_WIDTH * INST_BYTES)) begin
+                                pred_cfi_valid_comb[off[3:2]] = 1'b1;
+                                pred_cfi_type_comb[off[3:2]]  = btb_mem[b][w].slot[s].cfi_type;
+                                pred_target_comb[off[3:2]]    = btb_mem[b][w].slot[s].target;
+                            end
+                        end
                     end
                 end
             end
         end
     end
 
-    // 1-cycle pipelined response
     logic                                        req_valid_r;
     logic      [ ADDR_WIDTH-1:0]                 req_pc_r;
     logic      [FETCH_WIDTH-1:0]                 pred_cfi_valid_r;
@@ -157,115 +155,193 @@ module ubtb (
     assign pred_cfi_type  = pred_cfi_type_r;
     assign pred_target    = pred_target_r;
 
-    // -------- update ---------
-    logic                  update_has_match;
-    logic [UBTB_WIDTH-1:0] update_match_idx;
-    logic [ENTRIES-1:0] update_matches;
-    always_comb begin
-        for (int i = 0; i < ENTRIES; i++) begin
-            update_matches[i]=(btb_mem[i].tag == update_tag);
-        end
-        update_has_match=|update_matches;
-        update_match_idx=select_index(update_matches,1'b0);
-    end
+    // =======================================================================
+    // UPDATE: U0 / U1 / U2 / U3 (independent background pipeline)
+    // =======================================================================
+    // launch source: an older pending request wins over the live input
+    logic                  pend_valid;
+    logic [ADDR_WIDTH-1:0] pend_pc;
+    logic [ADDR_WIDTH-1:0] pend_target;
+    cfi_type_t             pend_type;
+    logic                  pend_taken;
+    logic                  pend_pred_taken;
 
-    // does the block entry already carry a CFI at this offset?
-    logic                 update_record_match;
-    logic [CFI_CNT_W-1:0] update_record_idx;
+    wire [ADDR_WIDTH-1:0] src_pc         = pend_valid ? pend_pc         : update_pc;
+    wire [ADDR_WIDTH-1:0] src_target     = pend_valid ? pend_target     : update_target.target_pc;
+    wire cfi_type_t       src_type       = pend_valid ? pend_type       : update_target.cfi_type;
+    wire                  src_taken      = pend_valid ? pend_taken      : actual_taken;
+    wire                  src_pred_taken = pend_valid ? pend_pred_taken : update_pred_taken;
+    wire                  src_valid      = pend_valid | update_en;
+
+    wire [ADDR_WIDTH-1:0]      src_region = src_pc & ~ADDR_WIDTH'(UBTB_REGION_BYTES - 1);
+    wire [UBTB_TAG_WIDTH-1:0]  src_tag    = src_region[ADDR_WIDTH-1:UBTB_REGION_WIDTH];
+    wire [UBTB_BANK_SEL_WIDTH-1:0] src_bank = src_tag[UBTB_BANK_SEL_WIDTH-1:0];
+    wire [POS_MASK_W-1:0]      src_pos    = POS_MASK_W'((src_pc >> 2) & ((1 << UBTB_POS_WIDTH) - 1));
+
+    // U0 registers
+    logic                          upd_valid_u0;
+    logic [UBTB_BANK_SEL_WIDTH-1:0] upd_bank_u0;
+    logic [UBTB_TAG_WIDTH-1:0]     upd_tag_u0;
+    logic [UBTB_POS_WIDTH-1:0]     upd_pos_u0;
+    cfi_type_t                     upd_type_u0;
+    logic [ADDR_WIDTH-1:0]         upd_target_u0;
+    logic                          upd_taken_u0, upd_pred_taken_u0;
+
+    // U1 registers
+    logic                          upd_valid_u1;
+    logic [UBTB_BANK_SEL_WIDTH-1:0] upd_bank_u1;
+    logic [UBTB_TAG_WIDTH-1:0]     upd_tag_u1;
+    logic [UBTB_POS_WIDTH-1:0]     upd_pos_u1;
+    cfi_type_t                     upd_type_u1;
+    logic [ADDR_WIDTH-1:0]         upd_target_u1;
+    logic                          upd_taken_u1, upd_pred_taken_u1;
+    ubtb_entry_t                   upd_way_u1 [UBTB_WAYS];
+    logic [PLRU_BITS-1:0]          upd_plru_u1;
+
+    // U2 registers
+    logic                          upd_valid_u2;
+    logic [UBTB_BANK_SEL_WIDTH-1:0] upd_bank_u2;
+    logic [WAY_IDX_W-1:0]          upd_way_u2;
+    ubtb_entry_t                   upd_entry_u2;
+    logic                          upd_wr_en_u2;
+    logic                          upd_plru_we_u2;
+    logic [PLRU_BITS-1:0]          upd_plru_u2;
+
+    // Same-bank hazard: a not-yet-written update is in U0/U1/U2 (write is 4
+    // cycles after launch).  Defer a same-bank source (depth-1 pending buffer).
+    wire upd_conflict = src_valid &&
+                        ((upd_valid_u0 && (src_bank == upd_bank_u0)) ||
+                         (upd_valid_u1 && (src_bank == upd_bank_u1)) ||
+                         (upd_valid_u2 && (src_bank == upd_bank_u2)));
+    wire upd_launch   = src_valid && !upd_conflict;
+    // The single pending slot must never silently overwrite a training event.
+    assign update_ready = !pend_valid;
+
+    // U2 combinational match / victim / new entry (reads only U1 registers)
+    logic                 upd_has_match;
+    logic [WAY_IDX_W-1:0] upd_match_way;
+    logic                 upd_slot_match;
+    logic [SLOT_IDX_W-1:0] upd_slot_idx;
+    logic                 upd_info_match;
+    logic                 upd_has_free;
+    logic [SLOT_IDX_W-1:0] upd_free_idx;
+    logic                 upd_has_dead;
+    logic [WAY_IDX_W-1:0] upd_dead_idx;
+    logic [WAY_IDX_W-1:0] upd_victim;
+    logic [WAY_IDX_W-1:0] upd_way_sel;
+    logic                 upd_wr_en;
+    logic                 upd_plru_we;
+    ubtb_entry_t          upd_entry;
+    logic [PLRU_BITS-1:0] upd_plru_next;
+
     always_comb begin
-        update_record_match = 1'b0;
-        update_record_idx   = '0;
-        if (update_has_match) begin
-            for (int r = 0; r < FETCH_WIDTH; r++) begin
-                if ((r < btb_mem[update_match_idx].cfi_count) &&
-                    (btb_mem[update_match_idx].cfi[r].cfi_offset == update_target.cfi_offset)) begin
-                    update_record_match = 1'b1;
-                    update_record_idx   = CFI_CNT_W'(r);
+        ubtb_slot_t new_slot;
+
+        upd_has_match  = 1'b0;
+        upd_match_way  = '0;
+        upd_slot_match = 1'b0;
+        upd_slot_idx   = '0;
+        upd_has_free   = 1'b0;
+        upd_free_idx   = '0;
+        upd_has_dead   = 1'b0;
+        upd_dead_idx   = '0;
+        upd_wr_en      = 1'b0;
+        upd_plru_we    = 1'b0;
+        upd_plru_next  = upd_plru_u1;
+        upd_entry      = upd_way_u1[0];
+
+        for (int w = 0; w < UBTB_WAYS; w++) begin
+            if (upd_way_u1[w].tag == upd_tag_u1) begin
+                upd_has_match = 1'b1;
+                upd_match_way = WAY_IDX_W'(w);
+            end
+            if ((upd_way_u1[w].slot[0].useful_cnt == '0) &&
+                (upd_way_u1[w].slot[1].useful_cnt == '0) && !upd_has_dead) begin
+                upd_has_dead = 1'b1;
+                upd_dead_idx = WAY_IDX_W'(w);
+            end
+        end
+
+        if (upd_has_match) begin
+            for (int s = 0; s < UBTB_SLOT_NUM; s++) begin
+                if (!upd_slot_match &&
+                    (upd_way_u1[upd_match_way].slot[s].position == upd_pos_u1)) begin
+                    upd_slot_match = 1'b1;
+                    upd_slot_idx   = SLOT_IDX_W'(s);
                 end
+                if (!upd_has_free &&
+                    (upd_way_u1[upd_match_way].slot[s].useful_cnt == '0)) begin
+                    upd_has_free = 1'b1;
+                    upd_free_idx = SLOT_IDX_W'(s);
+                end
+            end
+        end
+
+        upd_info_match = upd_slot_match &&
+            (upd_way_u1[upd_match_way].slot[upd_slot_idx].target == upd_target_u1) &&
+            (upd_way_u1[upd_match_way].slot[upd_slot_idx].cfi_type == upd_type_u1);
+
+        upd_victim = upd_has_dead ? upd_dead_idx : plru_victim_fn(upd_plru_u1);
+        upd_way_sel = upd_has_match ? upd_match_way : upd_victim;
+
+        new_slot.position         = upd_pos_u1;
+        new_slot.cfi_type         = upd_type_u1;
+        new_slot.is_static_target = (upd_type_u1 != CFI_RETURN) &&
+                                    (upd_type_u1 != CFI_INDIRECT_JUMP);
+        new_slot.target           = upd_target_u1;
+        new_slot.useful_cnt       = 2'b01;
+
+        upd_entry = upd_way_u1[upd_way_sel];
+
+        if (upd_taken_u1) begin
+            if (!upd_has_match) begin
+                upd_entry.tag             = upd_tag_u1;
+                upd_entry.slot[0]         = new_slot;
+                upd_entry.slot[1].useful_cnt = '0;
+                upd_wr_en   = 1'b1;
+                upd_plru_we = 1'b1;
+                upd_plru_next = plru_touch(upd_plru_u1, upd_victim);
+            end else if (upd_slot_match) begin
+                if (upd_info_match) begin
+                    if (upd_way_u1[upd_match_way].slot[upd_slot_idx].useful_cnt != '1) begin
+                        upd_entry.slot[upd_slot_idx].useful_cnt =
+                            upd_way_u1[upd_match_way].slot[upd_slot_idx].useful_cnt + 1'b1;
+                    end
+                end else begin
+                    upd_entry.slot[upd_slot_idx] = new_slot;
+                end
+                upd_wr_en     = 1'b1;
+                upd_plru_we   = 1'b1;
+                upd_plru_next = plru_touch(upd_plru_u1, upd_match_way);
+            end else if (upd_has_free) begin
+                upd_entry.slot[upd_free_idx] = new_slot;
+                upd_wr_en     = 1'b1;
+                upd_plru_we   = 1'b1;
+                upd_plru_next = plru_touch(upd_plru_u1, upd_match_way);
+            end else begin
+                if (upd_way_u1[upd_match_way].slot[0].useful_cnt
+                    <= upd_way_u1[upd_match_way].slot[1].useful_cnt) begin
+                    upd_entry.slot[0] = new_slot;
+                end else begin
+                    upd_entry.slot[1] = new_slot;
+                end
+                upd_wr_en     = 1'b1;
+                upd_plru_we   = 1'b1;
+                upd_plru_next = plru_touch(upd_plru_u1, upd_match_way);
+            end
+        end else if (upd_pred_taken_u1) begin
+            if (upd_has_match && upd_slot_match &&
+                (upd_way_u1[upd_match_way].slot[upd_slot_idx].useful_cnt != '0)) begin
+                upd_entry.slot[upd_slot_idx].useful_cnt =
+                    upd_way_u1[upd_match_way].slot[upd_slot_idx].useful_cnt - 1'b1;
+                upd_wr_en = 1'b1;
             end
         end
     end
 
-    logic update_record_info_match;
-    assign update_record_info_match =
-        update_record_match &&
-        (btb_mem[update_match_idx].cfi[update_record_idx].target_pc == update_target.target_pc) &&
-        (btb_mem[update_match_idx].cfi[update_record_idx].cfi_type == update_target.cfi_type);
-
-    btb_cfi_t update_cfi;
-    assign update_cfi = '{
-            cfi_offset: update_target.cfi_offset,
-            cfi_type: update_target.cfi_type,
-            target_pc: update_target.target_pc
-        };
-
-    // ------- PLRU --------
-    // tree-based pseudo-LRU over the ENTRIES ways
-    logic [UBTB_WIDTH-1:0] plru_victim;
-    always_comb begin
-        int node;
-        node = 0;
-        plru_victim = '0;
-        for (int level = 0; level < UBTB_WIDTH; level++) begin
-            plru_victim = (plru_victim << 1) | UBTB_WIDTH'(plru[node]);
-            node = (node << 1) + 1 + int'(plru[node]);
-        end
-    end
-
-    // lowest-index entry whose useful counter has already decayed to 0
-    logic                  has_useful_zero;
-    logic [UBTB_WIDTH-1:0] useful_zero_idx;
-    logic [ENTRIES-1:0] useful_zero_mask;
-    always_comb begin
-        for (int i = 0; i < ENTRIES; i++) begin
-            useful_zero_mask[i]=(btb_mem[i].useful_cnt == '0);
-        end
-        has_useful_zero=|useful_zero_mask;
-        useful_zero_idx=select_index(useful_zero_mask,1'b1);
-    end
-
-    // replacement victim: a dead entry if any, otherwise the PLRU way
-    logic [UBTB_WIDTH-1:0] victim_way;
-    assign victim_way = has_useful_zero ? useful_zero_idx : plru_victim;
-
-    // mark the accessed way as most-recently-used in the PLRU tree
-    function automatic logic [PLRU_BITS-1:0] plru_touch(input logic [PLRU_BITS-1:0] cur,
-                                                        input logic [UBTB_WIDTH-1:0] way);
-        logic [PLRU_BITS-1:0] next_plru;
-        int node;
-        next_plru = cur;
-        node = 0;
-        for (int level = UBTB_WIDTH - 1; level >= 0; level--) begin
-            next_plru[node] = ~way[level];
-            node = 2 * node + 1 + int'(way[level]);
-        end
-        return next_plru;
-    endfunction
-
-    logic                  plru_touch_en;
-    logic [UBTB_WIDTH-1:0] plru_touch_way;
-    logic [ PLRU_BITS-1:0] plru_next;
-
-    assign plru_touch_en  = update_en && actual_taken;
-    assign plru_touch_way = (actual_taken && !update_has_match) ? victim_way : update_match_idx;
-
-    always_comb begin
-        plru_next = plru;
-        if (plru_touch_en) begin
-            plru_next = plru_touch(plru_next, plru_touch_way);
-        end
-    end
-
-    always_ff @(posedge clk) begin
-        if (rst) begin
-            plru <= '0;
-        end else begin
-            plru <= plru_next;
-        end
-    end
-
-    // --------- sequential ---------
-    integer i;
+    // =======================================================================
+    // sequential: prediction register + update pipeline + write-back
+    // =======================================================================
     always_ff @(posedge clk) begin
         if (rst) begin
             req_valid_r      <= 1'b0;
@@ -273,55 +349,102 @@ module ubtb (
             pred_cfi_valid_r <= '0;
             pred_cfi_type_r  <= '0;
             pred_target_r    <= '0;
-            for (i = 0; i < ENTRIES; i = i + 1) begin
-                btb_mem[i].useful_cnt <= '0;
-                btb_mem[i].cfi_count  <= '0;
-            end
-        end else begin
-            req_valid_r      <= req_valid;
-            req_pc_r         <= fetch_pc;
-            pred_cfi_valid_r <= pred_cfi_valid_comb;
-            pred_cfi_type_r  <= pred_cfi_type_comb;
-            pred_target_r    <= pred_target_comb;
 
-            if (update_en) begin
-                if (actual_taken) begin
-                    if (!update_has_match) begin
-                        // fresh block -> allocate the replacement victim with
-                        // this single CFI
-                        btb_mem[victim_way].useful_cnt <= 2'b01;
-                        btb_mem[victim_way].tag        <= update_tag;
-                        btb_mem[victim_way].cfi_count  <= CFI_CNT_W'(1);
-                        btb_mem[victim_way].cfi[0]     <= update_cfi;
-                    end else if (update_record_match) begin
-                        if (update_record_info_match) begin
-                            // same CFI, same target -> confidence +
-                            btb_mem[update_match_idx].useful_cnt <=
-                                (btb_mem[update_match_idx].useful_cnt == '1) ? '1 :
-                                (btb_mem[update_match_idx].useful_cnt + 1'b1);
-                        end else begin
-                            // stale target/type -> rewrite the record
-                            btb_mem[update_match_idx].cfi[update_record_idx] <= update_cfi;
-                            btb_mem[update_match_idx].useful_cnt <= 2'b01;
-                        end
-                    end else begin
-                        // a CFI at an offset the entry did not know yet
-                        if (btb_mem[update_match_idx].cfi_count < CFI_CNT_W'(FETCH_WIDTH)) begin
-                            btb_mem[update_match_idx].cfi[btb_mem[update_match_idx].cfi_count] <= update_cfi;
-                            btb_mem[update_match_idx].cfi_count <= btb_mem[update_match_idx].cfi_count + 1'b1;
-                        end else begin
-                            // extremely rare (all slots already hold a CFI):
-                            // replace the last record
-                            btb_mem[update_match_idx].cfi[FETCH_WIDTH-1] <= update_cfi;
-                        end
-                        btb_mem[update_match_idx].useful_cnt <= 2'b01;
-                    end
-                end else begin
-                    // predicted taken but actually not taken -> decay
-                    if (update_has_match && update_record_match) begin
-                        btb_mem[update_match_idx].useful_cnt <= btb_mem[update_match_idx].useful_cnt - 1'b1;
+            upd_valid_u0 <= 1'b0;
+            upd_bank_u0 <= '0; upd_tag_u0 <= '0; upd_pos_u0 <= '0;
+            upd_type_u0 <= CFI_NONE; upd_target_u0 <= '0;
+            upd_taken_u0 <= 1'b0; upd_pred_taken_u0 <= 1'b0;
+
+            upd_valid_u1 <= 1'b0;
+            upd_bank_u1 <= '0; upd_tag_u1 <= '0; upd_pos_u1 <= '0;
+            upd_type_u1 <= CFI_NONE; upd_target_u1 <= '0;
+            upd_taken_u1 <= 1'b0; upd_pred_taken_u1 <= 1'b0;
+            upd_plru_u1 <= '0;
+
+            upd_valid_u2 <= 1'b0;
+            upd_bank_u2 <= '0; upd_way_u2 <= '0; upd_entry_u2 <= '0;
+            upd_wr_en_u2 <= 1'b0; upd_plru_we_u2 <= 1'b0; upd_plru_u2 <= '0;
+
+            pend_valid <= 1'b0;
+            pend_pc <= '0; pend_target <= '0; pend_type <= CFI_NONE;
+            pend_taken <= 1'b0; pend_pred_taken <= 1'b0;
+
+            for (int b = 0; b < UBTB_BANKS; b++) begin
+                plru[b] <= '0;
+                for (int w = 0; w < UBTB_WAYS; w++) begin
+                    btb_mem[b][w].tag <= '0;
+                    for (int s = 0; s < UBTB_SLOT_NUM; s++) begin
+                        btb_mem[b][w].slot[s].useful_cnt <= '0;
                     end
                 end
+            end
+        end else begin
+            // ---------------- prediction register ----------------
+            req_valid_r <= req_valid;
+            if (req_valid) begin
+                req_pc_r         <= fetch_pc;
+                pred_cfi_valid_r <= pred_cfi_valid_comb;
+                pred_cfi_type_r  <= pred_cfi_type_comb;
+                pred_target_r    <= pred_target_comb;
+            end
+
+            // ---------------- update U0 ----------------
+            upd_valid_u0      <= upd_launch;
+            upd_bank_u0       <= src_bank;
+            upd_tag_u0        <= src_tag;
+            upd_pos_u0        <= src_pos;
+            upd_type_u0       <= src_type;
+            upd_target_u0     <= src_target;
+            upd_taken_u0      <= src_taken;
+            upd_pred_taken_u0 <= src_pred_taken;
+
+            // pending buffer (depth 1)
+            if (pend_valid) begin
+                if (upd_launch) begin
+                    pend_valid <= update_en;
+                    if (update_en) begin
+                        pend_pc <= update_pc; pend_target <= update_target.target_pc;
+                        pend_type <= update_target.cfi_type; pend_taken <= actual_taken;
+                        pend_pred_taken <= update_pred_taken;
+                    end
+                end
+                // else: still conflicted -> hold
+            end else if (update_en && !upd_launch) begin
+                pend_valid <= 1'b1;
+                pend_pc <= update_pc; pend_target <= update_target.target_pc;
+                pend_type <= update_target.cfi_type; pend_taken <= actual_taken;
+                pend_pred_taken <= update_pred_taken;
+            end
+
+            // ---------------- update U1: read the bank + PLRU ----------------
+            upd_valid_u1      <= upd_valid_u0;
+            upd_bank_u1       <= upd_bank_u0;
+            upd_tag_u1        <= upd_tag_u0;
+            upd_pos_u1        <= upd_pos_u0;
+            upd_type_u1       <= upd_type_u0;
+            upd_target_u1     <= upd_target_u0;
+            upd_taken_u1      <= upd_taken_u0;
+            upd_pred_taken_u1 <= upd_pred_taken_u0;
+            upd_plru_u1       <= plru[upd_bank_u0];
+            for (int w = 0; w < UBTB_WAYS; w++) begin
+                upd_way_u1[w] <= btb_mem[upd_bank_u0][w];
+            end
+
+            // ---------------- update U2: match / victim / entry ----------------
+            upd_valid_u2   <= upd_valid_u1;
+            upd_bank_u2    <= upd_bank_u1;
+            upd_way_u2     <= upd_way_sel;
+            upd_entry_u2   <= upd_entry;
+            upd_wr_en_u2   <= upd_valid_u1 && upd_wr_en;
+            upd_plru_we_u2 <= upd_valid_u1 && upd_plru_we;
+            upd_plru_u2    <= upd_plru_next;
+
+            // ---------------- update U3: write back + PLRU ----------------
+            if (upd_wr_en_u2) begin
+                btb_mem[upd_bank_u2][upd_way_u2] <= upd_entry_u2;
+            end
+            if (upd_plru_we_u2) begin
+                plru[upd_bank_u2] <= upd_plru_u2;
             end
         end
     end

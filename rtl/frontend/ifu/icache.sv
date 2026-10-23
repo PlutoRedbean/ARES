@@ -1,6 +1,33 @@
 /* verilator lint_off UNUSEDSIGNAL */ // partial instruction/address fields are intentional
 // Instruction cache sitting between the IFU fetch FSM and the backing memory
 // bus.
+//
+// The IFU presents a fetch PC through a simple request/response handshake:
+//   - `req_valid` / `req_ready` : the IFU offers a PC, the cache accepts it,
+//   - `resp_valid` / `resp_ready`: the cache returns `FETCH_WIDTH` instructions
+//                                 plus a valid mask.
+//
+// Pipelining / crossing:
+//   A fetch window is `FETCH_WIDTH` instructions starting at the (word aligned)
+//   request PC.  It can straddle two 32 B cache lines.  Rather than asking the
+//   IFU to issue a second request (which used to pair the wrong prediction
+//   metadata with the second response), the cache stitches the window out of
+//   the current and the next line itself and returns it in ONE response with
+//   `resp_rmask` fully set.  Both lines' set reads are launched together (two
+//   BRAM ports) on the accept edge.
+//
+//   Latency: the line data array is a synchronous (block-RAM) read.  The set
+//   index is driven and registered on the accept edge, so the data is available
+//   in S_LOOK; the tag compare (metadata in FF/LUT) and way selection run in
+//   S_LOOK and the response is registered the same cycle -> a 2-cycle hit path.
+//   The response is driven by an independent output holding register
+//   (`resp_valid_r`/`resp_data_r`/`resp_rmask_r`), NOT by the FSM state, so
+//   `resp_valid` is held stable until `resp_ready`.  A request is accepted only
+//   in S_IDLE, so the steady state is one response every two cycles for hits.
+//
+//   The `valid`/`age` metadata is reset; tag/data contents are not cleared.
+//   FPGA data storage uses the explicit cache BRAM IP wrapper.
+//
 // The backing bus is selected by the `CONFIG_IO_USE_AXI macro:
 //   - defined   : AXI4-Lite master (`icache_axi_bus`), one 32-bit word per beat,
 //   - commented : miniTensor uncached read handshake (`icache_mt_bus`, see
@@ -78,7 +105,7 @@ module icache #(
 
     logic [ADDR_WIDTH - 1:0] req_pc_r;
 
-    // synchronous read ports
+
     logic [INDEX_WIDTH-1:0] rd_index_a_r;
     logic [INDEX_WIDTH-1:0] rd_index_b_r;
     logic [NR_INSTS-1:0][DATA_WIDTH-1:0] data_a_r[NR_WAYS];
@@ -318,7 +345,8 @@ module icache #(
             end
             for (int s = 0; s < NR_SETS; s++) begin
                 for (int w = 0; w < NR_WAYS; w++) begin
-                    // only reset the meta data
+                    // Only the metadata is reset; tag/data are left alone so the
+                    // tag/data arrays can be inferred as RAM.
                     valid_mem[s][w] <= 1'b0;
                     age_mem[s][w]   <= AGE_W'(w);
                 end
@@ -326,6 +354,9 @@ module icache #(
         end else begin
             if (resp_valid_r && resp_ready) resp_valid_r <= 1'b0;
 
+            // Latch the miss target while it is detected in S_LOOK, so the
+            // refill address and the later fill are driven by registered signals
+            // instead of the tag-compare / victim ripple of this cycle.
             if ((icache_state == S_LOOK) && !all_hit) begin
                 miss_tag_r       <= miss_tag;
                 miss_index_r     <= miss_index;
@@ -348,6 +379,8 @@ module icache #(
                     if (!req_sent) begin
                         if (bus_req_valid && bus_req_ready) req_sent <= 1'b1;
                     end else if (bus_rsp_valid && bus_rsp_ready) begin
+                        // a 128-bit miniTensor beat carries BUS_BEAT_INSTS
+                        // instructions; an AXI beat carries one
                         for (int j = 0; j < BUS_BEAT_INSTS; j++) begin
                             refill_buf[int'(refill_cnt) * BUS_BEAT_INSTS + j]
                                 <= bus_rsp_data[j*INST_WIDTH +: INST_WIDTH];
@@ -361,7 +394,12 @@ module icache #(
                 S_FILL: begin
                     valid_mem[miss_index_r][miss_way_r] <= 1'b1;
                     tag_mem[miss_index_r][miss_way_r] <= miss_tag_r;
+                    // icache_data_way writes the refill through each SDP copy's
+                    // write port; this block only updates the directory.
 
+                    // A crossing block can perform two refills back to back
+                    // (line A, then line B) without returning through S_IDLE, so
+                    // the beat counter must be reset here for the next refill.
                     refill_cnt <= '0;
                     req_sent <= 1'b0;
 
@@ -413,6 +451,8 @@ module icache #(
     end
 
     always_comb begin
+        // Skip the check while reset is asserted: the IFU request register may
+        // still hold its power-up value (random under `+verilator+rand+reset`).
         if (!rst && req_valid && req_ready) begin
             assert (req_addr[1:0] == 2'b00)
             else $fatal("icache request address must be word-aligned");

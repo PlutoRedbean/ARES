@@ -36,6 +36,7 @@ module be_top #(
     output fe_pkg::fe_redirect_kind_t                         backend_redirect_kind,
     output logic                      [fe_pkg::GHR_WIDTH-1:0] backend_redirect_ghr_before,
     output logic                                              backend_redirect_actual_taken,
+    output fe_pkg::bpu_update_t                               backend_redirect_info,
 
     //---- BPU update: Commit -> FE (contract section 4) ---------------------
     input  logic                [1:0] bpu_update_credit,
@@ -685,6 +686,17 @@ module be_top #(
         .cp_rtag(cp_rtag_w),
         .cp_valid_out(cp_valid_w)
     );
+
+    always_comb begin
+        backend_redirect_info = '0;
+        if (sel_branch_w) begin
+            backend_redirect_info.update_pc = entry_w[recovery_tag_w.slot_index].pc;
+            backend_redirect_info.pred_meta = entry_w[recovery_tag_w.slot_index].pred_meta;
+            backend_redirect_info.actual_cfi_type = entry_w[recovery_tag_w.slot_index].actual_cfi_type;
+            backend_redirect_info.actual_taken = bru_actual_taken_w;
+            backend_redirect_info.actual_target = bru_actual_target_w;
+        end
+    end
 
     be_redirect u_redirect (
         .rst                  (rst),

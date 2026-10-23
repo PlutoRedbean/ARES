@@ -36,6 +36,9 @@ class ProjectTest(unittest.TestCase):
             self.assertIn("inputs/rtl/common/fe_pkg.sv", inputs["inputs"])
             self.assertIn("inputs/rtl/top/ares_cpu_top.sv", inputs["inputs"])
             self.assertIn("inputs/rtl/frontend/frontend.sv", inputs["inputs"])
+            source_order = list(inputs["inputs"])
+            self.assertLess(source_order.index("inputs/rtl/frontend/bpu/direction/tage_pkg.sv"),
+                            source_order.index("inputs/rtl/frontend/bpu/direction/tage.sv"))
             self.assertIn("inputs/fpga/vivado/ip/cache_data.tcl", inputs["inputs"])
             self.assertIn("inputs/rtl/memory/dcache_data_way.sv", inputs["inputs"])
             self.assertIn('set ares_icache_line_bits "256"', (out/"generate.tcl").read_text())

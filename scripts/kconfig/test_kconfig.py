@@ -174,13 +174,16 @@ def test_curses_pty():
         return
     deadline = time.time() + 10
     status = None
+    pty_open = True
     while time.time() < deadline:
-        if select.select([fd], [], [], 0.2)[0]:
+        if pty_open and select.select([fd], [], [], 0.2)[0]:
             try:
                 if not os.read(fd, 65536):
-                    break
+                    pty_open = False
             except OSError:
-                break
+                pty_open = False
+        if not pty_open:
+            time.sleep(0.01)
         done, code = os.waitpid(pid, os.WNOHANG)
         if done == pid:
             status = code

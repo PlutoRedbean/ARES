@@ -106,11 +106,13 @@ module gshare (
             // Prediction
             // -----------------------------
 
-            req_pc_r  <= fetch_pc;
-            req_ghr_r <= predict_ghr;
+            if (req_valid) begin
+                req_pc_r  <= fetch_pc;
+                req_ghr_r <= predict_ghr;
 
-            for (i = 0; i < FETCH_WIDTH; i = i + 1) begin
-                counter_r[i] <= gshare_pht[(pred_pc_idx+PHT_WIDTH'(i))^PHT_WIDTH'(predict_ghr)];
+                for (i = 0; i < FETCH_WIDTH; i = i + 1) begin
+                    counter_r[i] <= gshare_pht[(pred_pc_idx+PHT_WIDTH'(i))^PHT_WIDTH'(predict_ghr)];
+                end
             end
 
             // -----------------------------
