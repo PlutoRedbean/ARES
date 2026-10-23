@@ -17,7 +17,7 @@ python3 scripts/vivado/create_project.py --cpu-mhz 250 --with-pll \
 python3 scripts/vivado/create_project.py --cpu-mhz 250 --stage synth \
     --jobs 4 --output build/vivado/synth
 
-# Backend/LSU only, without SoC memory IPs.
+# Backend/LSU only, with DCache data IP but without SoC memories.
 python3 scripts/vivado/create_project.py --profile core --cpu-mhz 250 \
     --output build/vivado/core
 
@@ -86,11 +86,44 @@ IP recipes are versioned Tcl, not inherited XCI or DCP:
 |---|---|---|
 | `ip/memories.tcl` | `IROM_BMEM`, Block Memory Generator 8.4 | 4096 × 64-bit ROM, one-cycle synchronous read, 32KiB |
 | `ip/memories.tcl` | `BRAM`, Block Memory Generator 8.4 | 65536 × 32-bit simple dual-port RAM, four byte write enables, two-cycle registered read, 256KiB |
+| `ip/cache_data.tcl` | `ares_icache_data_bram`, Block Memory Generator 8.4 | configured line width × set count (default 256 × 64), SDP common clock, one-cycle read, synchronous output reset; two copies per ICache way |
+| `ip/cache_data.tcl` | `ares_dcache_data_bram`, Block Memory Generator 8.4 | 512 × 64-bit SDP per DCache way, eight byte write enables, one-cycle read, no data reset |
 | `ip/pll.tcl` | `pll`, Clocking Wizard 6.0 | differential 200MHz input, 50MHz output 1, requested CPU frequency on output 2, `locked`, no reset port |
 
-ARES's own GPR, Cache and queue storage still use RTL inference. No IP replaces
-these datapaths or changes their latency. XPM comes from the installed Vivado
-library. The optional PLL is generated but not instantiated by the OOC tops.
+Cache **data** storage uses these IPs in FPGA builds. Tag/valid/dirty/replacement
+arrays, GPR and queues remain RTL. ICache has two SDP copies per way so both
+read ports and a refill retain their old behavior: port A reads old data on a
+same-address refill, port B holds during refill. The common-clock write port
+uses READ_FIRST; optional output registers are disabled. BMG safety logic is
+explicitly disabled because the platform already supplies synchronous reset
+release and its post-reset EN extension would break output hold. No data RAM
+contents are cleared on reset. The default data-only probe uses 32 RAMB36 for
+ICache plus 2 for DCache (34 of 445 tiles); the shallow, wide ICache and duplicated
+read copies consume more physical capacity than its logical 8KiB size.
+The cross-port old-data behavior follows the synchronous READ_FIRST contract
+in AMD's [Block Memory Generator guide, PG058](https://docs.amd.com/v/u/en-US/pg058-blk-mem-gen).
+
+`CONFIG_SIMULATION` selects portable behavioral storage for Verilator.
+`CONFIG_SIMULATION` plus `ARES_CACHE_IP_SIM` selects the generated IP for vendor
+model verification. The same configuration drives RTL and IP geometry; a
+mismatched ICache wrapper fails elaboration. XPM comes from the installed
+Vivado library. The optional PLL is not instantiated by OOC tops.
+
+To reproduce cache IP synthesis and XSim contract checks (ICache read/refill/
+reset, DCache byte writes and 16/32/64B geometries, DCache controller):
+
+```bash
+python3 scripts/vivado/verify_cache_ip.py --output build/vivado/cache-ip
+vivado -mode batch -source build/vivado/cache-ip/verify.tcl
+```
+
+The tool snapshots verification sources and retains per-test logs under
+`verification_results/`. It checks five cases against BMG behavioral models,
+then the same five in fresh XSim libraries containing the generated RAMB36E1
+functional netlists. Test traffic starts after the 100ns UNISIM configuration
+GSR; ordinary runtime reset and read-cycle checks are still exercised.
+Cache IP recipes are included automatically in every
+profile; neither XCI nor generated IP files need to be checked into Git.
 
 Without program/data images, the platform memories are zero-filled; the
 resulting project is a build scaffold, not a bootable software image. Supply

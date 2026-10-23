@@ -35,6 +35,7 @@ obj_dir/
 *.jou
 *.str
 vivado*.log
+/xvlog.pb
 *.dcp
 *.bit
 *.ltx

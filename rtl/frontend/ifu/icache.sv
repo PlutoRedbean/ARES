@@ -69,14 +69,12 @@ module icache #(
     state_t icache_state;
     state_t icache_n_state;
 
-    // Metadata (valid/tag/age) lives in FF/LUT so the tag compare runs
-    //  The line data is a *synchronous-read* array so
-    // it infers as block RAM
+    // Metadata (valid/tag/age) lives in FF/LUT. Line data uses native
+    // synchronous Block Memory Generator IP through icache_data_way.
     logic valid_mem[NR_SETS][NR_WAYS];
     logic [AGE_W-1:0] age_mem[NR_SETS][NR_WAYS];
     logic [TAG_WIDTH-1:0] tag_mem[NR_SETS][NR_WAYS];
-    (* ram_style = "block" *)
-    logic [NR_INSTS-1:0][DATA_WIDTH-1:0] data_mem[NR_WAYS][NR_SETS];
+    // Each way owns two identical SDP BRAM copies for concurrent line reads.
 
     logic [ADDR_WIDTH - 1:0] req_pc_r;
 
@@ -298,20 +296,12 @@ module icache #(
     wire [INDEX_WIDTH-1:0] rd_addr_b =
         (icache_state == S_IDLE) ? req_line_b_base[OFFSET_WIDTH+:INDEX_WIDTH] : rd_index_b_r;
 
-    always_ff @(posedge clk) begin
-        if (rst) begin
-            for (int w = 0; w < NR_WAYS; w++) begin
-                data_a_r[w] <= '0;
-                data_b_r[w] <= '0;
-            end
-        end else begin
-            for (int w = 0; w < NR_WAYS; w++) begin
-                data_a_r[w] <= data_mem[w][rd_addr_a];
-                if ((icache_state == S_FILL) && (WAY_IDX_W'(w) == miss_way_r))
-                    data_mem[w][miss_index_r] <= refill_buf;
-                else data_b_r[w] <= data_mem[w][rd_addr_b];
-            end
-        end
+    for (genvar w=0; w<NR_WAYS; w++) begin : g_way_data
+        icache_data_way #(.INDEX_BITS(INDEX_WIDTH), .LINE_BITS(NR_INSTS*DATA_WIDTH)) u_data (
+            .clk(clk), .rst(rst), .rd_addr_a(rd_addr_a), .rd_addr_b(rd_addr_b),
+            .wr_addr(miss_index_r), .wr_en((icache_state==S_FILL) && (WAY_IDX_W'(w)==miss_way_r)),
+            .wr_data(refill_buf), .rd_data_a(data_a_r[w]), .rd_data_b(data_b_r[w])
+        );
     end
 
     always_ff @(posedge clk) begin

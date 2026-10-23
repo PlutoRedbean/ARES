@@ -23,8 +23,8 @@
 //   * lru_valid writes "most recently used Way" (lru_way) of lru_set;
 //     lru_rd_last_way is the combinational read of lru_rd_set.
 //   * Reset clears line_valid / dirty / LRU and the read response valid only.
-//     The Tag and Data arrays are deliberately NOT reset (SPEC-D9 / BRAM
-//     inference: resetting them would prevent Block RAM inference).
+//     The Tag and Data arrays are deliberately NOT reset (SPEC-D9). Row data
+//     lives in dcache_data_way / Block Memory Generator IP in FPGA builds.
 //   * A read and a write of the same Way / Set / Row in the same cycle are
 //     forbidden by memory.md 6.3 (the L06 hazard check must prevent them), so
 //     this module makes no promise about read-during-write ordering.
@@ -48,11 +48,15 @@
 // default 32; the [-DCONFIG_LINE_BYTES=..] switch selects the geometry):
 //   $ verilator --lint-only -Wall --assert -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
 //     -DCONFIG_SIMULATION -DCONFIG_LINE_BYTES=32 --top-module dcache_arrays \
-//     rtl/common/ares_pkg.sv rtl/memory/dcache_arrays.sv
+//     +incdir+configs/build/vsrc/include \
+//     rtl/common/fe_pkg.sv rtl/common/ares_pkg.sv \
+//     rtl/memory/dcache_data_way.sv rtl/memory/dcache_arrays.sv
 //   $ verilator --binary --timing -sv --assert -Wall -Wno-DECLFILENAME \
 //     -Wno-TIMESCALEMOD -DCONFIG_SIMULATION -DCONFIG_LINE_BYTES=32 \
+//     +incdir+configs/build/vsrc/include \
 //     --top-module tb_dcache_arrays --Mdir sim/build/unit/tb_dcache_arrays \
-//     -o tb_dcache_arrays rtl/common/ares_pkg.sv rtl/memory/dcache_arrays.sv \
+//     -o tb_dcache_arrays rtl/common/fe_pkg.sv rtl/common/ares_pkg.sv \
+//     rtl/memory/dcache_data_way.sv rtl/memory/dcache_arrays.sv \
 //     rtl/memory/test/unit/tb_dcache_arrays.sv
 //   sim/build/unit/tb_dcache_arrays/tb_dcache_arrays
 //   (-o is resolved against --Mdir by Verilator 5.x, so the binary lands in the
@@ -143,7 +147,6 @@ module dcache_arrays (
     //-------------------------------------------------------------------------
     generate
     for (genvar w = 0; w < NUM_WAYS; w++) begin : g_way
-        logic [63:0]         row_mem [RAM_DEPTH];
         logic [TAG_BITS-1:0] tag_mem [NUM_SETS];
         logic [NUM_SETS-1:0] line_valid_mem;   // the only directory reset state
         logic [NUM_SETS-1:0] dirty_mem;
@@ -153,6 +156,12 @@ module dcache_arrays (
 
         assign rd_ram_addr = ram_addr(rd_set[w], rd_row[w]);
         assign wr_ram_addr = ram_addr(wr_set[w], wr_row[w]);
+
+        dcache_data_way #(.ADDR_BITS(RAM_BITS)) u_data (
+            .clk(clk), .rd_en(rd_valid[w] && !rst), .rd_addr(rd_ram_addr),
+            .rd_data(rsp_data_q[w]), .wr_en(wr_valid[w] && !rst),
+            .wr_addr(wr_ram_addr), .wr_data(wr_data[w]), .wr_be(wr_be[w])
+        );
 
         always_ff @(posedge clk) begin
             if (rst) begin
@@ -167,17 +176,9 @@ module dcache_arrays (
                 if (rd_valid[w]) begin
                     rsp_set_q[w]        <= rd_set[w];
                     rsp_row_q[w]        <= rd_row[w];
-                    rsp_data_q[w]       <= row_mem[rd_ram_addr];
                     rsp_tag_q[w]        <= tag_mem[rd_set[w]];
                     rsp_line_valid_q[w] <= line_valid_mem[rd_set[w]];
                     rsp_dirty_q[w]      <= dirty_mem[rd_set[w]];
-                end
-
-                if (wr_valid[w]) begin
-                    for (int unsigned b = 0; b < 8; b++) begin
-                        if (wr_be[w][b])
-                            row_mem[wr_ram_addr][8*b +: 8] <= wr_data[w][8*b +: 8];
-                    end
                 end
 
                 if (meta_valid[w]) begin

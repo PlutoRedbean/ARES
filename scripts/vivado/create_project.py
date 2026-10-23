@@ -84,7 +84,7 @@ def prepare(args):
         if top != "top":
             raise ValueError("board profile must retain the physical top module 'top'")
         constraints.insert(0, ASSETS / "constraints/board.xdc")
-    recipes = []
+    recipes = [ASSETS / "ip/cache_data.tcl"]
     if args.profile != "core":
         recipes.append(ASSETS / "ip/memories.tcl")
     if args.with_pll or args.profile == "board":
@@ -158,6 +158,8 @@ def prepare(args):
         "ares_cpu_mhz": args.cpu_mhz, "ares_allow_version_mismatch": int(args.allow_version_mismatch),
         "ares_irom_coe": copied[irom] if irom else "",
         "ares_dram_coe": copied[dram] if dram else "",
+        "ares_icache_line_bits": symbols["FE_ICACHE_LINE_BYTES"] * 8,
+        "ares_icache_sets": symbols["FE_ICACHE_NR_SETS"],
     }
     def word(value):
         if isinstance(value, Path):

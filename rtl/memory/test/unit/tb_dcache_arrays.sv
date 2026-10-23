@@ -31,8 +31,10 @@
 // compiled with -DCONFIG_LINE_BYTES=16 / 64):
 //   $ verilator --binary --timing -sv --assert -Wall -Wno-DECLFILENAME \
 //     -Wno-TIMESCALEMOD -DCONFIG_SIMULATION -DCONFIG_LINE_BYTES=32 \
+//     +incdir+configs/build/vsrc/include \
 //     --top-module tb_dcache_arrays --Mdir sim/build/unit/tb_dcache_arrays \
-//     -o tb_dcache_arrays rtl/common/ares_pkg.sv rtl/memory/dcache_arrays.sv \
+//     -o tb_dcache_arrays rtl/common/fe_pkg.sv rtl/common/ares_pkg.sv \
+//     rtl/memory/dcache_data_way.sv rtl/memory/dcache_arrays.sv \
 //     rtl/memory/test/unit/tb_dcache_arrays.sv
 //   sim/build/unit/tb_dcache_arrays/tb_dcache_arrays
 //   (-o is resolved against --Mdir by Verilator 5.x, so the output name must be
@@ -372,6 +374,7 @@ module tb_dcache_arrays;
         logic [WAY_BITS-1:0]         way;
         logic [INDEX_BITS-1:0]       set_i;
         logic [ROW_BITS-1:0]         row;
+        int unsigned                random_seed, random_init;
 
         idle_inputs();
         checks = 0;
@@ -379,7 +382,13 @@ module tb_dcache_arrays;
         rand_cycles = 0;
         n_rd = 0; n_wr = 0; n_wr_part = 0; n_meta = 0; n_lru = 0;
         e_v = '0;
-        void'($urandom(RNG_SEED));
+        // Keep a function call in expression context; XSim does not support
+        // treating $urandom as a task through a void cast.
+        random_seed = RNG_SEED;
+        random_init = $urandom(random_seed);
+        $display("random seed=%08x init=%08x", RNG_SEED, random_init);
+        // Do not write RAM during the 100ns UNISIM configuration GSR.
+        #120;
 
         $display("== tb_dcache_arrays: NUM_WAYS=%0d NUM_SETS=%0d ROWS=%0d TAG_BITS=%0d LINE_BYTES=%0d ==",
                  NUM_WAYS, NUM_SETS, ROWS, TAG_BITS, LINE_BYTES);

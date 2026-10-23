@@ -368,12 +368,14 @@ module tb_lsu;
                                 dut.u_mshr.state_q[0], dut.u_mshr.state_q[1],
                                 dut.u_mshr.line_q[0], dut.u_mshr.line_q[1],
                                 dut.u_mshr.way_q[0], dut.u_mshr.way_q[1]);
-                            $display("  ROWS set=%0d row=%0d way0=%016x way1=%016x",
-                                p_addr[idx][11:5], p_addr[idx][4:3],
-                                dut.u_dcache.u_arrays.g_way[0].row_mem[
-                                    {p_addr[idx][11:5], p_addr[idx][4:3]}],
-                                dut.u_dcache.u_arrays.g_way[1].row_mem[
-                                    {p_addr[idx][11:5], p_addr[idx][4:3]}]);
+                            $display("  ROW responses valid=%b set=%0d/%0d row=%0d/%0d data=%016x/%016x",
+                                dut.u_dcache.u_arrays.rd_rsp_valid,
+                                dut.u_dcache.u_arrays.rd_rsp_set[0],
+                                dut.u_dcache.u_arrays.rd_rsp_set[1],
+                                dut.u_dcache.u_arrays.rd_rsp_row[0],
+                                dut.u_dcache.u_arrays.rd_rsp_row[1],
+                                dut.u_dcache.u_arrays.rd_rsp_data[0],
+                                dut.u_dcache.u_arrays.rd_rsp_data[1]);
                         end
                         chk(completion.result == expected_load(idx), "cacheable load result mismatch");
                     end

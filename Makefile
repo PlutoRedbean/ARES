@@ -147,7 +147,7 @@ ARES_UNIT_SRCS += $(wildcard $(RTL_ROOT)/backend/test/unit/reference/*.sv)
 #-----------------------------------------------------------------------------
 ARES_LSU_UNIT_TBS  := tb_lsu_agu tb_store_forward tb_sq tb_lq tb_lsu_completion \
                       tb_line_adapter tb_lsu \
-                      tb_dcache_arrays tb_wb_buffer tb_mshr tb_mmio_bridge
+                      tb_dcache_arrays tb_dcache_top tb_wb_buffer tb_mshr tb_mmio_bridge
 ARES_LSU_UNIT_SRCS := $(RTL_ROOT)/common/fe_pkg.sv $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
                       $(wildcard $(RTL_ROOT)/memory/*.sv) \
                       $(wildcard $(RTL_ROOT)/memory/test/unit/*.sv)
@@ -275,7 +275,7 @@ clean:
 lint-frontend: config-gen
 	@$(SIM) TOPNAME=tb_ares_cpu lint
 
-FE_UNIT_TBS ?= tb_iq tb_bpu_contract tb_bpu_history tb_fe_be_contract tb_irom_bridge tb_ubtb_equiv
+FE_UNIT_TBS ?= tb_iq tb_bpu_contract tb_bpu_history tb_fe_be_contract tb_irom_bridge tb_ubtb_equiv tb_icache_way
 FE_UNIT_BUILD ?= $(ARES_HOME)/sim/build/unit
 unit-frontend: config-gen
 	@set -e; for tb in $(FE_UNIT_TBS); do \

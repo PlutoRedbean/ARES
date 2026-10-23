@@ -1,0 +1,7 @@
+{
+  "top": "cache_data_probe",
+  "sources": [
+    "rtl/frontend/ifu/icache_data_way.sv",
+    "fpga/vivado/probes/cache_data.sv"
+  ]
+}
