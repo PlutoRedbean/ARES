@@ -35,13 +35,13 @@ KCONFIG   := python3 $(ARES_HOME)/scripts/kconfig/ares_kconfig.py
 
 PROGRAM ?=
 
-.PHONY: all lint lint-all lint-backend lint-lsu unit unit-lsu unit-mt-irq \
-        unit-mt-cpu-irq unit-clint unit-plic tb-ares-pkg tb-fe-stub tb-mem-model \
+.PHONY: all lint lint-all lint-backend lint-lsu lint-l2 unit unit-lsu unit-l2 \
+        unit-mt-irq unit-mt-cpu-irq unit-clint unit-plic tb-ares-pkg tb-fe-stub tb-mem-model \
         sim run wave isa clean menuconfig defconfig oldconfig savedefconfig \
         loaddefconfig showconfig test-config
 
-all: lint lint-backend lint-lsu lint-mt tb-ares-pkg tb-fe-stub tb-mem-model \
-     unit unit-lsu unit-mt-irq unit-mt-cpu-irq unit-clint unit-plic
+all: lint lint-backend lint-lsu lint-l2 lint-mt tb-ares-pkg tb-fe-stub tb-mem-model \
+     unit unit-lsu unit-l2 unit-mt-irq unit-mt-cpu-irq unit-clint unit-plic
 
 # FPGA project generation is independent of legacy npc/ and vendor build files.
 # Explicit frequency keeps the requested clock visible in every team's command.
@@ -194,6 +194,15 @@ ARES_LSU_UNIT_TBS  := tb_lsu_agu tb_store_forward tb_sq tb_lq tb_lsu_completion 
 ARES_LSU_UNIT_SRCS := $(RTL_ROOT)/common/fe_pkg.sv $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
                       $(wildcard $(RTL_ROOT)/memory/*.sv) \
                       $(wildcard $(RTL_ROOT)/memory/test/unit/*.sv)
+# Shared L2 + two-hart bring-up: l2_top itself and the 2-core top.
+ARES_L2_UNIT_TBS := tb_l2 tb_two_core_l2
+ARES_L2_SRCS := $(RTL_ROOT)/common/fe_pkg.sv $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
+                $(RTL_ROOT)/l2/l2_pkg.sv $(RTL_ROOT)/l2/l2_top.sv \
+                $(wildcard $(RTL_ROOT)/backend/*.sv) \
+                $(RTL_ROOT)/backend/test/unit/fe_model.sv \
+                $(wildcard $(RTL_ROOT)/memory/*.sv) \
+                $(RTL_ROOT)/top/ares_core_top.sv $(RTL_ROOT)/top/ares_2core_l2_top.sv
+
 ARES_CFG_INC := +incdir+$(ARES_HOME)/configs/build/vsrc/include
 VERILATOR_LINT_FLAGS := --lint-only -Wall --assert -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
                         -DCONFIG_SIMULATION $(ARES_CFG_INC)
@@ -225,6 +234,35 @@ lint-lsu: config-gen
 	    $(RTL_ROOT)/common/fe_pkg.sv $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
 	    $(wildcard $(RTL_ROOT)/backend/*.sv) $(wildcard $(RTL_ROOT)/memory/*.sv) \
     $(RTL_ROOT)/top/ares_core_top.sv || exit 1
+
+lint-l2: config-gen
+	@echo "[lint] l2_top"
+	@verilator $(VERILATOR_LINT_FLAGS) -Wno-PINCONNECTEMPTY --top-module l2_top \
+	    $(RTL_ROOT)/l2/l2_pkg.sv $(RTL_ROOT)/l2/l2_top.sv
+	@echo "[lint] ares_2core_l2_top"
+	@verilator $(VERILATOR_LINT_FLAGS) -Wno-PINCONNECTEMPTY --top-module ares_2core_l2_top \
+	    $(ARES_L2_SRCS)
+
+unit-l2: config-gen
+	@set -e; for tb in $(ARES_L2_UNIT_TBS); do \
+	  d=$(ARES_HOME)/sim/build/unit/$$tb; \
+	  echo "[unit-l2] $$tb"; \
+	  case $$tb in \
+	    tb_l2)          tb_src=$(RTL_ROOT)/l2/test/tb_l2.sv ;; \
+	    tb_two_core_l2) tb_src=$(RTL_ROOT)/top/test/tb_two_core_l2.sv ;; \
+	    *) echo "unknown L2 TB $$tb"; exit 1 ;; \
+	  esac; \
+	  rm -rf $$d; mkdir -p $$d/ccache-tmp; \
+	  CCACHE_TEMPDIR=$$d/ccache-tmp verilator --binary --timing -sv --assert \
+	      -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD -Wno-SIDEEFFECT -Wno-BLKSEQ \
+	      -Wno-PINCONNECTEMPTY -DCONFIG_SIMULATION $(ARES_CFG_INC) \
+	      --top-module $$tb --Mdir $$d -o $$d/$$tb $(ARES_L2_SRCS) $$tb_src; \
+	  if $$d/$$tb > $$d/run.log 2>&1; then \
+	    grep -E "ALL TESTS PASSED" $$d/run.log | head -1; \
+	  else \
+	    echo "*** $$tb FAILED ***"; tail -30 $$d/run.log; exit 1; \
+	  fi; \
+	done
 
 unit: config-gen
 	@set -e; for tb in $(ARES_UNIT_TBS); do \

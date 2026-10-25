@@ -70,7 +70,8 @@ VSRCS  += $(filter-out $(ARES_PKG) $(ARES_FE_PKG), $(wildcard $(RTL_ROOT)/common
 VSRCS  += $(wildcard $(RTL_ROOT)/common/*/*.sv)
 VSRCS  += $(wildcard $(RTL_ROOT)/backend/*.sv) $(wildcard $(RTL_ROOT)/backend/*/*.sv)
 VSRCS  += $(wildcard $(RTL_ROOT)/memory/*.sv)  $(wildcard $(RTL_ROOT)/memory/*/*.sv)
-VSRCS  += $(RTL_ROOT)/top/ares_core_top.sv
+VSRCS  += $(wildcard $(RTL_ROOT)/l2/*.sv)
+VSRCS  += $(RTL_ROOT)/top/ares_core_top.sv $(RTL_ROOT)/top/ares_2core_l2_top.sv
 VSRCS  += $(ARES_TBS)
 
 # Self-checking unit tops (docs/implementation_plan.md section 9.2).

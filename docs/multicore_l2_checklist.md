@@ -5,9 +5,9 @@
 > Tensor 采用 **中断驱动**：每个 tensor 在“需要 CPU 投喂下一条工作/结果完成/出错”时向所属 hart 发中断。
 > 本文只覆盖“L2 + 多核 + per-core tensor 中断”这一阶段；DDR3、视频链路、HDMI、SMP/硬件 coherence 明确列为后续。
 >
-> 结论先说：**当前项目不能靠“例化两份 ares_core_top”直接变成 2-core。**
-> 真正阻塞多核的不是 L2 本身，而是：真实前端尚未接入且契约未迁移、hart 级 CSR/中断未多核化、
-> FENCE/FENCE.I 未实现、共享存储层次不存在、多核软件与验证环境不存在。
+> 结论先说：**结构上已经可以例化两份 ares_core_top 并共享一份 L2，但还不是可启动的 2-core SoC。**
+> 真正阻塞多核软件的是：真实前端尚未接入且契约未迁移、CLINT/PLIC/Mailbox 尚未汇入 2-core 顶层、
+> 多核启动/AMP 软件与验证环境不存在。共享 L2 的 bring-up 版本已落地（见 §6.2）。
 
 ---
 
@@ -85,9 +85,9 @@
 
 | # | 缺口 | 证据 | 影响 |
 |---|---|---|---|
-| G1 | SoC 仍是单 hart | [rtl/top/ares_core_top.sv](../rtl/top/ares_core_top.sv) 注释为 single hart；[rtl/top/student_top.sv](../rtl/top/student_top.sv) 只例化一个 `Core_cpu` | 没有第二套 FE/BE/LSU |
+| G1 | SoC 仍是单 hart | [rtl/top/student_top.sv](../rtl/top/student_top.sv) 只例化一个 `Core_cpu`；新增 [ares_2core_l2_top.sv](../rtl/top/ares_2core_l2_top.sv) 已例化两个 hart，但 FE 仍为外部端口 | 还没有可启动的 2-core SoC |
 | G2 | 真实 FE 未接入，契约仍旧 | [rtl/frontend/frontend.sv](../rtl/frontend/frontend.sv) 仍用 `iq_rvalid` / `iq_raccept_cnt` / 单 lane `bpu_update_en`；SoC 的 FE 端口由外部/桩驱动；FE 不在 `make lint`/`sim` 源列表 | 第二核没有可综合的取指通路；这是 2-core 的第一阻塞项 |
-| G3 | 无 L2/SPM/多端口互连 | LSU 只有一条 128-bit beat 通道；[rtl/soc/jyd/ares_jyd_bus_bridge.sv](../rtl/soc/jyd/ares_jyd_bus_bridge.sv) 单 outstanding read + 32-bit 外设口 | 两核会互相阻塞，无法共享缓存/带宽 |
+| G3 | 无最终 L2/SPM/多端口互连 | 新增 [l2_top.sv](../rtl/l2/l2_top.sv) 为 4-way/64 B/2-core-port/write-back bring-up L2；最终 128 KiB、8 bank、MSHR/QoS、video port、SPM 仍未做；JYD 总线仍是单主机 | 两核可共享容量，但还没有目标带宽/多 outstanding 性能 |
 | G4 | hart 级 CSR/中断未多核化 | `mhartid` 只读 0；`mip` 只镜像 MTIP；`timer_irq` 单根；无 MSIP/MEIP | 无法做 IPI、per-hart timer、PLIC 外部中断 |
 | G5 | FENCE/FENCE.I 未实现 | [rtl/backend/be_decode.sv](../rtl/backend/be_decode.sv) 把 FENCE 识别后置 decode_err；无 AMO/LR-SC | 自修改代码、代码加载、跨核顺序、原子锁都不可用 |
 | G6 | 无多核软件/验证 | AM BSP 单 hart；`rtthread-nano` 为 RT-Thread Nano 3.1.5，无 SMP；sim 只跟踪一个 hart | 无法启动/验证第二核，无法跑 AMP 场景 |
@@ -238,6 +238,17 @@
 - [ ] SVA：一请求一响应、不丢数据、不重复响应、WBQ 不溢出、flush 期间不接收、无死锁。
 - [ ] 覆盖率：hit/miss、way、bank、MSHR 状态、WBQ 状态、QoS 组合。
 - [ ] 性能：hit rate、平均 latency、bank conflict 率、2-core 聚合带宽。
+
+### 6.5 L2 bring-up（已实现，待扩展）
+
+- [x] `rtl/l2/l2_pkg.sv`：64 B line、16 B beat、4 beats/line。
+- [x] `rtl/l2/l2_top.sv`：4-way set-associative、round-robin replacement、write-back + write-allocate、两 core port、单 128-bit memory port；当前一次只服务一个 L2 transaction。
+- [x] `rtl/top/ares_2core_l2_top.sv`：两个 `ares_core_top`（HART_ID 0/1）共享 `l2_top`；FE 契约仍外露；MMIO 为 bring-up stub。
+- [x] `rtl/l2/test/tb_l2.sv`：13 checks，覆盖 write/read hit、clean refill、dirty victim writeback、byte enable、dual-port concurrency。
+- [x] `rtl/top/test/tb_two_core_l2.sv`：两个 FE model 各跑一段 load/check 程序，共享 L2 并行完成；4 checks。
+- [x] `make lint-l2` / `make unit-l2` 已加入 `make all`。
+- [ ] 最终目标：128 KiB、8 bank × 128-bit、每口 2–4 MSHR、writeback queue、I/D/MT-DMA 虚拟通道 + video port、QoS/aging；当前 bring-up 版本不承诺这些 PPA/带宽。
+- [ ] 与 CLINT/PLIC/Mailbox/2-core MMIO xbar 集成，形成可启动 SoC（下一步）。
 
 ---
 
