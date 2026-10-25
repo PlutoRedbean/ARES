@@ -36,12 +36,12 @@ KCONFIG   := python3 $(ARES_HOME)/scripts/kconfig/ares_kconfig.py
 PROGRAM ?=
 
 .PHONY: all lint lint-all lint-backend lint-lsu unit unit-lsu unit-mt-irq \
-        unit-mt-cpu-irq tb-ares-pkg tb-fe-stub tb-mem-model sim run wave isa \
-        clean menuconfig defconfig oldconfig savedefconfig loaddefconfig \
-        showconfig test-config
+        unit-mt-cpu-irq unit-clint tb-ares-pkg tb-fe-stub tb-mem-model sim \
+        run wave isa clean menuconfig defconfig oldconfig savedefconfig \
+        loaddefconfig showconfig test-config
 
 all: lint lint-backend lint-lsu lint-mt tb-ares-pkg tb-fe-stub tb-mem-model \
-     unit unit-lsu unit-mt-irq unit-mt-cpu-irq
+     unit unit-lsu unit-mt-irq unit-mt-cpu-irq unit-clint
 
 # FPGA project generation is independent of legacy npc/ and vendor build files.
 # Explicit frequency keeps the requested clock visible in every team's command.
@@ -50,7 +50,7 @@ FPGA_CPU_MHZ ?=
 FPGA_OUT ?= $(ARES_HOME)/build/vivado/ares
 FPGA_PROFILE ?= soc
 FPGA_ARGS ?=
-.PHONY: vivado-project vivado-synth vivado-route test-vivado lint-soc unit-soc unit-mt-irq unit-mt-cpu-irq lint-mt
+.PHONY: vivado-project vivado-synth vivado-route test-vivado lint-soc unit-soc unit-mt-irq unit-mt-cpu-irq unit-clint lint-mt
 vivado-project vivado-synth vivado-route:
 	@test -n "$(FPGA_CPU_MHZ)" || { echo "set FPGA_CPU_MHZ to a target strictly above 200"; exit 1; }
 	@python3 "$(ARES_HOME)/scripts/vivado/create_project.py" \
@@ -150,6 +150,16 @@ unit-mt-cpu-irq: config-gen
 	    $(RTL_ROOT)/backend/test/unit/fe_model.sv $(ARES_SOC_SRCS) \
 	    $(RTL_ROOT)/soc/test/tb_mt_cpu_irq.sv
 	@$(ARES_HOME)/sim/build/unit/tb_mt_cpu_irq/tb_mt_cpu_irq
+
+# Per-hart CLINT: 64-bit mtime, two mtimecmp/msip, byte strobes, single
+# outstanding 32-bit MMIO response.
+unit-clint: config-gen
+	@mkdir -p $(ARES_HOME)/sim/build/unit/tb_clint
+	@verilator --binary --timing --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+	    -DCONFIG_SIMULATION $(ARES_CFG_INC) --top-module tb_clint \
+	    --Mdir $(ARES_HOME)/sim/build/unit/tb_clint -o tb_clint \
+	    $(RTL_ROOT)/soc/soc_clint.sv $(RTL_ROOT)/soc/test/tb_clint.sv
+	@$(ARES_HOME)/sim/build/unit/tb_clint/tb_clint
 
 #-----------------------------------------------------------------------------
 # Backend (C1): lint the backend subsystem top and run the standalone
