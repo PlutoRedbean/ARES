@@ -30,12 +30,15 @@ Debug isolation so far:
 - hart1 I + D active, hart1 writes disabled: hart0 still misaligns.
 - hart1 D disabled entirely: hart0 runs correctly through 50 ms.
 - hart1 D addresses stay in `0x8020_xxxx` (monitor), so the offset itself is
-  applied; the failure is in the shared-L2 c1 read/eviction interaction.
+  applied.
+- A c1-response data checker compared every c1 L2 response with the backing
+  memory image for 50 ms; it found **no mismatches**.
 - L2 unit tests (including c0/c1 concurrent reads and c1 displacing a c0 dirty
   line) pass.
 
-The next debugging step is to separate "c1 read response routing" from
-"c1 read causing a dirty-victim writeback"; the current evidence points at the
-shared L2 c1 read path, not at the frontend adapter or the AMP address offset.
+The next debugging step is to separate "c1 instruction fetch / I1 traffic" from
+"c1 data read traffic", because disabling all c1 D also stops the c1 frontend
+after the first load. The remaining suspects are the shared L2 I1 path and a
+L1D/L2 interaction, not the basic c0/c1 response routing or the AMP offset.
 
 **Do not quote a dual-core CoreMark score until this is fixed.**
