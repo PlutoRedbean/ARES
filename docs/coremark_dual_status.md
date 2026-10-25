@@ -12,7 +12,7 @@
 
 ## Single-hart result
 
-The single-hart real-frontend CoreMark passes (see `coremark_ares.md`):
+The single-hart real-frontend CoreMark passes:
 
 ```text
 retires=21,229,636 cycles=49,944,724 IPC=0.425063 CoreMark/MHz=2.0022
