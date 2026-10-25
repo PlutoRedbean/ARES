@@ -3,7 +3,8 @@
 //-----------------------------------------------------------------------------
 // Purpose
 //   Architectural storage and field masking for the v1 M-mode CSR subset
-//   (Zicsr / ECALL / MRET / machine timer).  Reads are purely combinational
+//   (Zicsr / ECALL / MRET / machine timer, software and external interrupts).
+//   Reads are purely combinational
 //   (`raddr` -> `rdata`/`raddr_ok`); all state is updated only through this
 //   file's write ports, so the CSR Unit can read the old value in its
 //   completion cycle while the architectural write happens later, on the
@@ -12,14 +13,14 @@
 // Spec sources (authoritative)
 //   backend.md section 16.1 - required CSR set + field semantics + reset values:
 //       mstatus 0x300: MIE[3]/MPIE[7] R/W, MPP[12:11] fixed 2'b11, others 0
-//       mie     0x304: MTIE[7] R/W, other bits read 0
+//       mie     0x304: MSIE[3]/MTIE[7]/MEIE[11] R/W, other bits read 0
 //       mtvec   0x305: R/W, Direct only, MODE[1:0] forced 00, BASE[31:2]
 //       mscratch 0x340: full 32-bit R/W
 //       mepc    0x341: full 32-bit R/W, [1:0] forced 00 (RV32IM has no C)
 //       mcause  0x342: full 32-bit R/W
-//       mip     0x344: MTIP[7] mirrors the SoC timer level, software writes
-//                      completely ignored, other bits 0
-//       mhartid 0xF14: read-only 0 (single hart)
+//       mip     0x344: MSIP[3]/MTIP[7]/MEIP[11] mirror the SoC level inputs,
+//                      software writes completely ignored, other bits 0
+//       mhartid 0xF14: read-only HART_ID parameter (0 by default, 1 for hart1)
 //       optional misa 0x301 / mtval 0x343 / mcycle 0xB00 + mcycleh 0xB80 are
 //       compiled in only when ares_pkg::HAS_MISA / ares_pkg::HAS_MTVAL / ares_pkg::HAS_MCYCLE = 1.
 //       All three are 0 in v1 (D-C0-13), so those four addresses are decoded
@@ -40,8 +41,9 @@
 //                MPIE <- MIE, MIE <- 0, MPP <- M (MPP is fixed 2'b11)
 //   2. mret_we : MIE <- MPIE, MPIE <- 1, MPP <- M
 //   3. we      : normal commit write with the per-CSR field masks
-//   timer_irq is a level input of the same clock domain; it is not registered
-//   here - mip.MTIP always equals timer_irq, and mip has no write path.
+//   timer_irq/software_irq/external_irq are level inputs of the same clock
+//   domain; they are not registered here - mip.MSIP/MTIP/MEIP always equal the
+//   corresponding inputs, and mip has no write path.
 //
 // FREE items exercised: FREE-02 (file layout), FREE-04 (read mux structure),
 // FREE-10 (verification environment), FREE-12 (optional debug/extension CSRs
@@ -49,11 +51,14 @@
 //=============================================================================
 /* verilator lint_off UNUSEDSIGNAL */  // trap_mepc[1:0] is discarded on purpose (mepc is WARL-aligned)
 module csr_file #(
-    parameter logic [31:0] RESET_MTVEC = 32'h8000_0000
+    parameter logic [31:0] RESET_MTVEC = 32'h8000_0000,
+    parameter logic [31:0] HART_ID      = 32'd0
 ) (
     input  logic        clk,
     input  logic        rst,
     input  logic        timer_irq,
+    input  logic        software_irq,
+    input  logic        external_irq,
 
     input  logic [11:0] raddr,
     output logic [31:0] rdata,
@@ -69,8 +74,12 @@ module csr_file #(
     input  logic        mret_we,
 
     output logic        mstatus_mie,
+    output logic        mie_msie,
     output logic        mie_mtie,
+    output logic        mie_meie,
+    output logic        mip_msip,
     output logic        mip_mtip,
+    output logic        mip_meip,
     output logic [31:0] mtvec,
     output logic [31:0] mepc
 );
@@ -98,7 +107,9 @@ module csr_file #(
     //-------------------------------------------------------------------------
     logic        mstatus_mie_q;
     logic        mstatus_mpie_q;
+    logic        mie_msie_q;
     logic        mie_mtie_q;
+    logic        mie_meie_q;
     logic [31:0] mtvec_q;
     logic [31:0] mscratch_q;
     logic [31:0] mepc_q;
@@ -173,7 +184,9 @@ module csr_file #(
         if (rst) begin
             mstatus_mie_q  <= 1'b0;
             mstatus_mpie_q <= 1'b0;
+            mie_msie_q     <= 1'b0;
             mie_mtie_q     <= 1'b0;
+            mie_meie_q     <= 1'b0;
             mtvec_q        <= {RESET_MTVEC[31:2], 2'b00};
             mscratch_q     <= 32'h0;
             mepc_q         <= 32'h0;
@@ -196,7 +209,9 @@ module csr_file #(
                     mstatus_mpie_q <= wdata[7];
                 end
                 CSR_MIE: begin
+                    mie_msie_q <= wdata[3];
                     mie_mtie_q <= wdata[7];
+                    mie_meie_q <= wdata[11];
                 end
                 CSR_MTVEC: begin
                     mtvec_q <= {wdata[31:2], 2'b00};
@@ -231,7 +246,10 @@ module csr_file #(
                 rdata = {19'h0, 2'b11, 3'h0, mstatus_mpie_q, 3'h0, mstatus_mie_q, 3'h0};
             end
             CSR_MIE: begin
-                rdata = {24'h0, mie_mtie_q, 7'h0};
+                rdata       = 32'h0;
+                rdata[3]    = mie_msie_q;
+                rdata[7]    = mie_mtie_q;
+                rdata[11]   = mie_meie_q;
             end
             CSR_MTVEC: begin
                 rdata = mtvec_q;
@@ -246,10 +264,13 @@ module csr_file #(
                 rdata = mcause_q;
             end
             CSR_MIP: begin
-                rdata = {24'h0, timer_irq, 7'h0};
+                rdata       = 32'h0;
+                rdata[3]    = software_irq;
+                rdata[7]    = timer_irq;
+                rdata[11]   = external_irq;
             end
             CSR_MHARTID: begin
-                rdata = 32'h0;
+                rdata = HART_ID;
             end
             CSR_MISA: begin
                 rdata    = opt_misa_rdata;
@@ -278,8 +299,12 @@ module csr_file #(
     // Continuously visible fields
     //-------------------------------------------------------------------------
     assign mstatus_mie = mstatus_mie_q;
+    assign mie_msie    = mie_msie_q;
     assign mie_mtie    = mie_mtie_q;
+    assign mie_meie    = mie_meie_q;
+    assign mip_msip    = software_irq;
     assign mip_mtip    = timer_irq;
+    assign mip_meip    = external_irq;
     assign mtvec       = mtvec_q;
     assign mepc        = mepc_q;
 
@@ -298,13 +323,25 @@ module csr_file #(
         |-> (rdata == {19'h0, 2'b11, 3'h0, mstatus_mpie_q, 3'h0, mstatus_mie_q, 3'h0}));
 
     a_mie_read: assert property (@(posedge clk) disable iff (rst)
-        (raddr == CSR_MIE) |-> (rdata == {24'h0, mie_mtie_q, 7'h0}));
+        (raddr == CSR_MIE) |-> (rdata[3] == mie_msie_q)
+                           && (rdata[7] == mie_mtie_q)
+                           && (rdata[11] == mie_meie_q)
+                           && (rdata[31:12] == 20'h0)
+                           && (rdata[6:4] == 3'h0)
+                           && (rdata[10:8] == 3'h0)
+                           && (rdata[2:0] == 3'h0));
 
     a_mip_read: assert property (@(posedge clk) disable iff (rst)
-        (raddr == CSR_MIP) |-> (rdata == {24'h0, timer_irq, 7'h0}));
+        (raddr == CSR_MIP) |-> (rdata[3] == software_irq)
+                           && (rdata[7] == timer_irq)
+                           && (rdata[11] == external_irq)
+                           && (rdata[31:12] == 20'h0)
+                           && (rdata[6:4] == 3'h0)
+                           && (rdata[10:8] == 3'h0)
+                           && (rdata[2:0] == 3'h0));
 
     a_mhartid_read: assert property (@(posedge clk) disable iff (rst)
-        (raddr == CSR_MHARTID) |-> (raddr_ok && (rdata == 32'h0)));
+        (raddr == CSR_MHARTID) |-> (raddr_ok && (rdata == HART_ID)));
 
     a_ok_only_implemented: assert property (@(posedge clk) disable iff (rst)
         raddr_ok |-> (raddr == CSR_MSTATUS) || (raddr == CSR_MIE)

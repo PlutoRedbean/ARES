@@ -49,7 +49,7 @@ module tb_fe_stub (
     logic                  backend_redirect_valid;
     logic [31:0]           backend_redirect_pc;
     fe_redirect_kind_t     backend_redirect_kind;
-    logic [ares_pkg::GHR_WIDTH-1:0]  backend_redirect_ghr_before;
+    logic [fe_pkg::GHR_WIDTH-1:0]    backend_redirect_ghr_before;
     logic                  backend_redirect_actual_taken;
 
     logic [1:0]            bpu_update_credit;
@@ -143,7 +143,9 @@ module tb_fe_stub (
 
     task automatic check(input logic cond, input string msg);
         if (!cond) begin
+            /* verilator lint_off BLKSEQ */  // task-local scoreboard update
             errors = errors + 1;
+            /* verilator lint_on BLKSEQ */
             if (errors <= 20) $display("[cyc %0d] FAIL: %s", cyc, msg);
         end
     endtask

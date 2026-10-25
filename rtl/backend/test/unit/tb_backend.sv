@@ -99,6 +99,9 @@ module tb_backend;
     logic [31:0]           fetch_pc;
     /* verilator lint_on UNUSEDSIGNAL */
     logic [31:0]           redirect_count;
+    /* verilator lint_off UNUSEDSIGNAL */  // C5 FE integration consumes this pulse
+    logic                  fence_i_valid;
+    /* verilator lint_on UNUSEDSIGNAL */
 
     be_top #(.RESET_MTVEC(HANDLER)) u_dut (
         .clk(clk), .rst(rst),
@@ -116,7 +119,9 @@ module tb_backend;
         .load_head_valid(load_head_valid), .load_head_tag(load_head_tag),
         .store_commit_valid(store_commit_valid), .store_commit_tag(store_commit_tag),
         .store_commit_ok(store_commit_ok), .lsu_mmio_order_idle(mmio_idle),
-        .timer_irq(timer_irq),
+        .lsu_fence_idle(1'b1),
+        .timer_irq(timer_irq), .software_irq(1'b0), .external_irq(1'b0),
+        .fence_i_valid(fence_i_valid),
         .retire_valid(retire_valid), .retire_pc(retire_pc), .retire_pc_next(retire_pc_next),
         .retire_rd_wen(retire_rd_wen), .retire_rd(retire_rd), .retire_wdata(retire_wdata),
         .retire_is_ebreak(retire_is_ebreak),

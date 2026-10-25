@@ -9,13 +9,13 @@
 //     redirected to mtvec.BASE.  ECALL never commit_fire;
 //   * MRET: commits normally in lane 0 (be_commit) and redirects to the
 //     committed mepc; MIE<-MPIE, MPIE<-1 in the same cycle;
-//   * IRQ: irq_eligible = mstatus.MIE && mie.MTIE && mip.MTIP.  On detection
-//     the FSM enters IRQ_DRAIN: no new dispatch, but existing WAIT issue,
-//     out-of-order completion and normal commit continue, and branch recovery
-//     still wins.  The interrupt is taken only when the CIQ is empty,
-//     lsu_mmio_order_idle is set and irq_eligible is still true; if the
-//     condition disappeared the machine redirects to architectural_next_pc and
-//     resumes without trapping;
+//   * IRQ: irq_eligible = mstatus.MIE && any enabled pending source
+//     (MEI > MSI > MTI priority).  On detection the FSM enters IRQ_DRAIN: no
+//     new dispatch, but existing WAIT issue, out-of-order completion and normal
+//     commit continue, and branch recovery still wins.  The interrupt is taken
+//     only when the CIQ is empty, lsu_mmio_order_idle is set and irq_eligible
+//     is still true; if the condition disappeared the machine redirects to
+//     architectural_next_pc and resumes without trapping;
 //   * architectural_next_pc is updated only by normal commits (pc+4 / BRU
 //     actual_npc / mepc) - an ECALL does not update it (D-C0-08);
 //   * full_flush_ptr is the post-flush queue pointer: ECALL/MRET leave the
@@ -37,8 +37,12 @@ module be_trap_ctrl (
 
     //---- CSR state (csr_file) ----------------------------------------------
     input  logic            mstatus_mie,
+    input  logic            mie_msie,
     input  logic            mie_mtie,
+    input  logic            mie_meie,
+    input  logic            mip_msip,
     input  logic            mip_mtip,
+    input  logic            mip_meip,
     input  logic [31:0]     mtvec,
     input  logic [31:0]     mepc,
 
@@ -108,9 +112,23 @@ module be_trap_ctrl (
     //-------------------------------------------------------------------------
     logic        irq_state;      // 0 = IRQ_IDLE, 1 = IRQ_DRAIN
     logic        irq_eligible;
+    logic [31:0] irq_cause;
     logic        irq_accept, irq_cancel;
 
-    assign irq_eligible = mstatus_mie && mie_mtie && mip_mtip;
+    // Machine interrupt priority (RISC-V): MEI > MSI > MTI.
+    always_comb begin
+        if (mie_meie && mip_meip) begin
+            irq_cause = 32'(EXC_MACHINE_EXT);
+        end else if (mie_msie && mip_msip) begin
+            irq_cause = 32'(EXC_MACHINE_SOFT);
+        end else begin
+            irq_cause = 32'(EXC_MACHINE_TIMER);
+        end
+    end
+
+    assign irq_eligible = mstatus_mie && ((mie_meie && mip_meip)
+                                       || (mie_msie && mip_msip)
+                                       || (mie_mtie && mip_mtip));
     assign irq_accept   = irq_state && ciq_empty && lsu_mmio_order_idle && irq_eligible;
     assign irq_cancel   = irq_state && !irq_eligible;
 
@@ -132,7 +150,7 @@ module be_trap_ctrl (
     //-------------------------------------------------------------------------
     assign trap_we     = ecall_valid || irq_accept;
     assign trap_mepc   = ecall_valid ? head_pc : arch_next_q;
-    assign trap_mcause = ecall_valid ? 32'(EXC_ECALL_M) : 32'(EXC_MACHINE_TIMER);
+    assign trap_mcause = ecall_valid ? 32'(EXC_ECALL_M) : irq_cause;
     assign mret_we     = mret_valid;
 
     //-------------------------------------------------------------------------

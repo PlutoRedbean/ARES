@@ -126,7 +126,7 @@ unit-soc: config-gen
 # so they are built with "verilator --binary --timing" and are deliberately
 # outside the sim/Makefile VSRCS glob).
 #-----------------------------------------------------------------------------
-ARES_UNIT_TBS  := tb_decode tb_fu_exec tb_bru_csr tb_backend
+ARES_UNIT_TBS  := tb_decode tb_fu_exec tb_bru_csr tb_backend tb_p0_csr_irq
 ARES_UNIT_SRCS := $(RTL_ROOT)/common/fe_pkg.sv $(RTL_ROOT)/common/ares_pkg.sv $(wildcard $(RTL_ROOT)/backend/*.sv) \
                   $(RTL_ROOT)/backend/test/lsu_stub.sv \
                   $(wildcard $(RTL_ROOT)/backend/test/unit/*.sv)
@@ -181,7 +181,8 @@ unit: config-gen
 	  echo "[unit] $$tb"; \
 	  rm -rf $$d; mkdir -p $$d/ccache-tmp; \
 	  CCACHE_TEMPDIR=$$d/ccache-tmp verilator --binary --timing -sv --assert \
-	      -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD -DCONFIG_SIMULATION $(ARES_CFG_INC) \
+	      -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD -Wno-SIDEEFFECT -Wno-BLKSEQ \
+	      -DCONFIG_SIMULATION $(ARES_CFG_INC) \
 	      --top-module $$tb --Mdir $$d -o $$d/$$tb $(ARES_UNIT_SRCS); \
 	  $$d/$$tb | tail -3; \
 	done
@@ -192,7 +193,8 @@ unit-lsu: config-gen
 	  echo "[unit-lsu] $$tb"; \
 	  rm -rf $$d; mkdir -p $$d/ccache-tmp; \
 	  CCACHE_TEMPDIR=$$d/ccache-tmp verilator --binary --timing -sv --assert \
-	      -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD -DCONFIG_SIMULATION $(ARES_CFG_INC) \
+	      -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD -Wno-SIDEEFFECT -Wno-BLKSEQ \
+	      -DCONFIG_SIMULATION $(ARES_CFG_INC) \
 	      --top-module $$tb --Mdir $$d -o $$d/$$tb $(ARES_LSU_UNIT_SRCS); \
 	  if $$d/$$tb > $$d/run.log 2>&1; then \
 	    grep -E "ALL TESTS PASSED" $$d/run.log | head -1; \

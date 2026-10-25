@@ -30,7 +30,7 @@ module student_top (
     output logic                             backend_redirect_valid,
     output logic [31:0]                      backend_redirect_pc,
     output fe_pkg::fe_redirect_kind_t      backend_redirect_kind,
-    output logic [ares_pkg::GHR_WIDTH-1:0]   backend_redirect_ghr_before,
+    output logic [fe_pkg::GHR_WIDTH-1:0]     backend_redirect_ghr_before,
     output logic                             backend_redirect_actual_taken,
 
     //---- BPU update: Commit -> FE (contract section 4) ---------------------
@@ -39,6 +39,10 @@ module student_top (
     output fe_pkg::bpu_update_t            bpu_update [2]
 );
     logic timer_irq;
+    logic software_irq, external_irq;
+    /* verilator lint_off UNUSEDSIGNAL */  // C5 FE integration will consume this pulse
+    logic fence_i_valid;
+    /* verilator lint_on UNUSEDSIGNAL */
     logic mem_rd_valid, mem_rd_ready, mem_rsp_valid, mem_rsp_ready;
     logic mem_wr_valid, mem_wr_ready;
     logic [31:0] mem_rd_addr, mem_wr_addr;
@@ -52,11 +56,16 @@ module student_top (
     logic [31:0] perip_addr, perip_wdata, perip_rdata;
     logic [3:0] perip_wstrb;
 
+    assign software_irq = 1'b0;
+    assign external_irq = 1'b0;
+
     ares_core_top #(
         .MMIO_BASE(32'h8020_0000), .MMIO_MASK(32'hFFF0_0000),
         .JYD_UNCACHED_WINDOWS(1'b1)
     ) Core_cpu (
         .clk(w_cpu_clk), .rst(w_clk_rst), .timer_irq(timer_irq),
+        .software_irq(software_irq), .external_irq(external_irq),
+        .fence_i_valid(fence_i_valid),
         .iq_valid(iq_valid),
         .iq_inst(iq_inst),
         .iq_accept_count(iq_accept_count),

@@ -162,6 +162,7 @@ lint-all:
 	for top in $(ARES_UNIT_TOPS); do \
 	  echo "[lint] $$top"; \
 	  $(VERILATOR) --lint-only $(VERILATOR_IGNORE) $(VERILATOR_WARN) $(V_ASSERT) \
+	      -Wno-BLKSEQ -Wno-SIDEEFFECT \
 	      $(V_DEF_MACRO) $(addprefix -I, $(V_INC_PATH)) \
 	      --top-module $$top $(VSRCS) || rc=1; \
 	done; \

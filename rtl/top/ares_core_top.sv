@@ -1,5 +1,6 @@
 //=============================================================================
-// ARES core top (S01) - single hart: Frontend interface + Backend + LSU
+// ARES core top (S01) - single hart instance: Frontend interface + Backend + LSU
+// (HART_ID parameter supplies mhartid; a 2-core SoC instantiates two copies)
 //-----------------------------------------------------------------------------
 // This is the C3 integration point of docs/implementation_plan.md section 6.4:
 // it instantiates the backend subsystem top (be_top) and the memory subsystem
@@ -9,8 +10,8 @@
 //   * FE instruction / Redirect / BPU-update interface
 //     (frontend_backend_contract.md sections 2 / 3 / 4)
 //   * 128-bit data bus and the MMIO device channel (memory.md 3.1 / 6.7)
-//   * machine timer interrupt input and the simulation observation ports
-//     (backend.md 16.1 / plan 5.18)
+//   * machine timer/software/external interrupt inputs and the simulation
+//     observation ports (backend.md 16.1 / plan 5.18)
 //
 // The frontend itself is instantiated by the parent, exactly like the plan
 // requires: C3 drives the ports from rtl/backend/test/fe_stub.sv, C5 replaces
@@ -24,6 +25,7 @@
 //=============================================================================
 module ares_core_top #(
     parameter logic [31:0] RESET_MTVEC          = ares_pkg::RESET_PC,  // SPEC-M8: owned by the top
+    parameter logic [31:0] HART_ID              = 32'd0,               // mhartid value
     parameter logic [31:0] MMIO_BASE            = 32'hA000_0000,       // SPEC-M7 placeholder
     parameter bit          JYD_UNCACHED_WINDOWS = 1'b0,
     parameter logic [31:0] MMIO_MASK            = 32'hFF00_0000
@@ -50,6 +52,8 @@ module ares_core_top #(
 
     //---- interrupts --------------------------------------------------------
     input logic timer_irq,
+    input logic software_irq,
+    input logic external_irq,
 
     //---- 128-bit memory bus (memory.md section 6.7) ------------------------
     output logic         mem_rd_valid,
@@ -85,6 +89,7 @@ module ares_core_top #(
     output logic [ 1:0] retire_is_ebreak,
     output logic        irq_redirect_valid,
     output logic [31:0] irq_redirect_pc,
+    output logic        fence_i_valid,
     output logic [ 1:0] decode_err,
     output logic [31:0] decode_err_pc     [2],
     output logic [31:0] decode_err_inst   [2],
@@ -128,6 +133,7 @@ module ares_core_top #(
     logic           [            1:0] store_commit_ok;
     logic           [            1:0] commit_fire;
     logic                             lsu_mmio_order_idle;
+    logic                             lsu_fence_idle;
 
     // Backend debug outputs that this level does not re-export.
     /* verilator lint_off UNUSEDSIGNAL */
@@ -141,7 +147,8 @@ module ares_core_top #(
     // Backend
     //-------------------------------------------------------------------------
     be_top #(
-        .RESET_MTVEC(RESET_MTVEC)
+        .RESET_MTVEC(RESET_MTVEC),
+        .HART_ID(HART_ID)
     ) u_backend (
         .clk                          (clk),
         .rst                          (rst),
@@ -170,7 +177,10 @@ module ares_core_top #(
         .store_commit_tag             (store_commit_tag),
         .store_commit_ok              (store_commit_ok),
         .lsu_mmio_order_idle          (lsu_mmio_order_idle),
+        .lsu_fence_idle               (lsu_fence_idle),
         .timer_irq                    (timer_irq),
+        .software_irq                 (software_irq),
+        .external_irq                 (external_irq),
         .retire_valid                 (retire_valid),
         .retire_pc                    (retire_pc),
         .retire_pc_next               (retire_pc_next),
@@ -180,6 +190,7 @@ module ares_core_top #(
         .retire_is_ebreak             (retire_is_ebreak),
         .irq_redirect_valid           (irq_redirect_valid),
         .irq_redirect_pc              (irq_redirect_pc),
+        .fence_i_valid                (fence_i_valid),
         .decode_err                   (decode_err),
         .decode_err_pc                (decode_err_pc),
         .decode_err_inst              (decode_err_inst),
@@ -220,6 +231,7 @@ module ares_core_top #(
         .store_commit_ok    (store_commit_ok),
         .commit_fire        (commit_fire),
         .lsu_mmio_order_idle(lsu_mmio_order_idle),
+        .lsu_fence_idle     (lsu_fence_idle),
         .mem_rd_valid       (mem_rd_valid),
         .mem_rd_ready       (mem_rd_ready),
         .mem_rd_addr        (mem_rd_addr),

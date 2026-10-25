@@ -33,9 +33,9 @@
 //     consumers filter rd != x0 themselves.  rd_wen stays 1 when rd == x0.
 //   * is_branch is the CIQ control-transfer flag, so it equals is_cfi
 //     (backend.md 15.2 checkpoints JAL / JALR, not only conditional branches).
-//   * FENCE is recognised (op = OP_FENCE, is_fence = 1) but unsupported in v1
-//     and therefore also raises decode_err; unrecognised encodings use
-//     OP_ILLEGAL.
+//   * FENCE / FENCE.I decode as OP_FENCE on the CSR port (serializing no-op);
+//     FENCE.I also sets imm[0] so commit emits the frontend invalidate pulse.
+//     Unsupported FENCE funct3 values and unrecognised encodings use OP_ILLEGAL.
 //
 // FREE items exercised: FREE-02 (module / file organisation), FREE-04
 // (combinational structure: flat parallel case decode, no priority chain).
@@ -442,11 +442,23 @@ module be_decode (
                     endcase
                 end
 
-                //---- FENCE / FENCE.I: recognised, unsupported in v1 ---------
+                //---- FENCE / FENCE.I ---------------------------------------
+                // Both forms execute as serializing no-ops in the CSR port.
+                // FENCE.I additionally emits a one-cycle fence_i pulse at
+                // commit so the frontend can invalidate its I-cache.  imm[0]
+                // is the internal FENCE.I discriminator (the architectural
+                // FENCE.I encoding has funct3 = 001 and no useful imm).
                 7'h0F: begin
-                    op         = OP_FENCE;
-                    is_fence   = 1'b1;
-                    decode_err = 1'b1;
+                    case (funct3)
+                        3'd0, 3'd1: begin
+                            op             = OP_FENCE;
+                            fu_type        = FU_CSR;
+                            is_fence       = 1'b1;
+                            is_serializing = 1'b1;
+                            imm            = {31'd0, (funct3 == 3'd1)};
+                        end
+                        default: decode_err = 1'b1;
+                    endcase
                 end
 
                 //---- everything else ---------------------------------------
@@ -476,8 +488,8 @@ module be_decode (
             else $error("be_decode: is_branch must equal is_cfi");
             assert (is_cfi == (actual_cfi_type != CFI_NONE))
             else $error("be_decode: is_cfi must match actual_cfi_type");
-            assert (!is_fence)
-            else $error("be_decode: FENCE must raise decode_err");
+            assert (!is_fence || (op == OP_FENCE))
+            else $error("be_decode: is_fence must decode to OP_FENCE");
             assert (!(is_load && is_store))
             else $error("be_decode: load and store are mutually exclusive");
         end

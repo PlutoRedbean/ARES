@@ -222,7 +222,9 @@ package ares_pkg;
     typedef enum logic [31:0] {
         EXC_NONE          = 32'h0000_0000,
         EXC_ECALL_M       = 32'd11,
-        EXC_MACHINE_TIMER = 32'h8000_0007
+        EXC_MACHINE_SOFT  = 32'h8000_0003,
+        EXC_MACHINE_TIMER = 32'h8000_0007,
+        EXC_MACHINE_EXT   = 32'h8000_000B
     } exception_cause_t;
 
     //-------------------------------------------------------------------------
