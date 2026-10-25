@@ -40,11 +40,11 @@
 - [x] 新增 `tb_mt_irq`（adapter + 行为级 CV-X-IF slave）：MMIO 下发命令 -> need_work/done/accept_err/kick_err -> IRQ -> status/ack 清除；26 checks。
 - [x] 覆盖：单条/多条、队列空后 level 稳定不风暴、done-only、accept_err、kick_err、ack、status-read 清除、HART_ID=1。
 - [x] 断言：irq 只在 status&mask 非零时为高；KICK/ACK/status 清除后 irq 落下。
-- [ ] 裸机/AM 版本：真实 trap 入口、`mcause=0xB`、`mip.MEIP` 可读（下一小步）。
+- [x] 裸机/CPU 版本：真实 trap 入口、`mcause=0x8000000B`、`mip.MEIP=1`、handler ACK need_work（`tb_mt_cpu_irq`，35 retires）。
 
 ### 0.4 完成判据
 
-- [x] 单核 + 单 tensor adapter 连续投喂 N 条命令，N 次 need_work 中断全部被处理，无一次风暴/丢失（adapter 级）。
+- [x] 单核 + 单 tensor 连续投喂 N 条命令，N 次 need_work 中断全部被处理，无一次风暴/丢失（adapter 级 26 checks + CPU 级 35 retires）。
 - [x] `done` / `error` 路径可观测、可清除；复位后状态确定。
 - [ ] 该 wrapper/IRQ 契约冻结后再复制到第二核；L2 开发可与此切片并行。
 
@@ -284,8 +284,9 @@
 ### 7.5 每核 Tensor（MT-v2）+ 中断
 
 > 已完成（单核切片）：adapter `mt_irq` / need_work / mask / ack、`HART_ID`、
-> `student_top`/`ares_soc_top` 到 `external_irq` 的接线、`tb_mt_irq`（26 checks）。
-> 待做：第二份实例、双核私有窗口、驱动/ISR、双 tensor 并发。
+> `student_top`/`ares_soc_top` 到 `external_irq` 的接线、`tb_mt_irq`（26 checks）、
+> CPU trap 版本 `tb_mt_cpu_irq`（35 retires，mcause=0x8000000B / mip.MEIP=1）。
+> 待做：第二份实例、双核私有窗口、AMP 驱动/任务、双 tensor 并发。
 
 - [ ] 例化 **2× `mini_tensor_top` + 2× `ares_mt_host_adapter`**：hart0 一个、hart1 一个；每个 tensor 只归其所属 hart 使用，不跨核共享。
 - [ ] 每核一个私有 MMIO 窗口（base 参数化；例如 JYD 下 hart0 `0x8020_1000`、hart1 `0x8021_1000`；generic profile 另定），互不重叠。
