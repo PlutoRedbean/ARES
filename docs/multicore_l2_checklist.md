@@ -86,7 +86,7 @@
 | # | 缺口 | 证据 | 影响 |
 |---|---|---|---|
 | G1 | SoC 仍是单 hart | [rtl/top/student_top.sv](../rtl/top/student_top.sv) 只例化一个 `Core_cpu`；新增 [ares_2core_l2_top.sv](../rtl/top/ares_2core_l2_top.sv) 已例化两个 hart，但 FE 仍为外部端口 | 还没有可启动的 2-core SoC |
-| G2 | 真实 FE 未接入，契约仍旧 | [rtl/frontend/frontend.sv](../rtl/frontend/frontend.sv) 仍用 `iq_rvalid` / `iq_raccept_cnt` / 单 lane `bpu_update_en`；SoC 的 FE 端口由外部/桩驱动；FE 不在 `make lint`/`sim` 源列表 | 第二核没有可综合的取指通路；这是 2-core 的第一阻塞项 |
+| G2 | 真实 FE 已接入单核，2-core 尚未 | 新增 [fe_legacy_adapter.sv](../rtl/frontend/fe_legacy_adapter.sv)、[axi_l2_bridge.sv](../rtl/frontend/interface/axi_l2_bridge.sv)、[ares_frontend_l2_top.sv](../rtl/top/ares_frontend_l2_top.sv)；单核 CoreMark 已通过（[coremark_ares.md](coremark_ares.md)）。2-core top 的 FE 仍外露，第二核尚未接 frontend | 先复制 frontend+adapter 到第二核，再做双核 CoreMark |
 | G3 | 无最终 L2/SPM/多端口互连 | 新增 [l2_top.sv](../rtl/l2/l2_top.sv) 为 4-way/64 B/2-core-port/write-back bring-up L2；最终 128 KiB、8 bank、MSHR/QoS、video port、SPM 仍未做；JYD 总线仍是单主机 | 两核可共享容量，但还没有目标带宽/多 outstanding 性能 |
 | G4 | hart 级 CSR/中断未多核化 | `mhartid` 只读 0；`mip` 只镜像 MTIP；`timer_irq` 单根；无 MSIP/MEIP | 无法做 IPI、per-hart timer、PLIC 外部中断 |
 | G5 | FENCE/FENCE.I 未实现 | [rtl/backend/be_decode.sv](../rtl/backend/be_decode.sv) 把 FENCE 识别后置 decode_err；无 AMO/LR-SC | 自修改代码、代码加载、跨核顺序、原子锁都不可用 |

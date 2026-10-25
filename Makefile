@@ -36,7 +36,7 @@ KCONFIG   := python3 $(ARES_HOME)/scripts/kconfig/ares_kconfig.py
 PROGRAM ?=
 
 .PHONY: all lint lint-all lint-backend lint-lsu lint-l2 unit unit-lsu unit-l2 \
-        lint-fe-adapter unit-fe-adapter \
+        lint-fe-adapter unit-fe-adapter unit-coremark \
         unit-mt-irq unit-mt-cpu-irq unit-clint unit-plic tb-ares-pkg tb-fe-stub tb-mem-model \
         sim run wave isa clean menuconfig defconfig oldconfig savedefconfig \
         loaddefconfig showconfig test-config
@@ -262,6 +262,32 @@ unit-fe-adapter: config-gen
 	    $(RTL_ROOT)/common/fe_pkg.sv $(RTL_ROOT)/frontend/fe_legacy_adapter.sv \
 	    $(RTL_ROOT)/frontend/test/tb_fe_legacy_adapter.sv
 	@$(ARES_HOME)/sim/build/unit/tb_fe_legacy_adapter/tb_fe_legacy_adapter | tail -2
+
+# Real frontend + shared L2 CoreMark (single-hart bring-up).  The image is a
+# 128-bit-wide $readmemh file; see rtl/top/test/tb_ares_coremark.sv for format.
+ARES_COREMARK_SRCS := $(RTL_ROOT)/common/fe_pkg.sv $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
+    $(RTL_ROOT)/frontend/interface/axi_if.sv $(RTL_ROOT)/frontend/interface/axi_l2_bridge.sv \
+    $(RTL_ROOT)/frontend/fe_legacy_adapter.sv $(RTL_ROOT)/frontend/frontend.sv \
+    $(RTL_ROOT)/frontend/ftq.sv $(RTL_ROOT)/frontend/iq.sv \
+    $(wildcard $(RTL_ROOT)/frontend/bpu/*.sv) \
+    $(wildcard $(RTL_ROOT)/frontend/bpu/direction/*.sv) \
+    $(wildcard $(RTL_ROOT)/frontend/bpu/target/*.sv) \
+    $(wildcard $(RTL_ROOT)/frontend/ifu/*.sv) \
+    $(RTL_ROOT)/l2/l2_pkg.sv $(RTL_ROOT)/l2/l2_top.sv \
+    $(wildcard $(RTL_ROOT)/backend/*.sv) $(wildcard $(RTL_ROOT)/memory/*.sv) \
+    $(RTL_ROOT)/top/ares_core_top.sv $(RTL_ROOT)/top/ares_frontend_l2_top.sv
+
+unit-coremark: config-gen
+	@test -n "$(DMEM)" || { echo "usage: make unit-coremark DMEM=<coremark_dmem.hex>"; exit 1; }
+	@mkdir -p $(ARES_HOME)/sim/build/unit/tb_ares_coremark
+	@verilator --binary --timing -sv --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+	    -Wno-SIDEEFFECT -Wno-BLKSEQ -Wno-PINCONNECTEMPTY -Wno-UNUSEDSIGNAL \
+	    -Wno-UNOPTFLAT -Wno-WIDTHEXPAND -Wno-WIDTHTRUNC -Wno-CASEINCOMPLETE -Wno-IMPLICIT \
+	    -DCONFIG_SIMULATION $(ARES_CFG_INC) --top-module tb_ares_coremark \
+	    --Mdir $(ARES_HOME)/sim/build/unit/tb_ares_coremark \
+	    -o $(ARES_HOME)/sim/build/unit/tb_ares_coremark/tb_ares_coremark \
+	    $(ARES_COREMARK_SRCS) $(RTL_ROOT)/top/test/tb_ares_coremark.sv
+	@$(ARES_HOME)/sim/build/unit/tb_ares_coremark/tb_ares_coremark +DMEM=$(DMEM)
 
 unit-l2: config-gen
 	@set -e; for tb in $(ARES_L2_UNIT_TBS); do \

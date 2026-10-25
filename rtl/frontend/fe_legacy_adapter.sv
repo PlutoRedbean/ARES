@@ -48,9 +48,16 @@ module fe_legacy_adapter (
     // counting consume handshake, so this is a pure rename.
     //-------------------------------------------------------------------------
     assign be_iq_valid        = fe_iq_rvalid;
-    assign be_iq_inst[0]      = fe_iq_rbits[0];
-    assign be_iq_inst[1]      = fe_iq_rbits[1];
     assign fe_iq_raccept_cnt  = be_iq_accept_count;
+
+    // The legacy IQ keeps validity in rvalid, not in rbits.valid.  The new
+    // contract's decoder reads iq.valid, so fold the lane valid bit in here.
+    always_comb begin
+        be_iq_inst[0]       = fe_iq_rbits[0];
+        be_iq_inst[0].valid = fe_iq_rvalid[0];
+        be_iq_inst[1]       = fe_iq_rbits[1];
+        be_iq_inst[1].valid = fe_iq_rvalid[1];
+    end
 
     //-------------------------------------------------------------------------
     // Redirect: combinational pass-through.  ghr_before/actual_taken are part

@@ -52,6 +52,14 @@ module l2_top #(
     input  logic [127:0] c1_wr_data,
     input  logic [ 15:0] c1_wr_be,
 
+    //---- instruction read port (128-bit beat, read-only) -------------------
+    input  logic         i_rd_valid,
+    output logic         i_rd_ready,
+    input  logic [ 31:0] i_rd_addr,
+    output logic         i_rsp_valid,
+    input  logic         i_rsp_ready,
+    output logic [127:0] i_rsp_data,
+
     //---- memory port (128-bit beat) ----------------------------------------
     output logic         mem_rd_valid,
     input  logic         mem_rd_ready,
@@ -96,7 +104,7 @@ module l2_top #(
 
     // Latched request.
     logic                   req_write;
-    logic                   req_port;
+    logic [1:0]             req_port;
     /* verilator lint_off UNUSEDSIGNAL */  // lower 4 bits are zero for 16 B beats
     logic [31:0]            req_addr;
     /* verilator lint_on UNUSEDSIGNAL */
@@ -121,35 +129,40 @@ module l2_top #(
         end
     end
 
-    // Port arbitration (core 0 priority in this bring-up version).
+    // Port arbitration: I fetch first, then core0, then core1.  The I port is
+    // read-only; its 128-bit beat feeds the ICache AXI bridge.
     logic                   req_any;
-    logic                   sel_port;
+    logic [1:0]             sel_port;
     logic                   sel_write;
     always_comb begin
         req_any   = 1'b0;
-        sel_port  = 1'b0;
+        sel_port  = 2'd0;
         sel_write = 1'b0;
-        if (c0_rd_valid) begin
+        if (i_rd_valid) begin
             req_any  = 1'b1;
-            sel_port = 1'b0;
+            sel_port = 2'd2;
+        end else if (c0_rd_valid) begin
+            req_any  = 1'b1;
+            sel_port = 2'd0;
         end else if (c0_wr_valid) begin
             req_any   = 1'b1;
-            sel_port  = 1'b0;
+            sel_port  = 2'd0;
             sel_write = 1'b1;
         end else if (c1_rd_valid) begin
             req_any  = 1'b1;
-            sel_port = 1'b1;
+            sel_port = 2'd1;
         end else if (c1_wr_valid) begin
             req_any   = 1'b1;
-            sel_port  = 1'b1;
+            sel_port  = 2'd1;
             sel_write = 1'b1;
         end
     end
 
-    assign c0_rd_ready = (state_q == S_IDLE) && req_any && !sel_port && !sel_write;
-    assign c0_wr_ready = (state_q == S_IDLE) && req_any && !sel_port &&  sel_write;
-    assign c1_rd_ready = (state_q == S_IDLE) && req_any &&  sel_port && !sel_write;
-    assign c1_wr_ready = (state_q == S_IDLE) && req_any &&  sel_port &&  sel_write;
+    assign c0_rd_ready = (state_q == S_IDLE) && req_any && (sel_port == 2'd0) && !sel_write;
+    assign c0_wr_ready = (state_q == S_IDLE) && req_any && (sel_port == 2'd0) &&  sel_write;
+    assign c1_rd_ready = (state_q == S_IDLE) && req_any && (sel_port == 2'd1) && !sel_write;
+    assign c1_wr_ready = (state_q == S_IDLE) && req_any && (sel_port == 2'd1) &&  sel_write;
+    assign i_rd_ready  = (state_q == S_IDLE) && req_any && (sel_port == 2'd2);
 
     // Response / memory-port wiring.
     logic        rsp_valid_q;
@@ -158,11 +171,15 @@ module l2_top #(
     logic [BEAT_W-1:0] wb_beat;
     logic [BEAT_W-1:0] rf_beat;
 
-    assign c0_rsp_valid = rsp_valid_q && !req_port;
-    assign c1_rsp_valid = rsp_valid_q &&  req_port;
+    assign c0_rsp_valid = rsp_valid_q && (req_port == 2'd0);
+    assign c1_rsp_valid = rsp_valid_q && (req_port == 2'd1);
+    assign i_rsp_valid  = rsp_valid_q && (req_port == 2'd2);
     assign c0_rsp_data  = rsp_data_q;
     assign c1_rsp_data  = rsp_data_q;
-    wire selected_rsp_ready = req_port ? c1_rsp_ready : c0_rsp_ready;
+    assign i_rsp_data   = rsp_data_q;
+    wire selected_rsp_ready =
+        (req_port == 2'd2) ? i_rsp_ready :
+        (req_port == 2'd1) ? c1_rsp_ready : c0_rsp_ready;
 
     wire [25:0] line_base_hi = req_addr[31:OFFSET_W];
     wire [31:0] mem_rf_addr  = {line_base_hi, rf_beat, 4'b0000};
@@ -215,7 +232,11 @@ module l2_top #(
                     if (req_any) begin
                         req_write <= sel_write;
                         req_port  <= sel_port;
-                        if (sel_port) begin
+                        if (sel_port == 2'd2) begin
+                            req_addr  <= i_rd_addr;
+                            req_wdata <= 128'h0;
+                            req_be    <= 16'h0;
+                        end else if (sel_port == 2'd1) begin
                             req_addr  <= sel_write ? c1_wr_addr : c1_rd_addr;
                             req_wdata <= c1_wr_data;
                             req_be    <= c1_wr_be;
