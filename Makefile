@@ -36,7 +36,7 @@ KCONFIG   := python3 $(ARES_HOME)/scripts/kconfig/ares_kconfig.py
 PROGRAM ?=
 
 .PHONY: all lint lint-all lint-backend lint-lsu lint-l2 unit unit-lsu unit-l2 \
-        lint-fe-adapter unit-fe-adapter unit-coremark \
+        lint-fe-adapter unit-fe-adapter unit-coremark repro-2core-coremark \
         unit-mt-irq unit-mt-cpu-irq unit-clint unit-plic tb-ares-pkg tb-fe-stub tb-mem-model \
         sim run wave isa clean menuconfig defconfig oldconfig savedefconfig \
         loaddefconfig showconfig test-config
@@ -288,6 +288,25 @@ unit-coremark: config-gen
 	    -o $(ARES_HOME)/sim/build/unit/tb_ares_coremark/tb_ares_coremark \
 	    $(ARES_COREMARK_SRCS) $(RTL_ROOT)/top/test/tb_ares_coremark.sv
 	@$(ARES_HOME)/sim/build/unit/tb_ares_coremark/tb_ares_coremark +DMEM=$(DMEM)
+
+# Known-failing dual-core CoreMark reproduction.  Not part of 'all'.
+# See docs/coremark_dual_bug_report.md.
+ARES_2CORE_COREMARK_SRCS := $(ARES_COREMARK_SRCS) \
+    $(RTL_ROOT)/top/ares_frontend_hart.sv \
+    $(RTL_ROOT)/top/ares_2core_frontend_l2_top.sv \
+    $(RTL_ROOT)/top/test/tb_2core_coremark.sv
+
+repro-2core-coremark: config-gen
+	@test -n "$(DMEM)" || { echo "usage: make repro-2core-coremark DMEM=<coremark_dmem.hex>"; exit 1; }
+	@mkdir -p $(ARES_HOME)/sim/build/unit/tb_2core_coremark
+	@verilator --binary --timing -sv --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+	    -Wno-SIDEEFFECT -Wno-BLKSEQ -Wno-PINCONNECTEMPTY -Wno-UNUSEDSIGNAL \
+	    -Wno-UNOPTFLAT -Wno-WIDTHEXPAND -Wno-WIDTHTRUNC -Wno-CASEINCOMPLETE -Wno-IMPLICIT \
+	    -DCONFIG_SIMULATION $(ARES_CFG_INC) --top-module tb_2core_coremark \
+	    --Mdir $(ARES_HOME)/sim/build/unit/tb_2core_coremark \
+	    -o $(ARES_HOME)/sim/build/unit/tb_2core_coremark/tb_2core_coremark \
+	    $(ARES_2CORE_COREMARK_SRCS)
+	@$(ARES_HOME)/sim/build/unit/tb_2core_coremark/tb_2core_coremark +DMEM=$(DMEM)
 
 unit-l2: config-gen
 	@set -e; for tb in $(ARES_L2_UNIT_TBS); do \
