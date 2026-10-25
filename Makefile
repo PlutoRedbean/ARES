@@ -36,12 +36,13 @@ KCONFIG   := python3 $(ARES_HOME)/scripts/kconfig/ares_kconfig.py
 PROGRAM ?=
 
 .PHONY: all lint lint-all lint-backend lint-lsu lint-l2 unit unit-lsu unit-l2 \
+        lint-fe-adapter unit-fe-adapter \
         unit-mt-irq unit-mt-cpu-irq unit-clint unit-plic tb-ares-pkg tb-fe-stub tb-mem-model \
         sim run wave isa clean menuconfig defconfig oldconfig savedefconfig \
         loaddefconfig showconfig test-config
 
-all: lint lint-backend lint-lsu lint-l2 lint-mt tb-ares-pkg tb-fe-stub tb-mem-model \
-     unit unit-lsu unit-l2 unit-mt-irq unit-mt-cpu-irq unit-clint unit-plic
+all: lint lint-backend lint-lsu lint-l2 lint-fe-adapter lint-mt tb-ares-pkg tb-fe-stub tb-mem-model \
+     unit unit-lsu unit-l2 unit-fe-adapter unit-mt-irq unit-mt-cpu-irq unit-clint unit-plic
 
 # FPGA project generation is independent of legacy npc/ and vendor build files.
 # Explicit frequency keeps the requested clock visible in every team's command.
@@ -242,6 +243,25 @@ lint-l2: config-gen
 	@echo "[lint] ares_2core_l2_top"
 	@verilator $(VERILATOR_LINT_FLAGS) -Wno-PINCONNECTEMPTY --top-module ares_2core_l2_top \
 	    $(ARES_L2_SRCS)
+
+# C5 step 1: the legacy frontend contract adapter.  The real frontend is
+# deliberately not migrated yet; this gate proves the zero-cycle IQ/redirect
+# mapping and the 2->1 BPU update FIFO.
+lint-fe-adapter: config-gen
+	@echo "[lint] fe_legacy_adapter"
+	@verilator $(VERILATOR_LINT_FLAGS) --top-module fe_legacy_adapter \
+	    $(RTL_ROOT)/common/fe_pkg.sv $(RTL_ROOT)/frontend/fe_legacy_adapter.sv
+
+unit-fe-adapter: config-gen
+	@mkdir -p $(ARES_HOME)/sim/build/unit/tb_fe_legacy_adapter
+	@verilator --binary --timing -sv --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+	    -Wno-SIDEEFFECT -Wno-BLKSEQ -DCONFIG_SIMULATION $(ARES_CFG_INC) \
+	    --top-module tb_fe_legacy_adapter \
+	    --Mdir $(ARES_HOME)/sim/build/unit/tb_fe_legacy_adapter \
+	    -o $(ARES_HOME)/sim/build/unit/tb_fe_legacy_adapter/tb_fe_legacy_adapter \
+	    $(RTL_ROOT)/common/fe_pkg.sv $(RTL_ROOT)/frontend/fe_legacy_adapter.sv \
+	    $(RTL_ROOT)/frontend/test/tb_fe_legacy_adapter.sv
+	@$(ARES_HOME)/sim/build/unit/tb_fe_legacy_adapter/tb_fe_legacy_adapter | tail -2
 
 unit-l2: config-gen
 	@set -e; for tb in $(ARES_L2_UNIT_TBS); do \
