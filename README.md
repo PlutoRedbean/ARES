@@ -4,7 +4,25 @@
 
 ---
 
-## Quick Start
+## Shared-L2 SoC mainline
+
+The development mainline is **ARES SoC with shared L2**, currently based on the
+two-hart AMP prototype. JYD `student_top` is retained for platform resources and
+reference regressions. The L2 wrappers still have stub MMIO/interrupt paths;
+the complete SoC, software boot and board integration remain to be implemented.
+See the [Implementation Plan](docs/implementation_plan.md) for current gates.
+
+```bash
+make lint-l2 unit-l2 unit-l2-frontend
+```
+
+`unit-l2-frontend` runs single/dual real-frontend smoke tests; it does not replace
+full CoreMark or system validation. `make sim/run/isa` still uses the existing
+CPU/IROM/DPI bench without L2, and the current Vivado `soc`/board profiles still
+select the JYD platform. Migrating those defaults to the complete L2 SoC is a
+mainline task; selecting this direction has not changed the build defaults.
+
+## Core regression quick start
 
 ```bash
 # 1. Clone the repository

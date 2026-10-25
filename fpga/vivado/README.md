@@ -1,5 +1,12 @@
 # Reproducible ARES Vivado projects
 
+The project mainline is the **shared-L2 ARES SoC**. The current generator and
+`fpga/board.json` still select JYD `student_top`/the existing board wrapper,
+without shared L2. The commands below are reference platform generation and
+regression entry points. A complete L2 SoC board top/manifest/profile and its
+clock/resource targets must be integrated before mainline FPGA sign-off; see
+[the Implementation Plan](../../docs/implementation_plan.md).
+
 Run from the repository with Python 3 and **Vivado 2025.2** on PATH. No original
 Vivado checkout, `npc/`, `miniTensor/`, XCI, generated RTL, DCP or GUI setup is
 required. All generated files belong in a new output directory.

@@ -1,13 +1,13 @@
 # ARES 2-core（L2 + 多核 + per-core tensor）完成清单
 
-> 目标：把当前单 hart 的 ARES 演进为图中的 **2-core 裁剪版**：
+> **主线决定（2026-10-25）**：用户已确认含共享 L2 的 ARES SoC 为主线；本清单是其双 hart AMP 实现任务表，状态与优先级以 [`implementation_plan.md`](implementation_plan.md) 为准。JYD 保留板级资源／历史回归，不再作为必须先完成的单核路线。
+> 目标：以已合并的共享 L2／真实前端原型推进图中的 **2-core 裁剪版**：
 > **2 × ARES-L（hart0 控制面 + hart1 数据面，AMP） + 每核 1 个 MT-v2 tensor + 共享 L2 + 共享 scratchpad + CLINT/PLIC/Mailbox**。
 > Tensor 采用 **中断驱动**：每个 tensor 在“需要 CPU 投喂下一条工作/结果完成/出错”时向所属 hart 发中断。
 > 本文只覆盖“L2 + 多核 + per-core tensor 中断”这一阶段；DDR3、视频链路、HDMI、SMP/硬件 coherence 明确列为后续。
 >
 > 结论先说：**结构上已经可以例化两份 ares_core_top 并共享一份 L2，但还不是可启动的 2-core SoC。**
-> 真正阻塞多核软件的是：真实前端尚未接入且契约未迁移、CLINT/PLIC/Mailbox 尚未汇入 2-core 顶层、
-> 多核启动/AMP 软件与验证环境不存在。共享 L2 的 bring-up 版本已落地（见 §6.2）。
+> 两个真实前端及原生 C5 契约已接入；剩余阻塞是默认配置长程序／数据正确性复验、完整 MMIO／中断／启动／软件与板级接入。CLINT／PLIC 已有单测，尚未汇入真实 FE 双核顶层；Mailbox 未实现。
 
 > **2026-10-25 合并校准**：`base_core` 的真实 C5 FE/IROM、两路提交训练、独立恢复快照、
 > 缓存 BRAM IP 和板级入口已与本分支的 hart/IRQ/FENCE、CLINT、PLIC、共享 L2 合并。
@@ -22,7 +22,7 @@
 
 ## 0. 第一步（建议现在做）：单核 + 单 tensor 的“需要工作 -> 中断 -> 投喂 -> 清中断”垂直切片
 
-**不要先写 L2。** 先用现有 1 个 core + 1 个 miniTensor，把新增的“per-core tensor + 中断驱动”交互跑通，再复制到第二核和 L2。这样最早暴露中断语义、CSR、MMIO、清中断和 DMA 的问题。
+原排期要求先验证单核 Tensor IRQ 切片；该切片与 L2 bring-up 都已落地。当前先按主计划复验共享 L2 长程序／数据完整性，再把已有中断模块、第二核 tensor／DMA 和完整系统接起来，不重新开发已完成的切片。
 
 ### 0.1 冻结 tensor 中断契约
 
@@ -86,7 +86,7 @@
 - Tensor：每核 1 个 miniTensor 实例，私有 MMIO 窗口 + 现有 CV-X-IF host adapter；**每核一条 level IRQ**（need_work/done/error，可 mask/ack）。
 - 地址窗口（generic profile，示例）：Boot ROM `0x8000_0000`，DRAM `0x8010_0000`，SPM `0x9000_0000`，CLINT `0x9002_0000`，PLIC `0x9004_0000`，Mailbox `0x9006_0000`，L2 ctrl `0x9008_0000`，UART/console `0xA000_0000`。
   JYD 板级 profile 保留原有 `0x8020_xxxx` 映射，用参数选择，不与新 map 混用。
-- 首版频率目标：**100–125 MHz 签核，150 MHz 争取**；不要把当前单核 250 MHz 目标直接套到 2-core + L2 上（见 §9）。
+- 频率：本清单原建议 100–125 MHz、争取 150 MHz，**尚未获批准**；当前主计划保留严格 >200 MHz 要求（250 MHz 为约束请求），若调整须另行裁决。
 
 ---
 
@@ -120,7 +120,7 @@
 | D7 | 启动 | 全局复位；hart1 在 Boot ROM 自旋；hart0 通过 MSIP/Mailbox 释放；per-hart 栈；释放后 `fence.i` | 首版不做 per-hart reset，降低复位/CDC 复杂度 |
 | D8 | 软件模型 | AMP：两个镜像/两个 entry，hart0 控 UART/加载，hart1 数据面；**每核独立 tensor 驱动/ISR** | RT-Thread Nano 不做 SMP；SMP 需换完整 RT-Thread |
 | D9 | 本阶段边界 | **做 per-core MT-v2 + IRQ**；**不做 DDR3、OV5640/HDMI、SMP/硬件 coherence、in-core XIF** | 范围可控；in-core XIF 后置，首版用每核私有 MMIO + CV-X-IF host adapter |
-| D10 | 频率目标 | 100–125 MHz 首版签核；150 MHz 争取 | 单核 250 MHz 已 WNS 负；2-core + 128 KiB L2 不能承诺 250 MHz |
+| D10 | 频率目标 | 主计划保留严格 >200 MHz；本表低频建议待裁决 | 100–125 MHz／争取 150 MHz 是原建议，未批准；250 MHz 是请求，非实测 |
 | D11 | Tensor 挂载方式 | 每核 1 个 `mini_tensor_top` + 1 个 `ares_mt_host_adapter`，私有 MMIO 窗口；in-core CV-X-IF 后置 | 复用已验证控制路径，先打通 IRQ/数据面；per-core 复制面积可接受 |
 | D12 | Tensor 中断语义 | `need_work` / `done` / `error` 三事件，level IRQ，每核 mask/ack；need_work 在“队列耗尽”时置位一次 | 避免空闲时持续中断；ISR 负责投喂下一批工作 |
 
@@ -385,7 +385,7 @@
 - 2-core 并行加速比： embarrassingly parallel workload ≥ 1.5×（相对单核同频）。
 - 中断延迟：IPI/timer 到 trap 入口 ≤ 50 cycles（目标，不含软件）。
 - L2 聚合带宽：≥ 1.5× 单核可用带宽；bank conflict 率有计数器可观测。
-- 不以 250 MHz 作为 2-core 首版门槛；先签 100–125 MHz，再优化。
+- 既有 >200 MHz 规划要求保留；250 MHz 请求不等于实测。低频首版建议需另行裁决。
 
 ---
 
@@ -393,7 +393,7 @@
 
 - [ ] 资源预算：2× core（LUT/FF 约 2× 当前单核）+ **2× miniTensor** + 128 KiB L2 + 128 KiB SPM + 2× L1；BRAM/DSP 估算以实际综合为准（2× tensor 的 DSP 是新增重点）。
 - [ ] L2/SPM 数据阵列用 FPGA BRAM 推断；确认 8 bank × 128-bit 的读写口/复位/byte enable 可综合。
-- [ ] 时序：L2 tag/data 流水化；跨 bank/端口仲裁不要组合长路径；先 100–125 MHz 签核。
+- [ ] 时序：L2 tag/data 流水化；跨 bank/端口仲裁不要组合长路径；按主计划冻结的约束签核，低频建议未批准。
 - [ ] CDC：CPU/L2 与 50 MHz 外设、DDR3（后续）分开；XPM 宏 + 约束。
 - [ ] 复位：全局复位 + hart1 自旋；L2/CLINT/PLIC/Mailbox 复位顺序。
 - [ ] Vivado 工程：新增 L2/2-core 源文件、IP（BRAM）、XDC、时钟约束；生成器测试更新。
@@ -402,7 +402,7 @@
 
 ---
 
-## 11. 建议顺序（关键路径）
+## 11. 原建议顺序（历史；当前以主计划 §9.9 为准）
 
 1. **D0–D12 决策冻结**（1 周内）：AMP/一致性/ISA/L2 参数/端口/中断/启动/软件模型/per-core tensor/IRQ 语义。
 2. **第 0 步：单核 + 单 tensor IRQ 垂直切片**（见 §0）：先把 need_work 中断闭环打通，不等 L2/FE。
@@ -440,7 +440,7 @@
 | FE 契约迁移拖延 | 真实 2-core 无法上板/跑软件 | “先桩后真”；FE 迁移作为 P0 关键路径；L2 并行 |
 | 一致性策略不清 | 共享数据随机错误，难复现 | 先冻结 AMP 属性：共享可写只走 uncached/SPM；文档 + 链接脚本 + 测试 |
 | L2 端口/仲裁复杂 | 死锁、饿死、带宽不达标 | 先冻结协议/outstanding/QoS；单元 TB + 随机反压；SVA |
-| 时序不收敛 | 2-core + L2 跑不到目标频率 | 100–125 MHz 首版；L2 流水化；bank/仲裁打拍；不承诺 250 MHz |
+| 时序不收敛 | 2-core + L2 跑不到目标频率 | L2 流水化；bank/仲裁打拍；保留 >200 MHz 规划要求，降标须另行裁决 |
 | FPGA BRAM 不足 | L2/SPM/DRAM 放不下 | 参数化 64/64 KiB 小配置；BRAM 预算早做；DDR3 后续 |
 | RT-Thread Nano 非 SMP | 软件模型与预期不符 | 明确 AMP 双镜像；SMP 另换完整 RT-Thread |
 | 验证不足 | 多核竞态/死锁漏检 | 双核压力、barrier/IPI 长跑、SVA、formal（L2/互连） |
@@ -451,7 +451,7 @@
 
 ---
 
-## 14. 一页速览（最小可交付）
+## 14. 原最小可交付拆分（参考；当前主线门禁见主计划 §9.8）
 
 如果只做“能跑起来的 2-core + 2× tensor + L2 最小闭环”，优先级是：
 

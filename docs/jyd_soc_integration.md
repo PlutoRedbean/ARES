@@ -1,5 +1,16 @@
 # JYD SoC migration decisions and boundary
 
+## Role after the shared-L2 mainline decision (2026-10-25)
+
+The shared-L2 ARES SoC is now the development and system-delivery mainline.
+JYD `student_top` remains a reference regression and the source of reusable PLL,
+reset, UART, BRAM, CDC, pin and Vivado platform settings. Its dedicated-IROM,
+single-CPU bridges and address aliases are not the new SoC architecture.
+The current default simulator and Vivado profiles have not yet been migrated;
+L2 board/MMIO/interrupt/boot integration is tracked in
+[the main plan](implementation_plan.md), sections 9.7a–9.9.
+The dated JYD decisions and measurements below retain their original scope.
+
 ## Current C5 integration (2026-10-18)
 
 `student_top` now instantiates `ares_cpu_top Core_cpu`: real FE, Backend/LSU and

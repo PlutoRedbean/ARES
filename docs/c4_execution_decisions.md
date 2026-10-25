@@ -1,8 +1,23 @@
-# C4 执行决策与 C6 方向（2026-10-18）
+# C4／C6 决策与共享 L2 主线（更新至 2026-10-25）
 
 用户确认：miniTensor 后续新增 **Core 内 CV-X-IF**；其余按进度评估中的建议实施。
 
-## 本轮范围
+## 当前主线决定（2026-10-25）
+
+用户已确认：**含共享 L2 的 ARES SoC 作为后续主线**。当前基于 `943d160` 的双 hart
+AMP／原生 C5 FE／共享 L2 原型推进，先解决长程序数据正确性，再完成 MMIO／中断／
+启动／软件与默认仿真、Vivado／板级顶层迁移。具体任务与门禁见
+[`implementation_plan.md`](implementation_plan.md) §9.7a–§9.9。
+
+JYD `student_top` 保留为回归及 PLL／复位／UART／BRAM／CDC／引脚与工程设置的复用来源，
+不再要求先完成旧 JYD 单核 PPA 才推进 L2。当前 `make sim/run/isa` 仍不含 L2，现有
+Vivado `soc`／board profile 仍走 JYD；本次仅修改规划，默认值和 RTL 接线未迁移。
+
+既有严格 >200MHz 规划要求保留，250MHz 是约束请求；L2 主线需明确完整配置的时钟
+约束和资源预算。调整频率要求须另行裁决，100–125MHz 建议不能自动当作批准降标。Core 内 XIF 的后续方向保留，当前
+MMIO host adapter 是可复用过渡路径，不表示 Core 内 XIF 已完成。
+
+## 原单核板级范围（2026-10-18，历史／资源参考）
 
 - 先验收当前 C5 FE/BE/LSU 功能基线，再推进深预测器；TAGE/SC/mBTB 与
   1 prediction/cycle 的目标要求保留，不因本轮验收而关闭。
@@ -26,7 +41,7 @@
   Generator 8.4 IP，避免依赖 RAM 推断。保留同步单周期读取和原端口契约，
   元数据保持 RTL；普通仿真使用行为模型，并以厂商模型单独验证 IP。
 
-## C6 已选方向与剩余契约
+## Core 内 XIF 与系统剩余契约（方向保留，接入 L2 主线）
 
 **已选：Core 内 XIF。** 后续在 Backend 实现 custom-0 译码、Issue、Commit、
 kill 和 Result→CIQ；现有 MMIO→XIF 适配只保留为子系统诊断资产，不作为
@@ -35,7 +50,7 @@ ID 生命周期、flush/trap kill 和 completion 路由仍须在实现前冻结�
 
 后续按计划定义 CPU/DMA 仲裁与 Read owner、写可见性、冷复位隔离和
 uncached buffer 所有权（SPEC-M7/M13/M20/M21）。不增加硬件缓存一致性。
-首版继续 IROM-only 取指；若允许 DMA/CPU 更新可执行存储，需先解决
+原 JYD 基线为 IROM-only；L2 主线已经把 I/D 接到共享 L2，若允许 DMA/CPU 更新可执行存储，需先解决
 I-cache 维护契约（SPEC-M19）。正式 mtime/mtimecmp 的寄存器布局、时基、
 电平 MTIP 与 ARES RT-Thread BSP 随 C6 单独落实（SPEC-M12）。
 
@@ -43,4 +58,4 @@ I-cache 维护契约（SPEC-M19）。正式 mtime/mtimecmp 的寄存器布局、
 
 OOC 报告只诊断资源与关键路径。物理顶层仿真使用显式 PLL/存储 IP
 时序模型，不证明实际 PLL、引脚电气或硬件运行。未连接开发板时不得
-报告“实板通过”。MC4 以保存的实际 routed 报告和约束审查为准。
+报告“实板通过”。旧 MC4 不作为 L2 主线通过证据；L2-M6 以完整 L2 SoC 的实际 routed 报告、资源与约束／CDC 审查为准。

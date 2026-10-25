@@ -4,7 +4,16 @@ Verilator simulation of `ares_cpu_top`: real Frontend + Backend/LSU +
 AXI-Lite-to-registered-IROM bridge. The legacy Mundus/NPC DUT and its
 Chisel generation tools have been removed. No external NPC project is needed.
 
-## Quick start
+## Mainline direction and current entry points
+
+The project mainline is the shared-L2 ARES SoC. Start with repository-root
+`make lint-l2 unit-l2 unit-l2-frontend` for the existing L2/real-frontend prototype.
+Its complete MMIO/interrupt/boot/software harness and default simulation entry
+still need integration. The commands below remain the independent CPU/IROM/DPI
+regression, without shared L2; they do not validate the mainline SoC.
+See [the plan](../docs/implementation_plan.md) for migration and system gates.
+
+## Core regression quick start
 
 Run from the ARES repository root:
 
