@@ -112,6 +112,10 @@ module ares_frontend_l2_top #(
     logic [31:0]  l2_i_rd_addr;
     logic         l2_i_rsp_valid, l2_i_rsp_ready;
     logic [127:0] l2_i_rsp_data;
+    /* verilator lint_off UNUSEDSIGNAL */
+    logic         i1_rd_ready, i1_rsp_valid;
+    logic [127:0] i1_rsp_data;
+    /* verilator lint_on UNUSEDSIGNAL */
 
     axi_l2_bridge u_ibridge (
         .clk(clk), .rst(rst),
@@ -195,6 +199,8 @@ module ares_frontend_l2_top #(
         .c1_wr_data(128'h0), .c1_wr_be(16'h0),
         .i_rd_valid(l2_i_rd_valid), .i_rd_ready(l2_i_rd_ready), .i_rd_addr(l2_i_rd_addr),
         .i_rsp_valid(l2_i_rsp_valid), .i_rsp_ready(l2_i_rsp_ready), .i_rsp_data(l2_i_rsp_data),
+        .i1_rd_valid(1'b0), .i1_rd_ready(i1_rd_ready), .i1_rd_addr(32'h0),
+        .i1_rsp_valid(i1_rsp_valid), .i1_rsp_ready(1'b0), .i1_rsp_data(i1_rsp_data),
         .mem_rd_valid(l2_mem_rd_valid), .mem_rd_ready(l2_mem_rd_ready), .mem_rd_addr(l2_mem_rd_addr),
         .mem_rsp_valid(l2_mem_rsp_valid), .mem_rsp_ready(l2_mem_rsp_ready), .mem_rsp_data(l2_mem_rsp_data),
         .mem_wr_valid(l2_mem_wr_valid), .mem_wr_ready(l2_mem_wr_ready), .mem_wr_addr(l2_mem_wr_addr),

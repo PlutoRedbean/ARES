@@ -41,8 +41,8 @@ module tb_l2;
     logic [15:0] c1_wr_be;
 
     /* verilator lint_off UNUSEDSIGNAL */
-    logic i_rd_ready, i_rsp_valid;
-    logic [127:0] i_rsp_data;
+    logic i_rd_ready, i_rsp_valid, i1_rd_ready, i1_rsp_valid;
+    logic [127:0] i_rsp_data, i1_rsp_data;
     /* verilator lint_on UNUSEDSIGNAL */
 
     logic mem_rd_valid, mem_rd_ready, mem_rsp_valid, mem_rsp_ready;
@@ -71,6 +71,8 @@ module tb_l2;
         .c1_wr_data(c1_wr_data), .c1_wr_be(c1_wr_be),
         .i_rd_valid(1'b0), .i_rd_ready(i_rd_ready), .i_rd_addr(32'h0),
         .i_rsp_valid(i_rsp_valid), .i_rsp_ready(1'b0), .i_rsp_data(i_rsp_data),
+        .i1_rd_valid(1'b0), .i1_rd_ready(i1_rd_ready), .i1_rd_addr(32'h0),
+        .i1_rsp_valid(i1_rsp_valid), .i1_rsp_ready(1'b0), .i1_rsp_data(i1_rsp_data),
         .mem_rd_valid(mem_rd_valid), .mem_rd_ready(mem_rd_ready), .mem_rd_addr(mem_rd_addr),
         .mem_rsp_valid(mem_rsp_valid), .mem_rsp_ready(mem_rsp_ready), .mem_rsp_data(mem_rsp_data_128),
         .mem_wr_valid(mem_wr_valid), .mem_wr_ready(mem_wr_ready), .mem_wr_addr(mem_wr_addr),
@@ -251,6 +253,18 @@ module tb_l2;
             l2_read(1'b1, 32'h0000_5040, rd1);
         join
         check(rd0 == pat[5] && rd1 == pat[6], "concurrent dual-port reads");
+
+        // Same-set, different-tag concurrent reads, plus a c0 dirty line
+        // displaced by a c1 read.
+        mem[32'h0000_5400 >> 4] = pat[7];
+        l2_write(1'b0, 32'h0000_5000, pat[5], 16'hFFFF);
+        fork
+            l2_read(1'b0, 32'h0000_5000, rd0);
+            l2_read(1'b1, 32'h0000_5400, rd1);
+        join
+        check(rd0 == pat[5] && rd1 == pat[7], "same-set concurrent c0/c1 reads");
+        l2_read(1'b0, 32'h0000_5000, rd0);
+        check(rd0 == pat[5], "c0 dirty line survives c1 read");
 
         check(hit_count != 0 && miss_count != 0, "hit/miss counters advanced");
 

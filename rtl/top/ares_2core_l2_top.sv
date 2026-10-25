@@ -80,8 +80,8 @@ module ares_2core_l2_top #(
     output logic [1:0]         c1_retire_is_ebreak
 );
     /* verilator lint_off UNUSEDSIGNAL */  // 2-core top does not use the I port yet
-    logic i_rd_ready, i_rsp_valid;
-    logic [127:0] i_rsp_data;
+    logic i_rd_ready, i_rsp_valid, i1_rd_ready, i1_rsp_valid;
+    logic [127:0] i_rsp_data, i1_rsp_data;
     /* verilator lint_on UNUSEDSIGNAL */
 
     // Core-to-L2 buses.
@@ -223,6 +223,8 @@ module ares_2core_l2_top #(
         .c1_wr_data(c1_mem_wr_data), .c1_wr_be(c1_mem_wr_be),
         .i_rd_valid(1'b0), .i_rd_ready(i_rd_ready), .i_rd_addr(32'h0),
         .i_rsp_valid(i_rsp_valid), .i_rsp_ready(1'b0), .i_rsp_data(i_rsp_data),
+        .i1_rd_valid(1'b0), .i1_rd_ready(i1_rd_ready), .i1_rd_addr(32'h0),
+        .i1_rsp_valid(i1_rsp_valid), .i1_rsp_ready(1'b0), .i1_rsp_data(i1_rsp_data),
         .mem_rd_valid(l2_mem_rd_valid), .mem_rd_ready(l2_mem_rd_ready), .mem_rd_addr(l2_mem_rd_addr),
         .mem_rsp_valid(l2_mem_rsp_valid), .mem_rsp_ready(l2_mem_rsp_ready), .mem_rsp_data(l2_mem_rsp_data),
         .mem_wr_valid(l2_mem_wr_valid), .mem_wr_ready(l2_mem_wr_ready), .mem_wr_addr(l2_mem_wr_addr),
