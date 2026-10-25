@@ -119,12 +119,18 @@ FPGA 分支通过 `ifdef __VERILATOR__` 保留原来的 16 位字地址，
 | `0x04` | `MT_RS1` | W | `register.rs[0]` 的值 |
 | `0x08` | `MT_RS2` | W | `register.rs[1]` 的值 |
 | `0x0C` | `MT_KICK` | W | 写 1 把当前 INSTR/RS1/RS2 **入队**（队列深 8） |
-| `0x10` | `MT_STATUS` | R | bit0 busy（队列非空或正在执行）/ bit1 done（队列排空且末条完成）/ bit2 err / bit3 accept_err / bit4 kick_err；**仅在 busy=0 时读会清除标志** |
+| `0x10` | `MT_STATUS` | R | bit0 busy（队列非空或正在执行）/ bit1 done（队列排空且末条完成）/ bit2 err / bit3 accept_err / bit4 kick_err / bit5 need_work（排空且需要下一条工作）；**仅在 busy=0 时读会清除标志** |
+| `0x14` | `MT_RESULT` | R | `result.data`（当前恒 0） |
+| `0x18` | `MT_IRQ_MASK` | W | bits[4:0] 使能 IRQ 源，顺序 `{need_work, kick_err, accept_err, err, done}`；复位 0 |
+| `0x1C` | `MT_IRQ_ACK` | W | 同序写 1 清除 sticky 源；也可在 busy=0 时读 STATUS 清除 |
 
 > 队列是 Y4 加的：Mundus 上 MMIO **写只要 2 拍**（进 store buffer 就返回），
 > 但 **读要 11 拍**，所以"每条命令轮询一次"比命令本身还贵。软件用
 > `mt_push()` 连续入队、`mt_drain()` 批量等待，实测 MT_LOAD 从 90 拍降到 **25 拍**。
-| `0x14` | `MT_RESULT` | R | `result.data`（当前恒 0） |
+>
+> `mt_irq` 为 level：`|(sticky & mask)`。`need_work` 只在“队列排空且末条完成”置位一次，
+> 新的 KICK 会清掉它，因此 tensor 空闲不会一直拉住中断。首版每核一个 adapter，IRQ 接该核
+> `external_irq`（`mip.MEIP`）。
 
 ---
 

@@ -29,6 +29,7 @@ module tb_student_top;
         .uart_tx_data(), .uart_tx_start(), .virtual_led(virtual_led), .virtual_seg(virtual_seg),
         .ifetch_addr(32'h80000000), .ifetch_data(ifetch_data),
         .mt_wr_en(), .mt_wr_idx(), .mt_wr_data(), .mt_status_rd(), .mt_status(32'd0), .mt_result(32'd0),
+        .mt_irq(1'b0),
         .iq_valid(iq_valid), .iq_inst(iq_inst), .iq_accept_count(iq_accept_count),
         .backend_redirect_valid(backend_redirect_valid), .backend_redirect_pc(backend_redirect_pc),
         .backend_redirect_kind(backend_redirect_kind), .backend_redirect_ghr_before(backend_redirect_ghr_before),

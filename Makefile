@@ -35,11 +35,11 @@ KCONFIG   := python3 $(ARES_HOME)/scripts/kconfig/ares_kconfig.py
 
 PROGRAM ?=
 
-.PHONY: all lint lint-all lint-backend lint-lsu unit unit-lsu tb-ares-pkg tb-fe-stub \
-        tb-mem-model sim run wave isa clean menuconfig defconfig oldconfig \
-        savedefconfig loaddefconfig showconfig test-config
+.PHONY: all lint lint-all lint-backend lint-lsu unit unit-lsu unit-mt-irq \
+        tb-ares-pkg tb-fe-stub tb-mem-model sim run wave isa clean menuconfig \
+        defconfig oldconfig savedefconfig loaddefconfig showconfig test-config
 
-all: lint lint-backend lint-lsu lint-mt tb-ares-pkg tb-fe-stub tb-mem-model unit unit-lsu
+all: lint lint-backend lint-lsu lint-mt tb-ares-pkg tb-fe-stub tb-mem-model unit unit-lsu unit-mt-irq
 
 # FPGA project generation is independent of legacy npc/ and vendor build files.
 # Explicit frequency keeps the requested clock visible in every team's command.
@@ -48,7 +48,7 @@ FPGA_CPU_MHZ ?=
 FPGA_OUT ?= $(ARES_HOME)/build/vivado/ares
 FPGA_PROFILE ?= soc
 FPGA_ARGS ?=
-.PHONY: vivado-project vivado-synth vivado-route test-vivado lint-soc unit-soc lint-mt
+.PHONY: vivado-project vivado-synth vivado-route test-vivado lint-soc unit-soc unit-mt-irq lint-mt
 vivado-project vivado-synth vivado-route:
 	@test -n "$(FPGA_CPU_MHZ)" || { echo "set FPGA_CPU_MHZ to a target strictly above 200"; exit 1; }
 	@python3 "$(ARES_HOME)/scripts/vivado/create_project.py" \
@@ -119,6 +119,18 @@ unit-soc: config-gen
 	    $(RTL_ROOT)/top/ares_core_top.sv $(RTL_ROOT)/top/student_top.sv $(ARES_SOC_SRCS) \
 	    $(RTL_ROOT)/soc/jyd/test/tb_student_top.sv
 	@$(ARES_HOME)/sim/build/unit/tb_student_top/tb_student_top
+
+# miniTensor host-adapter IRQ slice: behavioural CV-X-IF slave, MMIO command
+# pushes, need_work/done/error interrupts, mask/ack and status-clear semantics.
+unit-mt-irq: config-gen
+	@mkdir -p $(ARES_HOME)/sim/build/unit/tb_mt_irq
+	@verilator --binary --timing --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+	    -Wno-PINCONNECTEMPTY -DCONFIG_SIMULATION $(ARES_CFG_INC) --top-module tb_mt_irq \
+	    --Mdir $(ARES_HOME)/sim/build/unit/tb_mt_irq -o tb_mt_irq \
+	    $(RTL_ROOT)/soc/ares_mt_host_adapter.sv \
+	    $(MINITENSOR_HOME)/rtl/interface/core_v_xif.sv \
+	    $(RTL_ROOT)/soc/test/tb_mt_irq.sv
+	@$(ARES_HOME)/sim/build/unit/tb_mt_irq/tb_mt_irq
 
 #-----------------------------------------------------------------------------
 # Backend (C1): lint the backend subsystem top and run the standalone

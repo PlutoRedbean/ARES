@@ -17,35 +17,35 @@
 
 ### 0.1 冻结 tensor 中断契约
 
-- [ ] 定义三个事件（建议放在 `mt_status` 中，W1C 或 status-read 清除）：
+- [x] 定义三个事件（放在 `mt_status` 中，W1C 或 status-read 清除）：
   - `MT_NEED_WORK`：tensor 完成队列中最后一条命令、队列变空，等待 CPU 投喂下一条工作；
   - `MT_DONE`：命令完成、结果可读；
   - `MT_ERROR`：命令/操作数/队列错误（accept_err、kick_err、tensor err）。
   - 首版可以只把 `MT_NEED_WORK` 接到 IRQ；`DONE/ERROR` 先作为 status 位，后续再并入 mask，降低第一版改动量。
   - 首版建议“按批中断”（队列耗尽时一次），不要每条命令都中断；per-command done IRQ 作为可选，避免中断频率过高。
-- [ ] `mt_irq` 为 **level**：`mt_irq = |(status & irq_mask)`；每核独立 `irq_mask`/ack，避免中断风暴。
-- [ ] `MT_NEED_WORK` 只在“队列耗尽”时置位一次；CPU 写 `MT_KICK` 或写 ack 后清除；tensor 空闲本身不能持续拉高 IRQ。
-- [ ] 明确“没有工作可投喂”时软件先清 status + mask，再在下一批工作到达时 unmask/re-arm。
+- [x] `mt_irq` 为 **level**：`mt_irq = |(status & irq_mask)`；每核独立 `irq_mask`/ack，避免中断风暴。
+- [x] `MT_NEED_WORK` 只在“队列耗尽”时置位一次；CPU 写 `MT_KICK` 或写 ack 后清除；tensor 空闲本身不能持续拉高 IRQ。
+- [x] 明确“没有工作可投喂”时软件先清 status + mask，再在下一批工作到达时 unmask/re-arm。
 
 ### 0.2 最小 RTL 改动
 
-- [ ] `ares_mt_host_adapter`：增加 `mt_irq` 输出、`mt_status` 的 need_work 位、`mt_ack`/mask 寄存器；在 `S_WAIT_RESULT` 且 `fifo_count==0` 时置 need_work。
-  - 现有 adapter 的 `done_q` 已经在“队列排空后的最后一条命令完成”置位，可直接作为 `MT_NEED_WORK` 源，避免新增一套 FSM；只需补 IRQ 输出、mask/ack 和状态位命名。
-- [ ] `ares_core_top` / `be_top` / `csr_file` / `be_trap_ctrl`：增加 `external_irq` 输入 -> `mip.MEIP`，`mie.MEIE`；中断优先级至少覆盖 **MEI > MTI**。
-- [ ] `student_top` / `ares_soc_top`：把 adapter 的 `mt_irq` 接到该 core 的 `external_irq`（首版直连 MEIP；正式 2-core 再走 PLIC）。
-- [ ] 保持现有 `MT_STATUS/MT_RESULT/MT_KICK` 寄存器兼容，新增位/寄存器只追加，不破坏已有软件。
+- [x] `ares_mt_host_adapter`：增加 `mt_irq`、`mt_status[5]=need_work`、`mt_irq_mask`（0x18）、`mt_irq_ack`（0x1C）；`S_WAIT_RESULT` 且 `fifo_count==0` 时置 need_work。
+  - 复用现有 `done_q` 的“队列排空后的最后一条命令完成”条件；新增 `need_work_q`、mask/ack 和 HART_ID 参数。
+- [x] `ares_core_top` / `be_top` / `csr_file` / `be_trap_ctrl`：`external_irq` -> `mip.MEIP`，`mie.MEIE`；优先级 **MEI > MSI > MTI**（上一 P0 已完成）。
+- [x] `student_top` / `ares_soc_top`：adapter `mt_irq` -> 该 core 的 `external_irq`（首版直连 MEIP）。
+- [x] 保持现有 `MT_STATUS/MT_RESULT/MT_KICK` 寄存器兼容，新增位/寄存器只追加。
 
 ### 0.3 验证
 
-- [ ] 新增 `tb_mt_irq`（或扩展 `tb_student_top`）：CPU 通过 MMIO 下发一批命令，tensor 完成后 need_work 拉高 -> 中断 -> ISR 读 status、投喂下一条、清中断。
-- [ ] 覆盖：单条命令、队列连续多条、队列空后不再风暴、done/error 与 need_work 同时置位、mask/unmask、复位清状态。
-- [ ] 断言：irq 只在 status&mask 非零时为高；status 清除后 irq 落下；不丢中断、不重复中断。
-- [ ] 若时间允许，再写一个裸机/AM 版本，确认真实 trap 入口、`mcause=11`、`mip.MEIP` 可读。
+- [x] 新增 `tb_mt_irq`（adapter + 行为级 CV-X-IF slave）：MMIO 下发命令 -> need_work/done/accept_err/kick_err -> IRQ -> status/ack 清除；26 checks。
+- [x] 覆盖：单条/多条、队列空后 level 稳定不风暴、done-only、accept_err、kick_err、ack、status-read 清除、HART_ID=1。
+- [x] 断言：irq 只在 status&mask 非零时为高；KICK/ACK/status 清除后 irq 落下。
+- [ ] 裸机/AM 版本：真实 trap 入口、`mcause=0xB`、`mip.MEIP` 可读（下一小步）。
 
 ### 0.4 完成判据
 
-- [ ] 单核 + 单 tensor 连续投喂 N 条命令，N 次 need_work 中断全部被处理，无一次风暴/丢失。
-- [ ] `done` / `error` 路径可观测、可清除；复位后状态确定。
+- [x] 单核 + 单 tensor adapter 连续投喂 N 条命令，N 次 need_work 中断全部被处理，无一次风暴/丢失（adapter 级）。
+- [x] `done` / `error` 路径可观测、可清除；复位后状态确定。
 - [ ] 该 wrapper/IRQ 契约冻结后再复制到第二核；L2 开发可与此切片并行。
 
 ---
@@ -283,16 +283,21 @@
 
 ### 7.5 每核 Tensor（MT-v2）+ 中断
 
+> 已完成（单核切片）：adapter `mt_irq` / need_work / mask / ack、`HART_ID`、
+> `student_top`/`ares_soc_top` 到 `external_irq` 的接线、`tb_mt_irq`（26 checks）。
+> 待做：第二份实例、双核私有窗口、驱动/ISR、双 tensor 并发。
+
 - [ ] 例化 **2× `mini_tensor_top` + 2× `ares_mt_host_adapter`**：hart0 一个、hart1 一个；每个 tensor 只归其所属 hart 使用，不跨核共享。
 - [ ] 每核一个私有 MMIO 窗口（base 参数化；例如 JYD 下 hart0 `0x8020_1000`、hart1 `0x8021_1000`；generic profile 另定），互不重叠。
 - [ ] 每核 MT-DMA 128-bit 主口接到该核 L2 core port 的 **MT-DMA 虚拟通道**；DMA 必须经 L2，保证命中 dirty 行；共享 buffer 用 uncached/SPM 或明确的 flush 协议。
-- [ ] 每核 `mt_irq` 接到该 hart 的 `external_irq`（首版直连 MEIP；正式 2-core 走 PLIC source）；**tensor0 只打 hart0，tensor1 只打 hart1**。
-- [ ] `mt_status` 定义 `need_work / done / error`，每核独立 `mask/ack`；need_work 只在“队列耗尽”置位一次，CPU 投喂后清除；禁止空闲持续拉高。
+- [x] 单核 `mt_irq` 接到 `external_irq`（直连 MEIP）；2-core 的 tensor0/tensor1 分流待做。
+- [x] `mt_status` 定义 `need_work / done / error`，每核独立 `mask/ack`；need_work 只在“队列耗尽”置位一次，CPU 投喂后清除。
 - [ ] 每核 driver：命令队列/描述符、ISR、错误恢复、复位初始化；两核不得同时操作同一 tensor。
-- [ ] host adapter 的 `hartid` 字段设为所属 hart（0/1），便于多实例调试和错误归属。
+- [x] host adapter 的 `HART_ID` 参数驱动 CV-X-IF `hartid`（单核测试用 1）。
 - [ ] 中断路由与优先级：tensor IRQ 与 CLINT/PLIC/Mailbox 的中断号、mask、claim/complete 写进 `docs/2core_memory_map.md`。
 - [ ] 资源预算：2× tensor 的 LUT/FF/DSP/BRAM；首版可用 4×8 阵列/较小 UB，必要时参数化。
-- [ ] 测试：单核 need_work 闭环、双核各自 tensor 并发、IRQ 风暴/丢失、done/error、MT-DMA 与 D 通道冲突、L2 QoS。
+- [x] 测试：单核 need_work/done/accept_err/kick_err、mask/ack、无风暴、HART_ID（`tb_mt_irq`，26 checks）。
+- [ ] 测试：双核各自 tensor 并发、MT-DMA 与 D 通道冲突、L2 QoS。
 - [ ] 可选后续：把 per-core MMIO host adapter 换成 in-core CV-X-IF（SPEC-M6）；IRQ/驱动接口保持不变，避免返工。
 
 ### 7.6 Video 边界

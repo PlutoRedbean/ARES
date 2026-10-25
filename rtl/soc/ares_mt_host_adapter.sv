@@ -15,8 +15,16 @@
 //   0x08  MT_RS2     W   value delivered as CV-X-IF register.rs[1]
 //   0x0C  MT_KICK    W   write 1 to queue the current INSTR/RS1/RS2 tuple
 //   0x10  MT_STATUS  R   bit0 busy, bit1 done, bit2 err, bit3 accept_err,
-//                        bit4 kick_err; a read while not busy clears the flags
+//                        bit4 kick_err, bit5 need_work; a read while not busy
+//                        clears the sticky flags
 //   0x14  MT_RESULT  R   result.data (miniTensor returns 0 today)
+//   0x18  MT_IRQ_MASK W  bits[4:0] enable masked IRQ sources in the order
+//                        {need_work, kick_err, accept_err, err, done}; reset 0
+//   0x1C  MT_IRQ_ACK  W  write-1-to-clear the same five sticky sources
+//
+//   mt_irq is a level: |(sticky & mask).  need_work is set only when the last
+//   queued command completes and the queue is empty; a new KICK clears it, so
+//   an idle tensor does not hold the interrupt forever.
 //
 // Why a queue: an MMIO write retires as soon as it is accepted by the bridge,
 // but an MMIO read costs a full round trip, so a per-command status poll costs
@@ -44,7 +52,8 @@
 module ares_mt_host_adapter #(
     parameter int unsigned ISSUE_TO_REGISTER  = 2,
     parameter int unsigned REGISTER_TO_COMMIT = 3,
-    parameter int unsigned FIFO_DEPTH         = 8
+    parameter int unsigned FIFO_DEPTH         = 8,
+    parameter logic        HART_ID            = 1'b0
 ) (
     input  logic        clk,
     input  logic        rst,           // synchronous, active high
@@ -56,16 +65,20 @@ module ares_mt_host_adapter #(
     input  logic        status_rd,     // CPU is reading MT_STATUS this cycle
     output logic [31:0] status,
     output logic [31:0] result_data,
+    output logic        mt_irq,        // level: any enabled sticky event
 
     // CV-X-IF master
     core_v_xif xif
 );
 
-  localparam logic [2:0] IDX_INSTR = 3'd0;
-  localparam logic [2:0] IDX_RS1   = 3'd1;
-  localparam logic [2:0] IDX_RS2   = 3'd2;
-  localparam logic [2:0] IDX_KICK  = 3'd3;
+  localparam logic [2:0] IDX_INSTR    = 3'd0;
+  localparam logic [2:0] IDX_RS1      = 3'd1;
+  localparam logic [2:0] IDX_RS2      = 3'd2;
+  localparam logic [2:0] IDX_KICK     = 3'd3;
+  localparam logic [2:0] IDX_IRQ_MASK = 3'd6;
+  localparam logic [2:0] IDX_IRQ_ACK  = 3'd7;
   // 3'd4 = MT_STATUS and 3'd5 = MT_RESULT are read-only.
+  // IRQ source bits [4:0] = {need_work, kick_err, accept_err, err, done}.
 
   typedef enum logic [2:0] {
     S_IDLE,
@@ -89,6 +102,8 @@ module ares_mt_host_adapter #(
 
   logic [31:0] result_data_q;
   logic        done_q, err_q, accept_err_q, kick_err_q;
+  logic        need_work_q;
+  logic [4:0]  irq_mask_q;
 
   // ---------------------------------------------------------------------------
   // Command queue
@@ -109,8 +124,12 @@ module ares_mt_host_adapter #(
 
   wire busy = (fifo_count_q != CNT_W'(0)) || (state_q != S_IDLE);
 
-  assign status      = {27'd0, kick_err_q, accept_err_q, err_q, done_q, busy};
+  wire        irq_ack  = reg_wr_en && (reg_wr_idx == IDX_IRQ_ACK);
+  wire [4:0]  irq_src  = {need_work_q, kick_err_q, accept_err_q, err_q, done_q};
+
+  assign status      = {26'd0, need_work_q, kick_err_q, accept_err_q, err_q, done_q, busy};
   assign result_data = result_data_q;
+  assign mt_irq      = |(irq_src & irq_mask_q);
 
   // ---------------------------------------------------------------------------
   // CV-X-IF master drive
@@ -120,12 +139,12 @@ module ares_mt_host_adapter #(
     xif.issue_req        = '0;
     xif.issue_req.instr  = instr_q;
     xif.issue_req.mode   = 2'b00;
-    xif.issue_req.hartid = '0;
+    xif.issue_req.hartid = HART_ID;
     xif.issue_req.id     = id_q;
 
     xif.register_valid    = (state_q == S_REGISTER);
     xif.register          = '0;
-    xif.register.hartid   = '0;
+    xif.register.hartid   = HART_ID;
     xif.register.id       = id_q;
     xif.register.rs[0]    = rs1_q;
     xif.register.rs[1]    = rs2_q;
@@ -134,7 +153,7 @@ module ares_mt_host_adapter #(
     // Held, not pulsed -- see the header comment.
     xif.commit_valid       = (state_q == S_COMMIT_WAIT) || (state_q == S_WAIT_RESULT);
     xif.commit             = '0;
-    xif.commit.hartid      = '0;
+    xif.commit.hartid      = HART_ID;
     xif.commit.id          = id_q;
     xif.commit.commit_kill = 1'b0;
 
@@ -168,16 +187,19 @@ module ares_mt_host_adapter #(
       err_q         <= 1'b0;
       accept_err_q  <= 1'b0;
       kick_err_q    <= 1'b0;
+      need_work_q   <= 1'b0;
+      irq_mask_q    <= 5'd0;
       fifo_head_q   <= '0;
       fifo_tail_q   <= '0;
       fifo_count_q  <= '0;
     end else begin
       if (reg_wr_en) begin
         case (reg_wr_idx)
-          IDX_INSTR: stg_instr_q <= reg_wr_data;
-          IDX_RS1:   stg_rs1_q   <= reg_wr_data;
-          IDX_RS2:   stg_rs2_q   <= reg_wr_data;
-          default:   ;  // KICK is consumed below
+          IDX_INSTR:    stg_instr_q <= reg_wr_data;
+          IDX_RS1:      stg_rs1_q   <= reg_wr_data;
+          IDX_RS2:      stg_rs2_q   <= reg_wr_data;
+          IDX_IRQ_MASK: irq_mask_q  <= reg_wr_data[4:0];
+          default:      ;  // KICK and IRQ_ACK are consumed below
         endcase
       end
 
@@ -189,6 +211,10 @@ module ares_mt_host_adapter #(
         fifo_rs1[fifo_tail_q]   <= stg_rs1_q;
         fifo_rs2[fifo_tail_q]   <= stg_rs2_q;
         fifo_tail_q             <= fifo_tail_q + PTR_W'(1);
+        // New work arrived: the previous batch's completion/work request is
+        // no longer pending, so do not leave the level IRQ asserted.
+        done_q                  <= 1'b0;
+        need_work_q             <= 1'b0;
       end else if (kick && fifo_full) begin
         kick_err_q <= 1'b1;
       end
@@ -206,6 +232,18 @@ module ares_mt_host_adapter #(
         err_q        <= 1'b0;
         accept_err_q <= 1'b0;
         kick_err_q   <= 1'b0;
+        need_work_q  <= 1'b0;
+      end
+
+      // MT_IRQ_ACK is write-1-to-clear per source bit, in parallel with the
+      // status-read clear above.  A newly completing command later in this
+      // block wins over the ack for the same source.
+      if (irq_ack) begin
+        if (reg_wr_data[0]) done_q       <= 1'b0;
+        if (reg_wr_data[1]) err_q        <= 1'b0;
+        if (reg_wr_data[2]) accept_err_q <= 1'b0;
+        if (reg_wr_data[3]) kick_err_q   <= 1'b0;
+        if (reg_wr_data[4]) need_work_q  <= 1'b0;
       end
 
       case (state_q)
@@ -255,8 +293,13 @@ module ares_mt_host_adapter #(
           if (xif.result_valid && xif.result_ready) begin
             err_q         <= err_q | xif.result.err;
             result_data_q <= xif.result.data;
-            // Only the final command of a drained queue raises DONE.
-            if (fifo_count_q == CNT_W'(0)) done_q <= 1'b1;
+            // Only the final command of a drained queue raises DONE and the
+            // NEED_WORK request.  A new KICK in this cycle means the queue is
+            // no longer drained, so the push clear above wins.
+            if ((fifo_count_q == CNT_W'(0)) && !fifo_push) begin
+              done_q      <= 1'b1;
+              need_work_q <= 1'b1;
+            end
             state_q       <= S_IDLE;
           end
         end

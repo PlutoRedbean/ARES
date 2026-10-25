@@ -21,6 +21,7 @@ module student_top (
     output logic [31:0] mt_wr_data,
     output logic mt_status_rd,
     input logic [31:0] mt_status, mt_result,
+    input logic mt_irq,                 // tensor need_work/done/error -> MEIP
     // FE contract remains external until C5.
     input  logic [1:0]                       iq_valid,
     input  fe_pkg::iq_entry_t              iq_inst [2],
@@ -57,7 +58,7 @@ module student_top (
     logic [3:0] perip_wstrb;
 
     assign software_irq = 1'b0;
-    assign external_irq = 1'b0;
+    assign external_irq = mt_irq;
 
     ares_core_top #(
         .MMIO_BASE(32'h8020_0000), .MMIO_MASK(32'hFFF0_0000),

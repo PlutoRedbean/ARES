@@ -8,16 +8,17 @@
 //
 // Boundary / scope
 //   * Control path: CPU MMIO -> perip_bridge mt_* -> ares_mt_host_adapter ->
-//     CV-X-IF issue/register/commit/result -> mini_tensor_top.  This is the
-//     adaptation requested before the in-core XIF path (SPEC-M6) is owned by the
-//     FE/BE teams.
+//     CV-X-IF issue/register/commit/result -> mini_tensor_top.  The adapter's
+//     level mt_irq (need_work/done/error) is routed into student_top and becomes
+//     the core's external_irq / mip.MEIP.  This is the adaptation requested
+//     before the in-core XIF path (SPEC-M6) is owned by the FE/BE teams.
 //   * Data path: miniTensor's 128-bit uncached DMA master is exported here as
 //     mt_mem_* so it can be attached to the future Fabric / shared-memory
 //     arbitration (SPEC-M7/M20/M21).  No CPU/DMA arbitration or cache-coherency
 //     policy is invented here; software must still use uncached addresses.
-//   * student_top itself is unchanged; it keeps the FE contract and the
-//     platform-level mt_* seam external, exactly as documented in
-//     docs/jyd_soc_integration.md.
+//   * student_top keeps the FE contract and the platform-level mt_* seam
+//     external; it now also accepts mt_irq so the platform can route a device
+//     interrupt to the core without owning the tensor adapter.
 //
 // Reset/clock: single CPU clock w_cpu_clk, synchronous active-high w_clk_rst,
 // identical to student_top and mini_tensor_top.
@@ -75,6 +76,7 @@ module ares_soc_top (
     logic        mt_status_rd;
     logic [31:0] mt_status;
     logic [31:0] mt_result;
+    logic        mt_irq;
 
     core_v_xif mt_xif ();
 
@@ -99,6 +101,7 @@ module ares_soc_top (
         .mt_status_rd(mt_status_rd),
         .mt_status(mt_status),
         .mt_result(mt_result),
+        .mt_irq(mt_irq),
         .iq_valid(iq_valid),
         .iq_inst(iq_inst),
         .iq_accept_count(iq_accept_count),
@@ -112,7 +115,9 @@ module ares_soc_top (
         .bpu_update(bpu_update)
     );
 
-    ares_mt_host_adapter u_mt_host (
+    ares_mt_host_adapter #(
+        .HART_ID(1'b0)
+    ) u_mt_host (
         .clk(w_cpu_clk),
         .rst(w_clk_rst),
         .reg_wr_en(mt_wr_en),
@@ -121,6 +126,7 @@ module ares_soc_top (
         .status_rd(mt_status_rd),
         .status(mt_status),
         .result_data(mt_result),
+        .mt_irq(mt_irq),
         .xif(mt_xif)
     );
 
