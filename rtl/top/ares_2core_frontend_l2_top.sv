@@ -19,6 +19,10 @@ module ares_2core_frontend_l2_top #(
 ) (
     input logic clk,
     input logic rst,
+    // Runtime hart1 enable (bring-up / debug).  ANDed with HART1_ENABLE so a
+    // simulation can compare "hart0 alone" against "both harts" with the same
+    // hardware configuration.
+    input logic hart1_en,
 
     //---- shared L2 memory port ---------------------------------------------
     output logic         l2_mem_rd_valid,
@@ -101,7 +105,7 @@ module ares_2core_frontend_l2_top #(
         .retire_pc(c0_retire_pc), .retire_is_ebreak(c0_retire_is_ebreak)
     );
 
-    wire rst1 = rst | ~HART1_ENABLE;
+    wire rst1 = rst | ~(HART1_ENABLE && hart1_en);
     ares_frontend_hart #(
         .RESET_MTVEC(RESET_MTVEC), .RESET_VEC(RESET_VEC),
         .HART_ID(32'd1), .DATA_OFFSET(C1_DATA_OFFSET)

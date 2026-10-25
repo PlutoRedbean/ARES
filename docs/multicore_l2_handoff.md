@@ -2,11 +2,22 @@
 
 ## TL;DR
 
-单核真实前端 + 共享 L2 的 CoreMark 已经通过。双核 AMP 的前端、L2 第二 I 口、hart1 数据偏移和双实例测试都已接好，但双核 CoreMark 在约 44.7 ms 时被共享 L2 的数据破坏卡住，尚未通过。当前问题不是多核编译，而是双核共享 L2 数据通路。详细证据见 docs/coremark_dual_bug_report.md。
+**双核 AMP CoreMark 已通过。** 两个 hart 各跑一份独立 CoreMark（100 iter），各自使用真实前端 + 私有 L1D，共享同一个 L2；per-hart 与聚合指标都正常输出。
+
+~~~text
+ALL TESTS PASSED: 8 checks - 2 harts + shared L2, two CoreMark instances
+L2 shadow check: rsp=21981 err_i0=0 err_i1=0 err_c0=0 err_c1=0 err_wb=0
+hart0: retires=31348582 cycles=50028073 IPC=0.626620 CM/MHz=1.9989
+hart1: retires=31348582 cycles=50028076 IPC=0.626620 CM/MHz=1.9989
+aggregate: retires=62697164 max_cycles=50028076 IPC=1.253240 CM/MHz=3.9978
+L2: hits=21771 misses=210
+~~~
+
+之前记录的 "44.7 ms 被共享 L2 数据破坏卡住" **不是数据通路 bug**，而是仿真断言在**投机路径**上误报。根因与修复见 docs/coremark_dual_bug_report.md。
 
 ## 1. 目标
 
-短期目标：
+短期目标（已完成）：
 
 - 两个 hart 各跑一份普通单线程 CoreMark（AMP，两份独立实例）
 - 代码共享，hart1 数据/栈使用独立地址区
@@ -14,7 +25,7 @@
 - 输出 per-hart retires/cycles/IPC 和聚合 CoreMark/MHz
 - 不要求官方 MULTITHREAD=2 分数
 
-长期目标（不属于当前 bug）：
+长期目标（不属于当前阶段）：
 
 - 2-core SoC：CLINT/PLIC/Mailbox/MMIO xbar/Boot ROM/SPM
 - 最终 L2：128 KiB、8 bank x 128-bit、MSHR/writeback queue/QoS/video port
@@ -23,34 +34,6 @@
 ## 2. 仓库状态
 
 分支：l2-cache
-
-最近提交：
-
-~~~text
-55a8e25 docs: narrow the dual-core issue to I1/L1D-L2 interaction
-be114d9 test(l2): cover c1 read evicting a dirty c0 line
-177b68e wip(l2): two-frontend AMP topology and dual CoreMark harness
-dcbcc27 feat(fe): run CoreMark on real frontend and shared L2
-c18639f feat(fe): add legacy frontend to backend contract adapter
-392e5bc feat(l2): add shared two-port L2 and two-hart bring-up top
-~~~
-
-远程：git@github.com:PlutoRedbean/ARES.git
-
-## 3. 已完成并验证
-
-### 3.1 单核真实前端 CoreMark：通过
-
-~~~text
-ALL TESTS PASSED: 2 checks - ARES real FE + shared L2 CoreMark
-retires=21,229,636
-cycles=49,944,724
-IPC=0.425063
-CoreMark/MHz=2.0022
-time=499,447,286 ns
-L2 hits=10,133 misses=165
-a0=0
-~~~
 
 链路：
 
@@ -61,7 +44,38 @@ rtl/frontend (BPU/FTQ/IFU/ICache/IQ)
   -> l2_top (I/D)
 ~~~
 
-### 3.2 前端适配器
+## 3. 已完成并验证
+
+### 3.1 单核真实前端 CoreMark：通过
+
+~~~bash
+make unit-coremark DMEM=/tmp/coremark_sw_dmem.hex
+~~~
+
+~~~text
+ALL TESTS PASSED: 2 checks - ARES real FE + shared L2 CoreMark
+CoreMark metrics: retires=31348582 cycles=49944724 IPC=0.627666
+                  CoreMark/MHz=2.0022 time_ns=499447286 hits=10133 misses=165
+~~~
+
+> 注意：旧文档里的 `retires=21,229,636 / IPC=0.425063` 是测试平台把
+> 每拍 2 条退休记成 1 条造成的低估；CoreMark/MHz 只依赖 cycles，所以
+> 2.0022 不变。计数器已在 `tb_ares_coremark` / `tb_2core_coremark` 修正。
+
+### 3.2 双核 AMP CoreMark：通过
+
+~~~bash
+make unit-2core-coremark DMEM=/tmp/coremark_sw_dmem.hex
+~~~
+
+两个 hart 同镜像、同代码地址（0x8000_0000），hart1 数据/栈偏移
+`C1_DATA_OFFSET = 0x0010_0000`（0x8020_0000 起）。结果见 TL;DR。
+约 500k 周期、Verilator 墙上时间 10-20 分钟。
+
+`+H1EN=0` 可用**同一个二进制**得到单 hart 参考运行（hart1 保持复位），
+用于 lockstep 对比。
+
+### 3.3 前端适配器
 
 rtl/frontend/fe_legacy_adapter.sv
 
@@ -70,7 +84,7 @@ rtl/frontend/fe_legacy_adapter.sv
 - BPU update 4-entry FIFO，2 push / 1 pop，不丢训练事件
 - 前端 RTL 本体未改
 
-### 3.3 AXI -> L2 I 桥
+### 3.4 AXI -> L2 I 桥
 
 rtl/frontend/interface/axi_l2_bridge.sv
 
@@ -78,19 +92,25 @@ rtl/frontend/interface/axi_l2_bridge.sv
 - 16 B beat buffer，连续 4 个 word 命中同一 beat
 - 只读；AXI 写通道 tie off
 
-### 3.4 共享 L2
+### 3.5 共享 L2
 
-rtl/l2/l2_top.sv
+rtl/l2/l2_top.sv（32 KiB bring-up 版，顶层可参数化到 128 KiB）
 
 - 4-way、64 B line、write-back + write-allocate
 - 两个 D 端口：c0/c1
 - 两个 I 端口：i0/i1
 - 一个 128-bit memory port
 - round-robin replacement
-- 一次只服务一个 L2 transaction（bring-up 版，无 per-port MSHR）
-- L2 单元测试 17 checks：hit/miss、clean refill、dirty writeback、byte enable、双端口并发、c1 驱逐 c0 dirty 行
+- 一次只服务一个 L2 transaction（无 per-port MSHR）
+- L2 单元测试 17 checks：hit/miss、clean refill、dirty writeback、byte enable、
+  双端口并发、c1 驱逐 c0 dirty 行
 
-### 3.5 双核硬件拓扑
+双核 CoreMark 现在额外带一个 **L2 shadow 检查器**（`tb_2core_coremark`）：
+以镜像初始内容 + 所有被 L2 接受的 store 建立影子内存，逐拍比对 i0/i1/c0/c1
+的每个读响应和每个 dirty writeback beat。任何共享 L2 数据破坏都会被直接
+抓到，而不是等到下游崩掉再反推。
+
+### 3.6 双核硬件拓扑
 
 rtl/top/ares_frontend_hart.sv
 rtl/top/ares_2core_frontend_l2_top.sv
@@ -98,46 +118,39 @@ rtl/top/ares_2core_frontend_l2_top.sv
 - 两个 hart，每个包含 real frontend + adapter + AXI bridge + core
 - hart0：D -> L2 c0，I -> L2 i0，DATA_OFFSET=0
 - hart1：D -> L2 c1，I -> L2 i1，DATA_OFFSET=0x0010_0000
-- hart1 数据/栈在 0x8020_0000 起；代码仍共享 0x8000_0000
+- `hart1_en`（运行时输入，与 `HART1_ENABLE` 相与）用于单 hart 参考运行
 - MMIO 仍是 stub，CoreMark 不使用
 
-## 4. 双核当前失败
+## 4. 已解决的"双核失败"（简短版）
 
-rtl/top/test/tb_2core_coremark.sv
+原报告：44.7 ms 时 hart0 触发 `lsu_agu.sv:188 a_natural_align`，被判断为
+共享 L2 数据破坏。实际：
 
-约 44.7 ms 时：
+1. L2 shadow 检查器 21981 个响应 **零错**（i0/i1/c0/c1 + writeback）。
+2. hart0 的完整退休流（PC/rd_wen/rd/wdata）与 hart1、与单 hart 参考运行
+   **逐条完全一致**（到出错点的 2,768,013 条），参考运行在该点之后正常继续。
+3. 52 次断言全部是同一条投机指令：`addr=0xa3, LH, load`，发生时后端
+   架构下一 PC 是 `0x8000_03d8` —— 即落在预测失败的路径上，随后被 squash。
 
-~~~text
-MISALIGN addr=000000a3 size=1 load=1 store=0
-[44695475000] %Error: lsu_agu.sv:188: a_natural_align
-~~~
+`lsu_agu` 的 `out_valid` 是投机发射级，垃圾代码可以用任意寄存器值当地址，
+所以"地址不对齐"在那里不是设计属性。
 
-两边都大约 retired 1.842M，PC 大约 0x8000_0634，L2 hits/misses 约 3261/203。
+### 修复
 
-已排除：
+把 `SPEC-A1 / D-C0-01`（仅自然对齐）的检查移到**架构可见**的位置：
 
-- hart1 完全 reset：hart0 50 ms 正常
-- hart1 D 完全关闭：hart0 50 ms 正常
-- hart1 写关闭、读保留：hart0 仍然失败
-- hart1 D 地址：都在 0x8020_xxxx，偏移正确
-- hart0 写入 hart1 范围：没有观察到
-- c1 read response 逐拍对比 backing memory：50 ms 内没有 mismatch
-- L2 c1 驱逐 c0 dirty 行：定向测试通过
-- 换 hart1 数据偏移（不同 L2 set）：仍然失败
-- I0 固定优先级 vs I0/I1 交替：仍然失败
+| 检查 | 位置 | 时机 |
+|---|---|---|
+| `a_load_natural_align` | `rtl/memory/lsu_top.sv` | 活跃 LQ 条目向 cache 发起 lookup（`lq_lookup_valid`） |
+| `a_drain_mask_legal` | `rtl/memory/lsu_top.sv` | COMMITTED store drain（原有，本来就 sound） |
 
-所以不是：
+`lsu_agu` 里的投机断言已删除；`lq` 增加 `lookup_size` 输出让检查写在 LSU 边界。
+实测：双核运行中旧 AGU 断言触发 52 次，新 load 检查触发 **0** 次。
 
-- 缺少 MULTITHREAD=2
-- hart1 数据偏移错误
-- 简单 c1 response 路由错误
-- 简单 dirty victim writeback 错误
+store 侧本来安全：SQ 条目只有 COMMITTED 之后才由 `sq_drain_valid` 驱动
+dcache 写通路，错误路径的 store 随条目一起被丢弃。
 
-当前最可疑：
-
-1. c1 的 I1 取指路径。关闭 c1 D 会同时停掉 c1 前端，I1 流量也停，所以还没把 I1 和 D 读分开。
-2. L1D/L2 交互。L2 单元测试不模拟 L1D MSHR 持有 line 时的 victim/writeback 竞态。
-3. 共享 L2 单 outstanding 的 I/D 相邻响应。rsp_data_q/rsp_valid_q/req_port 在 i0/i1/c0/c1 之间的时序。
+细节与证据见 docs/coremark_dual_bug_report.md。
 
 ## 5. 复现
 
@@ -178,40 +191,34 @@ with open('/tmp/coremark_sw_dmem.hex', 'w') as f:
 PY
 ~~~
 
-单核参考（应通过）：
+单核参考：
 
 ~~~bash
 cd /home/ccy/Documents/qs/ARES
 make unit-coremark DMEM=/tmp/coremark_sw_dmem.hex
 ~~~
 
-双核复现（预期在 44.7 ms 失败）：
+双核：
 
 ~~~bash
-make repro-2core-coremark DMEM=/tmp/coremark_sw_dmem.hex
+make unit-2core-coremark DMEM=/tmp/coremark_sw_dmem.hex
 ~~~
 
-## 6. 下一步建议
+两者都依赖外部软件镜像，所以不在 `make all` 里。
 
-1. 把 I1 和 c1 D 分开
-   - 给 hart1 一个私有 instruction source，或 reset 后冻结 i1，只让 c1 D 跑
-   - 如果 hart0 正常，说明 i1 是问题
-   - 反之，把 c1 D 直接接私有 memory，只保留 i1
+## 6. 下一步
 
-2. hart0 lockstep trace
-   - 单核和双核跑同一镜像，记录 hart0 retired PC/instruction
-   - 找第一条分叉的 load/instruction，定位被破坏的寄存器/数据
+已完成的部分不再重复。后续按长期目标推进：
 
-3. c0 response shadow
-   - 当前只检查了 c1 response；需要对 c0 的已知数据/哨兵区做逐拍 shadow 比较
-
-4. 检查 L1D/MSHR
-   - dcache_top、mshr、line_adapter 在 c1 读触发 L2 eviction 时的状态
-   - 关注 L1D 持有 line 时 L2 victim/writeback 的竞态
-
-5. 不要先改前端或重新编译 CoreMark
-   - 前端、adapter、AXI bridge、AMP offset 在单核都正确
-   - 当前失败在共享 L2 / 双 hart 数据通路
+1. 2-core SoC 化：CLINT/PLIC 已在单核 SoC 里验证过，下一步把 mailbox、
+   MMIO xbar、Boot ROM、SPM 接到双核拓扑上。
+2. L2 性能版：128 KiB、8 bank x 128-bit、per-port MSHR、writeback queue、
+   QoS、video port。当前 bring-up L2 一次只服务一个 transaction，双核
+   load 延迟会被取指抢占。
+3. L1D/L2 一致性：当前是 AMP 且数据区不重叠，**没有**一致性需求；一旦要做
+   SMP，需要 A 扩展 + L2 directory/snoop + IPI，另行立项。
+4. 若要对外报分，先把软件镜像、编译选项、L2 配置固定下来，并明确是
+   per-hart 还是聚合口径。
 
 ## 7. 关键文件
 
@@ -224,11 +231,13 @@ make repro-2core-coremark DMEM=/tmp/coremark_sw_dmem.hex
 - rtl/top/ares_2core_frontend_l2_top.sv
 - rtl/top/test/tb_ares_coremark.sv
 - rtl/top/test/tb_2core_coremark.sv
+- rtl/memory/lsu_top.sv（a_load_natural_align / a_drain_mask_legal）
 - docs/coremark_dual_bug_report.md
 
 ## 8. 约束
 
-- 单核 CoreMark 是当前正确性基线，改动 L2 后先保证它仍然通过
-- 双核是 AMP，不是 SMP；不要用 MULTITHREAD=2 解释当前失败
-- 在双核 CoreMark 通过前，不要对外报双核分数
-
+- 单核 CoreMark 是正确性基线，改动 L2 后先保证它仍然通过
+- 双核是 AMP，不是 SMP；不要用 MULTITHREAD=2 解释任何现象
+- 遇到双核"数据破坏"类症状，先确认失败访问是否**架构可见**：
+  用 `+H1EN=0` 跑单 hart 参考，比较退休流，再怀疑数据通路
+- 双核跑一次约 10-20 分钟 Verilator 墙上时间，不要放进快速回归

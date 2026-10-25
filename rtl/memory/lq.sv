@@ -91,6 +91,7 @@ module lq (
     output logic [1:0]                      lookup_idx,
     output ares_pkg::tag_t                  lookup_tag,
     output logic [31:0]                     lookup_addr,
+    output lsu_pkg::lsu_size_t              lookup_size,   // size of lookup_idx
 
     //---- data return ------------------------------------------------------
     input  logic                            fill_valid,
@@ -329,6 +330,7 @@ module lq (
     assign lookup_valid = lk_sel_valid;
     assign lookup_idx   = lk_sel_valid ? lk_sel_idx : 2'd0;
     assign lookup_addr  = lk_sel_valid ? e_addr[lk_sel_idx] : 32'd0;
+    assign lookup_size  = lk_sel_valid ? e_size[lk_sel_idx] : LSZ_BYTE;
 
     always_comb begin
         lookup_tag.slot_index = lk_sel_valid ? e_tag[lk_sel_idx] : '0;

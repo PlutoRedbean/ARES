@@ -86,6 +86,7 @@ module tb_ares_coremark;
 
     // CoreMark exits via EBREAK in _trm_init; a0 is the return code.
     logic [31:0] a0;
+    logic [31:0] a0_eff;
     logic        done, pass;
     int unsigned checks, errors;
     int unsigned ret_count;
@@ -112,14 +113,24 @@ module tb_ares_coremark;
             cycle_count <= 0;
         end else begin
             cycle_count <= cycle_count + 1'b1;
+            // Two instructions may retire per cycle: counting one per cycle
+            // undercounts the retire total (~1.5x here) and reports a wrong IPC.
+            ret_count <= ret_count + unsigned'(retire_valid[0]) + unsigned'(retire_valid[1]);
+            // a0 including a same-cycle lane-0 write, so an EBREAK in lane 1
+            // compares against the architectural a0
+            /* verilator lint_off BLKSEQ */
+            a0_eff = a0;
+            for (int lane = 0; lane < 2; lane++)
+                if (retire_valid[lane] && retire_rd_wen[lane] && (retire_rd[lane] == 5'd10))
+                    a0_eff = retire_wdata[lane];
+            /* verilator lint_on BLKSEQ */
             for (int lane = 0; lane < 2; lane++) begin
                 if (retire_valid[lane]) begin
-                    ret_count <= ret_count + 1;
                     if (retire_rd_wen[lane] && (retire_rd[lane] == 5'd10))
                         a0 <= retire_wdata[lane];
                     if (retire_is_ebreak[lane] && !done) begin
                         done <= 1'b1;
-                        pass <= (a0 == 32'h0);
+                        pass <= (a0_eff == 32'h0);
                     end
                 end
             end

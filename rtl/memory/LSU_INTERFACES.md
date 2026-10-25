@@ -71,7 +71,8 @@ module lsu_agu #(
 );
 ```
 
-要点：`out_addr = issue_req.src1 + issue_req.imm`（32-bit 回绕）；`out_is_load/store` 用 `lsu_pkg::lsu_op_is_load/store`；`issue_kill` 时下一拍 `out_valid=0`；`CONFIG_SIMULATION` 下断言自然对齐（`SPEC-A1/D-C0-01`：不对齐在仿真报错，RTL 无架构行为）。
+要点：`out_addr = issue_req.src1 + issue_req.imm`（32-bit 回绕）；`out_is_load/store` 用 `lsu_pkg::lsu_op_is_load/store`；`issue_kill` 时下一拍 `out_valid=0`。
+`SPEC-A1/D-C0-01`（仅自然对齐访问，RTL 无架构行为）**不在本模块断言**：`out_valid` 是投机发射级，预测失败的路径上垃圾指令可以携带任意（因而“不对齐”）地址并被后续 squash。契约检查落在 `lsu_top` 的架构点：`a_load_natural_align`（LQ 向 cache 发起 lookup 时）与 `a_drain_mask_legal`（COMMITTED store drain 时）。
 
 ## 2. L05 `store_forward.sv` — byte-wise 转发比较
 

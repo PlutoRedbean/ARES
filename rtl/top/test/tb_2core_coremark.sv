@@ -5,7 +5,16 @@
 // C1_DATA_OFFSET so its data/stack live at 0x8020_0000.. while hart0 uses
 // 0x8010_0000...  The backing image is duplicated at +1 MiB for hart1.
 //
+// Checked:
+//   * both harts reach EBREAK with a0 = 0 (two independent CoreMark copies);
+//   * per-hart retires/cycles/IPC and the aggregate CoreMark/MHz;
+//   * hart1 stays inside its data window and hart0 never writes hart1's;
+//   * an independent "L2 shadow" golden model: every I/D read response of both
+//     harts and every dirty writeback beat must equal the shadow memory.
+//
 // +DMEM=<128-bit-wide coremark image>  (same format as tb_ares_coremark)
+// +H1EN=0   hold hart1 in reset; hart0 then runs alone and the run stops when
+//           hart0 finishes (same binary, used for single-hart reference runs)
 //=============================================================================
 `timescale 1ns/1ps
 module tb_2core_coremark;
@@ -16,7 +25,8 @@ module tb_2core_coremark;
     localparam logic [31:0] C1_OFFSET  = 32'h0010_0000;
 
     logic clk, rst;
-    initial begin clk = 1'b0; rst = 1'b1; end
+    logic hart1_en;
+    initial begin clk = 1'b0; rst = 1'b1; hart1_en = 1'b1; end
     always #5 clk = ~clk;
 
     logic         l2_mem_rd_valid, l2_mem_rd_ready, l2_mem_rsp_valid, l2_mem_rsp_ready;
@@ -42,7 +52,7 @@ module tb_2core_coremark;
         .C1_DATA_OFFSET(C1_OFFSET),
         .HART1_ENABLE(1'b1)
     ) dut (
-        .clk(clk), .rst(rst),
+        .clk(clk), .rst(rst), .hart1_en(hart1_en),
         .l2_mem_rd_valid(l2_mem_rd_valid), .l2_mem_rd_ready(l2_mem_rd_ready),
         .l2_mem_rd_addr(l2_mem_rd_addr),
         .l2_mem_rsp_valid(l2_mem_rsp_valid), .l2_mem_rsp_ready(l2_mem_rsp_ready),
@@ -91,7 +101,125 @@ module tb_2core_coremark;
         end
     end
 
+    //-------------------------------------------------------------------------
+    // L2 response shadow checker
+    //-----------------------------------------------------------------------------
+    // An independent golden model of the shared memory as seen at the L2 ports.
+    // Every read response (I and D of both harts) must equal the shadow, and
+    // every writeback beat must equal the shadow as well (a mismatch there means
+    // a dirty L2 line held the wrong data, which silently corrupts memory).
+    // Stores accepted at the L2 core ports update the shadow with their byte
+    // enables, exactly as the L2 write path does.
+    //-------------------------------------------------------------------------
+    localparam int unsigned MEM_BYTES = MEM_WORDS * 16;
+    logic [7:0]   shadow [0:MEM_BYTES-1];
+    logic [31:0]  pend_i0, pend_i1, pend_c0, pend_c1;
+    logic         pend_i0_v, pend_i1_v, pend_c0_v, pend_c1_v;
+    int unsigned  err_i0, err_i1, err_c0, err_c1, err_wb;
+    int unsigned  chk_rsp_total;
+
+    task automatic shadow_wr(input logic [31:0] addr, input logic [127:0] data,
+                             input logic [15:0] be);
+        for (int i = 0; i < 16; i++)
+            if (be[i]) shadow[{addr[23:4], 4'b0000} + i] = data[8*i +: 8];
+    endtask
+
+    task automatic chk_data(input string who, input logic [31:0] base,
+                            input logic [127:0] data, output int unsigned errs);
+        logic [7:0] exp;
+        for (int i = 0; i < 16; i++) begin
+            exp = shadow[{base[23:4], 4'b0000} + i];
+            if (data[8*i +: 8] !== exp) begin
+                errs = errs + 1;
+                if (errs < 4)
+                    $display("[%0t] %s MISMATCH addr=%h byte%0d got=%h exp=%h",
+                             $time, who, {base[23:4], 4'b0000}, i, data[8*i +: 8], exp);
+                return;
+            end
+        end
+    endtask
+
+    always @(posedge clk) begin
+        /* verilator lint_off BLKSEQ */
+        if (rst) begin
+            pend_i0_v <= 1'b0; pend_i1_v <= 1'b0;
+            pend_c0_v <= 1'b0; pend_c1_v <= 1'b0;
+            pend_i0 <= '0; pend_i1 <= '0; pend_c0 <= '0; pend_c1 <= '0;
+        end else begin
+            //--- stores accepted at the L2 core ports (write path) -----------
+            if (dut.c0_wr_valid && dut.c0_wr_ready)
+                shadow_wr(dut.c0_wr_addr, dut.c0_wr_data, dut.c0_wr_be);
+            if (dut.c1_wr_valid && dut.c1_wr_ready)
+                shadow_wr(dut.c1_wr_addr, dut.c1_wr_data, dut.c1_wr_be);
+
+            //--- writeback beats must reproduce the shadow -------------------
+            if (l2_mem_wr_valid && l2_mem_wr_ready) begin
+                for (int i = 0; i < 16; i++)
+                    if (l2_mem_wr_data[8*i +: 8] !== shadow[{l2_mem_wr_addr[23:4], 4'b0000} + i]) begin
+                        err_wb = err_wb + 1;
+                        if (err_wb < 6)
+                            $display("[%0t] WB MISMATCH addr=%h byte%0d got=%h exp=%h",
+                                     $time, {l2_mem_wr_addr[23:4], 4'b0000}, i,
+                                     l2_mem_wr_data[8*i +: 8],
+                                     shadow[{l2_mem_wr_addr[23:4], 4'b0000} + i]);
+                        break;
+                    end
+                shadow_wr(l2_mem_wr_addr, l2_mem_wr_data, l2_mem_wr_be);
+            end
+
+            //--- outstanding request beats ----------------------------------
+            if (dut.c0_i_rd_valid && dut.c0_i_rd_ready) begin
+                pend_i0 <= {dut.c0_i_rd_addr[23:4], 4'b0000}; pend_i0_v <= 1'b1;
+            end
+            if (dut.c1_i_rd_valid && dut.c1_i_rd_ready) begin
+                pend_i1 <= {dut.c1_i_rd_addr[23:4], 4'b0000}; pend_i1_v <= 1'b1;
+            end
+            if (dut.c0_rd_valid && dut.c0_rd_ready) begin
+                pend_c0 <= {dut.c0_rd_addr[23:4], 4'b0000}; pend_c0_v <= 1'b1;
+            end
+            if (dut.c1_rd_valid && dut.c1_rd_ready) begin
+                pend_c1 <= {dut.c1_rd_addr[23:4], 4'b0000}; pend_c1_v <= 1'b1;
+            end
+
+            //--- read responses --------------------------------------------
+            if (dut.c0_i_rsp_valid && dut.c0_i_rsp_ready) begin
+                chk_rsp_total = chk_rsp_total + 1;
+                if (!pend_i0_v) begin
+                    err_i0 = err_i0 + 1;
+                    if (err_i0 < 4) $display("[%0t] I0 RSP without request", $time);
+                end else chk_data("I0", pend_i0, dut.c0_i_rsp_data, err_i0);
+                pend_i0_v <= 1'b0;
+            end
+            if (dut.c1_i_rsp_valid && dut.c1_i_rsp_ready) begin
+                chk_rsp_total = chk_rsp_total + 1;
+                if (!pend_i1_v) begin
+                    err_i1 = err_i1 + 1;
+                    if (err_i1 < 4) $display("[%0t] I1 RSP without request", $time);
+                end else chk_data("I1", pend_i1, dut.c1_i_rsp_data, err_i1);
+                pend_i1_v <= 1'b0;
+            end
+            if (dut.c0_rsp_valid && dut.c0_rsp_ready) begin
+                chk_rsp_total = chk_rsp_total + 1;
+                if (!pend_c0_v) begin
+                    err_c0 = err_c0 + 1;
+                    if (err_c0 < 4) $display("[%0t] C0 RSP without request", $time);
+                end else chk_data("C0", pend_c0, dut.c0_rsp_data, err_c0);
+                pend_c0_v <= 1'b0;
+            end
+            if (dut.c1_rsp_valid && dut.c1_rsp_ready) begin
+                chk_rsp_total = chk_rsp_total + 1;
+                if (!pend_c1_v) begin
+                    err_c1 = err_c1 + 1;
+                    if (err_c1 < 4) $display("[%0t] C1 RSP without request", $time);
+                end else chk_data("C1", pend_c1, dut.c1_rsp_data, err_c1);
+                pend_c1_v <= 1'b0;
+            end
+        end
+        /* verilator lint_on BLKSEQ */
+    end
+
     logic [31:0] a0_0, a0_1;
+    logic [31:0] a0_0_eff, a0_1_eff;
     logic        done0, done1, pass0, pass1;
     int unsigned ms_tick;
     int unsigned bad_h1_rd, bad_h1_wr, bad_h0_wr;
@@ -137,24 +265,39 @@ module tb_2core_coremark;
             if (ms_tick % 100000 == 0)
                 $display("T=%0tns ret0=%0d ret1=%0d pc0=%h pc1=%h a0_0=%h a0_1=%h l2=%0d/%0d",
                          $time, ret0, ret1, c0_fetch_pc, c1_fetch_pc, a0_0, a0_1, l2_hits, l2_misses);
+            // Two instructions may retire per hart per cycle, so the counter
+            // must add both lanes (a single +1 per cycle undercounts ~1.5x and
+            // reports a wrong IPC).
+            ret0 <= ret0 + unsigned'(c0_retire_valid[0]) + unsigned'(c0_retire_valid[1]);
+            ret1 <= ret1 + unsigned'(c1_retire_valid[0]) + unsigned'(c1_retire_valid[1]);
+            // effective a0 including a lane-0 write in this very cycle, so an
+            // EBREAK retiring in lane 1 sees the architectural a0
+            /* verilator lint_off BLKSEQ */
+            a0_0_eff = a0_0;
+            a0_1_eff = a0_1;
+            for (int lane = 0; lane < 2; lane++) begin
+                if (c0_retire_valid[lane] && c0_retire_rd_wen[lane] && (c0_retire_rd[lane] == 5'd10))
+                    a0_0_eff = c0_retire_wdata[lane];
+                if (c1_retire_valid[lane] && c1_retire_rd_wen[lane] && (c1_retire_rd[lane] == 5'd10))
+                    a0_1_eff = c1_retire_wdata[lane];
+            end
+            /* verilator lint_on BLKSEQ */
             for (int lane = 0; lane < 2; lane++) begin
                 if (c0_retire_valid[lane]) begin
-                    ret0 <= ret0 + 1;
                     if (c0_retire_rd_wen[lane] && (c0_retire_rd[lane] == 5'd10))
                         a0_0 <= c0_retire_wdata[lane];
                     if (c0_retire_is_ebreak[lane] && !done0) begin
                         done0 <= 1'b1;
-                        pass0 <= (a0_0 == 32'h0);
+                        pass0 <= (a0_0_eff == 32'h0);
                         cycles0 <= cycles;
                     end
                 end
                 if (c1_retire_valid[lane]) begin
-                    ret1 <= ret1 + 1;
                     if (c1_retire_rd_wen[lane] && (c1_retire_rd[lane] == 5'd10))
                         a0_1 <= c1_retire_wdata[lane];
                     if (c1_retire_is_ebreak[lane] && !done1) begin
                         done1 <= 1'b1;
-                        pass1 <= (a0_1 == 32'h0);
+                        pass1 <= (a0_1_eff == 32'h0);
                         cycles1 <= cycles;
                     end
                 end
@@ -176,15 +319,38 @@ module tb_2core_coremark;
         // Source index 0x10000 (address 0x8010_0000); destination 0x20000.
         for (int i = 0; i < DATA_LINES; i++) mem[32'h0002_0000 + i] = mem[32'h0001_0000 + i];
 
+        // Golden shadow = the initial memory image.
+        for (int i = 0; i < MEM_WORDS; i++)
+            for (int b = 0; b < 16; b++)
+                shadow[(i*16) + b] = mem[i][8*b +: 8];
+        err_i0 = 0; err_i1 = 0; err_c0 = 0; err_c1 = 0; err_wb = 0; chk_rsp_total = 0;
+
+        begin
+            int h1;
+            if (!$value$plusargs("H1EN=%d", h1)) h1 = 1;
+            hart1_en = (h1 != 0);
+        end
+
         repeat (5) @(posedge clk);
         #1; rst = 1'b0;
 
-        wait (done0 && done1);
+        // With hart1 held in reset the run ends when hart0 finishes (used to
+        // produce a hart0-only reference stream with the same binary).
+        wait (done0 && (done1 || !hart1_en));
         repeat (3) @(posedge clk); #1;
 
+        $display("L2 shadow check: rsp=%0d err_i0=%0d err_i1=%0d err_c0=%0d err_c1=%0d err_wb=%0d",
+                 chk_rsp_total, err_i0, err_i1, err_c0, err_c1, err_wb);
         check(done0 && pass0, "hart0 CoreMark a0=0");
-        check(done1 && pass1, "hart1 CoreMark a0=0");
-        check(ret0 > 0 && ret1 > 0, "both harts retired instructions");
+        if (hart1_en) begin
+            check(done1 && pass1, "hart1 CoreMark a0=0");
+            check(ret0 > 0 && ret1 > 0, "both harts retired instructions");
+        end
+        check(err_i0 == 0, "I0 read responses match memory");
+        check(err_i1 == 0, "I1 read responses match memory");
+        check(err_c0 == 0, "C0 read responses match memory");
+        check(err_c1 == 0, "C1 read responses match memory");
+        check(err_wb == 0, "L2 dirty writebacks match memory");
 
         if (errors == 0) begin
             $display("ALL TESTS PASSED: %0d checks - 2 harts + shared L2, two CoreMark instances", checks);

@@ -36,7 +36,7 @@ KCONFIG   := python3 $(ARES_HOME)/scripts/kconfig/ares_kconfig.py
 PROGRAM ?=
 
 .PHONY: all lint lint-all lint-backend lint-lsu lint-l2 unit unit-lsu unit-l2 \
-        lint-fe-adapter unit-fe-adapter unit-coremark repro-2core-coremark \
+        lint-fe-adapter unit-fe-adapter unit-coremark unit-2core-coremark \
         unit-mt-irq unit-mt-cpu-irq unit-clint unit-plic tb-ares-pkg tb-fe-stub tb-mem-model \
         sim run wave isa clean menuconfig defconfig oldconfig savedefconfig \
         loaddefconfig showconfig test-config
@@ -289,15 +289,16 @@ unit-coremark: config-gen
 	    $(ARES_COREMARK_SRCS) $(RTL_ROOT)/top/test/tb_ares_coremark.sv
 	@$(ARES_HOME)/sim/build/unit/tb_ares_coremark/tb_ares_coremark +DMEM=$(DMEM)
 
-# Known-failing dual-core CoreMark reproduction.  Not part of 'all'.
-# See docs/coremark_dual_bug_report.md.
+# Two-hart AMP CoreMark on the shared L2 (two full CoreMark copies, hart1's
+# data/stack offset by 1 MiB).  Needs the same software image as unit-coremark,
+# so it is not part of 'all'.  See docs/multicore_l2_handoff.md.
 ARES_2CORE_COREMARK_SRCS := $(ARES_COREMARK_SRCS) \
     $(RTL_ROOT)/top/ares_frontend_hart.sv \
     $(RTL_ROOT)/top/ares_2core_frontend_l2_top.sv \
     $(RTL_ROOT)/top/test/tb_2core_coremark.sv
 
-repro-2core-coremark: config-gen
-	@test -n "$(DMEM)" || { echo "usage: make repro-2core-coremark DMEM=<coremark_dmem.hex>"; exit 1; }
+unit-2core-coremark: config-gen
+	@test -n "$(DMEM)" || { echo "usage: make unit-2core-coremark DMEM=<coremark_dmem.hex>"; exit 1; }
 	@mkdir -p $(ARES_HOME)/sim/build/unit/tb_2core_coremark
 	@verilator --binary --timing -sv --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
 	    -Wno-SIDEEFFECT -Wno-BLKSEQ -Wno-PINCONNECTEMPTY -Wno-UNUSEDSIGNAL \

@@ -1,32 +1,93 @@
-# Dual-core CoreMark bug report (for hand-off)
+# Dual-core CoreMark on the shared L2 — resolved
 
-Branch: \`l2-cache\`
-Commit: \`55a8e25\` + the reproduction target in \`Makefile\`
-Status: **single-hart CoreMark passes; dual-hart CoreMark fails. Do not report a dual score.**
+Status: **two-hart AMP CoreMark passes.** Both harts run an independent CoreMark
+copy (100 iterations) through their own real frontend and private L1D, sharing
+one `l2_top`. Branch: `l2-cache`.
 
-## 1. Symptom
+This document supersedes the earlier "shared L2 data corruption" note. The
+original diagnosis was wrong: the dual-core run was never corrupting data. It
+aborted on a simulation assertion that fired on a *speculative* instruction.
 
-\`tb_2core_coremark\` runs two software-CRC CoreMark images (100 iterations) on
-two real frontends sharing one L2. Both harts start together. At about
-**44.7 ms simulated**, hart0 hits the LSU natural-alignment assertion:
+## 1. Symptom that was reported
 
-\`\`\`text
-MISALIGN addr=000000a3 size=1 load=1 store=0
+`tb_2core_coremark` ran two software-CRC CoreMark images on two real frontends
+sharing one L2. At about 44.7 ms simulated time hart0 (then hart1) tripped the
+LSU natural-alignment assertion:
+
+```text
 [44695475000] %Error: lsu_agu.sv:188: a_natural_align
-\`\`\`
+```
 
-At the failure both harts have retired about 1.842M instructions, both around
-PC \`0x8000_0634\`, L2 hit/miss about \`3261/203\`. It is a data/pointer
-corruption symptom, not a CoreMark completion.
+Both harts were at ~1.84M "retires", PC ~`0x8000_0634`, L2 hit/miss ~3261/203.
+That was read as data/pointer corruption. It is not.
 
-Single-hart reference on the same frontend/L2 path:
+## 2. What the investigation actually showed
 
-\`\`\`text
-ALL TESTS PASSED: 2 checks - ARES real FE + shared L2 CoreMark
-retires=21,229,636 cycles=49,944,724 IPC=0.425063 CM/MHz=2.0022 a0=0
-\`\`\`
+1. **The L2 is functionally correct.** A golden "shadow" model of the backing
+   memory was added to the testbench (`tb_2core_coremark`): the initial image
+   plus every store accepted at the L2 core ports, applied with byte enables.
+   Every read response of *all four* L2 ports (i0, i1, c0, c1) and every dirty
+   writeback beat is compared against it.
 
-## 2. Reproduce
+   ```text
+   L2 shadow check: rsp=21981 err_i0=0 err_i1=0 err_c0=0 err_c1=0 err_wb=0
+   ```
+
+   Not one mismatch. So no response to either hart was ever wrong, and no dirty
+   line was ever written back with wrong data.
+
+2. **Hart0's architectural execution is identical with and without hart1.**
+   The full retire stream (PC, `rd_wen`, `rd`, `wdata` per retired
+   instruction, 2.77M entries to the abort point) was dumped for
+   (a) both harts in lockstep and (b) hart0 alone (`+H1EN=0`). The two streams
+   are **byte-identical for all 2,768,013 instructions**, and the two harts are
+   identical to each other as well. The reference stream continues normally past
+   that index, so the instruction that tripped the assertion is not in the
+   architectural stream: it is junk fetched behind a mispredicted branch.
+
+3. **The misaligned accesses are speculative.** All 52 firings (26 per hart,
+   over a 71 µs window) are the same operation — `addr=0x000000a3`, `size=1`
+   (LH), `load`, `kill_now=0` — issued while the backend's architectural next PC
+   was `0x8000_03d8`, i.e. on the wrong side of an incorrectly predicted control
+   transfer. They are squashed.
+
+`lsu_agu`'s `out_valid` is the *speculative issue stage*. A junk `LH` behind a
+mispredicted branch legitimately carries any register value as its base, so it
+can be "misaligned". Asserting alignment there is not a property of the design.
+
+## 3. Fix
+
+The natural-alignment contract (`SPEC-A1 / D-C0-01`) is now checked only where
+an access becomes architectural, so squashed operations can never trip it:
+
+| Check | Module | When |
+|---|---|---|
+| `a_load_natural_align` | `rtl/memory/lsu_top.sv` | a live LQ entry is handed to the cache (`lq_lookup_valid`) |
+| `a_drain_mask_legal` | `rtl/memory/lsu_top.sv` | a COMMITTED store drains (pre-existing; already sound) |
+
+The speculative assertion in `rtl/memory/lsu_agu.sv` was removed; the LQ exposes
+`lookup_size` so the check can be expressed at the LSU boundary. Measured on the
+dual-core run: the AGU check fired 52 times, the new load check fired **0**
+times — the squashed junk never reaches a cache lookup.
+
+A store can never corrupt memory this way: a store only reaches the L1D after
+its SQ entry is COMMITTED (`sq_drain_valid` drives the dcache store path), so a
+wrong-path store is dropped with its entry.
+
+## 4. Testbench issues found on the way
+
+* **Two-wide retire undercount.** Both CoreMark benches incremented the retire
+  counter once per cycle inside the `lane` loop, so a cycle retiring two
+  instructions counted once. Reported retires/IPC were ~1.5x low
+  (single-hart was reported as 21,229,636 retires, IPC 0.425; the real numbers
+  are 31,348,582 / 0.628). Fixed in `tb_ares_coremark` and `tb_2core_coremark`.
+* **Same-cycle `a0` sampling.** `pass <= (a0 == 0)` read `a0` before a lane-0
+  `mv a0, ...` committed in the same cycle. Both benches now use an effective
+  value.
+* **Aggregate CoreMark/MHz** assumed two harts unconditionally; it now follows
+  `+H1EN`.
+
+## 5. Reproduce
 
 Build the software-CRC CoreMark image (100 iterations) and its 128-bit-wide
 memory image:
@@ -65,117 +126,34 @@ with open('/tmp/coremark_sw_dmem.hex', 'w') as f:
 PY
 ~~~
 
-Run the known-failing reproduction (about 2 min to the assertion):
+Single-hart reference (also the same L2/frontend path):
 
 ~~~bash
 cd /home/ccy/Documents/qs/ARES
-make repro-2core-coremark DMEM=/tmp/coremark_sw_dmem.hex
-~~~
-
-The single-hart reference is:
-
-~~~bash
 make unit-coremark DMEM=/tmp/coremark_sw_dmem.hex
 ~~~
 
-## 3. What has already been ruled out
+Two-hart AMP run:
 
-| Experiment | Result |
-|---|---|
-| hart1 held in reset | hart0 runs through 50 ms, no misalign |
-| hart1 D completely disabled | hart0 runs through 50 ms, no misalign |
-| hart1 writes disabled, reads enabled | **hart0 still fails** |
-| hart1 D addresses | all in \`0x8020_xxxx\`; offset correct |
-| hart0 writes into hart1 range | none observed |
-| c1 L2 read response vs backing memory | **no mismatches** for 50 ms |
-| L2 unit test: c1 read evicts c0 dirty line | passes |
-| L2 unit test: c0/c1 concurrent reads | passes |
-| Different c1 data offset (different L2 set) | **still fails** |
-| Fixed I0 priority vs alternating I0/I1 | **still fails** |
+~~~bash
+make unit-2core-coremark DMEM=/tmp/coremark_sw_dmem.hex
+~~~
 
-Therefore this is **not**:
+Both take ~10-20 min of Verilator wall time (the dual run is ~500k cycles of
+simulated time).
 
-- a missing \`MULTITHREAD=2\` compile flag (this is AMP, two independent images);
-- a wrong hart1 data offset;
-- a simple c1 response routing error;
-- a simple dirty-victim writeback error.
+## 6. Probes that are worth keeping
 
-## 4. Ranked hypotheses
+* `+H1EN=0` on `tb_2core_coremark` holds hart1 in reset and ends the run when
+  hart0 finishes — a single-hart reference produced by the *same* binary, with
+  the same L2 configuration.
+* The L2 shadow checker is part of `tb_2core_coremark` now, so any future
+  shared-L2 data-path regression is caught directly instead of being inferred
+  from a downstream crash.
 
-1. **c1 instruction-fetch path (L2 i1)**
-   - Disabling c1 D also stops the c1 core after its first load, which stops
-     i1 traffic. The two effects have not been separated yet.
-   - Suspect: i1 request/response routing, line refill, or i1 evicting a c0
-     line while c0 has an outstanding L1D refill.
+## 7. Importance
 
-2. **L1D/L2 interaction during c1-driven eviction**
-   - L2 directed tests pass, but they do not model an L1D MSHR holding a line
-     while the L2 victim/writeback path runs.
-   - Suspect: \`dcache_top\`/\`mshr\`/\`line_adapter\` plus L2 \`S_WB\`/\`S_RF_*\`.
-
-3. **Shared L2 one-outstanding I/D interleaving**
-   - \`l2_top\` serves one transaction at a time; c0/c1/i0/i1 share
-     \`rsp_data_q\`, \`rsp_valid_q\`, and \`req_port\`.
-   - Suspect: a response/ready race when an I response and a D response are
-     adjacent, especially around \`req_port\` \`3'd2/3'd3\`.
-
-4. **Core0 data corruption via c1 reads, not c1 writes**
-   - c1 writes can be disabled and hart0 still fails.
-   - This points at a read-triggered eviction or response-side effect, not a
-     direct c1 store overwriting hart0 data.
-
-## 5. Where to probe
-
-- [rtl/l2/l2_top.sv](../rtl/l2/l2_top.sv)
-  - arbitration around lines 151-181 (i0/i1/c0/c1)
-  - response mux lines 191-202 (\`req_port\`, \`selected_rsp_ready\`)
-  - victim/writeback lines 208-215 (\`victim_tag\`, \`mem_wb_addr\`)
-- [rtl/top/ares_frontend_hart.sv](../rtl/top/ares_frontend_hart.sv)
-  - D offset lines 138/144
-  - I response wiring lines 111-125
-- [rtl/top/ares_2core_frontend_l2_top.sv](../rtl/top/ares_2core_frontend_l2_top.sv)
-  - c1 D / i1 connections lines 130-137
-- [rtl/frontend/interface/axi_l2_bridge.sv](../rtl/frontend/interface/axi_l2_bridge.sv)
-- [rtl/top/test/tb_2core_coremark.sv](../rtl/top/test/tb_2core_coremark.sv)
-- [rtl/memory/lsu_agu.sv](../rtl/memory/lsu_agu.sv) line 188 (observing assertion)
-
-Useful probes:
-
-- c0/c1 \`mem_rd_valid/addr\`, \`mem_rsp_valid/data\`
-- L2 \`state_q\`, \`req_port\`, \`req_addr\`, \`rsp_valid_q\`, \`rsp_data_q\`
-- i0/i1 \`rd_valid/ready\`, \`rsp_valid/ready\`
-- L1D \`mshr\` state and \`line_adapter\` active line
-- first divergent hart0 retire PC/instruction between single-hart and dual-hart
-
-## 6. Suggested next experiments
-
-1. **Separate I1 from D reads**
-   - Give hart1 a private instruction source (or freeze i1 after reset) while
-     leaving c1 D reads enabled. If hart0 passes, i1 is the culprit.
-   - Conversely, bypass c1 D reads to a private memory while keeping i1; if
-     hart0 passes, c1 D/L1D-L2 is the culprit.
-
-2. **Hart0 lockstep trace**
-   - Run single-hart and dual-hart with the same image. Record hart0's
-     committed PC/instruction stream and find the first divergence.
-
-3. **c0 response shadow check**
-   - Keep a shadow of hart0's known data (or a sentinel region) and compare
-     every c0 L2 response to it. The current c1 checker only proves c1's
-     responses are correct; c0 may be the one receiving bad data.
-
-4. **Disable L1D allocation for c1**
-   - Make c1 D reads bypass the private L1D and go straight to L2/uncached. If
-     the failure disappears, the bug is L1D/L2 interaction, not L2 alone.
-
-5. **One-core-at-a-time retirement**
-   - Let hart1 fetch only (no D) for a while; then enable D. Find the exact
-     transition that starts corruption.
-
-## 7. Important
-
-The frontend adapter, AXI bridge, and AMP data offset all work in the
-single-hart run. Do **not** change the frontend contract or recompile
-CoreMark with \`MULTITHREAD=2\` as a first response; the failure is in the
-shared-L2 / dual-hart data path.
-
+The frontend adapter, AXI bridge and AMP data offset were never at fault.
+Do not chase the shared L2 for a dual-core failure without first checking
+whether the failing access is architectural: dump the retire stream and compare
+it against a single-hart run of the same image.

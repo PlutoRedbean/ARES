@@ -31,8 +31,12 @@
 // request through both stages unchanged.
 //
 // Misaligned accesses are out of scope for v1 (SPEC-A1 / D-C0-01): the RTL
-// defines no architectural behaviour for them (no split, no rounding), the
-// CONFIG_SIMULATION assertion below reports them instead.
+// defines no architectural behaviour for them (no split, no rounding).  The
+// contract is checked where an access becomes architectural, NOT here: out_valid
+// is a speculative issue stage, so on a mispredicted path a junk Load/Store can
+// legitimately carry an arbitrary (hence possibly "misaligned") address and be
+// squashed later.  The architectural checks live in lsu_top: a_load_natural_align
+// (LQ lookup issue) and a_drain_mask_legal (COMMITTED store drain).
 //
 // Spec sources: memory.md 3 / 3.1 / 6.2; LSU_INTERFACES.md section 1.
 // FREE items: FREE-02 (file organisation), FREE-04 (combinational structure).
@@ -182,13 +186,11 @@ module lsu_agu #(
     //-------------------------------------------------------------------------
     // Protocol assertions
     //-------------------------------------------------------------------------
-    // SPEC-A1 / D-C0-01: v1 supports naturally aligned accesses only.  The RTL
-    // has no architectural behaviour for a misaligned one (it neither splits
-    // nor rounds it), so simulation reports it here.
-    a_natural_align: assert property (@(posedge clk) disable iff (rst)
-        out_valid |-> ((out_size == LSZ_BYTE)
-                    || ((out_size == LSZ_HALF) && (out_addr[0]   == 1'b0))
-                    || ((out_size == LSZ_WORD) && (out_addr[1:0] == 2'b00))));
+    // SPEC-A1 / D-C0-01 (naturally aligned accesses only) is deliberately NOT
+    // asserted here: out_valid is a speculative issue stage, so junk code behind
+    // a mispredicted branch carries arbitrary addresses and is squashed later.
+    // The architectural checks are a_load_natural_align and a_drain_mask_legal
+    // in lsu_top.sv.
 
     // The registered window classification belongs to the registered address
     // (catches a field-registration / pipeline-depth mistake).
