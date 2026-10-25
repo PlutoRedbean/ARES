@@ -8,7 +8,8 @@
 //
 // Boundary / scope
 //   * Control path: CPU MMIO -> perip_bridge mt_* -> ares_mt_host_adapter ->
-//     CV-X-IF issue/register/commit/result -> mini_tensor_top.  This is the
+//     CV-X-IF issue/register/commit/result -> mini_tensor_top; mt_irq feeds
+//     the real CPU external interrupt input. This is the
 //     adaptation requested before the in-core XIF path (SPEC-M6) is owned by the
 //     FE/BE teams.
 //   * Data path: miniTensor's 128-bit uncached DMA master is exported here as
@@ -52,6 +53,7 @@ module ares_soc_top (
     output logic         mt_dma_busy
 );
     // JYD platform emits the miniTensor control seam; the adapter consumes it.
+    logic        mt_irq;
     logic        mt_wr_en;
     logic [ 2:0] mt_wr_idx;
     logic [31:0] mt_wr_data;
@@ -79,10 +81,11 @@ module ares_soc_top (
         .mt_wr_data(mt_wr_data),
         .mt_status_rd(mt_status_rd),
         .mt_status(mt_status),
-        .mt_result(mt_result)
+        .mt_result(mt_result),
+        .mt_irq(mt_irq)
     );
 
-    ares_mt_host_adapter u_mt_host (
+    ares_mt_host_adapter #(.HART_ID(1'b0)) u_mt_host (
         .clk(w_cpu_clk),
         .rst(w_clk_rst),
         .reg_wr_en(mt_wr_en),
@@ -91,6 +94,7 @@ module ares_soc_top (
         .status_rd(mt_status_rd),
         .status(mt_status),
         .result_data(mt_result),
+        .mt_irq(mt_irq),
         .xif(mt_xif)
     );
 

@@ -35,11 +35,14 @@ KCONFIG   := python3 $(ARES_HOME)/scripts/kconfig/ares_kconfig.py
 
 PROGRAM ?=
 
-.PHONY: all lint lint-all lint-backend lint-lsu unit unit-lsu tb-ares-pkg tb-fe-stub \
-        tb-mem-model sim run wave isa clean menuconfig defconfig oldconfig \
-        savedefconfig loaddefconfig showconfig test-config
+.PHONY: all lint lint-all lint-backend lint-lsu lint-l2 unit unit-lsu unit-l2 \
+        lint-fe-adapter unit-fe-adapter unit-coremark \
+        unit-mt-irq unit-mt-cpu-irq unit-clint unit-plic tb-ares-pkg tb-fe-stub tb-mem-model \
+        sim run wave isa clean menuconfig defconfig oldconfig savedefconfig \
+        loaddefconfig showconfig test-config
 
-all: lint lint-backend lint-lsu lint-mt tb-ares-pkg tb-fe-stub tb-mem-model unit unit-lsu unit-frontend unit-soc
+all: lint lint-backend lint-lsu lint-l2 lint-fe-adapter lint-mt tb-ares-pkg tb-fe-stub tb-mem-model \
+     unit unit-lsu unit-l2 unit-l2-frontend unit-fe-adapter unit-mt-irq unit-mt-cpu-irq unit-clint unit-plic unit-frontend unit-soc
 
 # FPGA project generation is independent of legacy npc/ and vendor build files.
 # Explicit frequency keeps the requested clock visible in every team's command.
@@ -48,7 +51,7 @@ FPGA_CPU_MHZ ?=
 FPGA_OUT ?= $(ARES_HOME)/build/vivado/ares
 FPGA_PROFILE ?= soc
 FPGA_ARGS ?=
-.PHONY: vivado-project vivado-synth vivado-route test-vivado lint-soc unit-soc lint-mt
+.PHONY: vivado-project vivado-synth vivado-route test-vivado lint-soc unit-soc unit-mt-irq unit-mt-cpu-irq unit-clint unit-plic lint-mt
 vivado-project vivado-synth vivado-route:
 	@test -n "$(FPGA_CPU_MHZ)" || { echo "set FPGA_CPU_MHZ to a target strictly above 200"; exit 1; }
 	@python3 "$(ARES_HOME)/scripts/vivado/create_project.py" \
@@ -153,13 +156,62 @@ unit-soc: config-gen
 	    $(RTL_ROOT)/soc/jyd/test/tb_student_top.sv
 	@$(ARES_HOME)/sim/build/unit/tb_student_top/tb_student_top +IROM_HEX=$(ARES_HOME)/sim/build/soc-smoke/irom.hex +DRAM_HEX=$(ARES_HOME)/sim/build/soc-smoke/dram.hex
 
+# miniTensor host-adapter IRQ slice: behavioural CV-X-IF slave, MMIO command
+# pushes, need_work/done/error interrupts, mask/ack and status-clear semantics.
+unit-mt-irq: config-gen
+	@mkdir -p $(ARES_HOME)/sim/build/unit/tb_mt_irq
+	@verilator --binary --timing --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+	    -Wno-PINCONNECTEMPTY -DCONFIG_SIMULATION $(ARES_CFG_INC) --top-module tb_mt_irq \
+	    --Mdir $(ARES_HOME)/sim/build/unit/tb_mt_irq -o tb_mt_irq \
+	    $(RTL_ROOT)/soc/ares_mt_host_adapter.sv \
+	    $(MINITENSOR_HOME)/rtl/interface/core_v_xif.sv \
+	    $(RTL_ROOT)/soc/test/tb_mt_irq.sv
+	@$(ARES_HOME)/sim/build/unit/tb_mt_irq/tb_mt_irq
+
+# CPU-level tensor IRQ: real student_top frontend/IROM + adapter; the program
+# masks need_work, kicks one command, enables MEIE, traps on mip.MEIP, checks
+# mcause=0x8000000B, ACKs need_work and exits with a0=0.
+unit-mt-cpu-irq: config-gen
+	@mkdir -p $(ARES_HOME)/sim/build/unit/tb_mt_cpu_irq
+	@verilator --binary --timing --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+	    -Wno-PINCONNECTEMPTY -DCONFIG_SIMULATION $(ARES_CFG_INC) --top-module tb_mt_cpu_irq \
+	    --Mdir $(ARES_HOME)/sim/build/unit/tb_mt_cpu_irq -o tb_mt_cpu_irq \
+	    $(RTL_ROOT)/common/fe_pkg.sv $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
+	    $(wildcard $(RTL_ROOT)/backend/*.sv) $(wildcard $(RTL_ROOT)/memory/*.sv) \
+	    $(RTL_ROOT)/top/ares_core_top.sv $(RTL_ROOT)/top/student_top.sv \
+	    $(RTL_ROOT)/soc/ares_mt_host_adapter.sv \
+	    $(MINITENSOR_HOME)/rtl/interface/core_v_xif.sv \
+	    $(ARES_FE_SRCS) $(ARES_SOC_SRCS) \
+	    $(RTL_ROOT)/soc/test/tb_mt_cpu_irq.sv
+	@$(ARES_HOME)/sim/build/unit/tb_mt_cpu_irq/tb_mt_cpu_irq
+
+# Per-hart CLINT: 64-bit mtime, two mtimecmp/msip, byte strobes, single
+# outstanding 32-bit MMIO response.
+unit-clint: config-gen
+	@mkdir -p $(ARES_HOME)/sim/build/unit/tb_clint
+	@verilator --binary --timing --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+	    -DCONFIG_SIMULATION $(ARES_CFG_INC) --top-module tb_clint \
+	    --Mdir $(ARES_HOME)/sim/build/unit/tb_clint -o tb_clint \
+	    $(RTL_ROOT)/soc/soc_clint.sv $(RTL_ROOT)/soc/test/tb_clint.sv
+	@$(ARES_HOME)/sim/build/unit/tb_clint/tb_clint
+
+# PLIC: 32 sources, 2 machine contexts, priority/enable/threshold,
+# claim/complete with a level gateway and per-context MEIP.
+unit-plic: config-gen
+	@mkdir -p $(ARES_HOME)/sim/build/unit/tb_plic
+	@verilator --binary --timing --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+	    -DCONFIG_SIMULATION $(ARES_CFG_INC) --top-module tb_plic \
+	    --Mdir $(ARES_HOME)/sim/build/unit/tb_plic -o tb_plic \
+	    $(RTL_ROOT)/soc/soc_plic.sv $(RTL_ROOT)/soc/test/tb_plic.sv
+	@$(ARES_HOME)/sim/build/unit/tb_plic/tb_plic
+
 #-----------------------------------------------------------------------------
 # Backend (C1): lint the backend subsystem top and run the standalone
 # self-checking benches under rtl/backend/test/unit/ (each has its own clock,
 # so they are built with "verilator --binary --timing" and are deliberately
 # outside the sim/Makefile VSRCS glob).
 #-----------------------------------------------------------------------------
-ARES_UNIT_TBS  := tb_decode tb_fu_exec tb_bru_csr tb_backend tb_issue_equiv
+ARES_UNIT_TBS  := tb_decode tb_fu_exec tb_bru_csr tb_backend tb_issue_equiv tb_p0_csr_irq
 ARES_UNIT_SRCS := $(RTL_ROOT)/common/fe_pkg.sv $(RTL_ROOT)/common/ares_pkg.sv $(wildcard $(RTL_ROOT)/backend/*.sv) \
                   $(RTL_ROOT)/backend/test/lsu_stub.sv \
                   $(wildcard $(RTL_ROOT)/backend/test/unit/*.sv)
@@ -178,6 +230,15 @@ LSU_UNIT_BUILD ?= $(ARES_HOME)/sim/build/unit
 ARES_LSU_UNIT_SRCS := $(RTL_ROOT)/common/fe_pkg.sv $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
                       $(wildcard $(RTL_ROOT)/memory/*.sv) \
                       $(wildcard $(RTL_ROOT)/memory/test/unit/*.sv)
+# Shared L2 + two-hart bring-up: l2_top itself and the 2-core top.
+ARES_L2_UNIT_TBS := tb_l2 tb_two_core_l2
+ARES_L2_SRCS := $(RTL_ROOT)/common/fe_pkg.sv $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
+                $(RTL_ROOT)/l2/l2_pkg.sv $(RTL_ROOT)/l2/l2_top.sv \
+                $(wildcard $(RTL_ROOT)/backend/*.sv) \
+                $(RTL_ROOT)/backend/test/unit/fe_model.sv \
+                $(wildcard $(RTL_ROOT)/memory/*.sv) \
+                $(RTL_ROOT)/top/ares_core_top.sv $(RTL_ROOT)/top/ares_2core_l2_top.sv
+
 ARES_CFG_INC := +incdir+$(ARES_HOME)/configs/build/vsrc/include
 VERILATOR_LINT_FLAGS := --lint-only -Wall --assert -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
                         -DCONFIG_SIMULATION $(ARES_CFG_INC)
@@ -210,13 +271,104 @@ lint-lsu: config-gen
 	    $(wildcard $(RTL_ROOT)/backend/*.sv) $(wildcard $(RTL_ROOT)/memory/*.sv) \
     $(RTL_ROOT)/top/ares_core_top.sv || exit 1
 
+lint-l2: config-gen
+	@echo "[lint] l2_top"
+	@verilator $(VERILATOR_LINT_FLAGS) -Wno-PINCONNECTEMPTY --top-module l2_top \
+	    $(RTL_ROOT)/l2/l2_pkg.sv $(RTL_ROOT)/l2/l2_top.sv
+	@echo "[lint] ares_2core_l2_top"
+	@verilator $(VERILATOR_LINT_FLAGS) -Wno-PINCONNECTEMPTY --top-module ares_2core_l2_top \
+	    $(ARES_L2_SRCS)
+
+# L2 harts must also elaborate against the native real-frontend contract.
+.PHONY: lint-l2-frontend
+lint-l2: lint-l2-frontend
+lint-l2-frontend: config-gen
+	@set -e; for top in ares_frontend_l2_top ares_2core_frontend_l2_top; do \
+	  echo "[lint] $$top"; \
+	  verilator $(VERILATOR_LINT_FLAGS) -Wno-PINCONNECTEMPTY --top-module $$top \
+	      $(ARES_COREMARK_SRCS) $(RTL_ROOT)/top/ares_frontend_hart.sv \
+	      $(RTL_ROOT)/top/ares_2core_frontend_l2_top.sv; \
+	done
+
+# Retained legacy adapter unit fixture. Current CPU/L2 tops use native C5
+# recovery and two-lane training directly, without this adapter.
+lint-fe-adapter: config-gen
+	@echo "[lint] fe_legacy_adapter"
+	@verilator $(VERILATOR_LINT_FLAGS) --top-module fe_legacy_adapter \
+	    $(RTL_ROOT)/common/fe_pkg.sv $(RTL_ROOT)/frontend/fe_legacy_adapter.sv
+
+unit-fe-adapter: config-gen
+	@mkdir -p $(ARES_HOME)/sim/build/unit/tb_fe_legacy_adapter
+	@verilator --binary --timing -sv --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+	    -Wno-SIDEEFFECT -Wno-BLKSEQ -DCONFIG_SIMULATION $(ARES_CFG_INC) \
+	    --top-module tb_fe_legacy_adapter \
+	    --Mdir $(ARES_HOME)/sim/build/unit/tb_fe_legacy_adapter \
+	    -o $(ARES_HOME)/sim/build/unit/tb_fe_legacy_adapter/tb_fe_legacy_adapter \
+	    $(RTL_ROOT)/common/fe_pkg.sv $(RTL_ROOT)/frontend/fe_legacy_adapter.sv \
+	    $(RTL_ROOT)/frontend/test/tb_fe_legacy_adapter.sv
+	@$(ARES_HOME)/sim/build/unit/tb_fe_legacy_adapter/tb_fe_legacy_adapter | tail -2
+
+# Real frontend + shared L2 CoreMark (single-hart bring-up).  The image is a
+# 128-bit-wide $readmemh file; see rtl/top/test/tb_ares_coremark.sv for format.
+ARES_COREMARK_SRCS := $(RTL_ROOT)/common/fe_pkg.sv $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
+    $(ARES_FE_SRCS) $(RTL_ROOT)/frontend/interface/axi_l2_bridge.sv \
+    $(RTL_ROOT)/l2/l2_pkg.sv $(RTL_ROOT)/l2/l2_top.sv \
+    $(wildcard $(RTL_ROOT)/backend/*.sv) $(wildcard $(RTL_ROOT)/memory/*.sv) \
+    $(RTL_ROOT)/top/ares_core_top.sv $(RTL_ROOT)/top/ares_frontend_l2_top.sv
+
+unit-coremark: config-gen
+	@test -n "$(DMEM)" || { echo "usage: make unit-coremark DMEM=<coremark_dmem.hex>"; exit 1; }
+	@mkdir -p $(ARES_HOME)/sim/build/unit/tb_ares_coremark
+	@verilator --binary --timing -sv --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+	    -Wno-SIDEEFFECT -Wno-BLKSEQ -Wno-PINCONNECTEMPTY -Wno-UNUSEDSIGNAL \
+	    -Wno-UNOPTFLAT -Wno-WIDTHEXPAND -Wno-WIDTHTRUNC -Wno-CASEINCOMPLETE -Wno-IMPLICIT \
+	    -DCONFIG_SIMULATION $(ARES_CFG_INC) --top-module tb_ares_coremark \
+	    --Mdir $(ARES_HOME)/sim/build/unit/tb_ares_coremark \
+	    -o $(ARES_HOME)/sim/build/unit/tb_ares_coremark/tb_ares_coremark \
+	    $(ARES_COREMARK_SRCS) $(RTL_ROOT)/top/test/tb_ares_coremark.sv
+	@$(ARES_HOME)/sim/build/unit/tb_ares_coremark/tb_ares_coremark +DMEM=$(DMEM)
+
+.PHONY: unit-l2-frontend
+unit-l2-frontend: config-gen
+	@set -e; for dual in 0 1; do \
+	  d=$(ARES_HOME)/sim/build/unit/tb_frontend_l2_$$dual; mkdir -p $$d; \
+	  verilator --binary -j 4 --timing --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+	      -Wno-PINCONNECTEMPTY -Wno-BLKSEQ -DCONFIG_SIMULATION $(ARES_CFG_INC) \
+	      --top-module tb_frontend_l2 -GDUAL=$$dual --Mdir $$d -o $$d/tb_frontend_l2 \
+	      $(ARES_COREMARK_SRCS) $(RTL_ROOT)/top/ares_frontend_hart.sv \
+	      $(RTL_ROOT)/top/ares_2core_frontend_l2_top.sv $(RTL_ROOT)/top/test/tb_frontend_l2.sv; \
+	  $$d/tb_frontend_l2; \
+	done
+
+unit-l2: config-gen
+	@set -e; for tb in $(ARES_L2_UNIT_TBS); do \
+	  d=$(ARES_HOME)/sim/build/unit/$$tb; \
+	  echo "[unit-l2] $$tb"; \
+	  case $$tb in \
+	    tb_l2)          tb_src=$(RTL_ROOT)/l2/test/tb_l2.sv ;; \
+	    tb_two_core_l2) tb_src=$(RTL_ROOT)/top/test/tb_two_core_l2.sv ;; \
+	    *) echo "unknown L2 TB $$tb"; exit 1 ;; \
+	  esac; \
+	  rm -rf $$d; mkdir -p $$d/ccache-tmp; \
+	  CCACHE_TEMPDIR=$$d/ccache-tmp verilator --binary --timing -sv --assert \
+	      -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD -Wno-SIDEEFFECT -Wno-BLKSEQ \
+	      -Wno-PINCONNECTEMPTY -DCONFIG_SIMULATION $(ARES_CFG_INC) \
+	      --top-module $$tb --Mdir $$d -o $$d/$$tb $(ARES_L2_SRCS) $$tb_src; \
+	  if $$d/$$tb > $$d/run.log 2>&1; then \
+	    grep -E "ALL TESTS PASSED" $$d/run.log | head -1; \
+	  else \
+	    echo "*** $$tb FAILED ***"; tail -30 $$d/run.log; exit 1; \
+	  fi; \
+	done
+
 unit: config-gen
 	@set -e; for tb in $(ARES_UNIT_TBS); do \
 	  d=$(ARES_HOME)/sim/build/unit/$$tb; \
 	  echo "[unit] $$tb"; \
 	  rm -rf $$d; mkdir -p $$d/ccache-tmp; \
 	  CCACHE_TEMPDIR=$$d/ccache-tmp verilator --binary --timing -sv --assert \
-	      -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD -DCONFIG_SIMULATION $(ARES_CFG_INC) \
+	      -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD -Wno-SIDEEFFECT -Wno-BLKSEQ \
+	      -DCONFIG_SIMULATION $(ARES_CFG_INC) \
 	      --top-module $$tb --Mdir $$d -o $$d/$$tb $(ARES_UNIT_SRCS); \
 	  if $$d/$$tb > $$d/run.log 2>&1; then \
 	    grep -E 'ALL TESTS PASSED|coverage:|phase[123]' $$d/run.log; \
@@ -231,7 +383,8 @@ unit-lsu: config-gen
 	  echo "[unit-lsu] $$tb"; \
 	  rm -rf $$d; mkdir -p $$d/ccache-tmp; \
 	  CCACHE_TEMPDIR=$$d/ccache-tmp verilator --binary --timing -sv --assert \
-	      -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD -DCONFIG_SIMULATION $(ARES_CFG_INC) \
+	      -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD -Wno-SIDEEFFECT -Wno-BLKSEQ \
+	      -DCONFIG_SIMULATION $(ARES_CFG_INC) \
 	      --top-module $$tb --Mdir $$d -o $$d/$$tb $(ARES_LSU_UNIT_SRCS); \
 	  if $$d/$$tb > $$d/run.log 2>&1; then \
 	    grep -E "ALL TESTS PASSED" $$d/run.log | head -1; \

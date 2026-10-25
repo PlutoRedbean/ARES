@@ -29,10 +29,11 @@
 //     * reset values (mstatus.MIE/MPIE = 0, MPP = 2'b11, mie/mepc/mcause/
 //       mscratch = 0, mtvec = RESET_MTVEC with MODE forced 00 - the bench
 //       deliberately passes an unaligned RESET_MTVEC)
-//     * mstatus MIE[3]/MPIE[7] R/W with everything else ignored, mie MTIE[7]
-//       only, mtvec MODE forced 00, mepc[1:0] forced 00, mscratch/mcause full
-//       32-bit R/W, mip software writes ignored and MTIP following timer_irq,
-//       mhartid read-only 0
+//     * mstatus MIE[3]/MPIE[7] R/W with everything else ignored, mie
+//       MSIE[3]/MTIE[7]/MEIE[11] only, mtvec MODE forced 00, mepc[1:0] forced
+//       00, mscratch/mcause full 32-bit R/W, mip software writes ignored and
+//       MSIP/MTIP/MEIP following software_irq/timer_irq/external_irq,
+//       mhartid read-only HART_ID (0 in this instance)
 //     * raddr_ok = 1 for the eight required addresses and 0 for 0x301/0x343/
 //       0xB00/0xB80 (HAS_* are 0) and for other unknown addresses
 //     * trap_we and mret_we mstatus transitions plus the trap > mret > normal
@@ -40,6 +41,7 @@
 //     * 200-case fixed-seed randomised write/readback against a reference model
 //
 //   fu_csr (backend.md 11.8 / 16.2 / 16.3 / 17.1)
+//     * FENCE/FENCE.I no-op completion with zero result/write sideband
 //     * all six Zicsr forms: old value as completion.result, new value
 //       (src / old|src / old&~src) as csr_write_data, register vs zero-extended
 //       uimm[4:0] operand selection, src=0 (rs1=x0 / uimm=0) cases including
@@ -115,6 +117,8 @@ module tb_bru_csr;
 
     // csr_file (directed stimulus)
     logic        timer_irq;
+    logic        software_irq;
+    logic        external_irq;
     logic [11:0] csr_raddr_direct;
     logic        csr_read_sel;          // 0 = direct reads, 1 = fu_csr read port
     logic [31:0] csr_rdata;
@@ -127,8 +131,12 @@ module tb_bru_csr;
     logic [31:0] csr_trap_mcause;
     logic        csr_mret_we;
     logic        csr_mstatus_mie;
+    logic        csr_mie_msie;
     logic        csr_mie_mtie;
+    logic        csr_mie_meie;
+    logic        csr_mip_msip;
     logic        csr_mip_mtip;
+    logic        csr_mip_meip;
     logic [31:0] csr_mtvec;
     logic [31:0] csr_mepc;
 
@@ -173,6 +181,8 @@ module tb_bru_csr;
         .clk           (clk),
         .rst           (rst),
         .timer_irq     (timer_irq),
+        .software_irq  (software_irq),
+        .external_irq  (external_irq),
         .raddr         (csr_raddr),
         .rdata         (csr_rdata),
         .raddr_ok      (csr_raddr_ok),
@@ -184,8 +194,12 @@ module tb_bru_csr;
         .trap_mcause   (csr_trap_mcause),
         .mret_we       (csr_mret_we),
         .mstatus_mie   (csr_mstatus_mie),
+        .mie_msie      (csr_mie_msie),
         .mie_mtie      (csr_mie_mtie),
+        .mie_meie      (csr_mie_meie),
+        .mip_msip      (csr_mip_msip),
         .mip_mtip      (csr_mip_mtip),
+        .mip_meip      (csr_mip_meip),
         .mtvec         (csr_mtvec),
         .mepc          (csr_mepc)
     );
@@ -223,6 +237,24 @@ module tb_bru_csr;
     function automatic logic [31:0] mstatus_image(input logic mie, input logic mpie);
         begin
             mstatus_image = {19'h0, 2'b11, 3'h0, mpie, 3'h0, mie, 3'h0};
+        end
+    endfunction
+
+    function automatic logic [31:0] mie_image(input logic msie, input logic mtie, input logic meie);
+        begin
+            mie_image       = 32'h0;
+            mie_image[3]    = msie;
+            mie_image[7]    = mtie;
+            mie_image[11]   = meie;
+        end
+    endfunction
+
+    function automatic logic [31:0] mip_image(input logic msip, input logic mtip, input logic meip);
+        begin
+            mip_image       = 32'h0;
+            mip_image[3]    = msip;
+            mip_image[7]    = mtip;
+            mip_image[11]   = meip;
         end
     endfunction
 
@@ -742,8 +774,12 @@ module tb_bru_csr;
             csr_read_check(CSR_MHARTID, 32'h0000_0000, 1'b1, "reset mhartid");
 
             check(!csr_mstatus_mie, "reset mstatus.MIE = 0");
+            check(!csr_mie_msie, "reset mie.MSIE = 0");
             check(!csr_mie_mtie, "reset mie.MTIE = 0");
+            check(!csr_mie_meie, "reset mie.MEIE = 0");
+            check(!csr_mip_msip, "reset mip.MSIP = 0");
             check(!csr_mip_mtip, "reset mip.MTIP = 0");
+            check(!csr_mip_meip, "reset mip.MEIP = 0");
             check(csr_mtvec == 32'h8000_0000, "reset mtvec port");
             check(csr_mepc == 32'h0000_0000, "reset mepc port");
 
@@ -766,13 +802,15 @@ module tb_bru_csr;
         logic [31:0] rnd;
         logic [31:0] data;
         logic [11:0] addr;
-        logic        r_mie, r_mpie, r_mtie;
+        logic        r_mie, r_mpie, r_msie, r_mtie, r_meie;
         logic [31:0] r_mtvec, r_mscratch, r_mepc, r_mcause;
         begin
             // model starts from the reset values checked above
             r_mie = 1'b0;
             r_mpie = 1'b0;
+            r_msie = 1'b0;
             r_mtie = 1'b0;
+            r_meie = 1'b0;
             r_mtvec = 32'h8000_0000;
             r_mscratch = 32'h0;
             r_mepc = 32'h0;
@@ -792,9 +830,11 @@ module tb_bru_csr;
                     default: addr = CSR_MHARTID;  // read-only
                 endcase
 
-                // free-running timer level
+                // free-running interrupt levels
                 if ((rnd32() % 4) == 0) begin
-                    timer_irq = rnd32()[0];
+                    timer_irq    = rnd32()[0];
+                    software_irq = rnd32()[0];
+                    external_irq = rnd32()[0];
                 end
 
                 csr_write(addr, data);
@@ -803,7 +843,11 @@ module tb_bru_csr;
                         r_mie  = data[3];
                         r_mpie = data[7];
                     end
-                    CSR_MIE:     r_mtie = data[7];
+                    CSR_MIE: begin
+                        r_msie = data[3];
+                        r_mtie = data[7];
+                        r_meie = data[11];
+                    end
                     CSR_MTVEC:   r_mtvec = {data[31:2], 2'b00};
                     CSR_MSCRATCH: r_mscratch = data;
                     CSR_MEPC:    r_mepc = {data[31:2], 2'b00};
@@ -815,7 +859,7 @@ module tb_bru_csr;
                 case (addr)
                     CSR_MSTATUS: csr_read_check(addr, mstatus_image(r_mie, r_mpie), 1'b1,
                                                 $sformatf("random #%0d mstatus", i));
-                    CSR_MIE:     csr_read_check(addr, {24'h0, r_mtie, 7'h0}, 1'b1,
+                    CSR_MIE:     csr_read_check(addr, mie_image(r_msie, r_mtie, r_meie), 1'b1,
                                                 $sformatf("random #%0d mie", i));
                     CSR_MTVEC:   csr_read_check(addr, r_mtvec, 1'b1,
                                                 $sformatf("random #%0d mtvec", i));
@@ -825,7 +869,7 @@ module tb_bru_csr;
                                                 $sformatf("random #%0d mepc", i));
                     CSR_MCAUSE:  csr_read_check(addr, r_mcause, 1'b1,
                                                 $sformatf("random #%0d mcause", i));
-                    CSR_MIP:     csr_read_check(addr, {24'h0, timer_irq, 7'h0}, 1'b1,
+                    CSR_MIP:     csr_read_check(addr, mip_image(software_irq, timer_irq, external_irq), 1'b1,
                                                 $sformatf("random #%0d mip", i));
                     default:     csr_read_check(addr, 32'h0, 1'b1,
                                                 $sformatf("random #%0d mhartid", i));
@@ -848,13 +892,17 @@ module tb_bru_csr;
             csr_read_check(CSR_MSTATUS, 32'h0000_1800, 1'b1, "mstatus cleared");
             check(!csr_mstatus_mie, "mstatus.MIE cleared");
 
-            // mie: MTIE[7] only
+            // mie: MSIE[3], MTIE[7], MEIE[11] only
             csr_write(CSR_MIE, 32'hFFFF_FFFF);
-            csr_read_check(CSR_MIE, 32'h0000_0080, 1'b1, "mie MTIE only");
+            csr_read_check(CSR_MIE, 32'h0000_0888, 1'b1, "mie MSIE/MTIE/MEIE only");
+            check(csr_mie_msie == 1'b1, "mie.MSIE set");
             check(csr_mie_mtie == 1'b1, "mie.MTIE set");
+            check(csr_mie_meie == 1'b1, "mie.MEIE set");
             csr_write(CSR_MIE, 32'h0000_0000);
             csr_read_check(CSR_MIE, 32'h0000_0000, 1'b1, "mie cleared");
+            check(!csr_mie_msie, "mie.MSIE cleared");
             check(!csr_mie_mtie, "mie.MTIE cleared");
+            check(!csr_mie_meie, "mie.MEIE cleared");
 
             // mtvec: MODE forced 00, BASE[31:2] R/W
             csr_write(CSR_MTVEC, 32'h8000_1237);
@@ -883,20 +931,26 @@ module tb_bru_csr;
 
     task automatic test_csr_mip;
         begin
-            timer_irq = 1'b0; #1;
+            timer_irq = 1'b0; software_irq = 1'b0; external_irq = 1'b0; #1;
             csr_write(CSR_MIP, 32'hFFFF_FFFF);
-            csr_read_check(CSR_MIP, 32'h0000_0000, 1'b1, "mip write ignored (MTIP low)");
+            csr_read_check(CSR_MIP, 32'h0000_0000, 1'b1, "mip write ignored (all sources low)");
+            check(!csr_mip_msip, "mip_msip follows software_irq = 0");
             check(!csr_mip_mtip, "mip_mtip follows timer_irq = 0");
+            check(!csr_mip_meip, "mip_meip follows external_irq = 0");
 
-            timer_irq = 1'b1; #1;
+            software_irq = 1'b1; timer_irq = 1'b1; external_irq = 1'b1; #1;
+            check(csr_mip_msip == 1'b1, "mip_msip follows software_irq = 1");
             check(csr_mip_mtip == 1'b1, "mip_mtip follows timer_irq = 1");
-            csr_read_check(CSR_MIP, 32'h0000_0080, 1'b1, "mip.MTIP = 1, all other bits 0");
+            check(csr_mip_meip == 1'b1, "mip_meip follows external_irq = 1");
+            csr_read_check(CSR_MIP, 32'h0000_0888, 1'b1, "mip MSIP/MTIP/MEIP = 1, all other bits 0");
             csr_write(CSR_MIP, 32'h0000_0000);
-            csr_read_check(CSR_MIP, 32'h0000_0080, 1'b1, "mip write cannot clear MTIP");
+            csr_read_check(CSR_MIP, 32'h0000_0888, 1'b1, "mip write cannot clear source bits");
 
-            timer_irq = 1'b0; #1;
-            csr_read_check(CSR_MIP, 32'h0000_0000, 1'b1, "mip.MTIP follows timer_irq back to 0");
+            software_irq = 1'b0; timer_irq = 1'b0; external_irq = 1'b0; #1;
+            csr_read_check(CSR_MIP, 32'h0000_0000, 1'b1, "mip follows all sources back to 0");
+            check(!csr_mip_msip, "mip_msip low again");
             check(!csr_mip_mtip, "mip_mtip low again");
+            check(!csr_mip_meip, "mip_meip low again");
         end
     endtask
 
@@ -1073,6 +1127,15 @@ module tb_bru_csr;
             t = mk_tag(4'd8);
             fu_csr_op(OP_MRET, CSR_MSTATUS, 32'h0, 1'b0, 1'b0, 32'h0000_1888,
                       32'h0000_0000, 32'h0000_0000, 1'b0, t, "MRET ignores csr_rdata");
+
+            // FENCE / FENCE.I are serializing no-ops on this unit; they must
+            // not leak csr_rdata into the GPR result or the write sideband.
+            t = mk_tag(4'd9);
+            fu_csr_op(OP_FENCE, 12'h000, 32'h0, 1'b0, 1'b0, 32'hFFFF_FFFF,
+                      32'h0000_0000, 32'h0000_0000, 1'b0, t, "FENCE no-op ignores csr_rdata");
+            t = mk_tag(4'd10);
+            fu_csr_op(OP_FENCE, 12'h000, 32'h1, 1'b1, 1'b0, 32'hFFFF_FFFF,
+                      32'h0000_0000, 32'h0000_0000, 1'b0, t, "FENCE.I no-op ignores csr_rdata");
         end
     endtask
 
@@ -1207,6 +1270,8 @@ module tb_bru_csr;
         bru_kill_mask      = '0;
 
         timer_irq          = 1'b0;
+        software_irq       = 1'b0;
+        external_irq       = 1'b0;
         csr_raddr_direct   = 12'h0;
         csr_read_sel       = 1'b0;
         csr_we             = 1'b0;
@@ -1252,7 +1317,7 @@ module tb_bru_csr;
             $fatal(1, "tb_bru_csr: %0d of %0d checks FAILED", errors, checks);
         end
 
-        $display("ALL TESTS PASSED: %0d checks - fu_bru (all 6 conditional branches taken/not-taken, JAL/JALR targets incl. JALR bit-0 clearing, actual_target for not-taken branches, pred_npc match/mismatch, single-cycle recovery, kill vs completion/recovery, fixed-seed randomised sweep); csr_file (reset values, mstatus MIE/MPIE/MPP, mie MTIE only, mtvec MODE=00, mepc[1:0]=00, mip MTIP follows timer_irq with writes ignored, mhartid read-only 0, raddr_ok for required/unimplemented addresses, trap/mret transitions and priority, fixed-seed randomised write/readback); fu_csr (all six Zicsr forms with src=0 and write-enable rules, old-value result and new-value csr_write_data, zero-extended uimm operands, ECALL exception registration, MRET normal completion, kill suppression, real CSR-file read integration and no early write)", checks);
+        $display("ALL TESTS PASSED: %0d checks - fu_bru (all 6 conditional branches taken/not-taken, JAL/JALR targets incl. JALR bit-0 clearing, actual_target for not-taken branches, pred_npc match/mismatch, single-cycle recovery, kill vs completion/recovery, fixed-seed randomised sweep); csr_file (reset values, mstatus MIE/MPIE/MPP, mie MSIE/MTIE/MEIE only, mtvec MODE=00, mepc[1:0]=00, mip MSIP/MTIP/MEIP follow the three level inputs with writes ignored, mhartid read-only HART_ID, raddr_ok for required/unimplemented addresses, trap/mret transitions and priority, fixed-seed randomised write/readback); fu_csr (FENCE/FENCE.I no-op, all six Zicsr forms with src=0 and write-enable rules, old-value result and new-value csr_write_data, zero-extended uimm operands, ECALL exception registration, MRET normal completion, kill suppression, real CSR-file read integration and no early write)", checks);
         $finish;
     end
 

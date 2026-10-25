@@ -118,7 +118,9 @@ module tb_mem_model (
         int i;
         begin
             for (i = 0; i < 16; i++)
+                /* verilator lint_off BLKSEQ */  // task-local shadow update
                 if (be[i]) shadow[int'(addr - BASE) + i] = data[8*i +: 8];
+                /* verilator lint_on BLKSEQ */
         end
     endtask
 
@@ -157,7 +159,9 @@ module tb_mem_model (
 
     task automatic check(input logic cond, input string msg);
         if (!cond) begin
+            /* verilator lint_off BLKSEQ */  // task-local scoreboard update
             errors = errors + 1;
+            /* verilator lint_on BLKSEQ */
             if (errors <= 20) $display("[cyc %0d] FAIL: %s", cyc, msg);
         end
     endtask

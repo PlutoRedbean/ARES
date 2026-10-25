@@ -34,7 +34,7 @@ module top #(
         .uart_tx_data(tx_data), .uart_tx_start(tx_start),
         .virtual_led(virtual_led), .virtual_seg(virtual_seg),
         .mt_wr_en(), .mt_wr_idx(), .mt_wr_data(), .mt_status_rd(),
-        .mt_status(32'd0), .mt_result(32'd0)
+        .mt_status(32'd0), .mt_result(32'd0), .mt_irq(1'b0)
     );
 endmodule
 /* verilator lint_on PINCONNECTEMPTY */

@@ -23,6 +23,8 @@
 #define MT_KICK        (MT_BASE + 0x0Cu)
 #define MT_STATUS      (MT_BASE + 0x10u)
 #define MT_RESULT      (MT_BASE + 0x14u)
+#define MT_IRQ_MASK    (MT_BASE + 0x18u)
+#define MT_IRQ_ACK     (MT_BASE + 0x1Cu)
 
 #define MT_MMIO32(address) (*(volatile uint32_t *)(uintptr_t)(address))
 
@@ -33,6 +35,14 @@
 #define MT_ST_ERR        (1u << 2)   /* operand rejected after commit */
 #define MT_ST_ACCEPT_ERR (1u << 3)   /* unsupported funct7/funct3 */
 #define MT_ST_KICK_ERR   (1u << 4)   /* kick dropped: queue was full */
+#define MT_ST_NEED_WORK  (1u << 5)   /* queue drained, CPU should feed more */
+
+/* MT_IRQ_MASK / MT_IRQ_ACK bits: {need_work, kick_err, accept_err, err, done}. */
+#define MT_IRQ_NEED_WORK (1u << 4)
+#define MT_IRQ_KICK_ERR  (1u << 3)
+#define MT_IRQ_ACCEPT_ERR (1u << 2)
+#define MT_IRQ_ERR       (1u << 1)
+#define MT_IRQ_DONE      (1u << 0)
 
 /* Uncached scratch buffer: 64 KiB at physical 0x8013_0000. */
 #define MT_BUF_BASE    0x80330000u

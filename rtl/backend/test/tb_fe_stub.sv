@@ -143,7 +143,9 @@ module tb_fe_stub (
 
     task automatic check(input logic cond, input string msg);
         if (!cond) begin
+            /* verilator lint_off BLKSEQ */  // task-local scoreboard update
             errors = errors + 1;
+            /* verilator lint_on BLKSEQ */
             if (errors <= 20) $display("[cyc %0d] FAIL: %s", cyc, msg);
         end
     endtask

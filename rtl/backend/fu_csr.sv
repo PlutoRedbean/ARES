@@ -107,6 +107,7 @@ module fu_csr (
     wire is_csrrc = (op_code == OP_CSRRC) || (op_code == OP_CSRRCI);
     wire is_ecall = (op_code == OP_ECALL);
     wire is_mret  = (op_code == OP_MRET);
+    wire is_fence = (op_code == OP_FENCE);
 
     // New value written into the CSR file by the commit stage.  It is computed
     // for every Zicsr form; csr_write_en only decides whether commit uses it.
@@ -150,6 +151,11 @@ module fu_csr (
             // stage through csr_file.mret_we.
             completion.result    = 32'h0;
             csr_write_data       = 32'h0;
+        end else if (is_fence) begin
+            // FENCE/FENCE.I are serializing no-ops here; the LSU/idle gate and
+            // the commit-stage fence_i pulse carry the architectural effect.
+            completion.result    = 32'h0;
+            csr_write_data       = 32'h0;
         end else begin
             // Zicsr: old value is the GPR write value.
             completion.result    = csr_rdata;
@@ -168,6 +174,11 @@ module fu_csr (
 
     a_ecall_only_exception: assert property (@(posedge clk) disable iff (rst)
         completion_valid && completion.exception |-> (op_code == OP_ECALL));
+
+    a_fence_no_sideband: assert property (@(posedge clk) disable iff (rst)
+        completion_valid && is_fence
+        |-> !completion.exception && (completion.result == 32'h0)
+            && (csr_write_data == 32'h0));
 
     a_ecall_fields: assert property (@(posedge clk) disable iff (rst)
         completion_valid && (op_code == OP_ECALL)

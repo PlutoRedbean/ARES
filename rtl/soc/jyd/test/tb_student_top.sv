@@ -18,7 +18,7 @@ module tb_student_top;
         .virtual_key(8'ha5),.virtual_sw(64'h1020304050607080),
         .uart_rx_data(8'd0),.uart_rx_ready(1'b0),.uart_tx_busy(1'b0),
         .uart_tx_data(tx_data),.uart_tx_start(tx_start),.virtual_led(led),.virtual_seg(seg),
-        .mt_wr_en(),.mt_wr_idx(),.mt_wr_data(),.mt_status_rd(),.mt_status(32'd0),.mt_result(32'd0));
+        .mt_wr_en(),.mt_wr_idx(),.mt_wr_data(),.mt_status_rd(),.mt_status(32'd0),.mt_result(32'd0),.mt_irq(1'b0));
     always @(posedge w_cpu_clk) if(!w_clk_rst) begin
         if(tx_start && !tx_prev) begin
             if(tx_data!=8'h4b) $fatal(1,"UART data mismatch");

@@ -399,6 +399,7 @@ module lsu_top #(
     output logic [1:0]                  store_commit_ok,
     input  logic [1:0]                  commit_fire,
     output logic                        lsu_mmio_order_idle,
+    output logic                        lsu_fence_idle,
 
     //---- 128-bit Memory Bus（memory.md §6.7）-------------------------------
     output logic                        mem_rd_valid,
@@ -437,6 +438,7 @@ M2a 内部连接（staging，见 §0）：
 - 写路径：SQ `drain_*` → cacheable：`beat_wr_*`（`addr={drain_addr[31:4],4'b0}`、`data={4{drain_data}}`、`be = {4{drain_mask}} & (16'h000F << (4*drain_addr[3:2]))`）→ 写握手沿 `drain_takeover`；MMIO：`mmio_req_*`（`write=1`、addr = `{drain_addr[31:2],2'b00}`、wstrb=drain_mask、wdata=drain_data）→ `mmio_rsp_valid` 沿 `drain_takeover`。
 - MMIO Load：LQ `mmio_req_valid` 且无未完成 MMIO 事务时发设备读；响应只路由给 LQ。
 - `lsu_mmio_order_idle`：`!mmio_pending && !sq_mmio_store_pending`，按**周期初登记状态**产生，不组合借用本周期响应。
+- `lsu_fence_idle`：`!mmio_busy && !sq_mmio_store_pending && sq_occupancy==0 && lq_used==0`；FENCE/FENCE.I 用它确认更老访存已离开 LQ/SQ，而不是只等 MMIO。
 - `store_commit_ok` 直接来自 SQ；`kill_mask` 广播给 LQ/SQ/Completion/AGU。
 
 ## 8. 验证要求（每模块，plan §8.2 + plan §6.3）

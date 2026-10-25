@@ -35,7 +35,9 @@ module tb_ares_pkg (
 
     task automatic check(input logic cond, input string msg);
         if (!cond) begin
+            /* verilator lint_off BLKSEQ */  // task-local scoreboard update
             errors = errors + 1;
+            /* verilator lint_on BLKSEQ */
             $display("FAIL: %s", msg);
         end
     endtask
@@ -47,7 +49,10 @@ module tb_ares_pkg (
         queue_entry_t q;
         fu_req_t      rq;
         fu_completion_t cp;
+        int unsigned pred_width;
         begin
+            $display("tb_ares_pkg widths: pred_meta_t=%0d iq_entry_t=%0d bpu_update_t=%0d queue_entry_t=%0d",
+                     $bits(pred_meta_t), $bits(iq_entry_t), $bits(bpu_update_t), $bits(queue_entry_t));
             //---- widths (frozen layout; see plan section 5.19) -------------
             check($bits(tag_t)              == 4,   "tag_t width");
             check($bits(entry_state_t)      == 2,   "entry_state_t width");
@@ -57,10 +62,21 @@ module tb_ares_pkg (
             check($bits(cfi_type_t)         == 3,   "cfi_type_t width");
             check($bits(fe_redirect_kind_t) == 1,   "fe_redirect_kind_t width");
             check($bits(chooser_meta_t)     == 14,  "chooser_meta_t width");
-            check($bits(pred_meta_t)        == 63,  "pred_meta_t width (fe_pkg)");
-            check($bits(iq_entry_t)         == 164, "iq_entry_t width (fe_pkg)");
-            check($bits(bpu_update_t)       == 131, "bpu_update_t width (fe_pkg)");
-            check($bits(queue_entry_t)      == 416, "queue_entry_t width");
+            // Predictor metadata extends the fixed C5 recovery fields.
+            pred_width = 40 + 2*fe_pkg::GHR_WIDTH + PRED_CKPT_W + $clog2(fe_pkg::FETCH_WIDTH+1);
+`ifdef CONFIG_FE_TAGE
+            pred_width += 11 + TAGE_NUM_TABLES*(1+TAGE_USEFUL_WIDTH+TAGE_INDEX_WIDTH+TAGE_TAG_WIDTH)
+                        + 2*TAGE_PROVIDER_WIDTH + TAGE_CTR_WIDTH + TAGE_BASE_INDEX_WIDTH
+                        + TAGE_SLOT_ID_WIDTH + TAGE_CKPT_PTR_WIDTH + TAGE_COND_PREFIX_WIDTH;
+`ifdef CONFIG_FE_UTAGE
+            pred_width += 3 + UTAGE_PROVIDER_WIDTH + UTAGE_POS_WIDTH
+                        + UTAGE_NUM_TABLES*(UTAGE_INDEX_WIDTH+UTAGE_TAG_WIDTH);
+`endif
+`endif
+            check($bits(pred_meta_t)        == pred_width,       "pred_meta_t width (fe_pkg)");
+            check($bits(iq_entry_t)         == pred_width + 101, "iq_entry_t width (fe_pkg)");
+            check($bits(bpu_update_t)       == pred_width + 68,  "bpu_update_t width (fe_pkg)");
+            check($bits(queue_entry_t)      == pred_width + 353, "queue_entry_t width");
             check($bits(fu_req_t)           == 183, "fu_req_t width");
             check($bits(fu_completion_t)    == 101, "fu_completion_t width");
 
@@ -76,7 +92,9 @@ module tb_ares_pkg (
             check(REDIRECT_BRANCH == 1'b0 && REDIRECT_ARCH == 1'b1,
                   "fe_redirect_kind_t");
             check(EXC_NONE == 32'h0 && EXC_ECALL_M == 32'd11
-                  && EXC_MACHINE_TIMER == 32'h8000_0007, "exception_cause_t");
+                  && EXC_MACHINE_SOFT == 32'h8000_0003
+                  && EXC_MACHINE_TIMER == 32'h8000_0007
+                  && EXC_MACHINE_EXT == 32'h8000_000B, "exception_cause_t");
             check(OP_ILLEGAL == 6'd55, "op_t last value");
             check(OP_LUI == 6'd0 && OP_JAL == 6'd2 && OP_BEQ == 6'd4
                   && OP_LW == 6'd12 && OP_SW == 6'd17 && OP_ADDI == 6'd18
@@ -88,7 +106,7 @@ module tb_ares_pkg (
             check(CIQ_ENTRIES == (1 << CIQ_SLOT_BITS), "CIQ_ENTRIES vs tag width");
             check(fe_pkg::FETCH_WIDTH == 4 && fe_pkg::DECODE_WIDTH == 2 && DISPATCH_WIDTH == 2
                   && ISSUE_WIDTH_MAX == 4 && COMMIT_WIDTH == 2, "pipeline widths");
-            check(fe_pkg::GHR_WIDTH == 12 && BPU_UPDATE_FIFO_DEPTH >= 2,
+            check(fe_pkg::GHR_WIDTH == 12 && fe_pkg::BPU_UPDATE_FIFO_DEPTH >= 2,
                   "BPU interface parameters");
             //---- configuration menu (configs/Kconfig, make menuconfig) ------
             // These are the values the build actually elaborated with; they are

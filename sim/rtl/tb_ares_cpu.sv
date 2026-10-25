@@ -90,6 +90,9 @@ module tb_ares_cpu (
     logic [ 1:0] decode_err;
     logic [31:0] decode_err_pc      [2];
     logic [31:0] decode_err_inst    [2];
+    /* verilator lint_off UNUSEDSIGNAL */ // IROM-only ISA images do not modify code
+    logic unused_fence_i_valid;
+    /* verilator lint_on UNUSEDSIGNAL */
     logic        dep_error;
     logic [ 4:0] dbg_occupancy;
     logic [31:0] dbg_arch_next_pc;
@@ -102,6 +105,7 @@ module tb_ares_cpu (
         .clk                          (clk),
         .rst                          (rst),
         .irom_addr(irom_addr), .irom_data(irom_data),
+        .software_irq(1'b0), .external_irq(1'b0), .fence_i_valid(unused_fence_i_valid),
         .timer_irq                    (1'b0),                           // SoC timer lands in C6
         .mem_rd_valid                 (mem_rd_valid),
         .mem_rd_ready                 (mem_rd_ready),

@@ -7,7 +7,7 @@ module tb_issue_equiv;
     logic [31:0] src1[ISSUE_WIDTH_MAX], src2[ISSUE_WIDTH_MAX];
     logic src_ready[ISSUE_WIDTH_MAX];
     tag_t issue_ptr, commit_ptr;
-    logic lsu_mmio_order_idle,recovery_valid,flush_active;
+    logic lsu_mmio_order_idle,lsu_fence_idle,recovery_valid,flush_active;
     logic [7:0] fu_can_accept,fu_issue_valid,ref_valid;
     logic [2:0] load_credit;
     logic [3:0] store_credit;
@@ -17,7 +17,7 @@ module tb_issue_equiv;
     int unsigned seed,valid_checks;
     be_issue_sched dut(.*);
     be_issue_sched_reference reference_model (.cand(cand),.src1(src1),.src2(src2),.src_ready(src_ready),
-        .issue_ptr(issue_ptr),.commit_ptr(commit_ptr),.lsu_mmio_order_idle(lsu_mmio_order_idle),
+        .issue_ptr(issue_ptr),.commit_ptr(commit_ptr),.lsu_mmio_order_idle(lsu_mmio_order_idle),.lsu_fence_idle(lsu_fence_idle),
         .recovery_valid(recovery_valid),.flush_active(flush_active),.fu_can_accept(fu_can_accept),
         .load_credit(load_credit),.store_credit(store_credit),.issue_grant(ref_grant),
         .issue_tag(ref_tag),.fu_issue_valid(ref_valid),.fu_req(ref_req));
@@ -29,12 +29,13 @@ module tb_issue_equiv;
         seed=32'h27182818; valid_checks=0;
         for(int n=0;n<100000;n++) begin
             issue_ptr.slot_index=4'(rnd(16)); commit_ptr.slot_index=4'(rnd(16));
-            lsu_mmio_order_idle=1'(rnd(2)); recovery_valid=(rnd(8)==0); flush_active=(rnd(8)==0);
+            lsu_fence_idle=1'(rnd(2)); lsu_mmio_order_idle=1'(rnd(2)); recovery_valid=(rnd(8)==0); flush_active=(rnd(8)==0);
             fu_can_accept=8'(rnd(256)); load_credit=3'(rnd(5)); store_credit=4'(rnd(9));
             for(int i=0;i<ISSUE_WIDTH_MAX;i++) begin
                 cand[i]='0; cand[i].valid=(rnd(8)!=0); cand[i].state=entry_state_t'(rnd(4));
                 cand[i].fu_type=fu_type_t'(rnd(8)); cand[i].op=(rnd(2)==0)?OP_MUL:OP_ADD;
-                cand[i].is_serializing=(rnd(8)==0);
+                cand[i].is_fence=(rnd(8)==0);
+                cand[i].is_serializing=cand[i].is_fence || (rnd(8)==0);
                 cand[i].is_load=1'(rnd(2)); cand[i].is_store=!cand[i].is_load;
                 cand[i].pc=32'h80000000+32'(4*n+i*4); cand[i].imm=32'(rnd(4096));
                 cand[i].pred_npc=cand[i].pc+4; cand[i].csr_addr=12'(rnd(4096));

@@ -35,6 +35,7 @@ module be_issue_sched_reference (
     input ares_pkg::tag_t issue_ptr,
     input ares_pkg::tag_t commit_ptr,
     input logic           lsu_mmio_order_idle,
+    input logic           lsu_fence_idle,
     input logic           recovery_valid,
     input logic           flush_active,
 
@@ -152,7 +153,7 @@ module be_issue_sched_reference (
         for (int unsigned i = 0; i < ISSUE_WIDTH_MAX; i++) begin
             c_ok = cand[i].valid && (cand[i].state == ENTRY_WAIT) && src_ready[i];
             if (cand[i].is_serializing)
-                c_ok = c_ok && (issue_tag[i].slot_index == commit_ptr.slot_index) && lsu_mmio_order_idle;
+                c_ok = c_ok && (issue_tag[i].slot_index == commit_ptr.slot_index) && (cand[i].is_fence ? lsu_fence_idle : lsu_mmio_order_idle);
 
             c_credit_ok = cand[i].is_load  ? (load_credit  != 3'd0)
                         : cand[i].is_store ? (store_credit != 4'd0)

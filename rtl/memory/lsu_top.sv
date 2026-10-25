@@ -58,6 +58,7 @@ module lsu_top #(
     output logic [1:0]                       store_commit_ok,
     input  logic [1:0]                       commit_fire,
     output logic                             lsu_mmio_order_idle,
+    output logic                             lsu_fence_idle,
 
     //---- 128-bit memory bus (memory.md 6.7) --------------------------------
     output logic                             mem_rd_valid,
@@ -736,6 +737,12 @@ module lsu_top #(
     //-------------------------------------------------------------------------
     assign lsu_can_accept      = lsu_can_accept_w;
     assign lsu_mmio_order_idle = !mmio_busy_w && !sq_mmio_store_pending_w;
+
+    // FENCE/FENCE.I may only execute after every older cacheable/MMIO access
+    // has left the load and store queues.  Waiting for SQ occupancy (not just
+    // MMIO) is what makes FENCE order ordinary stores as well.
+    assign lsu_fence_idle      = !mmio_busy_w && !sq_mmio_store_pending_w
+                              && (sq_occupancy_w == 4'd0) && (lq_used_w == 3'd0);
 
 `ifdef CONFIG_SIMULATION
     // Only load/store operations reach the LSU port.

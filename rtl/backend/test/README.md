@@ -9,9 +9,10 @@ this directory is synthesizable or part of the delivered core.
 | `tb_fe_stub.sv` | Self-checking contract test for the stub (C0). |
 | `lsu_stub.sv` | Ideal LSU port model for backend verification (backend.md §9.6): guaranteed accept, LQ/SQ credits, one completion per accepted operation, kill handling, `store_commit_ok` from registered state only. |
 | `unit/fe_model.sv` | Instruction fetch model with a program image (`imem`), contract-shaped `iq_valid/iq_accept_count`, same-cycle redirect and no holes. |
-| `unit/tb_decode.sv` | `be_decode` unit test: every RV32IM/Zicsr encoding, immediate formats, CFI classification, `csr_write_en` table, all `decode_err` classes (3106 checks, fixed seed). |
+| `unit/tb_decode.sv` | `be_decode` unit test: every RV32IM/Zicsr encoding, immediate formats, CFI classification, `csr_write_en` table, all `decode_err` classes (3105 checks, fixed seed). |
 | `unit/tb_fu_exec.sv` | `fu_alu` / `fu_smul` / `fu_mul` / `fu_div` unit test: boundary tables + 100k/20k randomised reference comparisons, II=1 throughput, kill semantics, both `MUL_LATENCY` settings (224072 checks). |
-| `unit/tb_bru_csr.sv` | `fu_bru` / `csr_file` / `fu_csr` unit test: branch/jump resolution, pred_npc match/mismatch recovery, every CSR field mask and priority, all six Zicsr forms (10695 checks, fixed seed). |
+| `unit/tb_bru_csr.sv` | `fu_bru` / `csr_file` / `fu_csr` unit test: branch/jump resolution, pred_npc match/mismatch recovery, every CSR field mask and priority, MSIP/MTIP/MEIP, FENCE/FENCE.I and all six Zicsr forms (fixed seed). |
+| `unit/tb_p0_csr_irq.sv` | Per-hart CSR/interrupt test: HART_ID=1, MSIP/MTIP/MEIP masks, priority, mcause and drain/cancel. |
 | `unit/tb_backend.sv` | **C1 integration gate**: `be_top` + `fe_model` + `lsu_stub`, independent RV32IM golden model. |
 
 ## Running (C1 gate)
@@ -20,7 +21,7 @@ From the repository root:
 
 ```bash
 make lint-backend      # backend lint, 13 tops, -Wall --assert, zero warnings
-make unit              # build + run the four self-checking backend benches
+make unit              # build + run the six self-checking backend benches
 make all               # C0 + C1 gate: lint + lint-backend + all unit benches
 ```
 

@@ -17,7 +17,7 @@
 //     extension (I/S/B/J) and the Zicsr uimm[4:0] zero extension
 //   * CFI classification for JAL / JALR with rd and rs1 = x1/x5 and for every
 //     branch, plus the predecode cross-check (is_cfi / cfi_type)
-//   * decode_err for unknown opcodes, FENCE, unsupported funct3/funct7
+//   * decode_err for unknown opcodes, unsupported funct3/funct7
 //     combinations and unsupported CSR addresses (HAS_MISA/HAS_MTVAL/
 //     HAS_MCYCLE are 0, so 0x301/0x343/0xB00/0xB80 must fail)
 //   * an invalid lane: decode_err = 0 and every output defined (0 / OP_ILLEGAL)
@@ -675,7 +675,13 @@ module tb_decode;
                     endcase
                 end
                 7'h0F: begin
-                    z.op = OP_FENCE; z.is_fence = 1'b1; z.err = 1'b1;
+                    if (f3 == 3'd0 || f3 == 3'd1) begin
+                        z.op = OP_FENCE; z.fu = FU_CSR;
+                        z.is_fence = 1'b1; z.is_serializing = 1'b1;
+                        z.imm = {31'b0, (f3 == 3'd1)};
+                    end else begin
+                        z.err = 1'b1;
+                    end
                 end
                 default: z.err = 1'b1;
             endcase
@@ -1071,10 +1077,12 @@ module tb_decode;
         drive(32'h043100B3); #1;    // OP funct7=0000010
         chk_valid("OP funct7=0000010", 32'h043100B3, exp_err(OP_ILLEGAL));
 
-        // FENCE is recognised but unsupported in v1 (D-C0-01)
-        e = exp_zero(); e.op = OP_FENCE; e.is_fence = 1'b1; e.err = 1'b1;
+        // FENCE / FENCE.I are serializing no-ops on the CSR port
+        e = exp_zero(); e.op = OP_FENCE; e.fu = FU_CSR;
+        e.is_fence = 1'b1; e.is_serializing = 1'b1;
         drive(32'h0000000F); #1;
         chk_valid("FENCE", 32'h0000000F, e);
+        e.imm = 32'd1;
         drive(32'h0000100F); #1;    // FENCE.I
         chk_valid("FENCE.I", 32'h0000100F, e);
 

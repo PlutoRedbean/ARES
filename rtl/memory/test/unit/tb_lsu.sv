@@ -75,6 +75,7 @@ module tb_lsu;
     logic [1:0]  store_commit_ok;
     logic [1:0]  commit_fire;
     logic        lsu_mmio_order_idle;
+    logic        lsu_fence_idle;
     logic        mem_rd_valid, mem_rd_ready, mem_rsp_valid, mem_rsp_ready;
     logic [31:0] mem_rd_addr, mem_wr_addr;
     logic [127:0] mem_rsp_data, mem_wr_data;
@@ -113,6 +114,7 @@ module tb_lsu;
         .store_commit_ok     (store_commit_ok),
         .commit_fire         (commit_fire),
         .lsu_mmio_order_idle (lsu_mmio_order_idle),
+        .lsu_fence_idle      (lsu_fence_idle),
         .mem_rd_valid        (mem_rd_valid),
         .mem_rd_ready        (mem_rd_ready),
         .mem_rd_addr         (mem_rd_addr),
@@ -701,6 +703,7 @@ module tb_lsu;
             chk(dbg_sq_used == 4'd0, "reset: SQ is not empty");
             chk(!completion_valid, "reset: completion_valid is asserted");
             chk(lsu_mmio_order_idle, "reset: lsu_mmio_order_idle is not 1");
+            chk(lsu_fence_idle, "reset: lsu_fence_idle is not 1");
         end
     endtask
 

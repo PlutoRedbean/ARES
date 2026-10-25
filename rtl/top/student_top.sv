@@ -17,7 +17,8 @@ module student_top #(
     output logic [2:0] mt_wr_idx,
     output logic [31:0] mt_wr_data,
     output logic mt_status_rd,
-    input logic [31:0] mt_status, mt_result
+    input logic [31:0] mt_status, mt_result,
+    input logic mt_irq
 );
     logic timer_irq;
     /* verilator lint_off UNUSEDSIGNAL */ // physical IROM indexes only bits 14:3
@@ -43,6 +44,7 @@ module student_top #(
         .JYD_UNCACHED_WINDOWS(1'b1)
     ) Core_cpu (
         .clk(w_cpu_clk), .rst(w_clk_rst), .timer_irq(timer_irq),
+        .software_irq(1'b0), .external_irq(mt_irq), .fence_i_valid(),
         .irom_addr(ifetch_addr), .irom_data(ifetch_data),
         .mem_rd_valid(mem_rd_valid),
         .mem_rd_ready(mem_rd_ready),

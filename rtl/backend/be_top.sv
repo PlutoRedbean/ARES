@@ -20,7 +20,8 @@
 // FREE items: FREE-02 (subsystem-level file), FREE-04 (FU/port fan-out).
 //=============================================================================
 module be_top #(
-    parameter logic [31:0] RESET_MTVEC = ares_pkg::RESET_PC
+    parameter logic [31:0] RESET_MTVEC = ares_pkg::RESET_PC,
+    parameter logic [31:0] HART_ID      = 32'd0
 ) (
     input logic clk,
     input logic rst,
@@ -58,9 +59,12 @@ module be_top #(
     output ares_pkg::tag_t store_commit_tag[2],
     input logic [1:0] store_commit_ok,
     input logic lsu_mmio_order_idle,
+    input logic lsu_fence_idle,
 
-    //---- machine timer interrupt -------------------------------------------
+    //---- machine interrupt inputs ------------------------------------------
     input logic timer_irq,
+    input logic software_irq,
+    input logic external_irq,
 
     //---- retire / trap observation (simulation hooks) ----------------------
     output logic [ 1:0] retire_valid,
@@ -72,6 +76,7 @@ module be_top #(
     output logic [ 1:0] retire_is_ebreak,
     output logic        irq_redirect_valid,
     output logic [31:0] irq_redirect_pc,
+    output logic        fence_i_valid,
 
     //---- decode error observability (SPEC-A1 / D-C0-01) --------------------
     output logic [ 1:0] decode_err,
@@ -213,7 +218,8 @@ module be_top #(
     logic        csr_commit_we_w;
     logic [11:0] csr_commit_addr_w;
     logic [31:0] csr_commit_wdata_w;
-    logic mstatus_mie_w, mie_mtie_w, mip_mtip_w;
+    logic mstatus_mie_w, mie_msie_w, mie_mtie_w, mie_meie_w;
+    logic mip_msip_w, mip_mtip_w, mip_meip_w;
     logic [31:0] mtvec_w, mepc_w;
 
     //---- FU instances -------------------------------------------------------
@@ -392,6 +398,7 @@ module be_top #(
         .issue_ptr          (issue_ptr_w),
         .commit_ptr         (commit_ptr_w),
         .lsu_mmio_order_idle(lsu_mmio_order_idle),
+        .lsu_fence_idle     (lsu_fence_idle),
         .recovery_valid     (recovery_valid_w),
         .flush_active       (ecall_valid_w || mret_valid_w || irq_valid_w),
         .fu_can_accept      (fu_can_accept_w),
@@ -612,8 +619,12 @@ module be_top #(
         .head_is_mret         (head_is_mret_w),
         .commit_pc_next       (commit_pc_next_w),
         .mstatus_mie          (mstatus_mie_w),
+        .mie_msie             (mie_msie_w),
         .mie_mtie             (mie_mtie_w),
+        .mie_meie             (mie_meie_w),
+        .mip_msip             (mip_msip_w),
         .mip_mtip             (mip_mtip_w),
+        .mip_meip             (mip_meip_w),
         .mtvec                (mtvec_w),
         .mepc                 (mepc_w),
         .lsu_mmio_order_idle  (lsu_mmio_order_idle),
@@ -726,15 +737,26 @@ module be_top #(
     assign irq_redirect_valid = irq_accept_w;
     assign irq_redirect_pc    = irq_pc_w;
 
+    // FENCE.I retires like a serializing no-op.  The frontend consumes this
+    // one-cycle pulse to invalidate its instruction cache after all older
+    // stores have drained (the pulse is the C5 contract hook; the real FE and
+    // the SoC-level cache maintenance are wired when the FE is integrated).
+    assign fence_i_valid = commit_fire_w[0]
+                        && entry_w[commit_ptr_w.slot_index].is_fence
+                        && entry_w[commit_ptr_w.slot_index].imm[0];
+
     //=========================================================================
     // CSR file (architectural writes happen only here, at commit)
     //=========================================================================
     csr_file #(
-        .RESET_MTVEC(RESET_MTVEC)
+        .RESET_MTVEC(RESET_MTVEC),
+        .HART_ID(HART_ID)
     ) u_csr_file (
-        .clk        (clk),
-        .rst        (rst),
-        .timer_irq  (timer_irq),
+        .clk         (clk),
+        .rst         (rst),
+        .timer_irq   (timer_irq),
+        .software_irq(software_irq),
+        .external_irq(external_irq),
         .raddr      (csr_raddr_w),
         .rdata      (csr_rdata_w),
         .raddr_ok   (csr_raddr_ok_w),
@@ -746,8 +768,12 @@ module be_top #(
         .trap_mcause(trap_mcause_w),
         .mret_we    (mret_we_w),
         .mstatus_mie(mstatus_mie_w),
+        .mie_msie   (mie_msie_w),
         .mie_mtie   (mie_mtie_w),
+        .mie_meie   (mie_meie_w),
+        .mip_msip   (mip_msip_w),
         .mip_mtip   (mip_mtip_w),
+        .mip_meip   (mip_meip_w),
         .mtvec      (mtvec_w),
         .mepc       (mepc_w)
     );

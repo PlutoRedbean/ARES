@@ -115,6 +115,9 @@ module tb_ares_core (
     logic [31:0] decode_err_pc      [2];
     logic [31:0] decode_err_inst    [2];
     logic        dep_error;
+    /* verilator lint_off UNUSEDSIGNAL */  // C5 FE integration consumes this pulse
+    logic        fence_i_valid;
+    /* verilator lint_on UNUSEDSIGNAL */
     logic [ 4:0] dbg_occupancy;
     logic [31:0] dbg_arch_next_pc;
     logic [ 2:0] dbg_lq_used;
@@ -141,6 +144,9 @@ module tb_ares_core (
         .bpu_update_valid             (bpu_update_valid),
         .bpu_update                   (bpu_update),
         .timer_irq                    (1'b0),                           // SoC timer lands in C6
+        .software_irq                 (1'b0),
+        .external_irq                 (1'b0),
+        .fence_i_valid                (fence_i_valid),
         .mem_rd_valid                 (mem_rd_valid),
         .mem_rd_ready                 (mem_rd_ready),
         .mem_rd_addr                  (mem_rd_addr),

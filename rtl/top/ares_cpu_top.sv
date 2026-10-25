@@ -1,6 +1,7 @@
 /* verilator lint_off PINCONNECTEMPTY */ // optional FE performance observations
 // Complete CPU: real FE, Backend/LSU, and a synchronous IROM seam.
 module ares_cpu_top #(
+    parameter logic [31:0] HART_ID = 32'd0,
     parameter logic [31:0] RESET_MTVEC          = ares_pkg::RESET_PC,  // SPEC-M8: owned by the top
     parameter logic [31:0] MMIO_BASE            = 32'hA000_0000,       // SPEC-M7 placeholder
     parameter bit          JYD_UNCACHED_WINDOWS = 1'b0,
@@ -14,6 +15,9 @@ module ares_cpu_top #(
 
     //---- interrupts --------------------------------------------------------
     input logic timer_irq,
+    input logic software_irq,
+    input logic external_irq,
+    output logic fence_i_valid,
 
     //---- 128-bit memory bus (memory.md section 6.7) ------------------------
     output logic         mem_rd_valid,
@@ -83,7 +87,7 @@ module ares_cpu_top #(
     ares_irom_bridge u_irom_bridge (
         .clk(clk), .rst(rst), .bus(ifetch_bus), .irom_addr(irom_addr), .irom_data(irom_data)
     );
-    ares_core_top #(.RESET_MTVEC(RESET_MTVEC), .MMIO_BASE(MMIO_BASE),
+    ares_core_top #(.HART_ID(HART_ID), .RESET_MTVEC(RESET_MTVEC), .MMIO_BASE(MMIO_BASE),
         .MMIO_MASK(MMIO_MASK), .JYD_UNCACHED_WINDOWS(JYD_UNCACHED_WINDOWS)) u_core (
         .clk(clk),
         .rst(rst),
@@ -100,6 +104,7 @@ module ares_cpu_top #(
         .bpu_update_valid(bpu_update_valid),
         .bpu_update(bpu_update),
         .timer_irq(timer_irq),
+        .software_irq(software_irq), .external_irq(external_irq), .fence_i_valid(fence_i_valid),
         .mem_rd_valid(mem_rd_valid),
         .mem_rd_ready(mem_rd_ready),
         .mem_rd_addr(mem_rd_addr),
