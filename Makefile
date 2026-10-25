@@ -36,12 +36,12 @@ KCONFIG   := python3 $(ARES_HOME)/scripts/kconfig/ares_kconfig.py
 PROGRAM ?=
 
 .PHONY: all lint lint-all lint-backend lint-lsu unit unit-lsu unit-mt-irq \
-        unit-mt-cpu-irq unit-clint tb-ares-pkg tb-fe-stub tb-mem-model sim \
-        run wave isa clean menuconfig defconfig oldconfig savedefconfig \
+        unit-mt-cpu-irq unit-clint unit-plic tb-ares-pkg tb-fe-stub tb-mem-model \
+        sim run wave isa clean menuconfig defconfig oldconfig savedefconfig \
         loaddefconfig showconfig test-config
 
 all: lint lint-backend lint-lsu lint-mt tb-ares-pkg tb-fe-stub tb-mem-model \
-     unit unit-lsu unit-mt-irq unit-mt-cpu-irq unit-clint
+     unit unit-lsu unit-mt-irq unit-mt-cpu-irq unit-clint unit-plic
 
 # FPGA project generation is independent of legacy npc/ and vendor build files.
 # Explicit frequency keeps the requested clock visible in every team's command.
@@ -50,7 +50,7 @@ FPGA_CPU_MHZ ?=
 FPGA_OUT ?= $(ARES_HOME)/build/vivado/ares
 FPGA_PROFILE ?= soc
 FPGA_ARGS ?=
-.PHONY: vivado-project vivado-synth vivado-route test-vivado lint-soc unit-soc unit-mt-irq unit-mt-cpu-irq unit-clint lint-mt
+.PHONY: vivado-project vivado-synth vivado-route test-vivado lint-soc unit-soc unit-mt-irq unit-mt-cpu-irq unit-clint unit-plic lint-mt
 vivado-project vivado-synth vivado-route:
 	@test -n "$(FPGA_CPU_MHZ)" || { echo "set FPGA_CPU_MHZ to a target strictly above 200"; exit 1; }
 	@python3 "$(ARES_HOME)/scripts/vivado/create_project.py" \
@@ -160,6 +160,16 @@ unit-clint: config-gen
 	    --Mdir $(ARES_HOME)/sim/build/unit/tb_clint -o tb_clint \
 	    $(RTL_ROOT)/soc/soc_clint.sv $(RTL_ROOT)/soc/test/tb_clint.sv
 	@$(ARES_HOME)/sim/build/unit/tb_clint/tb_clint
+
+# PLIC: 32 sources, 2 machine contexts, priority/enable/threshold,
+# claim/complete with a level gateway and per-context MEIP.
+unit-plic: config-gen
+	@mkdir -p $(ARES_HOME)/sim/build/unit/tb_plic
+	@verilator --binary --timing --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+	    -DCONFIG_SIMULATION $(ARES_CFG_INC) --top-module tb_plic \
+	    --Mdir $(ARES_HOME)/sim/build/unit/tb_plic -o tb_plic \
+	    $(RTL_ROOT)/soc/soc_plic.sv $(RTL_ROOT)/soc/test/tb_plic.sv
+	@$(ARES_HOME)/sim/build/unit/tb_plic/tb_plic
 
 #-----------------------------------------------------------------------------
 # Backend (C1): lint the backend subsystem top and run the standalone

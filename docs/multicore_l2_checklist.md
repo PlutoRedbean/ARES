@@ -255,7 +255,7 @@
 ### 7.2 CLINT / PLIC / Mailbox
 
 - [x] `soc_clint.sv`：64-bit mtime、2×mtimecmp、2×msip；标准 CLINT 偏移；mtime 进位处理；`tb_clint` 56 checks（mtime 写允许用于测试/初始化）。
-- [ ] `soc_plic.sv`：32 sources、2 contexts、priority/pending/enable/threshold/claim/complete；gateway 语义；每 context 独立 MEIP；**tensor0/tensor1 IRQ 各占一个 source（状态位区分 need_work/done/error）**。
+- [x] `soc_plic.sv`：32 sources、2 contexts、priority/pending/enable/threshold/claim/complete；level gateway 重挂起；每 context 独立 MEIP；`tb_plic` 88 checks。**tensor0/tensor1 接入 PLIC source 仍待做。**
 - [ ] `soc_mailbox.sv`：2×16×32-bit slots、doorbell、TAS/fetch-add、barrier（count/generation）、IPI 路由。
 - [ ] 中断连接：CLINT MTIP/MSIP + PLIC MEIP -> 对应 hart；Mailbox doorbell 可映射到 MSIP 或 PLIC source；**tensor0 -> hart0 context，tensor1 -> hart1 context**。
 - [ ] 复位值/清零语义：msip、mtimecmp、mailbox、barrier、PLIC pending/enable 全部定义。
