@@ -229,6 +229,12 @@ module tb_l2;
         l2_write(1'b0, 32'h0000_0400, pat[1], 16'hFFFF);
         l2_write(1'b0, 32'h0000_0800, pat[2], 16'hFFFF);
         l2_write(1'b0, 32'h0000_0C00, pat[3], 16'hFFFF);
+        // c1 read evicts a dirty c0 line; then c0 must see its data again.
+        mem[32'h0000_1400 >> 4] = pat[5];
+        l2_read (1'b1, 32'h0000_1400, rd1);
+        check(rd1 == pat[5], "c1 read after c0 dirty set");
+        l2_read (1'b0, 32'h0000_0000, rd0);
+        check(rd0 == pat[0], "c0 dirty line survives c1 eviction");
         l2_write(1'b0, 32'h0000_1000, pat[4], 16'hFFFF);
         l2_read (1'b0, 32'h0000_0000, rd0);
         check(rd0 == pat[0], "dirty victim writeback + refill");

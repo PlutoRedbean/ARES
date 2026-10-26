@@ -86,6 +86,7 @@ module tb_ares_coremark;
 
     // CoreMark exits via EBREAK in _trm_init; a0 is the return code.
     logic [31:0] a0;
+    logic [31:0] a0_eff;
     logic        done, pass;
     int unsigned checks, errors;
     int unsigned ret_count;
@@ -111,17 +112,28 @@ module tb_ares_coremark;
             ret_count <= 0;
             cycle_count <= 0;
         end else begin
-            cycle_count <= cycle_count + 1'b1;
-            for (int lane = 0; lane < 2; lane++) begin
-                if (retire_valid[lane]) begin
-                    ret_count <= ret_count + 1;
-                    if (retire_rd_wen[lane] && (retire_rd[lane] == 5'd10))
-                        a0 <= retire_wdata[lane];
-                    if (retire_is_ebreak[lane] && !done) begin
-                        done <= 1'b1;
-                        pass <= (a0 == 32'h0);
+            if (!done) cycle_count <= cycle_count + 1'b1;
+            // Two instructions may retire per cycle: counting one per cycle
+            // undercounts the retire total (~1.5x here) and reports a wrong IPC.
+            if (!done) begin
+                ret_count <= ret_count + unsigned'(retire_valid[0])
+                           + unsigned'(retire_valid[1] && !(retire_valid[0] && retire_is_ebreak[0]));
+                /* verilator lint_off BLKSEQ */
+                a0_eff = a0;
+                for (int lane = 0; lane < 2; lane++) begin
+                    if (retire_valid[lane]) begin
+                        if (retire_rd_wen[lane] && (retire_rd[lane] == 5'd10)) begin
+                            a0_eff = retire_wdata[lane];
+                            a0 <= retire_wdata[lane];
+                        end
+                        if (retire_is_ebreak[lane]) begin
+                            done <= 1'b1;
+                            pass <= (a0_eff == 32'h0);
+                            break;
+                        end
                     end
                 end
+                /* verilator lint_on BLKSEQ */
             end
         end
     end
@@ -131,9 +143,13 @@ module tb_ares_coremark;
         checks = 0; errors = 0;
         for (int i = 0; i < MEM_WORDS; i++) mem[i] = 128'h0;
 
-        if (!$value$plusargs("DMEM=%s", dmem_file)) begin
-            $display("ERROR: +DMEM=<coremark dmem hex> is required");
-            $finish;
+        if (!$value$plusargs("DMEM=%s", dmem_file))
+            $fatal(1, "+DMEM=<coremark dmem hex> is required");
+        begin
+            int image_fd;
+            image_fd = $fopen(dmem_file, "r");
+            if (image_fd == 0) $fatal(1, "Cannot open DMEM image: %s", dmem_file);
+            $fclose(image_fd);
         end
         $readmemh(dmem_file, mem);
 
@@ -151,12 +167,18 @@ module tb_ares_coremark;
                      ret_count, cycle_count, real'(ret_count) / real'(cycle_count),
                      100.0e6 / real'(cycle_count), $time, l2_hits, l2_misses, fe_fetch_pc);
         end else
-            $display("*** FAILED: %0d errors / %0d checks ***", errors, checks);
+            $fatal(1, "CoreMark failed: %0d errors / %0d checks", errors, checks);
         $finish;
     end
 
     initial begin
-        #600000000;  // 600 ms: measured completion was ~499 ms
+        int timeout_ns;
+        if (!$value$plusargs("TIMEOUT_NS=%d", timeout_ns)) timeout_ns = 600000000;
+        if (timeout_ns <= 0) $fatal(1, "TIMEOUT_NS must be positive");
+        // Runtime input is checked above; a zero-delay scheduling mode is unnecessary.
+        /* verilator lint_off ZERODLY */
+        #(timeout_ns);
+        /* verilator lint_on ZERODLY */  // 600 ms: measured completion was ~499 ms
         $display("*** TIMEOUT: pc=%h done=%0d a0=%h hits=%0d misses=%0d retires=%0d ***",
                  fe_fetch_pc, done, a0, l2_hits, l2_misses, ret_count);
         $display("cycles=%0d", cycle_count);
@@ -177,6 +199,6 @@ module tb_ares_coremark;
                  dut.u_core.u_backend.serializing_present_w,
                  dut.u_core.u_backend.irq_drain_w,
                  dut.u_core.u_backend.redirect_any_w);
-        $finish;
+        $fatal(1, "CoreMark timeout");
     end
 endmodule

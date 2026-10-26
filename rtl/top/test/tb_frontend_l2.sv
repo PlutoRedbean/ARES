@@ -22,7 +22,7 @@ module tb_frontend_l2 #(
 
     generate if (DUAL) begin : g_dual
         ares_2core_frontend_l2_top #(.L2_SETS(4)) dut (
-            .clk(clk), .rst(rst),
+            .clk(clk), .rst(rst), .hart1_en(1'b1),
             .l2_mem_rd_valid(rd_valid), .l2_mem_rd_ready(rd_ready), .l2_mem_rd_addr(rd_addr),
             .l2_mem_rsp_valid(rsp_valid), .l2_mem_rsp_ready(rsp_ready), .l2_mem_rsp_data(rsp_data),
             .l2_mem_wr_valid(wr_valid), .l2_mem_wr_ready(wr_ready), .l2_mem_wr_addr(wr_addr),
