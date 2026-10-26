@@ -1,55 +1,34 @@
 # Dual-core CoreMark status (AMP bring-up)
 
-## Native C5 integration (2026-10-25)
+> 更新：2026-10-27。旧“共享 L2 数据破坏”诊断已撤销。远端 `l2-cache` 的 LSU 修复与验证设施已移植到本地 `base_core` 工作区，保留原生 C5。
 
-After merging `base_core` and `l2-cache`, the real-frontend L2 tops use the
-native two-lane training/credit and independent recovery metadata interfaces.
-The legacy adapter is retained only as a standalone fixture. Run
-`make lint-l2 unit-l2 unit-l2-frontend` for the integrated hierarchy; the new
-single/dual-hart smoke checks fetch/refill, mhartid, private AMP data and a
-branch loop. It is not a replacement for the long CoreMark workload.
+## 当前集成
 
-The CoreMark results and fault isolation below were measured before this
-integration. Full CoreMark must be rerun against the merged implementation;
-no merged-version CoreMark score or resolution of the historical dual-hart
-failure is claimed.
+- `ares_frontend_hart`：真实 FE＋原生 C5＋ICache AXI bridge＋Core，未重新接入 legacy adapter。
+- `ares_2core_frontend_l2_top`：两 hart、私有 L1D、共享 32KiB L2；新增运行时 `hart1_en`，与 `HART1_ENABLE` 相与。
+- `tb_2core_coremark`：hart1 数据／栈偏移 `+0x100000`；四个 L2 读端口和 dirty writeback 的独立 shadow checker；`+H1EN=0` 同二进制参考模式。
+- 单／双核 TB：修正双退休计数、按 lane 顺序判定 a0／EBREAK、完成后统计冻结；失败／超时返回非零。
+- L2 单测增加 c1 驱逐 c0 dirty line 后读回；短镜像 harness 检查见 `make test-coremark-harness`。
 
-## Implemented
+当前本地测试、镜像哈希、指标及边界见 [集成执行记录](l2_integration_results.md)。复现方式见 [交接说明](multicore_l2_handoff.md)，根因见 [旧故障分析](coremark_dual_bug_report.md)。
 
-- `ares_frontend_hart`: real frontend + native C5 interface + ICache AXI bridge + core,
-  with a D-side AMP address offset.
-- `ares_2core_frontend_l2_top`: two harts, shared `l2_top`, two I ports
-  (i0/i1) and two D ports (c0/c1).
-- `l2_top`: second instruction read port, I0/I1 alternating arbitration.
-- `tb_2core_coremark`: two CoreMark images, hart1 data/stack loaded at
-  `+0x100000`, both harts start together.
+## 本地原生 C5 结果（2026-10-27）
 
-## Single-hart result
+完整 100 iterations：单核 `31,349,223 retires / 48,856,291 cycles / IPC=0.641662 / 2.0468 CoreMark/MHz`；双核各 `31,349,223 retires`，周期 `48,857,613 / 48,857,616`，聚合 `IPC=1.283289 / 4.0935 CoreMark/MHz`。两 hart 均 a0=0，9 checks 通过，17,202 个 L2 响应及 writeback 检查零错误。
 
-The single-hart real-frontend CoreMark passes:
+本地与下表远端使用的软件／runtime 构建不完全相同，不把分差归因于某项硬件改动。
 
-```text
-retires=21,229,636 cycles=49,944,724 IPC=0.425063 CoreMark/MHz=2.0022
-```
+## 远端历史结果（不是本地原生 C5 分数）
 
-## Dual-hart result: not passing yet
+`003586e`／`1fbe654` 的 legacy adapter 路径、软件 CRC、100 iterations：
 
-The dual test reaches about 44.7 ms simulated, then hart0 hits the LSU
-natural-alignment assertion on a halfword load at `addr=0x000000a3`.
-This is a data/pointer corruption symptom, not a CoreMark completion.
+| 配置 | retires | cycles | IPC | CoreMark/MHz |
+| --- | ---: | ---: | ---: | ---: |
+| 单核 | 31,348,582 | 49,944,724 | 0.627666 | 2.0022 |
+| 双核 hart0 | 31,348,582 | 50,028,073 | 0.626620 | 1.9989 |
+| 双核 hart1 | 31,348,582 | 50,028,076 | 0.626620 | 1.9989 |
+| 双核聚合 | 62,697,164 | 50,028,076 | 1.253240 | 3.9978 |
 
-Debug isolation so far:
+历史 shadow：21,981 响应，i0/i1/c0/c1/writeback 零错误。旧 `21,229,636 / IPC=0.425063` 是 TB 少计双退休；修正统计不改变单核 cycles 和 2.0022。
 
-- hart1 held in reset: hart0 runs correctly through 50 ms (no misalign).
-- hart1 I + D active, hart1 writes disabled: hart0 still misaligns.
-- hart1 D disabled entirely: hart0 runs correctly through 50 ms.
-- hart1 D addresses stay in `0x8020_xxxx` (monitor), so the offset itself is
-  applied; the failure is in the shared-L2 c1 read/eviction interaction.
-- L2 unit tests (including c0/c1 concurrent reads and c1 displacing a c0 dirty
-  line) pass.
-
-The next debugging step is to separate "c1 read response routing" from
-"c1 read causing a dirty-victim writeback"; the current evidence points at the
-shared L2 c1 read path, not at the frontend adapter or the AMP address offset.
-
-**Do not quote a dual-core CoreMark score until this is fixed.**
+双核指两份独立 AMP 实例，非 SMP／官方 MULTITHREAD=2。一次程序通过不关闭 L2-M1 的全部随机反压／复位／压力门禁；正式 SoC 的 MMIO／IRQ／启动／DMA／软件及 PPA 另行验收。

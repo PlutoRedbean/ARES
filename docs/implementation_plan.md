@@ -1,6 +1,7 @@
 # ARES RTL Implementation Plan
 
-> **Status**: v0.13 / 2026-10-25 / **主线已选：含共享 L2 的 ARES SoC。代码基线 `943d160` 已有单／双真实 FE＋L2 原型与冒烟，完整 L2 SoC／默认入口迁移／系统及 PPA 尚未验收；既有 Core／ISA 回归继续保持。**
+> **Status**: v0.14 / 2026-10-27 / **共享 L2 SoC 主线；已在本地 `base_core` 工作区移植远端 LSU 修复、双核 CoreMark 入口与 shadow checker，保留原生 C5。L2-M1 为部分完成，完整双核 SoC／默认入口／DMA／软件及板级 PPA 尚未验收。**
+> **v0.14 变更（修复与验证设施集成）**：以 `ed5b2a4` 为本地基线，移植 `l2-cache` 至 `1fbe654` 的相关增量；按相关增量移植，保留原生 C5，不覆盖为旧 adapter 路径。纠正“共享 L2 数据破坏”诊断：远端 `003586e` 定位为投机 AGU 对齐断言误报，检查移到 LSU 的 LQ lookup 边界；不增加未对齐访问能力。引入双退休计数、按 lane 顺序判定 a0/EBREAK、hart1 参考模式、L2 逐响应／写回影子检查和 c1 dirty eviction 用例；本地补齐错误计数累计、失败／超时非零退出、完成时统计锁存与短镜像正负验证。本地原生 C5 完整单双核 CoreMark 通过，单核 2.0468、双核聚合 4.0935 CoreMark/MHz，17,202 个 L2 响应／写回检查零错误；完整 M1 仍未关闭。当前执行记录见 `docs/l2_integration_results.md`；下一阶段详见 `docs/next_steps_implementation_plan.md`。以下版本条目是历史记录。
 > **v0.13 变更（用户确认主线）**：共享 L2 的 ARES SoC 成为后续实现、系统验证和板级交付主线；JYD `student_top`／板级顶层保留作平台资源、回归与历史基线，不再要求先完成旧单核路线才推进 L2。明确规划选择与实际默认构建的差异，重排 L2 数据正确性、完整互连／启动／中断、默认入口迁移、DMA／XIF／软件与板级签核任务。此次提交只改文档，未切换 Makefile／Vivado 默认顶层或实现缺失硬件。
 > **v0.12 变更（合并后进度同步）**：以本地 `base_core` 的双父合并提交 `943d160` 为代码基线，更新资产、阶段状态、SPEC 当前处理范围和后续任务。补记两级 TAGE／uTAGE／mBTB、缓存 BRAM IP、物理启动、共享 L2、per-hart IRQ／FENCE、CLINT／PLIC 与真实前端 Tensor IRQ 验证；删除当前清单中的重复开发项。原单核门禁与双核 AMP 扩展分开记录；不把 CoreMark 历史结果、模块单测或短程序通过当作完整系统／PPA 签核。以下版本条目为历史记录。
 > **v0.11 变更（C5 执行）**：用户冻结未知 JALR 继续推测、独立 pred_npc／原样 metadata、FTQ 前完整 GHR 快照、独立恢复通道、块内多个不跳转 CFI、首版 IROM-only。真实 CPU／SoC 接入、协议 TB、预测器关闭配置、两套 ISA 回归和镜像拆分已验收；详见 `docs/fe_contract_migration.md`。以下 v0.10 及更早说明为历史记录。
@@ -35,11 +36,13 @@
 
 ---
 
-## 当前进度与执行入口（2026-10-25）
+## 当前进度与执行入口（2026-10-27）
 
-**代码基线**：本地 `base_core` 的合并提交 `943d160b7f2c4229c86658e29b07b2684524b891`，
-父提交为 `330733a`（本地 C5／缓存／板级基线）与 `19d0128`（远端 `l2-cache`）。
-本节记录合并时实际执行的验证，本文档更新本身没有重跑仿真或 Vivado。
+**验证时基线**：本地 `base_core` HEAD 为 `ed5b2a465d93688ef78ca2b8968e2673051f2904`，
+其代码合并基线为 `943d160`（父提交 `330733a` 与 `19d0128`）。2026-10-27 在工作区移植
+远端 `l2-cache`（已核对 tip `1fbe654`）的相关修复／验证增量，保留原生 C5、BRAM IP 和
+已有板级代码；未合并远端分支历史。验证发生在提交前工作区，后续提交以 Git log 为准。当前移植验证见
+[`l2_integration_results.md`](l2_integration_results.md)，2026-10-25 的回归记录仍按历史范围保留。
 
 **主线决定（2026-10-25）**：用户已明确选择 **含共享 L2 的 ARES SoC**。
 后续默认仿真、系统测试与 FPGA 交付应围绕 L2 SoC 建立；JYD 的 PLL／复位／UART／BRAM／
@@ -50,7 +53,9 @@ CDC／原引脚与既有工程设置作为可复用板级资源，`student_top` 
 | --- | --- | --- |
 | `make sim/run/isa` | `tb_ares_cpu` → `ares_cpu_top`，IROM＋DPI 内存 | 无共享 L2；保留 Core 功能回归，默认系统仿真待迁移 |
 | Vivado 默认 `soc`／现有 board manifest | `student_top` OOC／`rtl/board/top.sv` → JYD 平台 | 无共享 L2；是历史平台入口，不是新的主线系统交付 |
-| `unit-coremark` | `ares_frontend_l2_top`，单核真实 FE／I/D→共享 L2 | 已有原型，需要 `DMEM` 镜像；合并版完整 CoreMark 未重跑 |
+| `unit-coremark` | `ares_frontend_l2_top`，单核原生 C5／I/D→共享 L2 | 完整 100 iterations 通过：48,856,291 cycles／2.0468 CoreMark/MHz；仍需外部 `DMEM` |
+| `unit-2core-coremark` | 双核原生 C5／私有 L1／32KiB L2，带 shadow checker | 完整 100 iterations 通过：聚合 4.0935 CoreMark/MHz，shadow 零错；`COREMARK_ARGS=+H1EN=0` 选择单 hart 参考；不包含在 `make all` |
+| `test-coremark-harness` | 已构建的两个 CoreMark TB 二进制＋短 RV32 镜像 | 验证成功／失败、缺镜像、超时、单 hart 参考及双 hart 完成条件；不替代完整 CoreMark |
 | `unit-l2-frontend` | 单／双真实 FE＋共享 L2 自检 TB | 已通过短程序；作为主线初始门禁，尚非完整 SoC |
 | 目标主线 SoC | L2 hart＋共享存储、MMIO／CLINT／PLIC／启动／UART，后续 tensor／DMA／软件 | 完整系统顶层、默认仿真和板级入口均待实现与验收 |
 
@@ -70,7 +75,7 @@ CDC／原引脚与既有工程设置作为可复用板级资源，`student_top` 
 | JYD／物理板级 | 真实 CPU／IROM；SoC 总线 2864 checks、自主程序 25 retires；`rtl/board/top.sv`、manifest、PLL／分域复位、UART、裸机镜像；板级模型 26 帧／2 次启动、ECALL／MRET、回显和失锁复位通过 | 约束／CDC 审查、最新设计完整综合／route、实板运行；物理顶层尚未接入 miniTensor |
 | 缓存／Vivado | 数据阵列 BRAM IP 配方与普通仿真模型；既有 BMG／RAMB36E1 验证 10/10、数据探针 34 RAMB36；合并后工程生成器 10/10、镜像拆分 3/3；16／32／64B 仿真比较已完成 | 既有 IP／数据探针证据不是合并版全板 PPA；三档面积／Fmax 比较未完成，默认保持 32B |
 | Hart／中断／Fence | HART_ID／mhartid、MSIP／MTIP／MEIP、MEI > MSI > MTI；P0 33 checks；FENCE／FENCE.I 串行化、LSU 排空与提交脉冲；CLINT 56 checks、PLIC 88 checks | CLINT／PLIC 接入完整双核 MMIO／中断系统；FENCE.I 脉冲尚未驱动 ICache invalidate，不声明完整代码更新可见性 |
-| 共享 L2／双 hart | 默认 **32KiB（128 sets × 4 ways × 64B）**，write-back／write-allocate，一次一个事务；L2 15 checks、双 FE model 4 checks；原生单／双真实 FE＋L2 冒烟分别 25／25+25 retires | 合并版完整 CoreMark、历史双核数据破坏复验；最终 128KiB／8-bank／MSHR／WBQ／QoS、SPM、Mailbox、双核启动与 MMIO xbar |
+| 共享 L2／双 hart | 默认 **32KiB（128 sets × 4 ways × 64B）**，write-back／write-allocate，一次一个事务；L2 17 checks、双 FE model 4 checks；原生单／双真实 FE＋L2 冒烟分别 25／25+25 retires | 原生 C5 完整单双核 CoreMark 通过（单核 2.0468／聚合 4.0935），shadow 17,202 响应零错；M1 镜像生产链／随机反压／复位／压力尚缺；最终 128KiB／8-bank／MSHR／WBQ／QoS、SPM、Mailbox、双核启动与 MMIO xbar |
 | miniTensor／RT-Thread | miniTensor 独立回归历史 9/9；MMIO→CV-X-IF 控制路径；Tensor IRQ adapter 26 checks，真实 FE／IROM CPU IRQ 38 retires（CV-X-IF slave 为行为模型）；RT-Thread Nano 3.1.5 及旧 BSP 已导入 | Core 内 XIF、双 tensor、真实共享内存 DMA／可见性、ARES BSP／RTOS 启动和系统负载验收 |
 
 **排期依据**：本节与 §9 是当前状态；带日期的旧执行结果继续作为历史证据。
@@ -92,10 +97,20 @@ make test-config test-vivado test-images
 的退出状态记为成功。miniTensor 本体 9/9、缓存厂商模型 10/10 属之前执行的证据，
 未在此次合并中重跑。
 
-**CoreMark**：旧 L2 分支曾记录单核真实 FE＋L2 的 49,944,724 cycles、CoreMark/MHz 2.0022；
-旧双核测试约 44.7ms 发生数据／指针破坏，调查指向 c1 读／dirty eviction 交互，根因尚未最终确认。
-合并后已换用原生 C5 接口，只完成短程序冒烟，**完整 CoreMark 未重跑，旧分数与故障隔离
-不能当作合并版验收结果**。状态见 [`coremark_dual_status.md`](coremark_dual_status.md)。
+**CoreMark／旧问题更正**：远端 `003586e` 已记录单核及双核 AMP 的完整 CoreMark 通过，
+并以 21,981 个 L2 响应／dirty writeback 零 mismatch、2,768,013 条退休流比较定位旧故障。
+原约 44.7ms 的“数据破坏”推断不成立：检查投机 AGU 地址的自然对齐断言误报；修复将检查移到
+LSU 的 live LQ lookup 边界，store 维持 COMMITTED drain 检查。**LQ lookup 本身不等于退休／提交**，
+不能由该修复推导出所有错路径访问、MMIO 和全转发路径的对齐验证均已覆盖。
+旧单核 `21,229,636 retires / IPC=0.425063` 是 TB 双退休少计，修正为
+`31,348,582 / IPC=0.627666`；`49,944,724 cycles / 2.0022 CoreMark/MHz` 不变。
+远端双核聚合记录为 `3.9978 CoreMark/MHz`，属 legacy adapter 路径历史结果，不能直接作为
+本地原生 C5 的分数。本轮本地单核为 48,856,291 cycles／2.0468 CoreMark/MHz，双核为 48,857,613／48,857,616 cycles、聚合 4.0935；各 hart 31,349,223 retires，shadow 17,202 响应零错。输入哈希和验证边界统一见
+[`l2_integration_results.md`](l2_integration_results.md)。
+
+**当前门禁**：移植源代码、单次长程序和 shadow checker 不等于 L2-M1 全部验收。
+仓库内自包含软件镜像生产链、默认几何＋固定 seed 压力、随机反压、复位旧事务隔离和
+L1/L2 行宽边界仍须完成；详见新版下一阶段计划。不再以“先修 c1 数据破坏”作为既定任务。
 
 **PPA**：历史 OOC（250MHz 请求，WNS=-9.888ns）与首个真实 FE 板级综合
 （226116 LUT／110.95%，WNS=-35.600ns）是不同设计，不能直接比较优化收益。
@@ -114,7 +129,7 @@ BRAM IP 与选择逻辑优化后，没有最新合并版完整综合／routed �
 - SPEC-I2/I4：JYD IROM-only 桥已验收；L2 原型新增 AXI→128-bit I-port 桥，单／双真实 FE 冒烟通过，尚不代表通用 I/D/MT-DMA Fabric 或代码更新可见性完成。
 - 合并版 IQ 535 checks、训练 FIFO 1821 checks、历史 10 checks、FE/BE 契约 601 条指令／32 次延迟响应、IROM 桥 36 checks、ICache 数据阵列 9958 checks、FTQ correction 6 checks、BPU S2 两次修正／4 checks 通过；局部修正次数随预测器配置变化，不作为固定门禁。
 - L2 hart wrapper 直接连接原生两路训练／credit 与独立恢复 metadata；`fe_legacy_adapter` 仅保留独立夹具，14 checks 通过，不在当前 CPU／L2 取指主路径中。
-- 真实 FE／桩 ISA 各 36/36，SoC 两个 TB、四组预测器配置均通过；SC、完整吞吐／预测收益、FENCE.I invalidate、双核长程序和板级 PPA 另行验收。
+- 真实 FE／桩 ISA 各 36/36，SoC 两个 TB、四组预测器配置均通过；SC、完整吞吐／预测收益、FENCE.I invalidate 和板级 PPA 另行验收；双核长程序本轮通过，完整 M1 压力门禁仍未关闭。
 
 ---
 
@@ -405,7 +420,7 @@ JYD `student_top` 已按用户授权使用 `0x8020_xxxx` MMIO 和 uncached 别�
 
 | 优先级 | 范围 | 当前任务／出口 |
 | --- | --- | --- |
-| P0／L2 正确性 | 默认几何下单核参考、双核长程序、响应 owner、dirty eviction | 复验历史 CoreMark 问题，必要时修根因并补回归；保持短程序与 Core ISA 门禁 |
+| P0／L2 正确性 | 默认几何下单核参考、双核长程序、响应 owner、dirty eviction | 保持已移植修复／长程序与 Core ISA 回归；补齐镜像生产链、固定 seed 压力、反压／复位及覆盖记录 |
 | P1／完整 L2 SoC | I/D→共享 L2、MMIO xbar、CLINT／PLIC／Mailbox、启动／UART／复位 | 形成可启动并有真实中断／外设的系统，替换当前 L2 wrapper 中的桩 |
 | P1／构建与板级迁移 | 主线 sim／ISA／manifest／Vivado profile／软件镜像 | 默认入口实际选择 L2 SoC，输出明确 DUT；JYD 仍提供独立参考回归，迁移前不可声称已切换 |
 | P2／数据与软件闭环 | CPU／MT-DMA 可见性、缓存维护、tensor／ISR、ARES BSP／RTOS | 真实共享存储、IRQ 和 workload；保留 Core 内 XIF 后续方向并冻结其主机契约 |
@@ -1523,7 +1538,7 @@ miniTensor.md §4.1 定义了**加速器侧主要通道**（但仍有字段缺�
 > C0–C3 与 C5 的已完成记录保留为 core 回归基础。2026-10-25 用户已将共享 L2 SoC 提升为主线，当前优先级以 §4.0／§9.9 为准；以下旧阶段编号不再决定先完成 JYD 单核的实施顺序。
 > 依赖与优先级分层见 §4.0–§4.3。
 
-### 9.1 阶段总览（2026-10-25）
+### 9.1 阶段总览（2026-10-27）
 
 | 阶段 | 当前状态 | 已完成／出口边界 | 剩余工作 |
 | --- | --- | --- | --- |
@@ -1862,8 +1877,8 @@ SHA-256 校验；不声明 RT-Thread 已在 ARES 上编译或启动。
 
 | 范围 | 状态 | 下一步验收 |
 | --- | --- | --- |
-| L2 功能／双核结构 | L2 15 checks、双 FE model 4 checks、单／双真实 FE 冒烟通过 | 默认几何下的长程序／随机反压／dirty eviction／响应 owner 数据完整性 |
-| CoreMark | 旧单核 2.0022 CoreMark/MHz；旧双核约 44.7ms 数据破坏 | 在合并后的原生 C5 版本重跑单核参考与双核 workload，确认历史问题是否复现，保存镜像／配置／退休证据；通过前不报双核分数 |
+| L2 功能／双核结构 | L2 17 checks、双 FE model 4 checks、单／双真实 FE 冒烟通过 | 默认几何下的长程序／随机反压／dirty eviction／响应 owner 数据完整性 |
+| CoreMark | 本地原生 C5 完整单双核 100 iterations 通过：2.0468／聚合 4.0935 CoreMark/MHz，shadow 17,202 响应零错 | 证据见集成记录；软件镜像链、压力／反压／复位等完成后关闭 M1，不复用远端分数 |
 | CLINT／PLIC／启动 | 模块已有；真实 FE L2 hart 的中断输入仍接零、MMIO 为桩 | 双核 MMIO xbar、正式地址图、CLINT／PLIC 路由、Mailbox、Boot ROM／per-hart 栈与释放流程、IPI／timer／claim-complete 测试 |
 | 共享数据／tensor | AMP 私有数据短程序可运行 | SPM／Mailbox，同步与 uncached／缓存维护策略；第二份 tensor 的控制／DMA／IRQ 和并发测试 |
 | 最终 L2／PPA | 128KiB／8-bank／多 MSHR／WBQ／QoS／video 为目标 | 先冻结与现协议的差异，形成独立模块／压力／性能／资源门禁；不得把 bring-up 原型当最终目标 |
@@ -1876,12 +1891,12 @@ DDR3、视频链路和硬件一致性／SMP 不是本次已交付能力。更详
 [`multicore_l2_checklist.md`](multicore_l2_checklist.md)，历史故障与待复核边界见
 [`coremark_dual_status.md`](coremark_dual_status.md)。
 
-### 9.8 里程碑（共享 L2 主线，2026-10-25）
+### 9.8 里程碑（共享 L2 主线，2026-10-27）
 
 | 主线门禁 | 内容／出口 | 当前状态 |
 | --- | --- | --- |
 | L2-M0 | 原生 FE／Core／L1／共享 L2 原型，单／双 hart 短程序 | **原型冒烟通过**；默认 32KiB、单事务 L2，真实 FE 冒烟使用 4-set；不含长程序／完整外设 |
-| L2-M1 | 默认配置下单核参考、双核长程序、响应 owner／dirty eviction／反压与数据完整性 | **未验收**；合并版 CoreMark 未重跑，历史双核故障待复验 |
+| L2-M1 | 默认配置下单核参考、双核长程序、响应 owner／dirty eviction／反压与数据完整性 | **部分完成，未整体验收**；远端故障已定位，修复及验证设施已移植原生 C5；本地原生 C5 完整单双核通过（2.0468／聚合 4.0935，shadow 零错），镜像生产链／固定 seed 压力／随机反压／复位覆盖仍缺 |
 | L2-M2 | 完整 SoC 地址图、MMIO xbar、CLINT／PLIC／Mailbox、双核启动／IRQ／UART | **未完成**；有模块单测，L2 hart MMIO／中断仍为桩 |
 | L2-M3 | 主线默认仿真／系统测试／镜像入口选择真实 L2 SoC，保留独立 Core／JYD 回归 | **未迁移**；`make sim/run/isa` 仍为无 L2 CPU；新增入口需要明确 DUT／hart／memory map |
 | L2-M4 | CPU／MT-DMA 可见性、缓存维护、真实 tensor／IRQ／软件 workload，后续 Core 内 XIF | **未闭环**；MMIO adapter／IRQ 切片不替代真实 DMA、XIF 或 RTOS |
@@ -1896,7 +1911,7 @@ DDR3、视频链路和硬件一致性／SMP 不是本次已交付能力。更详
 
 | 顺序／工作线 | 任务 | 可验收交付 | 依赖／边界 |
 | --- | --- | --- | --- |
-| 1／L2 正确性 | 重建合并版单核 CoreMark 参考，重跑双核并复验历史 c1 read／dirty-eviction 问题 | 保存镜像／配置／退休证据；若复现则修根因并补 owner／eviction 回归；两 hart 正常完成 | 保持现有短程序、FE／Core／LSU 回归；不沿用旧分数 |
+| 1／L2-M1 收尾 | 固化仓库内普通软件 CRC 镜像链，补 owner／dirty eviction／行宽／反压／复位和固定 seed 压力 | 干净 checkout 可复现，至少 3 seed × 100 万已接受事务、零 mismatch；保存覆盖及最终数据证据 | 已移植远端修复，保持原生 C5；当前结果见集成记录，不重新追查已推翻的 L2 数据破坏假说 |
 | 2／完整 L2 SoC | 冻结实际主线 memory map／启动契约，接 MMIO xbar、CLINT／PLIC／Mailbox／UART | 两核启动、per-hart 栈、IPI／timer／PLIC claim-complete、mailbox／barrier 与复位／反压测试 | 复用已有模块，替换桩；新的 SoC 顶层还不存在 |
 | 3／默认仿真迁移 | 提供 L2 SoC 的 testbench／harness／软件镜像、主线 sim／run／ISA／系统入口 | 命令输出明确 DUT／L2／hart／memory map；干净 checkout 能复现；旧 Core／JYD 回归可显式选择 | 本次文档提交未改默认构建；不能只更换 TOPNAME 或注释来声称完成 |
 | 4／主线板级迁移 | 从 JYD 复用 PLL／复位／UART／BRAM／CDC／引脚，接完整 L2 SoC，提供 board manifest／Vivado profile | 真实顶层与非零启动镜像可生成／综合，资源预算和时钟来源明确；板级模型通过 | 现有 `fpga/board.json` 仍无 L2；不是重新跑旧单核路线 |
@@ -1905,7 +1920,7 @@ DDR3、视频链路和硬件一致性／SMP 不是本次已交付能力。更详
 | 7／配置／PPA／性能 | 冻结 L2 最终几何／端口／频率，执行完整主线 synth → place → route → post-route phys-opt | §8.4 的资源／setup／hold／约束／CDC／实际硬件证据；可重复性能数据 | 可以提前做资源探针；128KiB／8-bank／多 MSHR／SPM／QoS 与 SC／目标吞吐分别评审实施 |
 
 JYD 单核保留回归和板级资源复用价值，不再作为主线完成定义或必须优先完成的独立路线。
-此次提交包括进度校准与主线规划，不修改 RTL、Makefile、Vivado 生成器、默认配置或历史验证数据。
+本轮交付同时包含修复／验证设施移植与计划同步；默认仿真、Vivado 生成器／配置和主线板级入口未迁移。
 
 ## 10. 风险登记
 
@@ -1916,7 +1931,7 @@ JYD 单核保留回归和板级资源复用价值，不再作为主线完成定�
 | FE 后续变更引起协议回归 | 修改 C5 固定 metadata、恢复或训练带宽 | 破坏真实 FE/Core 闭环 | 持续运行 C5 定向 TB、两套 ISA 与 metadata scoreboard |
 | 时序／资源不达标 | 旧 OOC WNS=-9.888ns、首轮真实 FE 板级 110.95% LUT／WNS=-35.600ns；属于不同设计 | 优化后的合并版面积／post-route 均未知 | 用完整 L2 SoC 冻结目标后测量与收敛，按 §8.4 验收；>200MHz 仍为规划要求，调整须另行裁决，不跨设计推算 Fmax |
 | 默认入口／主线脱节 | 已选 L2 SoC，但默认 CPU 仿真与 board／soc profile 仍为旧入口 | 文档／命令可能把无 L2 结果误当主线验收 | 按 L2-M3／M5 明确迁移默认 harness／profile／manifest，输出实际 DUT；迁移前保留事实说明 |
-| 双核长程序／数据完整性 | 旧双核 CoreMark 出现指针破坏，合并版仅短程序通过 | 模块单测可能漏掉 c1 read／eviction／owner 交互 | 在最新基线上复验并补定向／随机压力，未通过前不报告双核分数 |
+| L2-M1 证据不足 | 旧故障已定位为投机断言误报，相关修复和 checker 已移植；一次 AMP 工作负载仍不覆盖所有协议边界 | 把单次程序通过误当任意并发／反压／复位数据正确性 | 固定源代码／输入／配置，补 owner／行宽／dirty eviction／复位及 3 seed 压力；按当前原生 C5 实测报告性能 |
 | 未支持/未对齐用例被误当支持证据 | 把旧 `unalign` 对称通过或未知编码诊断当 ISA 能力 | 错误声明软件可见行为 | 保留 D-C0-01/D-M2b-01：不支持 misaligned，不实现 illegal Trap；测试通过边界明确记录 |
 | LSU 可见性/单 outstanding 语义实现不完整 | SPEC-M13 未落实 | 数据不一致、难复现 | 在 Fabric/MC 层显式实现或证明可见性点，并加 §8.3 负向用例 |
 | 将旧仿真容量当作 FPGA 实际容量 | 使用旧 12MiB 窗口或大模型 blob，却只有 256KiB BRAM backing | 地址镜像覆盖、模型/RTOS 数据损坏 | 软件按 JYD 物理容量规划；模型外存/分块与真实 DMA 方案在 C6 冻结并验证 |

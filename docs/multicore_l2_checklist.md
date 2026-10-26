@@ -7,7 +7,7 @@
 > 本文只覆盖“L2 + 多核 + per-core tensor 中断”这一阶段；DDR3、视频链路、HDMI、SMP/硬件 coherence 明确列为后续。
 >
 > 结论先说：**结构上已经可以例化两份 ares_core_top 并共享一份 L2，但还不是可启动的 2-core SoC。**
-> 两个真实前端及原生 C5 契约已接入；剩余阻塞是默认配置长程序／数据正确性复验、完整 MMIO／中断／启动／软件与板级接入。CLINT／PLIC 已有单测，尚未汇入真实 FE 双核顶层；Mailbox 未实现。
+> 两个真实前端及原生 C5 契约已接入；已移植远端长程序修复和 shadow 验证；剩余为 L2-M1 镜像／压力／反压／复位验收、完整 MMIO／中断／启动／软件与板级接入。CLINT／PLIC 已有单测，尚未汇入真实 FE 双核顶层；Mailbox 未实现。
 
 > **2026-10-25 合并校准**：`base_core` 的真实 C5 FE/IROM、两路提交训练、独立恢复快照、
 > 缓存 BRAM IP 和板级入口已与本分支的 hart/IRQ/FENCE、CLINT、PLIC、共享 L2 合并。
@@ -53,7 +53,7 @@
 
 ### 0.4 完成判据
 
-- [x] 单核 + 单 tensor 连续投喂 N 条命令，N 次 need_work 中断全部被处理，无一次风暴/丢失（adapter 级 26 checks + CPU 级 35 retires）。
+- [x] 单核 + 单 tensor 连续投喂 N 条命令，N 次 need_work 中断全部被处理，无一次风暴/丢失（adapter 级 26 checks + CPU 级 38 retires）。
 - [x] `done` / `error` 路径可观测、可清除；复位后状态确定。
 - [ ] 该 wrapper/IRQ 契约冻结后再复制到第二核；L2 开发可与此切片并行。
 
@@ -63,20 +63,20 @@
 
 | 图中模块 | 4-core 原图 | 2-core 目标 | 当前状态 | 本阶段 |
 |---|---|---|---|---|
-| ARES-L 核 | 4 个（Core0 控制 + Core1–3 数据） | **2 个（hart0 控制 + hart1 数据，AMP）** | 1 个，FE 为外部端口/桩 | **做** |
-| L1I | 每核 4–8 KiB | 每核 8 KiB，4-way，32 B line | 已有 frontend/icache RTL，未接入 SoC | **接入** |
+| ARES-L 核 | 4 个（Core0 控制 + Core1–3 数据） | **2 个（hart0 控制 + hart1 数据，AMP）** | 双 hart 原生 C5 原型；完整 SoC 待接 | **做** |
+| L1I | 每核 4–8 KiB | 每核 8 KiB，4-way，32 B line | 已接入单／双 hart 的真实 FE 原型 | **接入** |
 | L1D | 每核 4–8 KiB | 每核 8 KiB，2-way，32 B line，write-back | 已有 dcache/MSHR/WB | **复用** |
-| 共享 L2 | 128 KiB 4-way，8 bank × 128-bit，4 core ports + 1 video port | **128 KiB 4-way，8 bank × 128-bit，2 core ports（每口含 I/D/MT-DMA 三个虚拟通道）+ 1 video port** | 无 | **新建** |
+| 共享 L2 | 128 KiB 4-way，8 bank × 128-bit，4 core ports + 1 video port | **128 KiB 4-way，8 bank × 128-bit，2 core ports（每口含 I/D/MT-DMA 三个虚拟通道）+ 1 video port** | 32KiB 单事务 bring-up L2 已有 | **扩展** |
 | Scratchpad | 128 KiB，8 bank × 128-bit | **128 KiB，8 bank × 128-bit，uncached 共享** | 无 | **新建** |
 | AXI4/NoC/MMIO 总线 | 多主机、QoS、4–8 outstanding | **2 core（I/D/MT）+ video 的 L2 互连 + 独立 MMIO xbar** | JYD 单主机 128-bit beat/32-bit 外设桥 | **新建/改造** |
-| CLINT | 4×msip + 4×mtimecmp | **2×msip + 2×mtimecmp + 64-bit mtime** | 50 MHz 毫秒脉冲 IRQ，非 CLINT | **新建** |
-| PLIC | 32 sources / 4 contexts | **32 sources / 2 M-mode contexts** | 无 | **新建** |
+| CLINT | 4×msip + 4×mtimecmp | **2×msip + 2×mtimecmp + 64-bit mtime** | CLINT RTL／56 checks 已有，待双核系统接入 | **接入** |
+| PLIC | 32 sources / 4 contexts | **32 sources / 2 M-mode contexts** | PLIC RTL／88 checks 已有，待双核系统接入 | **接入** |
 | Mailbox/Barrier | 4×16 slots + TAS/doorbell + IPI | **2×16 slots + TAS/doorbell + barrier + IPI** | 无 | **新建** |
 | Boot ROM | 64 KiB | 32–64 KiB，hart 分发/释放 hart1 | 32 KiB IROM，单 hart 启动 | **改造** |
 | DDR3 | 1 GiB | 先保留接口；首版用 BRAM/TB 内存 | 256 KiB BRAM | **延后** |
 | OV5640/HDMI | 视频前端/后端 | 只预留 L2 video port | 无 | **延后** |
-| MT-v2 | 每核 4×8 | **2 个 per-core MT-v2：hart0 一个、hart1 一个**；首版每核私有 MMIO + CV-X-IF host adapter；in-core XIF 后置 | SoC 级单个 miniTensor，无 IRQ | **复制 + 中断** |
-| Tensor IRQ | 每核 MT 需要工作/完成 -> 核中断 | **2× MT 中断：need_work / done / error -> 所属 hart（首版直连 MEIP，正式走 PLIC）** | host adapter 只有 status 轮询，无 IRQ 输出 | **新建** |
+| MT-v2 | 每核 4×8 | **2 个 per-core MT-v2：hart0 一个、hart1 一个**；首版每核私有 MMIO + CV-X-IF host adapter；in-core XIF 后置 | SoC 级单 tensor；控制／IRQ 切片已有 | **复制 + 中断** |
+| Tensor IRQ | 每核 MT 需要工作/完成 -> 核中断 | **2× MT 中断：need_work / done / error -> 所属 hart（首版直连 MEIP，正式走 PLIC）** | host adapter level IRQ／mask／ack 已有，双核 PLIC 路由待接 | **新建** |
 
 **建议参数（首版）**
 
@@ -90,18 +90,18 @@
 
 ---
 
-## 2. 当前现状与硬缺口
+## 2. 当前现状与硬缺口（2026-10-27）
 
-| # | 缺口 | 证据 | 影响 |
-|---|---|---|---|
-| G1 | SoC 仍是单 hart | [rtl/top/student_top.sv](../rtl/top/student_top.sv) 只例化一个 `Core_cpu`；新增 [ares_2core_l2_top.sv](../rtl/top/ares_2core_l2_top.sv) 已例化两个 hart，但 FE 仍为外部端口 | 还没有可启动的 2-core SoC |
-| G2 | 双核前端已接，双核 CoreMark 仍卡共享 L2 | 新增 [fe_legacy_adapter.sv](../rtl/frontend/fe_legacy_adapter.sv)、[axi_l2_bridge.sv](../rtl/frontend/interface/axi_l2_bridge.sv)、[ares_frontend_l2_top.sv](../rtl/top/ares_frontend_l2_top.sv)、[ares_2core_frontend_l2_top.sv](../rtl/top/ares_2core_frontend_l2_top.sv)；单核 CoreMark 已通过，双核问题见 [coremark_dual_status.md](coremark_dual_status.md) | 先修 L2 c1 read/eviction 数据破坏，再跑双核 CoreMark |
-| G3 | 无最终 L2/SPM/多端口互连 | 新增 [l2_top.sv](../rtl/l2/l2_top.sv) 为 4-way/64 B/2-core-port/write-back bring-up L2；最终 128 KiB、8 bank、MSHR/QoS、video port、SPM 仍未做；JYD 总线仍是单主机 | 两核可共享容量，但还没有目标带宽/多 outstanding 性能 |
-| G4 | hart 级 CSR/中断未多核化 | `mhartid` 只读 0；`mip` 只镜像 MTIP；`timer_irq` 单根；无 MSIP/MEIP | 无法做 IPI、per-hart timer、PLIC 外部中断 |
-| G5 | FENCE/FENCE.I 未实现 | [rtl/backend/be_decode.sv](../rtl/backend/be_decode.sv) 把 FENCE 识别后置 decode_err；无 AMO/LR-SC | 自修改代码、代码加载、跨核顺序、原子锁都不可用 |
-| G6 | 无多核软件/验证 | AM BSP 单 hart；`rtthread-nano` 为 RT-Thread Nano 3.1.5，无 SMP；sim 只跟踪一个 hart | 无法启动/验证第二核，无法跑 AMP 场景 |
-| G7 | 单核时序已未达标 | JYD 记录 250 MHz 综合 WNS `-9.888 ns` | 2-core + L2 不能沿用 250 MHz 门槛 |
-| G8 | tensor 是 SoC 级且无中断 | [rtl/top/ares_soc_top.sv](../rtl/top/ares_soc_top.sv) 只例化 1 个 `mini_tensor_top`；[rtl/soc/ares_mt_host_adapter.sv](../rtl/soc/ares_mt_host_adapter.sv) 只有 status 轮询，无 IRQ 输出 | 做不到“每核一个 tensor + 需要工作时中断” |
+| # | 状态／缺口 | 当前证据 | 下一步 |
+| --- | --- | --- | --- |
+| G1 | 双 hart 原型已有，完整 SoC 未接通 | 原生 C5 `ares_2core_frontend_l2_top`；MMIO 为桩、IRQ 为零 | 正式 map、双核 MMIO／IRQ／启动／UART |
+| G2 | 本地原生 C5 完整单双核 CoreMark 已通过，完整 M1 仍待验收 | 单核 2.0468／双核聚合 4.0935 CoreMark/MHz、shadow 零错；旧故障为投机 AGU 断言误报；本地测试见 [集成记录](l2_integration_results.md) | 保持原生 C5，完成镜像链和压力门禁，不能沿用远端分数 |
+| G3 | 32KiB L2 原型已有，最终 L2／SPM 未实现 | 4-way／64B／双 I＋双 D／单事务，L2 17 checks | 先验收 M1，再评审 128KiB／8-bank／MSHR／WBQ／QoS／SPM |
+| G4 | hart CSR／IRQ 和 CLINT／PLIC 模块已完成 | mhartid、MSIP／MTIP／MEIP、CLINT／PLIC 单测及 IRQ 恢复测试 | 路由到真实双核 MMIO 与对应 hart，验证 IPI／timer／claim-complete |
+| G5 | FENCE core-side 已完成，代码可见性未完成 | 串行排空与 FENCE.I commit pulse 已有 | ICache invalidate、旧 refill 隔离、代码更新可见性；A 扩展另行排期 |
+| G6 | 双核诊断 TB 已有，正式 AMP 软件未完成 | 两份 CoreMark 和同二进制单 hart 参考；旧 BSP 已导入 | Boot ROM／per-hart 栈／Mailbox、ARES BSP／RTOS 与系统 harness |
+| G7 | 无完整 L2 SoC PPA 证据 | 旧 OOC／单核／数据 IP 探针仅为历史诊断 | 整机资源预算、routed／CDC／实板；严格 >200MHz 要求保持 |
+| G8 | 单 tensor 控制／IRQ 切片已有，真实数据闭环和双实例未完成 | MMIO adapter、26-check IRQ、真实 FE CPU IRQ 38 retires；slave 为行为模型 | 真实 DMA／ISR／连续投喂及 per-hart 双 tensor 并发 |
 
 ---
 
@@ -155,12 +155,12 @@
 - [ ] retire/debug 观测增加 `hart_id`；仿真退出协议明确“任一 hart EBREAK 如何处理”。
 - [x] 单 hart 回归保持 36/36；新增 CSR/中断单元 TB 覆盖 MSIP/MEIP/MTIP 组合（`tb_p0_csr_irq`：33 checks）。
 
-### 4.2 FENCE / FENCE.I（必须先做）
+### 4.2 FENCE / FENCE.I（core-side 已有，ICache 维护待做）
 
 - [x] Decode：FENCE/FENCE.I 不再 `decode_err`；`is_fence` 进入后端，FENCE.I 用 `imm[0]` 区分。
 - [x] FENCE/FENCE.I：作为串行化 no-op 走 CSR port；issue 前用 `lsu_fence_idle` 等待更老 LQ/SQ 排空。
 - [x] FENCE.I commit 时产生 `fence_i_valid` 单周期 pulse（`be_top`/`ares_core_top` 已引出）。
-- [ ] 真实 FE/ICache 消费 `fence_i_valid` 并 invalidate（当前 FE 未接入；`fence_i_valid` 仍是 C5 接口钩子）。
+- [ ] 真实 FE/ICache 消费 `fence_i_valid` 并 invalidate（真实 FE 已接入，但 `fence_i_valid` 尚未驱动 ICache invalidate）。
 - [x] 增加自修改代码 / 代码加载 / 跨核 fence 的定向测试（core-side 裸机 FENCE/FENCE.I 冒烟已过；ICache 版本待 FE）。
 - [ ] 若本阶段不做 A 扩展：明确软件只能用 Mailbox TAS/闭锁，禁止编译出 AMO；在文档和编译选项里写死。
 
@@ -175,7 +175,7 @@
 
 ## 5. P0/P1：前端与 hart wrapper
 
-### 5.1 真实前端契约迁移（C5）
+### 5.1 真实前端契约迁移（C5，历史任务表；当前已完成，勿重复开发）
 
 - [ ] 把 `frontend.sv` 的 IQ 端口迁移到契约：`iq_valid[1:0]` / `iq_inst[2]` / `iq_accept_count[1:0]`，删除 `rready` 语义。
 - [ ] BPU update 改为 2-lane + credit：`bpu_update_credit[1:0]` / `bpu_update_valid[1:0]` / `bpu_update[2]`。
@@ -213,7 +213,7 @@
 - [ ] 明确 outstanding 上限：每 core port 2–4 read、2 write（I/D/MT 合计或分通道）；video 4–8；下游 read 2–4。
 - [ ] 明确 ordering：同核同地址读后写、写后读；MT-DMA 与同核 D 通道的冲突地址需定义（建议：MSHR/line lock + 软件 uncached buffer 规避）；跨核不保证；MMIO 与 cacheable 分离。
 
-### 6.2 RTL 模块（建议划分）
+### 6.2 最终性能版 RTL 模块（建议划分，区别于 §6.5 已有原型）
 
 - [ ] `l2_pkg.sv`：参数、地址拆分、请求/响应类型、端口 ID。
 - [ ] `l2_arrays.sv`：8 bank 数据阵列 + tag/valid/dirty/LRU；1R1W/真双口按 FPGA BRAM 选型；支持 way lock。
@@ -294,9 +294,9 @@
 ### 7.4 启动 / 复位 / 时钟
 
 - [ ] 全局同步复位；hart1 复位后从 Boot ROM 执行，读 `mhartid` 后进入等待循环。
-- [ ] Boot ROM：hart0 初始化 L2/SPM/CLINT/PLIC/Mailbox 和两个 tensor adapter，加载 hart1 镜像，写 mailbox/msip 释放 hart1；tensor IRQ 在驱动 ready 后再 unmask。
+- [ ] Boot ROM：首版静态预加载镜像，按 mhartid 分流，hart0 初始化设备并用 mailbox/msip 释放 hart1；动态加载在代码写可见性／FENCE.I 维护完成后另行验收。
 - [ ] per-hart 栈、BSS、堆、共享区在链接脚本中分开；hart1 entry 地址通过 mailbox/boot 寄存器传递。
-- [ ] hart1 释放后先 `fence.i` 再跳转；若代码由 hart0 写入，hart0 侧用 uncached store 或 DMA，避免脏 cache。
+- [ ] 若以后动态加载，先落实写可见性、目标 hart 的真实 ICache invalidate 与旧 refill 隔离，再执行 `fence.i`／跳转；uncached store 或 DMA 不能代替这些维护。
 - [ ] 明确“谁能复位谁”：首版全局复位；per-hart reset 作为后续可选。
 - [ ] 时钟：CPU/L2 同域；UART/50 MHz 外设域用现有 XPM CDC；DDR3 时钟后加。
 - [ ] 复位期间 L2/CLINT/PLIC/Mailbox 不产生请求；复位后 1 周期所有 valid 为 0。
@@ -305,7 +305,7 @@
 
 > 已完成（单核切片）：adapter `mt_irq` / need_work / mask / ack、`HART_ID`、
 > `student_top`/`ares_soc_top` 到 `external_irq` 的接线、`tb_mt_irq`（26 checks）、
-> CPU trap 版本 `tb_mt_cpu_irq`（35 retires，mcause=0x8000000B / mip.MEIP=1）。
+> CPU trap 版本 `tb_mt_cpu_irq`（38 retires，mcause=0x8000000B / mip.MEIP=1）。
 > 待做：第二份实例、双核私有窗口、AMP 驱动/任务、双 tensor 并发。
 
 - [ ] 例化 **2× `mini_tensor_top` + 2× `ares_mt_host_adapter`**：hart0 一个、hart1 一个；每个 tensor 只归其所属 hart 使用，不跨核共享。
