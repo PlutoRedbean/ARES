@@ -27,9 +27,11 @@
 //     LW/SW the word ones): out_addr, out_size, out_byte_mask, aligned
 //     out_store_data, out_is_unsigned/is_load/is_store, out_tag/out_qidx
 //     NOTE: a misaligned half/word access is illegal in v1 (SPEC-A1 /
-//     D-C0-01): driving one with out_valid would trip the DUT's own
-//     a_natural_align assertion, so it is checked at model level only (see
-//     the "model vs lsu_pkg" table, which does cover all 8 ops x 4 patterns).
+//     D-C0-01) but that contract is checked at the *architectural* access
+//     points in lsu_top (a_load_natural_align / a_drain_mask_legal), not on
+//     this speculative issue stage, so the AGU accepts any address.  The
+//     misaligned patterns are still cross-checked against the lsu_pkg model
+//     (see the "model vs lsu_pkg" table, all 8 ops x 4 patterns).
 //   * independent reference model cross-checked against the lsu_pkg helpers
 //     for all 8 ops x all 4 addr[1:0] patterns
 //   * address wraparound (src1 + imm mod 2^32) and negative immediates
@@ -545,6 +547,11 @@ module tb_lsu_agu;
         end
 
         //---------------------------------------------------------------------
+        // Regression: a wrong-path speculative LH may carry the historical
+        // 0xa3 address. AGU still transports it; access checks belong downstream.
+        ctx = "speculative unaligned LH transport";
+        issue_check(OP_LH, 32'h0000_00A3, 32'h0, 32'h0, 3'd0, 4'd0, 1'b0);
+
         // 3. Reference model vs the lsu_pkg helpers: all 8 ops x all four
         //    addr[1:0] patterns (the misaligned combinations exist only in
         //    this model-level table, never on the DUT - SPEC-A1)

@@ -221,6 +221,7 @@ module lsu_top #(
     logic [1:0]  lq_lookup_idx_w;
     tag_t        lq_lookup_tag_w;
     logic [31:0] lq_lookup_addr_w;
+    lsu_size_t   lq_lookup_size_w;
     logic        lq_fill_valid_w;
     logic [1:0]  lq_fill_idx_w;
     logic [31:0] lq_fill_word_w;
@@ -263,6 +264,7 @@ module lsu_top #(
         .lookup_idx         (lq_lookup_idx_w),
         .lookup_tag         (lq_lookup_tag_w),
         .lookup_addr        (lq_lookup_addr_w),
+        .lookup_size        (lq_lookup_size_w),
         .fill_valid         (lq_fill_valid_w),
         .fill_idx           (lq_fill_idx_w),
         .fill_word          (lq_fill_word_w),
@@ -761,6 +763,18 @@ module lsu_top #(
             (sq_drain_mask_w == (4'h1 << sq_drain_addr_w[1:0]))
          || ((sq_drain_mask_w == (4'h3 << sq_drain_addr_w[1:0])) && !sq_drain_addr_w[0])
          || ((sq_drain_mask_w == 4'hF) && (sq_drain_addr_w[1:0] == 2'b00))));
+
+    // SPEC-A1 / D-C0-01: v1 supports naturally aligned accesses only, so a load
+    // handed to the cache must be naturally aligned.  This cannot live in
+    // lsu_agu: out_valid is a speculative issue stage, so junk code behind a
+    // mispredicted branch legitimately carries arbitrary addresses and is
+    // squashed later.  Here the load is a live LQ entry that owns the access.
+    a_load_natural_align: assert property (@(posedge clk) disable iff (rst)
+        lq_lookup_valid_w |-> ((lq_lookup_size_w == LSZ_BYTE)
+                            || ((lq_lookup_size_w == LSZ_HALF)
+                                && (lq_lookup_addr_w[0] == 1'b0))
+                            || ((lq_lookup_size_w == LSZ_WORD)
+                                && (lq_lookup_addr_w[1:0] == 2'b00))));
 
     // The single LQ fill port has exactly one source per cycle; a wake that
     // lost the port to a C3 hit is deferred (not acknowledged) this cycle.
