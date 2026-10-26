@@ -86,7 +86,7 @@
 | # | 缺口 | 证据 | 影响 |
 |---|---|---|---|
 | G1 | SoC 仍是单 hart | [rtl/top/student_top.sv](../rtl/top/student_top.sv) 只例化一个 `Core_cpu`；新增 [ares_2core_l2_top.sv](../rtl/top/ares_2core_l2_top.sv) 已例化两个 hart，但 FE 仍为外部端口 | 还没有可启动的 2-core SoC |
-| G2 | 双核前端已接，双核 CoreMark 仍卡共享 L2 | 新增 [fe_legacy_adapter.sv](../rtl/frontend/fe_legacy_adapter.sv)、[axi_l2_bridge.sv](../rtl/frontend/interface/axi_l2_bridge.sv)、[ares_frontend_l2_top.sv](../rtl/top/ares_frontend_l2_top.sv)、[ares_2core_frontend_l2_top.sv](../rtl/top/ares_2core_frontend_l2_top.sv)；单核 CoreMark 已通过，双核问题见 [coremark_dual_status.md](coremark_dual_status.md) | 先修 L2 c1 read/eviction 数据破坏，再跑双核 CoreMark |
+| G2 | **双核 AMP CoreMark 已通过**（两 hart 各一份独立实例，共享 L2） | 新增 [fe_legacy_adapter.sv](../rtl/frontend/fe_legacy_adapter.sv)、[axi_l2_bridge.sv](../rtl/frontend/interface/axi_l2_bridge.sv)、[ares_frontend_l2_top.sv](../rtl/top/ares_frontend_l2_top.sv)、[ares_2core_frontend_l2_top.sv](../rtl/top/ares_2core_frontend_l2_top.sv)；指标/链路见 [multicore_l2_handoff.md](multicore_l2_handoff.md) | 已完成。早前"共享 L2 数据破坏"结论已推翻（实为投机路径上的断言误报），见 [coremark_dual_bug_report.md](coremark_dual_bug_report.md)；后续是 2-core SoC 化与 L2 性能版 |
 | G3 | 无最终 L2/SPM/多端口互连 | 新增 [l2_top.sv](../rtl/l2/l2_top.sv) 为 4-way/64 B/2-core-port/write-back bring-up L2；最终 128 KiB、8 bank、MSHR/QoS、video port、SPM 仍未做；JYD 总线仍是单主机 | 两核可共享容量，但还没有目标带宽/多 outstanding 性能 |
 | G4 | hart 级 CSR/中断未多核化 | `mhartid` 只读 0；`mip` 只镜像 MTIP；`timer_irq` 单根；无 MSIP/MEIP | 无法做 IPI、per-hart timer、PLIC 外部中断 |
 | G5 | FENCE/FENCE.I 未实现 | [rtl/backend/be_decode.sv](../rtl/backend/be_decode.sv) 把 FENCE 识别后置 decode_err；无 AMO/LR-SC | 自修改代码、代码加载、跨核顺序、原子锁都不可用 |
