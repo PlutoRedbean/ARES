@@ -113,6 +113,11 @@ module tb_2core_coremark;
     //-------------------------------------------------------------------------
     localparam int unsigned MEM_BYTES = MEM_WORDS * 16;
     logic [7:0]   shadow [0:MEM_BYTES-1];
+    // +SHADOW_FAULT=1 corrupts exactly one expected byte.  The error counters
+    // are cumulative, so a single wrong response must stay fatal even though
+    // every later response matches (A1 item 6, "errors do not disappear").
+    logic         shadow_fault_en;
+    logic         shadow_fault_used;
     logic [31:0]  pend_i0, pend_i1, pend_c0, pend_c1;
     logic         pend_i0_v, pend_i1_v, pend_c0_v, pend_c1_v;
     int unsigned  err_i0, err_i1, err_c0, err_c1, err_wb;
@@ -129,6 +134,10 @@ module tb_2core_coremark;
         logic [7:0] exp;
         for (int i = 0; i < 16; i++) begin
             exp = shadow[{base[23:4], 4'b0000} + i];
+            if (shadow_fault_en && !shadow_fault_used) begin
+                exp = ~exp;               // one deliberate corruption
+                shadow_fault_used = 1'b1;
+            end
             if (data[8*i +: 8] !== exp) begin
                 errs = errs + 1;
                 if (errs < 4)
@@ -312,6 +321,8 @@ module tb_2core_coremark;
     string dmem_file;
     initial begin
         checks = 0; errors = 0;
+        shadow_fault_en = $test$plusargs("SHADOW_FAULT");
+        shadow_fault_used = 1'b0;
         for (int i = 0; i < MEM_WORDS; i++) mem[i] = 128'h0;
         if (!$value$plusargs("DMEM=%s", dmem_file))
             $fatal(1, "+DMEM=<coremark dmem hex> is required");
@@ -360,6 +371,18 @@ module tb_2core_coremark;
         check(err_c0 == 0, "C0 read responses match memory");
         check(err_c1 == 0, "C1 read responses match memory");
         check(err_wb == 0, "L2 dirty writebacks match memory");
+
+        // Optional completion-cycle bound (A1 item 6); default runs unchanged.
+        begin
+            longint unsigned max_cycles;
+            if ($value$plusargs("MAX_CYCLES=%d", max_cycles)) begin
+                if (max_cycles == 0) $fatal(1, "MAX_CYCLES must be positive");
+                check(done0 && (cycles0 <= max_cycles) &&
+                      (!hart1_en || (done1 && (cycles1 <= max_cycles))),
+                      $sformatf("completion within MAX_CYCLES=%0d (hart0=%0d hart1=%0d)",
+                                max_cycles, cycles0, cycles1));
+            end
+        end
 
         if (errors == 0) begin
             $display("ALL TESTS PASSED: %0d checks - 2 harts + shared L2, two CoreMark instances", checks);

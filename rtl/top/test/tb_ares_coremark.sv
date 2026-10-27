@@ -161,6 +161,17 @@ module tb_ares_coremark;
 
         check(done, "CoreMark reached EBREAK");
         check(pass, "CoreMark returned a0=0");
+        // Optional completion-cycle bound (A1 item 6).  Only active when the
+        // plusarg is present so the default result stream is unchanged.
+        begin
+            longint unsigned max_cycles;
+            if ($value$plusargs("MAX_CYCLES=%d", max_cycles)) begin
+                if (max_cycles == 0) $fatal(1, "MAX_CYCLES must be positive");
+                check(done && (cycle_count <= max_cycles),
+                      $sformatf("completion within MAX_CYCLES=%0d (cycles=%0d)",
+                                max_cycles, cycle_count));
+            end
+        end
         if (errors == 0) begin
             $display("ALL TESTS PASSED: %0d checks - ARES real FE + shared L2 CoreMark", checks);
             $display("CoreMark metrics: retires=%0d cycles=%0d IPC=%0.6f CoreMark/MHz=%0.4f time_ns=%0d hits=%0d misses=%0d pc=%h",
