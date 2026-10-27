@@ -10,6 +10,7 @@ __pycache__/
 sim/build/
 sim/build_wave/
 tests/cpu-tests/build/
+tests/benchmarks/coremark/build/
 tests/cpu-tests/Makefile.*
 tests/cpu-tests/.result
 tests/abstract-machine/am/build/

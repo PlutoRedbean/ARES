@@ -38,6 +38,7 @@ PROGRAM ?=
 .PHONY: all lint lint-all lint-backend lint-lsu lint-l2 unit unit-lsu unit-l2 \
         lint-fe-adapter unit-fe-adapter unit-coremark unit-2core-coremark test-coremark-harness \
         unit-mt-irq unit-mt-cpu-irq unit-clint unit-plic tb-ares-pkg tb-fe-stub tb-mem-model \
+        coremark-image test-coremark-image \
         sim run wave isa clean menuconfig defconfig oldconfig savedefconfig \
         loaddefconfig showconfig test-config
 
@@ -308,8 +309,37 @@ unit-fe-adapter: config-gen
 	    $(RTL_ROOT)/frontend/test/tb_fe_legacy_adapter.sv
 	@$(ARES_HOME)/sim/build/unit/tb_fe_legacy_adapter/tb_fe_legacy_adapter | tail -2
 
-# Real frontend + shared L2 CoreMark (single-hart bring-up).  The image is a
-# 128-bit-wide $readmemh file; see rtl/top/test/tb_ares_coremark.sv for format.
+# CoreMark software image.  The repository builds it from tests/benchmarks/
+# coremark (vendored EEMBC sources + ARES port) and stamps build/coremark/
+# inputs.json with the frozen parameters, source hashes and tool versions.
+# The 128-bit-wide $readmemh format is documented in
+# rtl/top/test/tb_ares_coremark.sv.
+COREMARK_OUT ?= $(ARES_HOME)/build/coremark
+COREMARK_HEX ?= $(COREMARK_OUT)/coremark_dmem.hex
+COREMARK_IMAGE_FLAGS ?=
+COREMARK_IMAGE_CMD = python3 "$(ARES_HOME)/scripts/build_coremark_image.py" --out "$(COREMARK_OUT)" $(COREMARK_IMAGE_FLAGS)
+COREMARK_PORT_SRCS := $(wildcard $(ARES_HOME)/tests/benchmarks/coremark/src/*.c) \
+                      $(wildcard $(ARES_HOME)/tests/benchmarks/coremark/include/*.h) \
+                      $(ARES_HOME)/scripts/build_coremark_image.py \
+                      $(ARES_HOME)/scripts/elf_image.py
+
+# Explicit rebuild request; the long-program targets depend on the hex file
+# instead so an existing image is reused.
+coremark-image:
+	@$(COREMARK_IMAGE_CMD)
+
+$(COREMARK_HEX): $(COREMARK_PORT_SRCS)
+	@$(COREMARK_IMAGE_CMD)
+
+# Negative/positive tests for the image chain (ELF32 -> bin -> readmemh), no RTL.
+test-coremark-image:
+	@python3 "$(ARES_HOME)/scripts/test_coremark_image.py"
+
+# Real frontend + shared L2 CoreMark (single-hart bring-up).  Without DMEM= the
+# image is taken from (and built by) coremark-image; an explicit DMEM= still wins.
+ifeq ($(strip $(DMEM)),)
+unit-coremark: $(COREMARK_HEX)
+endif
 ARES_COREMARK_SRCS := $(RTL_ROOT)/common/fe_pkg.sv $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
     $(ARES_FE_SRCS) $(RTL_ROOT)/frontend/interface/axi_l2_bridge.sv \
     $(RTL_ROOT)/l2/l2_pkg.sv $(RTL_ROOT)/l2/l2_top.sv \
@@ -317,7 +347,7 @@ ARES_COREMARK_SRCS := $(RTL_ROOT)/common/fe_pkg.sv $(RTL_ROOT)/common/ares_pkg.s
     $(RTL_ROOT)/top/ares_core_top.sv $(RTL_ROOT)/top/ares_frontend_l2_top.sv
 
 unit-coremark: config-gen
-	@test -n "$(DMEM)" || { echo "usage: make unit-coremark DMEM=<coremark_dmem.hex>"; exit 1; }
+	@hex="$(if $(strip $(DMEM)),$(DMEM),$(COREMARK_HEX))"; 	 test -f "$$hex" || { echo "error: CoreMark image not found: $$hex"; 	   echo "       run 'make coremark-image' (or pass DMEM=<coremark_dmem.hex>)"; exit 1; }
 	@mkdir -p $(ARES_HOME)/sim/build/unit/tb_ares_coremark
 	@verilator --binary -j 4 --timing -sv --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
 	    -Wno-SIDEEFFECT -Wno-BLKSEQ -Wno-PINCONNECTEMPTY -Wno-UNUSEDSIGNAL \
@@ -326,18 +356,24 @@ unit-coremark: config-gen
 	    --Mdir $(ARES_HOME)/sim/build/unit/tb_ares_coremark \
 	    -o $(ARES_HOME)/sim/build/unit/tb_ares_coremark/tb_ares_coremark \
 	    $(ARES_COREMARK_SRCS) $(RTL_ROOT)/top/test/tb_ares_coremark.sv
-	@$(ARES_HOME)/sim/build/unit/tb_ares_coremark/tb_ares_coremark +DMEM=$(DMEM) $(COREMARK_ARGS)
+	@$(ARES_HOME)/sim/build/unit/tb_ares_coremark/tb_ares_coremark \
+	    +DMEM=$(if $(strip $(DMEM)),$(DMEM),$(COREMARK_HEX)) $(COREMARK_ARGS)
 
 # Two-hart AMP CoreMark on the shared L2 (two full CoreMark copies, hart1's
-# data/stack offset by 1 MiB).  Needs the same software image as unit-coremark,
-# so it is not part of 'all'.  See docs/multicore_l2_handoff.md.
+# data/stack offset by 1 MiB).  Uses the same generated image as unit-coremark
+# and is likewise kept out of 'all'.  See docs/m1_closure_decisions.md for the
+# diagnostic-only status of the 1 MiB private-data offset.
 ARES_2CORE_COREMARK_SRCS := $(ARES_COREMARK_SRCS) \
     $(RTL_ROOT)/top/ares_frontend_hart.sv \
     $(RTL_ROOT)/top/ares_2core_frontend_l2_top.sv \
     $(RTL_ROOT)/top/test/tb_2core_coremark.sv
 
+ifeq ($(strip $(DMEM)),)
+unit-2core-coremark: $(COREMARK_HEX)
+endif
+
 unit-2core-coremark: config-gen
-	@test -n "$(DMEM)" || { echo "usage: make unit-2core-coremark DMEM=<coremark_dmem.hex>"; exit 1; }
+	@hex="$(if $(strip $(DMEM)),$(DMEM),$(COREMARK_HEX))"; 	 test -f "$$hex" || { echo "error: CoreMark image not found: $$hex"; 	   echo "       run 'make coremark-image' (or pass DMEM=<coremark_dmem.hex>)"; exit 1; }
 	@mkdir -p $(ARES_HOME)/sim/build/unit/tb_2core_coremark
 	@verilator --binary -j 4 --timing -sv --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
 	    -Wno-SIDEEFFECT -Wno-BLKSEQ -Wno-PINCONNECTEMPTY -Wno-UNUSEDSIGNAL \
@@ -346,7 +382,8 @@ unit-2core-coremark: config-gen
 	    --Mdir $(ARES_HOME)/sim/build/unit/tb_2core_coremark \
 	    -o $(ARES_HOME)/sim/build/unit/tb_2core_coremark/tb_2core_coremark \
 	    $(ARES_2CORE_COREMARK_SRCS)
-	@$(ARES_HOME)/sim/build/unit/tb_2core_coremark/tb_2core_coremark +DMEM=$(DMEM) $(COREMARK_ARGS)
+	@$(ARES_HOME)/sim/build/unit/tb_2core_coremark/tb_2core_coremark \
+	    +DMEM=$(if $(strip $(DMEM)),$(DMEM),$(COREMARK_HEX)) $(COREMARK_ARGS)
 
 test-coremark-harness:
 	@python3 "$(ARES_HOME)/scripts/test_coremark_harness.py"
