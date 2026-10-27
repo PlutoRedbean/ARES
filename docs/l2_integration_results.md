@@ -66,7 +66,7 @@
 - hex SHA-256：`ce3ad6ee15c3bd4ec220e557e52e17056b5f96307eb3681308d075c48a85c02c`。
 - `.config` SHA-256：`b6faa4d5a05a2e4bd41de2a944896938826cdf1a9f97283ad4f748af81af0514`。
 
-完整软件输入、RTL／Makefile／脚本哈希及工具版本另存 `build/verification/l2-integration/inputs.json`；命令见 [交接说明](multicore_l2_handoff.md)。这是带外部依赖的已记录输入，尚不满足干净 checkout 自包含镜像构建。
+完整软件输入、RTL／Makefile／脚本哈希及工具版本另存 `build/verification/l2-integration/inputs.json`；命令见 [交接说明](multicore_l2_handoff.md)。**A1 之后该外部依赖已解除**：同一份源码已 vendor 到 `tests/benchmarks/coremark/`，`make coremark-image` 在仓库内重建出的 ELF/bin/hex 与本记录逐字节一致（证据见 [A1 记录](m1_a1_image_chain_results.md)）；本节保留为历史输入记录。
 
 ## 5. 失败策略与修改范围
 
@@ -78,6 +78,6 @@
 
 ## 6. 尚未验收
 
-L2-M1 不整体关闭：默认几何下至少 3 seed × 100 万 accepted transactions、随机反压、复位旧响应隔离、32B/64B 行宽边界、覆盖率、完整检查器故障注入和自包含软件链仍缺。
+L2-M1 不整体关闭：默认几何下至少 3 seed × 100 万 accepted transactions、随机反压、复位旧响应隔离、32B/64B 行宽边界、覆盖率与完整检查器故障注入仍缺。自包含软件链已由 A1 关闭（`make coremark-image`），其计数与比对口径见 [D-A 决策](m1_closure_decisions.md)。
 
 LQ lookup 是活跃访问边界而不是提交点；本轮不宣告所有投机／全转发／MMIO 对齐路径已穷尽验证，也不增加 misaligned 支持。完整双核 map／MMIO／IRQ／Mailbox／启动、DMA／tensor／RTOS、默认入口、板级 PPA 和实板均继续按 [下一阶段计划](next_steps_implementation_plan.md) 验收。

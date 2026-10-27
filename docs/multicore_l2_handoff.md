@@ -19,12 +19,17 @@ L2 hart 的 MMIO 仍为桩、IRQ 输入为零、FENCE.I 未接 ICache invalidate
 
 ```bash
 make lint-l2 unit-l2 unit-l2-frontend
-make unit-coremark DMEM=/absolute/path/coremark_dmem.hex
-make unit-2core-coremark DMEM=/absolute/path/coremark_dmem.hex
-make unit-2core-coremark DMEM=/absolute/path/coremark_dmem.hex COREMARK_ARGS=+H1EN=0
+make coremark-image test-coremark-image   # 仓库内镜像链；无外部 benchmark 路径
+make unit-coremark
+make unit-2core-coremark
+make unit-2core-coremark COREMARK_ARGS=+H1EN=0
 # 两份 TB 先构建完成；本目标直接复用二进制，运行短镜像正负回归。
 make test-coremark-harness
 ```
+
+`make coremark-image` 产出 `build/coremark/{coremark.bin,coremark_dmem.hex,inputs.json}`；
+`unit-coremark`／`unit-2core-coremark` 在未指定 `DMEM=` 时自动使用该镜像（缺失则按需构建），
+显式 `DMEM=<path>` 仍然优先。
 
 `+H1EN` 在 TB 启动／释放复位前选择参考模式，不据此宣称在途事务期间任意关核安全。
 
@@ -68,6 +73,6 @@ make unit-2core-coremark DMEM="$ARES_HOME/build/verification/l2-integration/core
 
 - 保持原生 C5、普通软件 CRC、配置与每 hart／聚合口径；该双核测试是 AMP 两份实例，不是 SMP 或官方 MULTITHREAD=2。
 - 旧“44.7ms L2 数据破坏”结论已撤销，见 [根因](coremark_dual_bug_report.md)。若再遇异常，比较首个错误与退休／事务证据，不预设根因。
-- M1 剩余：镜像生产链、默认几何多 seed 压力、随机反压／复位／行宽边界、检查器故障注入和覆盖。
+- M1 剩余：默认几何多 seed 压力、随机反压／复位／行宽边界、运行期越界守卫与覆盖。镜像生产链已由 A1 关闭（`make coremark-image`）；检查器故障注入与完成周期界已由 harness 19 项覆盖，见 [A1 记录](m1_a1_image_chain_results.md)。
 - M2 后续：正式 memory map、MMIO xbar、CLINT／PLIC／Mailbox、Boot ROM／双核启动／UART；再推进默认入口、DMA／tensor／BSP、最终板级签核。
 - 128KiB／8-bank／多 MSHR／WBQ／QoS／SPM 是后续配置目标；严格 >200MHz 仍为规划要求，没有当前完整 L2 SoC routed／实板签核。

@@ -1,6 +1,7 @@
 # ARES 下一阶段实施计划：完成 L2-M1 验收，建立完整双核 SoC
 
-> 版本：v0.2 / 2026-10-27。基线：验证时 `base_core` HEAD `ed5b2a4` 加本轮移植；远端来源为 `l2-cache` 至 `1fbe654`。
+> 版本：v0.3 / 2026-10-27。基线：`base_core` 已提交至 `f246e1f`；远端来源为 `l2-cache` 至 `1fbe654`。
+> v0.3 变更：A1 的镜像链已落地（仓库内 vendor CoreMark、`make coremark-image`／`test-coremark-image`、ELF→bin→readmemh 转换与边界校验），证据见 [A1 记录](m1_a1_image_chain_results.md)；决策口径见 [D-A 决策](m1_closure_decisions.md)。A1 剩余的运行期越界守卫与第 7 项、以及 A2 压力项仍未完成。
 > 本文替换 2026-10-25 的下一步建议；已移植修复和本轮测试见 [集成记录](l2_integration_results.md)。本次更新不修改已批准架构目标，提交记录以 Git log 为准。
 > 权威顺序沿用 [主计划](implementation_plan.md)：FE/BE 契约与微架构规范优先。新地址、启动、维护和设备行为先形成决策记录再实现。
 
@@ -28,15 +29,17 @@
 
 已有：单双核入口、同二进制单 hart 参考、shadow checker、失败退出及短镜像正负回归。下一步不重复开发这些功能。
 
-- [ ] 在仓库内建立普通软件 CRC CoreMark port／构建入口，优先复用已导入的 EEMBC 算法与 ARES runtime，保留来源和许可证；解除外部 Mundus 路径依赖。
-- [ ] 固定 `ITERATIONS=100`、`TOTAL_DATA_SIZE=2000`、performance seeds `0/0/0x66`、单实例、RV32IM/Zicsr、编译／链接选项；禁止混用旧平台 custom CRC 或 RTOS 加速版结果。
-- [ ] 固化 ELF→binary→128-bit little-endian readmemh 的转换；明确代码 `0x80000000`、hart0 DRAM `0x80100000`、hart1 私有 DRAM `0x80200000` 与栈／BSS 范围。
-- [ ] 为生成 ELF、binary、hex、配置和源码状态输出哈希与工具版本；源码与构建规则入 Git，镜像／日志留忽略目录。
-- [ ] 对空镜像、非法格式和超出 backing 范围给出明确失败；检查当前低位索引模型不会将错误地址静默映射为合法数据。
-- [ ] 补充短镜像的完成周期边界断言和 shadow checker 故障注入，证明错误不会在后续正确响应中消失；精确退休数与单 hart 聚合口径已由本轮 harness 检查覆盖。
+- [x] 在仓库内建立普通软件 CRC CoreMark port／构建入口，优先复用已导入的 EEMBC 算法与 ARES runtime，保留来源和许可证；解除外部 Mundus 路径依赖。**已完成**：`tests/benchmarks/coremark/`（源码 + `LICENSE.md` + `NOTICE.md`），来源哈希与历史记录逐字节一致。
+- [x] 固定 `ITERATIONS=100`、`TOTAL_DATA_SIZE=2000`、performance seeds `0/0/0x66`、单实例、RV32IM/Zicsr、编译／链接选项；禁止混用旧平台 custom CRC 或 RTOS 加速版结果。**已完成**：`scripts/build_coremark_image.py` 在构建前拒绝参数漂移，并写入 `inputs.json`。
+- [x] 固化 ELF→binary→128-bit little-endian readmemh 的转换；明确代码 `0x80000000`、hart0 DRAM `0x80100000`、hart1 私有 DRAM `0x80200000` 与栈／BSS 范围。**已完成**：`scripts/elf_image.py`；布局按 D-A4 只冻结加载契约，hart1 `+0x100000` 保持诊断。
+- [x] 为生成 ELF、binary、hex、配置和源码状态输出哈希与工具版本；源码与构建规则入 Git，镜像／日志留忽略目录。**已完成**：`build/coremark/inputs.json`（git HEAD、frozen 参数、端口源码哈希、工具版本、镜像哈希）。
+- [ ] 对空镜像、非法格式和超出 backing 范围给出明确失败；检查当前低位索引模型不会将错误地址静默映射为合法数据。**部分完成**：`make test-coremark-image` 覆盖空文件、坏 magic、ELF class/endian/type/machine、无 PT_LOAD、filesz>memsz、段越界、重叠段、entry 越界、out-of-tree 输出与 frozen 漂移（29 项）；**仍未关闭**：TB 的 `addr[23:4]` 低位索引在运行期仍会把越界访问静默折回 backing（与 MMIO 桩相关，A2/SPEC-M7 期间决定是否加运行期守卫）。
+- [x] 补充短镜像的完成周期边界断言和 shadow checker 故障注入，证明错误不会在后续正确响应中消失；精确退休数与单 hart 聚合口径已由本轮 harness 检查覆盖。**已完成**：TB 新增 `+MAX_CYCLES`／`+SHADOW_FAULT`，harness 13→19 项；注入后 `rsp>=3` 且仍整体失败，证明错误不被后续正确响应掩盖。
 - [ ] 审查自然对齐检查的覆盖：LQ lookup 仍可早于提交，全转发和 MMIO 不经过普通 lookup。保持“不支持 misaligned”的范围，补取消／有效访问的正负用例后再决定检查点，不能将“live”直接等同于“架构提交”。
 
 **出口**：干净 checkout 可独立构建同一输入；成功、CRC 错误、非零返回、缺失／非法镜像、超时和 shadow 错误均能可靠判定。短镜像、完整单核／双核及 `+H1EN=0` 参考各有输入／源码／配置证据。
+
+> 当前状态：前四项与第 6 项已达出口（见 [A1 记录](m1_a1_image_chain_results.md)），第 5 项仅工具层达标、运行期守卫未做，第 7 项未开始，因此 **A1 尚未整体关闭**。
 
 ### A2. 默认几何下的协议、替换与行宽压力
 
@@ -120,13 +123,15 @@
 | D | 默认 harness／软件／ISA 迁移，关闭 M3 | 默认入口与文档／实际 DUT 一致 |
 | E | 按依赖推进 M4/M5/M6 与独立 XIF／性能任务 | 各门禁分别验收，不用局部通过替代整机完成 |
 
-现有命令（长程序需外部镜像；后续 A1 将解除该依赖）：
+现有命令（A1 后长程序不再需要外部镜像）：
 
 ```bash
 make lint-l2 unit-l2 unit-l2-frontend
-make unit-coremark DMEM=/absolute/path/coremark_dmem.hex
-make unit-2core-coremark DMEM=/absolute/path/coremark_dmem.hex
-make unit-2core-coremark DMEM=/absolute/path/coremark_dmem.hex COREMARK_ARGS=+H1EN=0
+make coremark-image test-coremark-image   # 仓库内镜像链 + 转换器正负测试
+make unit-coremark                        # 自动使用/构建 build/coremark 镜像
+make unit-2core-coremark
+make unit-2core-coremark COREMARK_ARGS=+H1EN=0
+# 显式 DMEM=<path> 仍然优先，用于对比外部镜像。
 # 先按上述命令构建两份 TB；本目标只运行短镜像正负检查。
 make test-coremark-harness
 

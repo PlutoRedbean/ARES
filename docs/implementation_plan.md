@@ -1,6 +1,7 @@
 # ARES RTL Implementation Plan
 
-> **Status**: v0.14 / 2026-10-27 / **共享 L2 SoC 主线；已在本地 `base_core` 工作区移植远端 LSU 修复、双核 CoreMark 入口与 shadow checker，保留原生 C5。L2-M1 为部分完成，完整双核 SoC／默认入口／DMA／软件及板级 PPA 尚未验收。**
+> **Status**: v0.15 / 2026-10-27 / **共享 L2 SoC 主线；远端 LSU 修复与双核 CoreMark 验证设施已提交（`f246e1f`），L2-M1 的软件镜像链（A1）已在仓库内闭环。L2-M1 仍为部分完成（压力／反压／复位待做），完整双核 SoC／默认入口／DMA／软件及板级 PPA 尚未验收。**
+> **v0.15 变更（M1 收尾起步）**：冻结 D-A1–D-A4 决策（[m1_closure_decisions.md](m1_closure_decisions.md)）；CoreMark 源码与原许可证 vendor 到 `tests/benchmarks/coremark/`，新增 `make coremark-image`／`make test-coremark-image`，`unit-coremark`／`unit-2core-coremark` 不再要求外部 `DMEM=`；新增 ELF32→bin→128-bit readmemh 转换器与边界校验，重建镜像与历史记录逐字节一致。镜像链证据见 [m1_a1_image_chain_results.md](m1_a1_image_chain_results.md)。A1 第 6 项（完成周期界、shadow 故障注入）已由 harness 19 项覆盖；A2（默认几何压力／反压／复位）与 A1 第 5 项的运行期越界守卫仍待完成。
 > **v0.14 变更（修复与验证设施集成）**：以 `ed5b2a4` 为本地基线，移植 `l2-cache` 至 `1fbe654` 的相关增量；按相关增量移植，保留原生 C5，不覆盖为旧 adapter 路径。纠正“共享 L2 数据破坏”诊断：远端 `003586e` 定位为投机 AGU 对齐断言误报，检查移到 LSU 的 LQ lookup 边界；不增加未对齐访问能力。引入双退休计数、按 lane 顺序判定 a0/EBREAK、hart1 参考模式、L2 逐响应／写回影子检查和 c1 dirty eviction 用例；本地补齐错误计数累计、失败／超时非零退出、完成时统计锁存与短镜像正负验证。本地原生 C5 完整单双核 CoreMark 通过，单核 2.0468、双核聚合 4.0935 CoreMark/MHz，17,202 个 L2 响应／写回检查零错误；完整 M1 仍未关闭。当前执行记录见 `docs/l2_integration_results.md`；下一阶段详见 `docs/next_steps_implementation_plan.md`。以下版本条目是历史记录。
 > **v0.13 变更（用户确认主线）**：共享 L2 的 ARES SoC 成为后续实现、系统验证和板级交付主线；JYD `student_top`／板级顶层保留作平台资源、回归与历史基线，不再要求先完成旧单核路线才推进 L2。明确规划选择与实际默认构建的差异，重排 L2 数据正确性、完整互连／启动／中断、默认入口迁移、DMA／XIF／软件与板级签核任务。此次提交只改文档，未切换 Makefile／Vivado 默认顶层或实现缺失硬件。
 > **v0.12 变更（合并后进度同步）**：以本地 `base_core` 的双父合并提交 `943d160` 为代码基线，更新资产、阶段状态、SPEC 当前处理范围和后续任务。补记两级 TAGE／uTAGE／mBTB、缓存 BRAM IP、物理启动、共享 L2、per-hart IRQ／FENCE、CLINT／PLIC 与真实前端 Tensor IRQ 验证；删除当前清单中的重复开发项。原单核门禁与双核 AMP 扩展分开记录；不把 CoreMark 历史结果、模块单测或短程序通过当作完整系统／PPA 签核。以下版本条目为历史记录。
@@ -38,11 +39,10 @@
 
 ## 当前进度与执行入口（2026-10-27）
 
-**验证时基线**：本地 `base_core` HEAD 为 `ed5b2a465d93688ef78ca2b8968e2673051f2904`，
-其代码合并基线为 `943d160`（父提交 `330733a` 与 `19d0128`）。2026-10-27 在工作区移植
-远端 `l2-cache`（已核对 tip `1fbe654`）的相关修复／验证增量，保留原生 C5、BRAM IP 和
-已有板级代码；未合并远端分支历史。验证发生在提交前工作区，后续提交以 Git log 为准。当前移植验证见
-[`l2_integration_results.md`](l2_integration_results.md)，2026-10-25 的回归记录仍按历史范围保留。
+**验证时基线**：本地 `base_core` 分支已提交至 `f246e1f`（移植远端 `l2-cache` 至 `1fbe654` 的相关修复／验证增量），
+其代码合并基线为 `943d160`（父提交 `330733a` 与 `19d0128`）。保留原生 C5、BRAM IP 和已有板级代码；未合并远端分支历史。
+移植验证见 [`l2_integration_results.md`](l2_integration_results.md)；M1 收尾的镜像链实现与证据见
+[`m1_a1_image_chain_results.md`](m1_a1_image_chain_results.md)；2026-10-25 的回归记录仍按历史范围保留。
 
 **主线决定（2026-10-25）**：用户已明确选择 **含共享 L2 的 ARES SoC**。
 后续默认仿真、系统测试与 FPGA 交付应围绕 L2 SoC 建立；JYD 的 PLL／复位／UART／BRAM／
@@ -53,7 +53,7 @@ CDC／原引脚与既有工程设置作为可复用板级资源，`student_top` 
 | --- | --- | --- |
 | `make sim/run/isa` | `tb_ares_cpu` → `ares_cpu_top`，IROM＋DPI 内存 | 无共享 L2；保留 Core 功能回归，默认系统仿真待迁移 |
 | Vivado 默认 `soc`／现有 board manifest | `student_top` OOC／`rtl/board/top.sv` → JYD 平台 | 无共享 L2；是历史平台入口，不是新的主线系统交付 |
-| `unit-coremark` | `ares_frontend_l2_top`，单核原生 C5／I/D→共享 L2 | 完整 100 iterations 通过：48,856,291 cycles／2.0468 CoreMark/MHz；仍需外部 `DMEM` |
+| `unit-coremark` | `ares_frontend_l2_top`，单核原生 C5／I/D→共享 L2 | 完整 100 iterations 通过：48,856,291 cycles／2.0468 CoreMark/MHz；镜像由 `make coremark-image` 在仓库内构建（A1），显式 `DMEM=` 仍优先 |
 | `unit-2core-coremark` | 双核原生 C5／私有 L1／32KiB L2，带 shadow checker | 完整 100 iterations 通过：聚合 4.0935 CoreMark/MHz，shadow 零错；`COREMARK_ARGS=+H1EN=0` 选择单 hart 参考；不包含在 `make all` |
 | `test-coremark-harness` | 已构建的两个 CoreMark TB 二进制＋短 RV32 镜像 | 验证成功／失败、缺镜像、超时、单 hart 参考及双 hart 完成条件；不替代完整 CoreMark |
 | `unit-l2-frontend` | 单／双真实 FE＋共享 L2 自检 TB | 已通过短程序；作为主线初始门禁，尚非完整 SoC |
@@ -109,8 +109,9 @@ LSU 的 live LQ lookup 边界，store 维持 COMMITTED drain 检查。**LQ looku
 [`l2_integration_results.md`](l2_integration_results.md)。
 
 **当前门禁**：移植源代码、单次长程序和 shadow checker 不等于 L2-M1 全部验收。
-仓库内自包含软件镜像生产链、默认几何＋固定 seed 压力、随机反压、复位旧事务隔离和
-L1/L2 行宽边界仍须完成；详见新版下一阶段计划。不再以“先修 c1 数据破坏”作为既定任务。
+仓库内自包含软件镜像生产链已闭环（A1），完成周期界与 shadow 故障注入已由 harness 19 项覆盖；
+默认几何＋固定 seed 压力、随机反压、复位旧事务隔离、L1/L2 行宽边界与运行期越界守卫仍须完成；口径见
+[`m1_closure_decisions.md`](m1_closure_decisions.md)，任务见下一阶段计划。不再以“先修 c1 数据破坏”作为既定任务。
 
 **PPA**：历史 OOC（250MHz 请求，WNS=-9.888ns）与首个真实 FE 板级综合
 （226116 LUT／110.95%，WNS=-35.600ns）是不同设计，不能直接比较优化收益。
@@ -1896,7 +1897,7 @@ DDR3、视频链路和硬件一致性／SMP 不是本次已交付能力。更详
 | 主线门禁 | 内容／出口 | 当前状态 |
 | --- | --- | --- |
 | L2-M0 | 原生 FE／Core／L1／共享 L2 原型，单／双 hart 短程序 | **原型冒烟通过**；默认 32KiB、单事务 L2，真实 FE 冒烟使用 4-set；不含长程序／完整外设 |
-| L2-M1 | 默认配置下单核参考、双核长程序、响应 owner／dirty eviction／反压与数据完整性 | **部分完成，未整体验收**；远端故障已定位，修复及验证设施已移植原生 C5；本地原生 C5 完整单双核通过（2.0468／聚合 4.0935，shadow 零错），镜像生产链／固定 seed 压力／随机反压／复位覆盖仍缺 |
+| L2-M1 | 默认配置下单核参考、双核长程序、响应 owner／dirty eviction／反压与数据完整性 | **部分完成，未整体验收**；本地原生 C5 完整单双核通过（2.0468／聚合 4.0935，shadow 零错）；**A1 镜像链已在仓库内闭环**（`make coremark-image` 重建结果与历史逐字节一致）；固定 seed 压力／随机反压／复位覆盖与 A1 第 6 项仍缺 |
 | L2-M2 | 完整 SoC 地址图、MMIO xbar、CLINT／PLIC／Mailbox、双核启动／IRQ／UART | **未完成**；有模块单测，L2 hart MMIO／中断仍为桩 |
 | L2-M3 | 主线默认仿真／系统测试／镜像入口选择真实 L2 SoC，保留独立 Core／JYD 回归 | **未迁移**；`make sim/run/isa` 仍为无 L2 CPU；新增入口需要明确 DUT／hart／memory map |
 | L2-M4 | CPU／MT-DMA 可见性、缓存维护、真实 tensor／IRQ／软件 workload，后续 Core 内 XIF | **未闭环**；MMIO adapter／IRQ 切片不替代真实 DMA、XIF 或 RTOS |
@@ -1911,7 +1912,7 @@ DDR3、视频链路和硬件一致性／SMP 不是本次已交付能力。更详
 
 | 顺序／工作线 | 任务 | 可验收交付 | 依赖／边界 |
 | --- | --- | --- | --- |
-| 1／L2-M1 收尾 | 固化仓库内普通软件 CRC 镜像链，补 owner／dirty eviction／行宽／反压／复位和固定 seed 压力 | 干净 checkout 可复现，至少 3 seed × 100 万已接受事务、零 mismatch；保存覆盖及最终数据证据 | 已移植远端修复，保持原生 C5；当前结果见集成记录，不重新追查已推翻的 L2 数据破坏假说 |
+| 1／L2-M1 收尾 | 镜像链已完成（`make coremark-image`）；剩余补 owner／dirty eviction／行宽／反压／复位和固定 seed 压力 | 干净 checkout 可复现（A1 已达成），至少 3 seed × 100 万已接受事务、零 mismatch；保存覆盖及最终数据证据 | 口径见 [m1_closure_decisions.md](m1_closure_decisions.md) D-A2；保持原生 C5，不重新追查已推翻的 L2 数据破坏假说 |
 | 2／完整 L2 SoC | 冻结实际主线 memory map／启动契约，接 MMIO xbar、CLINT／PLIC／Mailbox／UART | 两核启动、per-hart 栈、IPI／timer／PLIC claim-complete、mailbox／barrier 与复位／反压测试 | 复用已有模块，替换桩；新的 SoC 顶层还不存在 |
 | 3／默认仿真迁移 | 提供 L2 SoC 的 testbench／harness／软件镜像、主线 sim／run／ISA／系统入口 | 命令输出明确 DUT／L2／hart／memory map；干净 checkout 能复现；旧 Core／JYD 回归可显式选择 | 本次文档提交未改默认构建；不能只更换 TOPNAME 或注释来声称完成 |
 | 4／主线板级迁移 | 从 JYD 复用 PLL／复位／UART／BRAM／CDC／引脚，接完整 L2 SoC，提供 board manifest／Vivado profile | 真实顶层与非零启动镜像可生成／综合，资源预算和时钟来源明确；板级模型通过 | 现有 `fpga/board.json` 仍无 L2；不是重新跑旧单核路线 |
