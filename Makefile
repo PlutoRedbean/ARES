@@ -38,7 +38,7 @@ PROGRAM ?=
 .PHONY: all lint lint-all lint-backend lint-lsu lint-l2 unit unit-lsu unit-l2 \
         lint-fe-adapter unit-fe-adapter unit-coremark unit-2core-coremark test-coremark-harness \
         unit-mt-irq unit-mt-cpu-irq unit-clint unit-plic tb-ares-pkg tb-fe-stub tb-mem-model \
-        coremark-image test-coremark-image \
+        coremark-image test-coremark-image test-l2-ref-faults \
         sim run wave isa clean menuconfig defconfig oldconfig savedefconfig \
         loaddefconfig showconfig test-config
 
@@ -232,7 +232,7 @@ ARES_LSU_UNIT_SRCS := $(RTL_ROOT)/common/fe_pkg.sv $(RTL_ROOT)/common/ares_pkg.s
                       $(wildcard $(RTL_ROOT)/memory/*.sv) \
                       $(wildcard $(RTL_ROOT)/memory/test/unit/*.sv)
 # Shared L2 + two-hart bring-up: l2_top itself and the 2-core top.
-ARES_L2_UNIT_TBS := tb_l2 tb_two_core_l2
+ARES_L2_UNIT_TBS := tb_l2 tb_l2_ref tb_two_core_l2
 ARES_L2_SRCS := $(RTL_ROOT)/common/fe_pkg.sv $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
                 $(RTL_ROOT)/l2/l2_pkg.sv $(RTL_ROOT)/l2/l2_top.sv \
                 $(wildcard $(RTL_ROOT)/backend/*.sv) \
@@ -335,6 +335,10 @@ $(COREMARK_HEX): $(COREMARK_PORT_SRCS)
 test-coremark-image:
 	@python3 "$(ARES_HOME)/scripts/test_coremark_image.py"
 
+# Fault injection proving the L2 reference-model testbench is discriminating.
+test-l2-ref-faults:
+	@python3 "$(ARES_HOME)/scripts/test_l2_ref_faults.py"
+
 # Real frontend + shared L2 CoreMark (single-hart bring-up).  Without DMEM= the
 # image is taken from (and built by) coremark-image; an explicit DMEM= still wins.
 ifeq ($(strip $(DMEM)),)
@@ -406,6 +410,7 @@ unit-l2: config-gen
 	  echo "[unit-l2] $$tb"; \
 	  case $$tb in \
 	    tb_l2)          tb_src=$(RTL_ROOT)/l2/test/tb_l2.sv ;; \
+	    tb_l2_ref)      tb_src="$(RTL_ROOT)/l2/test/l2_ref_model.sv $(RTL_ROOT)/l2/test/tb_l2_ref.sv" ;; \
 	    tb_two_core_l2) tb_src=$(RTL_ROOT)/top/test/tb_two_core_l2.sv ;; \
 	    *) echo "unknown L2 TB $$tb"; exit 1 ;; \
 	  esac; \
