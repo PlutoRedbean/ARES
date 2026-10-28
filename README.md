@@ -45,7 +45,9 @@ unchanged.
 The optional array-shadow `core_bench_list` variant (`--array-list`) replaces
 only the function definition at link time; the EEMBC sources stay unchanged.
 Build/test with `make coremark-array-image` / `make test-coremark-array`, and
-see [docs/coremark_array_list.md](docs/coremark_array_list.md).
+see [docs/coremark_array_list.md](docs/coremark_array_list.md). The shortest
+end-to-end image + 4/100-iteration RTL flow is in
+[docs/coremark_fast_build.md](docs/coremark_fast_build.md).
 
 ---
 
