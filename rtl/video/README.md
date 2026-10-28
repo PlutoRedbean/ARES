@@ -1,14 +1,11 @@
-# rtl/video — 视频子系统 v1（S0/S1/S2/BIST）
+# rtl/video — 视频子系统（S2 已验证）
 
-> 状态：**S2 已完成并上板验证**（`picture8.jpg`，画面干净、无横条/抖动）；
-> DDR3 BIST 也已通过；S0/S1/preview 已归档（`archive/`）。当前主线是
-> **S2 摄像头 → DDR3 双缓冲 → HDMI** 和 **DDR3 BIST**。
-> 语言：新增代码全部 **Verilog-2001**（`.v` / `.vh`），不使用 SystemVerilog。
+> 状态：**S2 摄像头 → DDR3 双缓冲 → HDMI 已完成并上板验证**
+> （`picture8.jpg`，画面干净、无横条/抖动）。
 > 目标板：盘古 200Pro+ / `PG2L200H-6IFBB676`。
 > DDR3：官方 200Pro 2_9 IP，1000 Mbps，`DEVICE_100H_EN=false`，原始 DQ 顺序。
-> S2 验证：`D=1 B=1 H=1 C=1 F=1`、`M≈N`；相机 2.5 V（J24=2V5，J13 已修正）；
-> vendor DRM；`video_dvp_rgb565`；读侧无闸门；无 I/O delay；seed 5。
-> 详细状态/坑：`../fpga/pango/README.md`、`../fpga/pango/S2_DEBUG.md`。
+> 设计说明：`docs/video_subsystem_v1_design.md`；
+> 调试记录：`fpga/pango/S2_DEBUG.md`。
 
 ---
 
@@ -16,42 +13,41 @@
 
 ```text
 rtl/video/
-├── video_defs.vh           参数/阶段/状态位/地址
+├── video_defs.vh           参数/状态位/地址
 ├── video_fb_top.v          S2 顶层：摄像头 → DDR3 双缓冲 → HDMI
 ├── video_fb_status.v       S2 状态 UART/LED（M/N/V/L/X）
-├── video_bist_top.v        DDR3 BIST 顶层
-├── video_ddr3_bist.v       两阶段 AXI 写读图案测试
-├── video_bist_status.v     BIST 状态 UART/LED
 ├── video_capture_wrap.v    OV5640 SCCB + DVP 8→16
-├── video_dvp_rgb565.v      DVP 字节配对 + 3 级流水（替代 cmos_8_16bit）
+├── video_dvp_rgb565.v      DVP 字节配对 + 3 级流水 + HREF 相位复位
 ├── video_hdmi_wrap.v       sync_vg + 图案 mux + MS7210（720p30，USE_EXT_DE）
-├── video_pattern_gen.v     彩条/棋盘/移动块（S0 图案，S2 可复用）
+├── video_pattern_gen.v     彩条/棋盘/移动块
 ├── video_clk_reset.v       PLL + 每域复位 + phy_rstn
 ├── video_ip_pll.v          GTP_GPLL 薄封装（27→37.125/10/24.75）
-├── legacy/                 vendor framebuf/hdmi/i2c 原样（见 legacy/README.md）
-├── alt/video_dpram.v       推断 RAM，仅仿真/对照（见 alt/README.md）
-├── archive/                S0/preview 顶层与 TB（见 archive/README.md）
-├── sim/                    PLL/IOCLKDIV 行为模型（不进综合）
-└── test/                   tb_fram_buf.sv / tb_video_capture.v / tb_video_dvp_pair.v
+└── legacy/                 vendor framebuf/HDMI/I2C/相机表（S2 实际使用）
 ```
 
-`video_framebuf_wrap.v` **没有实现**：S2 直接用 vendor `fram_buf` + `wr_buf`/
-`rd_buf`，不额外包一层。
+`legacy/` 里 S2 实际使用的模块：
+
+```text
+fram_buf.v / wr_buf.v / rd_buf.v / wr_ctrl.v / rd_ctrl.v
+wr_cmd_trans.v / wr_rd_ctrl_top.v
+wr_fram_buf.v / rd_fram_buf.v / ipm2l_sdpram_v1_10_{wr,rd}_fram_buf.v
+sync_vg.v / ms7210_ctl.v / iic_dri.v / i2c_com.v / reg_config.v
+power_on_delay.v
+```
+
+S0/S1/双测/BIST/仿真/测试文件已移出仓库；需要时从
+`~/code/tmp/video-pruned/` 或 `~/code/tmp/` 取回。
 
 ---
 
-## 2. 当前入口
+## 2. 入口
 
 | 入口 | 顶层 | 流程 |
 | --- | --- | --- |
-| DDR3 BIST | `video_bist_top.v` | `fpga/pango/flow_bist.tcl`（官方 2_9，1000 Mbps，seed 2） |
-| S2 摄像头→DDR3→HDMI | `video_fb_top.v` | `fpga/pango/flow_video_fb.tcl`（官方 2_9，1000 Mbps，vendor DRM，seed 5；已上板验证） |
+| S2 摄像头→DDR3→HDMI | `video_fb_top.v` | `fpga/pango/flow_video_fb.tcl`（官方 2_9，1000 Mbps，vendor DRM，seed 5） |
 
-`video_defs.vh` 里的 `VIDEO_STAGE_*` 仍保留 S0/S1/S2/BIST 选择，但当前 PDS 流程
-直接指定 `video_fb_top` / `video_bist_top`，不再切 `VIDEO_STAGE_SEL`。
-
-S0/S1/preview 的 `video_top.v`、`video_status.v`、`video_cam_preview_top.v` 和
-对应 TB 在 `archive/`；它们的流程在 `../fpga/pango/archive/`。
+DDR3 BIST 的 `video_bist_top`/`flow_bist.tcl` 已移出仓库；需要时从
+`video-pruned/` 取回。
 
 ---
 
@@ -64,131 +60,74 @@ S0/S1/preview 的 `video_top.v`、`video_status.v`、`video_cam_preview_top.v` �
 | cfg | `clk_cfg` 10 | `rst_cfg` |
 | cam | `clk_cam` 24.75 | `rst_cam` |
 | vin | `pixel_clk` 42 | `pixel_rst`（`~cam_init_done`） |
-| ddr | `ddr_core_clk` | `ddr_rstn` / `ddr_init_done` |
+| ddr | `ddr_core_clk` 125 | `ddr_rstn` / `ddr_init_done` |
 
 所有新代码复位 **同步、高有效**；legacy 边界取反成低有效。
-`clk_pix` 37.125 = 27 × 11/8；HDMI 720p30。若改 720p60，`clk_pix=74.25`，
-同时改 `video_hdmi_wrap` 的 H/V total 和 `video_top.fdc` 的 `create_generated_clock`。
+`clk_pix` 37.125 = 27 × 11/8，HDMI 720p30。
 
 ---
 
 ## 4. 构建
 
-### 4.1 PDS
-
-见 `../fpga/pango/README.md` §11：
-
 ```bat
 cd fpga\pango
-D:\PDS_2022.2-SP6.4\bin\pds_shell.exe -file flow_bist.tcl -project_name video_bist
 D:\PDS_2022.2-SP6.4\bin\pds_shell.exe -file flow_video_fb.tcl -project_name video_fb
 ```
 
-### 4.2 仿真
+产物：
 
-framebuf + 推断 RAM（`alt/video_dpram.v`）：
-
-```bash
-verilator --binary --timing -Irtl/video \
-  --top-module tb_fram_buf_pat rtl/video/test/tb_fram_buf.sv \
-  rtl/video/alt/video_dpram.v \
-  rtl/video/legacy/{fram_buf,wr_buf,rd_buf,wr_ctrl,rd_ctrl,wr_cmd_trans,wr_rd_ctrl_top}.v
-./obj_dir/tb_fram_buf_pat
+```text
+fpga\pango\generate_bitstream\video_fb_top.sbit
 ```
 
-DVP 采集单元测试：
+烧写：
 
-```bash
-mkdir -p sim/build/video/tb_video_capture
-verilator --binary --timing --assert -Wall -DVIDEO_SIM \
-    -Wno-DECLFILENAME -Wno-TIMESCALEMOD -Wno-BLKSEQ -Wno-SIDEEFFECT \
-    -Wno-WIDTHTRUNC -Wno-WIDTHEXPAND -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM \
-    -Wno-CASEINCOMPLETE -Wno-EOFNEWLINE -Wno-SYNCASYNCNET \
-    -Irtl/video --top-module tb_video_capture \
-    -Mdir sim/build/video/tb_video_capture -o tb_video_capture \
-    rtl/video/video_capture_wrap.v rtl/video/video_dvp_rgb565.v \
-    rtl/video/sim/GTP_IOCLKDIV_E2.v rtl/video/test/tb_video_capture.v
-./sim/build/video/tb_video_capture/tb_video_capture
+```bat
+cd D:\PDS_2022.2-SP6.4\bin
+cdt_cfg.exe -file C:\...\fpga\pango\program.tcl ^
+  -args "{C:\...\fpga\pango\generate_bitstream\video_fb_top.sbit}"
 ```
 
-字节配对回归：
+期望状态：
 
-```bash
-verilator --binary --timing --assert -DVIDEO_SIM \
-    -Wno-DECLFILENAME -Wno-TIMESCALEMOD -Wno-BLKSEQ -Wno-SIDEEFFECT \
-    -Wno-WIDTHTRUNC -Wno-WIDTHEXPAND -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM \
-    -Wno-CASEINCOMPLETE -Wno-EOFNEWLINE -Wno-SYNCASYNCNET \
-    -Irtl/video --top-module tb_video_dvp_pair \
-    -Mdir sim/build/video/tb_video_dvp_pair -o tb_video_dvp_pair \
-    rtl/video/video_dvp_rgb565.v rtl/video/sim/GTP_IOCLKDIV_E2.v \
-    rtl/video/test/tb_video_dvp_pair.v
-./sim/build/video/tb_video_dvp_pair/tb_video_dvp_pair
+```text
+S2 P=1 D=1 H=1 C=1 F=1 B=1 R=1 E=1 G=1 M=... N=...
 ```
 
-S0/preview 的 `tb_video_top`/`tb_video_preview` 已归档到 `archive/`；命令见
-`archive/README.md` 和 `../fpga/pango/TEST_LOG.md`。
-
-### 4.3 Lint
-
-```bash
-verilator --lint-only --timing -Wall \
-    -Wno-DECLFILENAME -Wno-TIMESCALEMOD -Wno-WIDTHTRUNC -Wno-WIDTHEXPAND \
-    -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM -Wno-CASEINCOMPLETE -Wno-EOFNEWLINE \
-    -Wno-SYNCASYNCNET \
-    -Irtl/video --top-module video_fb_top \
-    rtl/video/video_fb_top.v rtl/video/video_clk_reset.v \
-    rtl/video/video_hdmi_wrap.v rtl/video/video_pattern_gen.v \
-    rtl/video/video_capture_wrap.v rtl/video/video_dvp_rgb565.v \
-    rtl/video/video_fb_status.v rtl/video/video_ip_pll.v \
-    rtl/video/legacy/sync_vg.v rtl/video/legacy/ms7210_ctl.v \
-    rtl/video/legacy/iic_dri.v rtl/video/legacy/reg_config.v \
-    rtl/video/legacy/i2c_com.v rtl/video/legacy/power_on_delay.v
-```
-
-`legacy/` 的 vendor 代码单独 waiver；新增 RTL 不要引入宽/未用信号问题。
+`D=1` DDR3 init；`B/R/E/G=1` framebuf 正常；`M≈N` 读回与摄像头一致。
 
 ---
 
-## 5. 冻结接口
+## 5. 接口要点
 
-- `video_fb_top` 端口与 `../fpga/pango/video_top.fdc` 对齐。
-- DDR3 引脚只出现在 `official_ddr3.fdc`；顶层实例名必须是 `I_ips_ddr_top`。
-- 参考时钟端口叫 `ref_clk_p/ref_clk_n`，不是 `clk_p/clk_n`。
-- 没有 `uart_rx`、没有 `cam_pwdn`。
-- `video_fb_top` 的 vendor framebuf 读侧直接接 `sync_vg.de_re`/`vs_out`，
-  不再有 `fb_init_done` 闸门。
-- `video_dpram` 不在当前综合流程里；不要和 `legacy/wr_fram_buf.v`/`rd_fram_buf.v`
-  同时加入工程（同名模块）。
-
----
-
-## 6. legacy / alt / archive
-
-- `legacy/`：vendor framebuf/hdmi/i2c 原样。当前 S2 使用
-  `wr_fram_buf.v`/`rd_fram_buf.v`/`ipm2l_sdpram_v1_10_*.v`（`GTP_DRM36K_E1`）
-  和 `fram_buf.v`/`wr_buf.v`/`rd_buf.v` 等。
-- `alt/video_dpram.v`：推断 RAM，和 vendor DRM 同名模块；**只用于仿真/对照**，
-  不进入 `flow_video_fb.tcl`。
-- `archive/`：S0/preview 的 `video_top.v`/`video_status.v`/`video_cam_preview_top.v`
-  和 TB；历史流程在 `../fpga/pango/archive/`。
-- `cmos_8_16bit.v`：vendor 旧模块，保留在 `legacy/` 作对照；当前 S2 使用
-  `video_dvp_rgb565`（每个 HREF 低复位字节相位）。
+- `video_fb_top` 端口与 `fpga/pango/video_top.fdc` 对齐；
+- DDR3 引脚只出现在 `official_ddr3.fdc`；IP 实例名必须是 `I_ips_ddr_top`；
+- 参考时钟端口叫 `ref_clk_p/ref_clk_n`；
+- framebuf 读侧直接接 `sync_vg.de_re`/`vs_out`，不加 `fb_init_done` 闸门；
+- `axi_wlast` 接 IP 的 `axi_wusero_last`；
+- 当前 S2 使用 `video_dvp_rgb565`（HREF 复位字节相位），不使用
+  `legacy/cmos_8_16bit.v`；
+- 当前 S2 使用 vendor `wr_fram_buf`/`rd_fram_buf` + SDPRAM，不使用推断
+  `video_dpram`。
 
 ---
 
-## 7. 状态与下一步
+## 6. 已验证配置
 
-S2 已完成并上板验证（2026-10-28，`picture8.jpg`）：
+```text
+DDR3: 官方 2_9, 1000 Mbps, DEVICE_100H_EN=false, 原始 DQ
+Framebuf: vendor wr_fram_buf/rd_fram_buf + ipm2l_sdpram
+Camera: video_dvp_rgb565, 2.5 V/LVCMOS25 (J24=2V5, J13 已修正)
+HDMI: USE_EXT_DE=1, MS7210 720p30
+时序: 无读闸门, 无 set_input_delay/set_output_delay
+PnR: seed 5
+状态: D=1 B=1 H=1 C=1 F=1, M≈N
+```
 
-- DDR3：官方 200Pro 2_9 IP，1000 Mbps，`DEVICE_100H_EN=false`，原始 DQ 顺序；
-- framebuf：vendor `wr_fram_buf`/`rd_fram_buf` + `ipm2l_sdpram`（DRM）；
-- 相机：`video_dvp_rgb565`（HREF 相位复位），2.5 V/LVCMOS25
-  （200Pro+ J24=2V5，J13 已修正）；
-- 读侧无闸门，无 `set_input_delay`/`set_output_delay`；
-- 状态：`D=1 B=1 H=1 C=1 F=1`，`M≈N`。
+---
 
-下一步：
+## 7. 下一步
 
-1. 接 SoC（视频流 / 寄存器接口）；
-2. 如需更高刷新率，再评估 720p60（当前 720p30 已可用）；
-3. 每次改 RTL 先跑 BIST（`I=1/G=0`），再跑 S2（`D=1/B=1`）。
+1. 接 SoC（视频流 / 寄存器 / AXI）；
+2. 如需更高刷新率，再评估 720p60；
+3. 改 RTL 后先确认 DDR3 `D=1`，再确认 S2 `B=1/M≈N`。
