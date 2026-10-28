@@ -21,6 +21,7 @@ module tb_frontend_l2 #(
     logic [31:0] wdata [2][2];
 
     generate if (DUAL) begin : g_dual
+        /* verilator lint_off PINMISSING */  // board-only mmio observation
         ares_2core_frontend_l2_top #(.L2_SETS(4)) dut (
             .clk(clk), .rst(rst), .hart1_en(1'b1),
             .l2_mem_rd_valid(rd_valid), .l2_mem_rd_ready(rd_ready), .l2_mem_rd_addr(rd_addr),
@@ -34,6 +35,7 @@ module tb_frontend_l2 #(
             .c1_retire_rd(rd[1]), .c1_retire_wdata(wdata[1]), .c1_retire_pc(retire_pc[1]),
             .c1_retire_is_ebreak(is_ebreak[1]),
             .l2_idle(idle), .l2_hit_count(hits), .l2_miss_count(misses)
+            /* verilator lint_on PINMISSING */
         );
     end else begin : g_single
         ares_frontend_l2_top #(.L2_SETS(4)) dut (

@@ -58,7 +58,19 @@ module ares_2core_frontend_l2_top #(
     //---- observation L2 -----------------------------------------------------
     output logic         l2_idle,
     output logic [ 31:0] l2_hit_count,
-    output logic [ 31:0] l2_miss_count
+    output logic [ 31:0] l2_miss_count,
+
+    //---- MMIO request observation (board console; no protocol change) -------
+    output logic        c0_mmio_req_valid,
+    output logic        c0_mmio_write,
+    output logic [31:0] c0_mmio_addr,
+    output logic [31:0] c0_mmio_wdata,
+    output logic [ 3:0] c0_mmio_wstrb,
+    output logic        c1_mmio_req_valid,
+    output logic        c1_mmio_write,
+    output logic [31:0] c1_mmio_addr,
+    output logic [31:0] c1_mmio_wdata,
+    output logic [ 3:0] c1_mmio_wstrb
 );
     // hart0 L2 ports.
     logic c0_i_rd_valid, c0_i_rd_ready;
@@ -102,7 +114,10 @@ module ares_2core_frontend_l2_top #(
         .fetch_pc(c0_fetch_pc),
         .retire_valid(c0_retire_valid), .retire_rd_wen(c0_retire_rd_wen),
         .retire_rd(c0_retire_rd), .retire_wdata(c0_retire_wdata),
-        .retire_pc(c0_retire_pc), .retire_is_ebreak(c0_retire_is_ebreak)
+        .retire_pc(c0_retire_pc), .retire_is_ebreak(c0_retire_is_ebreak),
+        .o_mmio_req_valid(c0_mmio_req_valid), .o_mmio_write(c0_mmio_write),
+        .o_mmio_addr(c0_mmio_addr), .o_mmio_wdata(c0_mmio_wdata),
+        .o_mmio_wstrb(c0_mmio_wstrb)
     );
 
     wire rst1 = rst | ~(HART1_ENABLE && hart1_en);
@@ -120,7 +135,10 @@ module ares_2core_frontend_l2_top #(
         .fetch_pc(c1_fetch_pc),
         .retire_valid(c1_retire_valid), .retire_rd_wen(c1_retire_rd_wen),
         .retire_rd(c1_retire_rd), .retire_wdata(c1_retire_wdata),
-        .retire_pc(c1_retire_pc), .retire_is_ebreak(c1_retire_is_ebreak)
+        .retire_pc(c1_retire_pc), .retire_is_ebreak(c1_retire_is_ebreak),
+        .o_mmio_req_valid(c1_mmio_req_valid), .o_mmio_write(c1_mmio_write),
+        .o_mmio_addr(c1_mmio_addr), .o_mmio_wdata(c1_mmio_wdata),
+        .o_mmio_wstrb(c1_mmio_wstrb)
     );
 
     l2_top #(

@@ -45,7 +45,15 @@ module ares_frontend_hart #(
     output logic [ 4:0] retire_rd [2],
     output logic [31:0] retire_wdata [2],
     output logic [31:0] retire_pc [2],
-    output logic [ 1:0] retire_is_ebreak
+    output logic [ 1:0] retire_is_ebreak,
+
+    //---- MMIO request observation (board devices; response stays the local
+    //     immediate-ack stub, so behaviour is unchanged) ---------------------
+    output logic        o_mmio_req_valid,
+    output logic        o_mmio_write,
+    output logic [31:0] o_mmio_addr,
+    output logic [31:0] o_mmio_wdata,
+    output logic [ 3:0] o_mmio_wstrb
 );
     axi_if ifu_axi();
 
@@ -128,6 +136,14 @@ module ares_frontend_hart #(
         if (rst) mmio_rsp_valid <= 1'b0;
         else     mmio_rsp_valid <= mmio_req_valid;
     end
+
+    // Read-only tap for board-level devices (UART console).  The core still
+    // sees the immediate acknowledgement above; only the request is exported.
+    assign o_mmio_req_valid = mmio_req_valid;
+    assign o_mmio_write     = mmio_write;
+    assign o_mmio_addr      = mmio_addr;
+    assign o_mmio_wdata     = mmio_wdata;
+    assign o_mmio_wstrb     = mmio_wstrb;
 
     ares_core_top #(
         .RESET_MTVEC(RESET_MTVEC),

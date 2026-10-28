@@ -45,6 +45,9 @@ module tb_2core_coremark;
     logic [4:0] c1_retire_rd [2];
     logic [31:0] c1_retire_wdata [2], c1_retire_pc [2];
 
+    // c0_/c1_mmio_* are board-only observation outputs (UART console tap);
+    // this bench intentionally leaves them unconnected.
+    /* verilator lint_off PINMISSING */
     ares_2core_frontend_l2_top #(
         .RESET_MTVEC(32'h8000_0000),
         .RESET_VEC(32'h8000_0000),
@@ -70,6 +73,7 @@ module tb_2core_coremark;
         .c1_retire_pc(c1_retire_pc), .c1_retire_is_ebreak(c1_retire_is_ebreak),
         .l2_idle(l2_idle), .l2_hit_count(l2_hits), .l2_miss_count(l2_misses)
     );
+    /* verilator lint_on PINMISSING */
 
     logic [127:0] mem [0:MEM_WORDS-1];
     logic         mem_rsp_valid_q;
