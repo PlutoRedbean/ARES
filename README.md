@@ -42,6 +42,11 @@ compiler/link interposition, no `core_util.c` edits), see
 `scripts/build_coremark_crc.py`. The default `coremark-image` flow is
 unchanged.
 
+The optional array-shadow `core_bench_list` variant (`--array-list`) replaces
+only the function definition at link time; the EEMBC sources stay unchanged.
+Build/test with `make coremark-array-image` / `make test-coremark-array`, and
+see [docs/coremark_array_list.md](docs/coremark_array_list.md).
+
 ---
 
 ## Repository layout
