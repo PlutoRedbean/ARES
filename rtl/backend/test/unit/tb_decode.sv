@@ -1048,8 +1048,13 @@ module tb_decode;
         //---------------------------------------------------------------------
         drive(32'h0000007F); #1;    // unknown opcode 0x7f
         chk_valid("unknown opcode 0x7f", 32'h0000007F, exp_err(OP_ILLEGAL));
-        drive(32'h0000000B); #1;    // unknown opcode 0x0b (custom-0)
-        chk_valid("unknown opcode 0x0b", 32'h0000000B, exp_err(OP_ILLEGAL));
+        // ARES custom-0 CRC8: funct3=0, funct7=0 is supported.
+        drive(32'h00C5850B); #1;    // custom-0 crc8 a0, a1, a2
+        chk_valid("custom-0 CRC8", 32'h00C5850B, exp_rr(OP_CRC8, FU_ALU0));
+        drive(32'h00C5950B); #1;    // custom-0 funct3=1 is not supported
+        chk_valid("custom-0 unsupported funct3", 32'h00C5950B, exp_err(OP_ILLEGAL));
+        drive(32'h02C5850B); #1;    // custom-0 funct7!=0 is not supported
+        chk_valid("custom-0 unsupported funct7", 32'h02C5850B, exp_err(OP_ILLEGAL));
         drive(32'h10500073); #1;    // WFI: SYSTEM funct3=0, funct12=0x105
         chk_valid("WFI (unsupported SYSTEM)", 32'h10500073, exp_err(OP_ILLEGAL));
         drive(32'h10200073); #1;    // SRET

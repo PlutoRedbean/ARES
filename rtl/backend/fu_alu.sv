@@ -61,6 +61,29 @@ module fu_alu (
     end
 
     //-------------------------------------------------------------------------
+    // ARES custom-0 CRC8 step.  Matches CoreMark crcu8():
+    //   x16 = (data & 1) ^ (crc & 1);
+    //   data >>= 1;
+    //   if (x16) { crc ^= 0x4002; carry = 1; } else carry = 0;
+    //   crc >>= 1;
+    //   if (carry) crc |= 0x8000; else crc &= 0x7fff;
+    // Unrolled 8 times; latency 1, same as the other ALU operations.
+    //-------------------------------------------------------------------------
+    function automatic logic [15:0] crc8_step(input logic [7:0] data,
+                                              input logic [15:0] crc_in);
+        logic [15:0] c;
+        logic        x16;
+        c = crc_in;
+        for (int i = 0; i < 8; i++) begin
+            x16 = data[i] ^ c[0];
+            c   = c ^ (x16 ? 16'h4002 : 16'h0000);
+            c   = c >> 1;
+            if (x16) c[15] = 1'b1;
+        end
+        return c;
+    endfunction
+
+    //-------------------------------------------------------------------------
     // RV32I datapath (backend.md section 9.1).
     //-------------------------------------------------------------------------
     logic [31:0] alu_result;
@@ -79,6 +102,8 @@ module fu_alu (
             OP_SRA, OP_SRAI:   alu_result = $signed(issue_req.src1) >>> op_b[4:0];
             OP_OR,  OP_ORI:    alu_result = issue_req.src1 | op_b;
             OP_AND, OP_ANDI:   alu_result = issue_req.src1 & op_b;
+            OP_CRC8:           alu_result = {16'd0, crc8_step(issue_req.src1[7:0],
+                                                              issue_req.src2[15:0])};
             // EBREAK never writes a register; the BRU-facing value is pc+4.
             OP_EBREAK:         alu_result = issue_req.pc + 32'd4;
             default:           alu_result = 32'd0;   // never routed here

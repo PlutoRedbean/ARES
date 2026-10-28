@@ -213,7 +213,9 @@ package ares_pkg;
         OP_FENCE   = 6'd54,
         // Decode could not map the encoding (SPEC-A1/M17: simulated error,
         // no architectural trap in v1 - see docs/c0_decisions.md D-C0-01).
-        OP_ILLEGAL = 6'd55
+        OP_ILLEGAL = 6'd55,
+        // ARES custom-0: 8-bit reflected CRC step (analysis / accelerated build)
+        OP_CRC8    = 6'd56
     } op_t;
 
     //-------------------------------------------------------------------------

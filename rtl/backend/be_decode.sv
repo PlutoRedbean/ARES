@@ -461,6 +461,22 @@ module be_decode (
                     endcase
                 end
 
+                //---- ARES custom-0: CRC8 step -------------------------------
+                // .insn r 0x0b, 0, 0x00, rd, rs1, rs2
+                // rd = crc8_step(rs1[7:0], rs2[15:0])
+                7'h0B: begin
+                    if ((funct3 == 3'd0) && (funct7 == 7'b0000000)) begin
+                        legal     = 1'b1;
+                        op        = OP_CRC8;
+                        fu_type   = FU_ALU0;
+                        rd_wen    = 1'b1;
+                        src1_used = 1'b1;
+                        src2_used = 1'b1;
+                    end else begin
+                        decode_err = 1'b1;
+                    end
+                end
+
                 //---- everything else ---------------------------------------
                 default: decode_err = 1'b1;
             endcase
