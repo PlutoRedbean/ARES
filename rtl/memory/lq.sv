@@ -98,6 +98,12 @@ module lq (
     input  logic [1:0]                      fill_idx,
     input  logic [31:0]                     fill_word,
 
+    //---- early speculative probe return -----------------------------------
+    input  logic                            probe_fill_valid,
+    input  logic [1:0]                      probe_fill_idx,
+    input  logic [31:0]                     probe_fill_word,
+    input  ares_pkg::tag_t                  probe_fill_tag,
+
     //---- MMIO load (Head-only, one device read) ---------------------------
     input  logic                            load_head_valid,
     input  ares_pkg::tag_t                  load_head_tag,
@@ -232,6 +238,7 @@ module lq (
     logic        ff_now      [LQ_ENTRIES];  // full forward -> result, no lookup
     logic [31:0] ff_result   [LQ_ENTRIES];
     logic [31:0] fill_result [LQ_ENTRIES];
+    logic [31:0] probe_fill_result [LQ_ENTRIES];
     logic [31:0] mmio_result [LQ_ENTRIES];
     logic        agu_reg_now [LQ_ENTRIES];
     logic        lookup_elig [LQ_ENTRIES];
@@ -267,6 +274,9 @@ module lq (
             // ready dependencies, no lookup in flight and no result yet.
             lookup_elig[i] = e_alive[i] && e_addr_valid[i] && !e_mmio[i]
                           && !e_lk_inflight[i] && !e_result_vld[i]
+                          && !(probe_fill_valid && (probe_fill_idx == si)
+                               && (probe_fill_tag.slot_index == e_tag[i])
+                               && (e_older[i] == '0) && !e_snap_valid[i])
                           && dep_ready_c[i] && !ff_now[i] && !rel_entry[i];
 
             // LSU_INTERFACES 3 item 8: Head-only single device read, every
@@ -294,6 +304,8 @@ module lq (
             // then LB/LH/LW/LBU/LHU select + sign/zero extension.
             fill_result[i] = lsu_merge_extract(fill_word, fm, fd,
                                                e_unsigned[i], e_addr[i][1:0], e_size[i]);
+            probe_fill_result[i] = lsu_merge_extract(probe_fill_word, 4'd0, 32'd0,
+                                                     e_unsigned[i], e_addr[i][1:0], e_size[i]);
 
             // memory.md 3.1: a MMIO result comes from the device word only.
             mmio_result[i] = lsu_merge_extract(mmio_rsp_data, 4'd0, 32'd0,
@@ -475,7 +487,20 @@ module lq (
                     if (mmio_req_valid && mmio_req_ready && (mmio_arb_idx == si))
                         e_mmio_sent[i] <= 1'b1;
 
-                    if (ff_now[i]) begin
+                    if (probe_fill_valid && (probe_fill_idx == si)
+                        && (probe_fill_tag.slot_index == e_tag[i])
+                        && !e_result_vld[i] && !e_lk_inflight[i]
+                        && (e_older[i] == '0) && !e_snap_valid[i]) begin
+                        // Early speculative probe hit: complete without a
+                        // normal lookup.  e_older must be empty because the
+                        // probe bypasses the normal forwarding snapshot.
+                        e_snap_valid[i]  <= 1'b1;
+                        e_snap_mask[i]   <= 4'd0;
+                        e_snap_data[i]   <= 32'd0;
+                        e_result_vld[i]  <= 1'b1;
+                        e_result[i]      <= probe_fill_result[i];
+                        e_lk_inflight[i] <= 1'b0;
+                    end else if (ff_now[i]) begin
                         e_snap_valid[i] <= 1'b1;
                         e_snap_mask[i]  <= fwd_mask_c[i];
                         e_snap_data[i]  <= fwd_data_c[i];

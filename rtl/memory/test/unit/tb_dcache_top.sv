@@ -89,6 +89,18 @@ module tb_dcache_top;
     logic [31:0]                              wb_alloc_line_addr;
     logic [31:0]                              wb_vis_query;
     logic                                     wb_vis_block;
+    // Speculative probe is not exercised by this unit bench.
+    logic        probe_valid = 1'b0;
+    logic        probe_ready;
+    logic [1:0]  probe_idx = 2'd0;
+    ares_pkg::tag_t probe_tag = '0;
+    logic [31:0] probe_addr = 32'd0;
+    logic        probe_sq_empty = 1'b0;
+    logic        probe_wb_empty = 1'b0;
+    logic        probe_hit_valid;
+    logic [1:0]  probe_hit_idx;
+    logic [31:0] probe_hit_word;
+    ares_pkg::tag_t probe_hit_tag;
     int checks=0;
     initial begin clk=0; forever #5 clk=~clk; end
     dcache_top dut(.*);

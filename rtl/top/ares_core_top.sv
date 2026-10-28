@@ -27,7 +27,8 @@ module ares_core_top #(
     parameter logic [31:0] HART_ID              = 32'd0,               // mhartid value
     parameter logic [31:0] MMIO_BASE            = 32'hA000_0000,       // SPEC-M7 placeholder
     parameter bit          JYD_UNCACHED_WINDOWS = 1'b0,
-    parameter logic [31:0] MMIO_MASK            = 32'hFF00_0000
+    parameter logic [31:0] MMIO_MASK            = 32'hFF00_0000,
+    parameter bit          ENABLE_SPEC_LOOKUP   = 1'b0
 ) (
     input logic clk,
     input logic rst,
@@ -213,7 +214,8 @@ module ares_core_top #(
     lsu_top #(
         .JYD_UNCACHED_WINDOWS(JYD_UNCACHED_WINDOWS),
         .MMIO_BASE(MMIO_BASE),
-        .MMIO_MASK(MMIO_MASK)
+        .MMIO_MASK(MMIO_MASK),
+        .ENABLE_SPEC_LOOKUP(ENABLE_SPEC_LOOKUP)
     ) u_lsu (
         .clk                (clk),
         .rst                (rst),

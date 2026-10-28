@@ -131,7 +131,8 @@ module ares_frontend_hart #(
 
     ares_core_top #(
         .RESET_MTVEC(RESET_MTVEC),
-        .HART_ID(HART_ID)
+        .HART_ID(HART_ID),
+        .ENABLE_SPEC_LOOKUP(1'b1)
     ) u_core (
         .clk(clk), .rst(rst),
         .iq_valid(be_iq_valid), .iq_inst(be_iq_inst), .iq_accept_count(be_iq_accept_count),

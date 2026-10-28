@@ -110,6 +110,12 @@ module tb_lq;
     int unsigned           n_wait_seen = 0;
     int unsigned           n_epoch_seen = 0;
 
+    // Speculative probe fill is not exercised by this unit bench.
+    logic                  probe_fill_valid = 1'b0;
+    logic [1:0]            probe_fill_idx = 2'd0;
+    logic [31:0]           probe_fill_word = 32'd0;
+    tag_t                  probe_fill_tag = '0;
+
     initial for (int unsigned e = 0; e < LQ_ENTRIES; e++) prev_epoch[e] = 8'd0;
 
     lq dut (.*);

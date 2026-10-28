@@ -35,6 +35,19 @@ module dcache_top (
     input  logic [31:0]                              lq_lookup_addr,
     input  logic [7:0]                               lq_wait_epoch [ares_pkg::LQ_ENTRIES],
 
+    //---- C2 speculative load probe (early read-only lookup) ----------------
+    input  logic                                     probe_valid,
+    output logic                                     probe_ready,
+    input  logic [1:0]                               probe_idx,
+    input  ares_pkg::tag_t                           probe_tag,
+    input  logic [31:0]                              probe_addr,
+    input  logic                                     probe_sq_empty,
+    input  logic                                     probe_wb_empty,
+    output logic                                     probe_hit_valid,
+    output logic [1:0]                               probe_hit_idx,
+    output logic [31:0]                              probe_hit_word,
+    output ares_pkg::tag_t                           probe_hit_tag,
+
     //---- C3 result: load hit fill -----------------------------------------
     output logic                                     hit_fill_valid,
     output logic [1:0]                               hit_fill_idx,
@@ -164,6 +177,16 @@ module dcache_top (
     wire [31:0]      own_line = {own_addr[31:OFF], {OFF{1'b0}}};
     wire             own_kill = !own_store && kill_mask[own_tag.slot_index];
 
+    // Speculative probe owner: a separate one-cycle pipeline that reads the
+    // arrays but never publishes LRU/dirty/MSHR state.  It is accepted only
+    // when the normal owner and capture paths are idle.
+    logic            probe_own_valid;
+    logic [1:0]      probe_idx_r;
+    tag_t            probe_tag_r;
+    /* verilator lint_off UNUSEDSIGNAL */  // only tag and word-select bits are consumed
+    logic [31:0]     probe_addr_r;
+    /* verilator lint_on UNUSEDSIGNAL */
+
     //-------------------------------------------------------------------------
     // 1-entry Pending Store Write (memory.md 6.3 / 6.5)
     //-------------------------------------------------------------------------
@@ -280,11 +303,30 @@ module dcache_top (
     logic [1:0][IDXB-1:0] rd_set_w;
     logic [1:0][ROWB-1:0] rd_row_w;
 
+    wire [IDXB-1:0] probe_set = probe_addr[OFF +: IDXB];
+    wire [ROWB-1:0] probe_row = probe_addr[3 +: ROWB];
+    logic           probe_rd;
+
+    // A probe is a read-only early lookup.  Keep it off the arrays whenever a
+    // normal owner, capture, pending store or MSHR could be using the same
+    // read port; the conservative gating also means the probe never needs a
+    // write-after-read hazard check.
+    always_comb begin
+        probe_ready = probe_valid && !own_valid && !lk_rd && !any_cap
+                   && !probe_own_valid && !psw_valid
+                   && !(|mshr_inst_valid) && !(|mshr_lock_valid);
+        probe_rd    = probe_valid && probe_ready;
+    end
+
     always_comb begin
         for (int unsigned w = 0; w < WAYS; w++) begin
             rd_valid_w[w] = lk_rd || (cap_gnt_comb[0] && mshr_cap_req_way[0][w])
-                                   || (cap_gnt_comb[1] && mshr_cap_req_way[1][w]);
-            if (lk_rd) begin
+                                   || (cap_gnt_comb[1] && mshr_cap_req_way[1][w])
+                                   || probe_rd;
+            if (probe_rd) begin
+                rd_set_w[w] = probe_set;
+                rd_row_w[w] = probe_row;
+            end else if (lk_rd) begin
                 rd_set_w[w] = lk_set;
                 rd_row_w[w] = lk_row;
             end else if (cap_gnt_comb[0] && mshr_cap_req_way[0][w]) begin
@@ -294,6 +336,22 @@ module dcache_top (
                 rd_set_w[w] = cap_set[1];
                 rd_row_w[w] = mshr_cap_req_row[1];
             end
+        end
+    end
+
+    always_ff @(posedge clk) begin
+        if (rst) begin
+            probe_own_valid <= 1'b0;
+            probe_idx_r     <= 2'd0;
+            probe_tag_r     <= '0;
+            probe_addr_r    <= 32'd0;
+        end else if (probe_rd) begin
+            probe_own_valid <= 1'b1;
+            probe_idx_r     <= probe_idx;
+            probe_tag_r     <= probe_tag;
+            probe_addr_r    <= probe_addr;
+        end else begin
+            probe_own_valid <= 1'b0;
         end
     end
 
@@ -309,6 +367,26 @@ module dcache_top (
     logic [1:0][TAGB-1:0] a_rd_rsp_tag;
     logic [1:0]           a_rd_rsp_line_valid;
     logic [1:0]           a_rd_rsp_dirty;
+
+    // The probe response is the array read issued in the previous cycle.  It
+    // never updates LRU/dirty/valid/MSHR; a probe hit is only a data source
+    // for the LQ, and the normal lookup path remains the fallback.
+    wire probe_hit0 = a_rd_rsp_valid[0] && a_rd_rsp_line_valid[0]
+                   && (a_rd_rsp_tag[0] == probe_addr_r[31 -: TAGB]);
+    wire probe_hit1 = a_rd_rsp_valid[1] && a_rd_rsp_line_valid[1]
+                   && (a_rd_rsp_tag[1] == probe_addr_r[31 -: TAGB]);
+    wire [31:0] probe_word0 = probe_addr_r[2] ? a_rd_rsp_data[0][63:32]
+                                              : a_rd_rsp_data[0][31:0];
+    wire [31:0] probe_word1 = probe_addr_r[2] ? a_rd_rsp_data[1][63:32]
+                                              : a_rd_rsp_data[1][31:0];
+    wire probe_kill = kill_mask[probe_tag_r.slot_index];
+    wire probe_safe = probe_own_valid && probe_sq_empty && probe_wb_empty
+                   && !psw_valid && !(|mshr_lock_valid) && !probe_kill;
+
+    assign probe_hit_valid = probe_safe && (probe_hit0 || probe_hit1);
+    assign probe_hit_idx   = probe_idx_r;
+    assign probe_hit_word  = probe_hit1 ? probe_word1 : probe_word0;
+    assign probe_hit_tag   = probe_tag_r;
 
     logic [1:0]           wr_valid_w;
     logic [1:0][IDXB-1:0] wr_set_w;

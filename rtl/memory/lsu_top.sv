@@ -33,7 +33,8 @@
 module lsu_top #(
     parameter logic [31:0] MMIO_BASE = 32'hA000_0000,
     parameter bit JYD_UNCACHED_WINDOWS = 1'b0,
-    parameter logic [31:0] MMIO_MASK = 32'hFF00_0000
+    parameter logic [31:0] MMIO_MASK = 32'hFF00_0000,
+    parameter bit ENABLE_SPEC_LOOKUP = 1'b0
 ) (
     input  logic                             clk,
     input  logic                             rst,
@@ -236,6 +237,23 @@ module lsu_top #(
     tag_t        lq_wait_tag_w [LQ_ENTRIES];
     logic [7:0]  lq_wait_epoch_w [LQ_ENTRIES];
 
+    // Early speculative probe: the AGU address is used one cycle before the
+    // LQ's normal lookup.  Probe hits bypass the normal DCache request and
+    // complete the load one cycle earlier; misses fall back to the normal path.
+    /* verilator lint_off UNUSEDSIGNAL */  // probe_ready is consumed by dcache_top only
+    logic        probe_valid_w, probe_ready_w, probe_hit_valid_w;
+    /* verilator lint_on UNUSEDSIGNAL */
+    logic [1:0]  probe_hit_idx_w;
+    logic [31:0] probe_hit_word_w;
+    tag_t        probe_hit_tag_w;
+    wire         probe_sq_empty_w = (sq_occupancy_w == 0);
+
+    wire probe_aligned = (agu_size_w == LSZ_BYTE)
+                      || ((agu_size_w == LSZ_HALF) && !agu_addr_w[0])
+                      || ((agu_size_w == LSZ_WORD) && !(|agu_addr_w[1:0]));
+    assign probe_valid_w = ENABLE_SPEC_LOOKUP && agu_valid_w
+                        && agu_is_load_w && !agu_is_mmio_w && probe_aligned;
+
     lq u_lq (
         .clk                (clk),
         .rst                (rst),
@@ -268,6 +286,10 @@ module lsu_top #(
         .fill_valid         (lq_fill_valid_w),
         .fill_idx           (lq_fill_idx_w),
         .fill_word          (lq_fill_word_w),
+        .probe_fill_valid   (probe_hit_valid_w),
+        .probe_fill_idx     (probe_hit_idx_w),
+        .probe_fill_word    (probe_hit_word_w),
+        .probe_fill_tag     (probe_hit_tag_w),
         .load_head_valid    (load_head_valid),
         .load_head_tag      (load_head_tag),
         .mmio_req_valid     (lq_mmio_req_valid_w),
@@ -378,6 +400,17 @@ module lsu_top #(
         .lq_lookup_tag            (lq_lookup_tag_w),
         .lq_lookup_addr           (lq_lookup_addr_w),
         .lq_wait_epoch            (lq_wait_epoch_w),
+        .probe_valid              (probe_valid_w),
+        .probe_ready              (probe_ready_w),
+        .probe_idx                (agu_qidx_w[1:0]),
+        .probe_tag                (agu_tag_w),
+        .probe_addr               (agu_addr_w),
+        .probe_sq_empty           (probe_sq_empty_w),
+        .probe_wb_empty           (&wb_free_mask_w),
+        .probe_hit_valid          (probe_hit_valid_w),
+        .probe_hit_idx            (probe_hit_idx_w),
+        .probe_hit_word           (probe_hit_word_w),
+        .probe_hit_tag            (probe_hit_tag_w),
         .hit_fill_valid           (dc_hit_fill_valid_w),
         .hit_fill_idx             (dc_hit_fill_idx_w),
         .hit_fill_word            (dc_hit_fill_word_w),
