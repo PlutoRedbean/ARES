@@ -44,8 +44,27 @@ module mbtb (
 
     localparam int unsigned WAY_IDX_W = (MBTB_WAYS > 1) ? $clog2(MBTB_WAYS) : 1;
 
-    (* ram_style = "distributed" *)
-    mbtb_entry_t mbtb_mem [MBTB_SET_NUM][MBTB_WAYS];
+    // One copy per read port: prediction reads two regions (lo/hi) and the
+    // update path reads the set it is about to modify, so a single memory
+    // would need 3 read ports and ADS would fall back to LUTRAM.  Each copy is
+    // a simple dual-port (1R1W) memory holding one whole set per word, exactly
+    // like tage_tag_array; a write is broadcast to all three copies.
+    localparam int unsigned ENTRY_W = $bits(mbtb_entry_t);
+    localparam int unsigned SET_W   = MBTB_WAYS * ENTRY_W;
+
+    (* ram_style = "block" *)
+    logic [SET_W-1:0] mbtb_lo_mem [MBTB_SET_NUM];   // read: prediction lo region
+    (* ram_style = "block" *)
+    logic [SET_W-1:0] mbtb_hi_mem [MBTB_SET_NUM];   // read: prediction hi region
+    (* ram_style = "block" *)
+    logic [SET_W-1:0] mbtb_up_mem [MBTB_SET_NUM];   // read: update pipeline
+
+    logic [SET_W-1:0] lo_word_r, hi_word_r;
+    // The update pipeline needs the set word it read (U1) and the same word one
+    // stage later (U2) as the read-modify-write base; a single register would be
+    // overwritten by the next update's read.
+    logic [SET_W-1:0] up_word_u1, up_word_u2;
+    logic [SET_W-1:0] upd_word;
 
     // triangular LRU matrix state, one per set
     logic [MBTB_LRU_BITS-1:0] lru [MBTB_SET_NUM];
@@ -232,6 +251,31 @@ module mbtb (
     // =======================================================================
     // sequential
     // =======================================================================
+    initial begin
+        for (int s = 0; s < MBTB_SET_NUM; s++) begin
+            mbtb_lo_mem[s] = '0;
+            mbtb_hi_mem[s] = '0;
+            mbtb_up_mem[s] = '0;
+        end
+    end
+
+    // Unpack one set word into the per-way entries the pipeline logic uses.
+    always_comb begin
+        for (int w = 0; w < MBTB_WAYS; w++) begin
+            way_lo_r1[w] = mbtb_entry_t'(lo_word_r[w*ENTRY_W +: ENTRY_W]);
+            way_hi_r1[w] = mbtb_entry_t'(hi_word_r[w*ENTRY_W +: ENTRY_W]);
+            upd_way_u1[w] = mbtb_entry_t'(up_word_u1[w*ENTRY_W +: ENTRY_W]);
+        end
+    end
+
+    // Read-modify-write word for the update's target set.
+    always_comb begin
+        upd_word = up_word_u2;
+        for (int w = 0; w < MBTB_WAYS; w++)
+            if (w == upd_way_u2)
+                upd_word[w*ENTRY_W +: ENTRY_W] = upd_entry_u2;
+    end
+
     integer i;
     always_ff @(posedge clk) begin
         if (rst) begin
@@ -252,14 +296,11 @@ module mbtb (
             pend_valid <= 1'b0;
             pend_pc <= '0; pend_type <= CFI_NONE; pend_target <= '0;
 
-            for (int s = 0; s < MBTB_SET_NUM; s++) begin
-                lru[s] <= '0;
-                for (int w = 0; w < MBTB_WAYS; w++) begin
-                    // Only the validity flag is reset; tag/data are left alone
-                    // so the array can be inferred as RAM (as in icache).
-                    mbtb_mem[s][w].valid <= 1'b0;
-                end
-            end
+            // LRU state is small and reset here.  The entry array is NOT reset
+            // through a per-entry loop: that creates one write port per entry
+            // and stops ADS from inferring RAM.  It is zero-initialised below
+            // (FPGA power-up / $readmemh style), exactly like tage_tag_array.
+            for (int s = 0; s < MBTB_SET_NUM; s++) lru[s] <= '0;
         end else begin
             // ---------------- prediction S0 / S1 ----------------
             r0_valid <= req_valid;
@@ -267,10 +308,8 @@ module mbtb (
 
             r1_valid <= r0_valid;
             r1_pc    <= r0_pc;
-            for (i = 0; i < MBTB_WAYS; i = i + 1) begin
-                way_lo_r1[i] <= mbtb_mem[r0_set_lo][i];
-                way_hi_r1[i] <= mbtb_mem[r0_set_hi][i];
-            end
+            lo_word_r <= mbtb_lo_mem[r0_set_lo];
+            hi_word_r <= mbtb_hi_mem[r0_set_hi];
 
             // ---------------- update U0 ----------------
             upd_valid_u0  <= upd_launch;
@@ -300,9 +339,8 @@ module mbtb (
             upd_pos_u1    <= upd_pos_u0;
             upd_type_u1   <= upd_type_u0;
             upd_target_u1 <= upd_target_u0;
-            for (i = 0; i < MBTB_WAYS; i = i + 1) begin
-                upd_way_u1[i] <= mbtb_mem[upd_set_u0][i];
-            end
+            up_word_u1 <= mbtb_up_mem[upd_set_u0];
+            up_word_u2 <= up_word_u1;
 
             // ---------------- update U2: match / victim / entry ----------------
             upd_valid_u2 <= upd_valid_u1;
@@ -312,7 +350,9 @@ module mbtb (
 
             // ---------------- update U3: write back + LRU ----------------
             if (upd_valid_u2) begin
-                mbtb_mem[upd_set_u2][upd_way_u2] <= upd_entry_u2;
+                mbtb_lo_mem[upd_set_u2] <= upd_word;
+                mbtb_hi_mem[upd_set_u2] <= upd_word;
+                mbtb_up_mem[upd_set_u2] <= upd_word;
                 lru[upd_set_u2] <= lru_touch(lru[upd_set_u2], int'(upd_way_u2));
             end
         end

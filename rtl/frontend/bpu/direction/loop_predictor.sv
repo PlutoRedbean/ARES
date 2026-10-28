@@ -107,10 +107,17 @@ module loop_predictor (
             end
         end
     end
+    // Zero-init instead of a per-entry reset: an array reset loop creates one
+    // write port per entry and prevents RAM inference (see mbtb/tage).
+    initial begin
+        for (int j = 0; j < LOOP_ENTRIES; j++) begin
+            committed[j] = '0;
+            loop_table[j] = '0;
+        end
+    end
+
     always_ff @(posedge clk) begin
-        for (int j=0; j<LOOP_ENTRIES; j++)
-            if (rst) committed[j] <= '0;
-            else committed[j] <= committed_next[j];
+        for (int j=0; j<LOOP_ENTRIES; j++) committed[j] <= committed_next[j];
     end
 
     // Combinational read of the four slots of the current fetch block.
@@ -208,11 +215,8 @@ module loop_predictor (
 
     always_ff @(posedge clk) begin
         if (rst) begin
-            for (int j = 0; j < LOOP_ENTRIES; j++) begin
-                // Only the validity flag is reset; the entry data is left alone
-                // so the table can be inferred as RAM (as in icache).
-                loop_table[j].valid <= 1'b0;
-            end
+            // The table is zero-initialised once (see the initial block above);
+            // no per-entry reset here so ADS can infer RAM.
         end else begin
 
             // ------------------------------------------------------------
