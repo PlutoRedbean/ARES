@@ -36,6 +36,12 @@ make -C sim
 make -C tests/cpu-tests ARCH=riscv32-ares run
 ```
 
+For the optional CRC-accelerated CoreMark variant (custom-0 CRC8 instruction,
+compiler/link interposition, no `core_util.c` edits), see
+[docs/coremark_crc_acceleration.md](docs/coremark_crc_acceleration.md) and
+`scripts/build_coremark_crc.py`. The default `coremark-image` flow is
+unchanged.
+
 ---
 
 ## Repository layout
