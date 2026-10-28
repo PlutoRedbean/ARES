@@ -40,6 +40,7 @@ ARCH = "riscv32-ares"
 DEFAULT_CROSS_COMPILE = "riscv64-unknown-elf-"
 ELF_NAME = "coremark-riscv32-ares.elf"
 
+
 # (file, regex, human description, expected value recorded in inputs.json)
 FROZEN_CHECKS = [
     ("include/coremark.h", r"#define\s+TOTAL_DATA_SIZE\s+2\*1000",
@@ -153,7 +154,7 @@ def stage_port(port: Path, stage: Path) -> None:
 
 
 def build(stage: Path, root: Path, cross_compile: str, jobs: int | None,
-          ccache: bool, log_path: Path) -> None:
+          ccache: bool, log_path: Path, board: bool = False) -> None:
     env = {k: v for k, v in os.environ.items()
            if k not in ("AM_HOME", "MUNDUS_HOME", "NPC_HOME", "ARES_HOME", "CCACHE_DIR")}
     if not ccache:
@@ -164,7 +165,11 @@ def build(stage: Path, root: Path, cross_compile: str, jobs: int | None,
     if jobs:
         command.append(f"-j{jobs}")
     command += [f"ARES_HOME={root}", f"ARCH={ARCH}",
-                f"CROSS_COMPILE={cross_compile}", "image"]
+                f"CROSS_COMPILE={cross_compile}"]
+    if board:
+        # ares.mk selects ares-board-linker.ld for the compact board layout.
+        command.append("ARES_BOARD=1")
+    command.append("image")
     result = subprocess.run(command, capture_output=True, text=True, env=env)
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_path.write_text(result.stdout + result.stderr)
@@ -177,10 +182,16 @@ def main() -> int:
     root = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--out", type=Path, default=root / "build/coremark",
-                        help="output directory (default build/coremark)")
+    parser.add_argument("--out", type=Path, default=None,
+                        help="output directory (default build/coremark, or "
+                             "build/coremark-board with --board)")
     parser.add_argument("--port", type=Path, default=root / "tests/benchmarks/coremark",
                         help="CoreMark port directory to build")
+    parser.add_argument("--board", action="store_true",
+                        help="build the compact board image (ARES_BOARD=1, "
+                             "ares-board-linker.ld) and emit coremark_board.hex")
+    parser.add_argument("--data-offset", type=lambda v: int(v, 0), default=elf_image.BOARD_C1_OFFSET,
+                        help=f"hart1 data offset for --board (default 0x{elf_image.BOARD_C1_OFFSET:x})")
     parser.add_argument("--no-build", action="store_true",
                         help="reuse the ELF already staged under --out")
     parser.add_argument("--cross-compile", default=DEFAULT_CROSS_COMPILE,
@@ -195,7 +206,8 @@ def main() -> int:
     parser.add_argument("--json", action="store_true", help="print inputs.json to stdout")
     args = parser.parse_args()
 
-    out = args.out.resolve()
+    out = (args.out or (root / ("build/coremark-board" if args.board
+                                else "build/coremark"))).resolve()
     port = args.port.resolve()
     if not port.is_dir():
         die(f"CoreMark port directory not found: {port}")
@@ -206,7 +218,7 @@ def main() -> int:
         with output_lock(out):
             stage_port(port, stage)
             build(stage, root, args.cross_compile, args.jobs, args.ccache,
-                  out / "build.log")
+                  out / "build.log", board=args.board)
 
     elf = stage / "build" / ELF_NAME
     if not elf.is_file():
@@ -229,6 +241,14 @@ def main() -> int:
     hex_sha = sha256(hex_path)
     if args.expect_hex_sha256 and hex_sha != args.expect_hex_sha256:
         die(f"hex SHA-256 mismatch: got {hex_sha}, expected {args.expect_hex_sha256}")
+
+    board_hex_path = None
+    if args.board:
+        board_hex_path = out / "coremark_board.hex"
+        with output_lock(out):
+            elf_image.atomic_write_text(
+                board_hex_path,
+                elf_image.to_readmemh(elf_image.board_image(image, args.data_offset)))
 
     config = root / "configs/build/.config"
     port_hashes = {str(p.relative_to(port)): sha256(p)
@@ -261,12 +281,25 @@ def main() -> int:
         },
         "commands": {
             "build": f"make -C {rel(stage, root)} ARES_HOME={root} ARCH={ARCH} "
-                     f"CROSS_COMPILE={args.cross_compile} image",
+                     f"CROSS_COMPILE={args.cross_compile}"
+                     + (" ARES_BOARD=1" if args.board else "") + " image",
             "convert": f"python3 scripts/elf_image.py --elf {rel(kept_elf, root)} "
                        f"--bin {rel(bin_path, root)} --hex {rel(hex_path, root)} "
                        f"--base 0x{args.base:08x} --limit 0x{args.limit:08x}",
         },
     }
+    if board_hex_path is not None:
+        inputs["board"] = {
+            "ram_base": f"0x{elf_image.BOARD_BASE:08x}",
+            "ram_bytes": elf_image.BOARD_RAM_BYTES,
+            "code_bytes": elf_image.BOARD_CODE_BYTES,
+            "data_bytes": elf_image.BOARD_DATA_BYTES,
+            "c1_data_offset": f"0x{args.data_offset:08x}",
+            "linker": "tests/abstract-machine/scripts/ares-board-linker.ld",
+            "hex": rel(board_hex_path, root),
+            "hex_lines": elf_image.BOARD_RAM_BYTES // 16,
+            "sha256": sha256(board_hex_path),
+        }
     elf_image.atomic_write_text(out / "inputs.json", json.dumps(inputs, indent=2) + "\n")
 
     if not args.json:
@@ -276,6 +309,11 @@ def main() -> int:
         print(f"  elfcopy {rel(kept_elf, root)}")
         print(f"  bin     {rel(bin_path, root)}  sha256 {inputs['image']['sha256']['bin']}")
         print(f"  hex     {rel(hex_path, root)}  sha256 {hex_sha}")
+        if board_hex_path is not None:
+            print(f"  board   {rel(board_hex_path, root)}  "
+                  f"sha256 {inputs['board']['sha256']}  "
+                  f"({elf_image.BOARD_RAM_BYTES // 1024} KiB window, "
+                  f"hart1 data offset 0x{args.data_offset:08x})")
         print(f"  inputs  {rel(out / 'inputs.json', root)}")
         print("frozen:  ITERATIONS=100 TOTAL_DATA_SIZE=2000 seeds=0/0/0x66 "
               "MEM_STATIC MULTITHREAD=1 rv32im_zicsr/ilp32")

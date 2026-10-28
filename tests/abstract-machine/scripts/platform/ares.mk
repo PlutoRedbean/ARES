@@ -14,7 +14,10 @@ AM_SRCS := riscv/ares/start.S        \
 
 CFLAGS    += -fdata-sections -ffunction-sections
 CFLAGS    += -I$(AM_HOME)/am/src/riscv/ares/include
-LDSCRIPTS += $(AM_HOME)/scripts/ares-linker.ld
+# ARES_BOARD=1 selects the compact board layout (16K code + 16K data per hart)
+# instead of the JYD simulation map (32K IROM + 256K DRAM 1 MiB apart).  The
+# default stays ares-linker.ld so every simulation/TB image is unchanged.
+LDSCRIPTS += $(AM_HOME)/scripts/$(if $(ARES_BOARD),ares-board-linker.ld,ares-linker.ld)
 LDFLAGS   += --defsym=_program_start=0x80000000 --defsym=_entry_offset=0x0
 LDFLAGS   += --gc-sections -e _start
 

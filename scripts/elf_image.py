@@ -39,6 +39,17 @@ PHDR_SIZE = 32
 DEFAULT_BASE = 0x8000_0000
 DEFAULT_LIMIT = 0x0100_0000  # 16 MiB backing memory of the L2 testbenches
 
+# Board layout (must match tests/abstract-machine/scripts/ares-board-linker.ld
+# and rtl/board/ares_pango_board.sv):
+#   [0x8000_0000, 0x8000_4000)  code (both harts fetch here, no offset)
+#   [0x8000_4000, 0x8000_8000)  hart0 .rodata/.data/.bss/stack
+#   [0x8000_8000, 0x8000_c000)  hart1 copy (C1_DATA_OFFSET = 0x4000)
+BOARD_BASE = 0x8000_0000
+BOARD_CODE_BYTES = 0x4000
+BOARD_DATA_BYTES = 0x4000
+BOARD_C1_OFFSET = 0x4000
+BOARD_RAM_BYTES = BOARD_CODE_BYTES + 2 * BOARD_DATA_BYTES
+
 
 class ElfImageError(Exception):
     """A refused input.  The message is part of the tool's contract."""
@@ -264,12 +275,49 @@ def write_outputs(elf_path: Path, bin_path: Path | None, hex_path: Path | None,
     return image
 
 
+def board_image(image: Image, c1_offset: int = BOARD_C1_OFFSET) -> bytes:
+    """Dense board RAM image: the ELF image plus hart1's private data copy.
+
+    hart1's memory addresses are offset by C1_DATA_OFFSET in hardware
+    (ares_frontend_hart), so its copy of .rodata/.data/.bss/stack lives at
+    BOARD_CODE_BYTES + c1_offset.  Both copies start from the same bytes.
+    """
+    if c1_offset < BOARD_DATA_BYTES:
+        raise ElfImageError(
+            f"hart1 data offset 0x{c1_offset:x} is smaller than the "
+            f"{BOARD_DATA_BYTES}-byte per-hart data region")
+    if BOARD_DATA_BYTES + c1_offset + BOARD_DATA_BYTES > BOARD_RAM_BYTES:
+        raise ElfImageError(
+            f"hart1 data offset 0x{c1_offset:x} does not fit the "
+            f"{BOARD_RAM_BYTES}-byte board window")
+    if len(image.data) > BOARD_RAM_BYTES:
+        raise ElfImageError(
+            f"image is {len(image.data)} bytes, larger than the "
+            f"{BOARD_RAM_BYTES}-byte board window")
+    if image.end > BOARD_BASE + BOARD_CODE_BYTES + BOARD_DATA_BYTES:
+        raise ElfImageError(
+            f"image ends at 0x{image.end:08x}, past hart0's data window "
+            f"(0x{BOARD_BASE + BOARD_CODE_BYTES:08x}.."
+            f"0x{BOARD_BASE + BOARD_CODE_BYTES + BOARD_DATA_BYTES:08x}); "
+            "widen ares-board-linker.ld")
+    board = bytearray(BOARD_RAM_BYTES)
+    board[:len(image.data)] = image.data
+    region = image.data[BOARD_CODE_BYTES:BOARD_CODE_BYTES + BOARD_DATA_BYTES]
+    start = BOARD_CODE_BYTES + c1_offset
+    board[start:start + len(region)] = region
+    return bytes(board)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--elf", type=Path, required=True, help="input ELF32 executable")
     parser.add_argument("--bin", type=Path, help="optional dense flat binary output")
     parser.add_argument("--hex", type=Path, help="optional 128-bit readmemh output")
+    parser.add_argument("--board-hex", type=Path,
+                        help="optional board RAM image (ELF image + hart1 data copy)")
+    parser.add_argument("--c1-offset", type=lambda v: int(v, 0), default=BOARD_C1_OFFSET,
+                        help=f"hart1 data offset for --board-hex (default 0x{BOARD_C1_OFFSET:x})")
     parser.add_argument("--base", type=lambda v: int(v, 0), default=DEFAULT_BASE,
                         help=f"first address of the image (default 0x{DEFAULT_BASE:08x})")
     parser.add_argument("--limit", type=lambda v: int(v, 0), default=DEFAULT_LIMIT,
@@ -283,6 +331,9 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         image = write_outputs(args.elf, args.bin, args.hex, args.base, args.limit)
+        if args.board_hex is not None:
+            atomic_write_text(args.board_hex,
+                              to_readmemh(board_image(image, args.c1_offset)))
     except (ElfImageError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
