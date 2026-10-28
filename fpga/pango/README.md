@@ -423,3 +423,31 @@ D:\PDS_2022.2-SP6.4\bin\pds_shell.exe -file flow_video_fb.tcl -project_name vide
 ```
 
 烧写用 `program.tcl` + `cdt_cfg.exe`（见 `S2_DEBUG.md` §8）。
+
+## 12. S2 成功（2026-10-28）
+
+S2（OV5640 → DDR3 双缓冲 → HDMI）已跑通，最终画面见
+`/mnt/c/Users/BlossilveR/code/ares-video-s2-fb/fpga/pango/picture8.jpg`
+（干净，无彩色横条/抖动）。
+
+最终配置：官方 200Pro `2_9` DDR3 IP（1000 Mbps，`DEVICE_100H_EN=false`，
+原始 DQ 顺序）、`official_ddr3.fdc`（CPD `729_772`）、vendor
+`wr_fram_buf`/`rd_fram_buf` SDPRAM、`video_dvp_rgb565`（HREF 相位复位）、
+`USE_EXT_DE=1`、`axi_wlast=axi_wusero_last`、无读闸门、无
+`set_input_delay`/`set_output_delay`、相机 2.5 V、`seed 5`、
+`INJECT_PATTERN=0`。
+
+根因：
+
+1. **J13 跳线帽位置错误**（物理）→ DVP 数据位错误、彩色横条、越用越严重；
+2. **DDR3 用了 100H 配置**（`DEVICE_100H_EN=true`）+ DQ3 反转 → 官方
+   200Pro `false` + 原始 DQ 顺序；
+3. **vendor `cmos_8_16bit` 字节相位 bug** → `video_dvp_rgb565` HREF 复位；
+4. 800 Mbps 重新生成 IP 更差 → 回到 1000；
+5. 读闸门 / 2.0 ns input/output delay → 去掉。
+
+隔离证据：`INJECT_PATTERN=1` 纯色竖条干净 → framebuf/DDR3/HDMI 正常；
+100H `cmos_8_16bit` 整行颜色翻转 → 相位问题；官方 `2_9` BIST 1000 Mbps
+`I=1/G=0/C=0`。
+
+下一步：S2 standalone 完成，接 SoC。

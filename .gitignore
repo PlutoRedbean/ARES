@@ -41,3 +41,23 @@ vivado*.log
 *.bit
 *.ltx
 vide.toml
+
+# Pango DDR3 IP generated PnR outputs (keep pnr/ddr_test.fdc as source)
+fpga/pango/ip/**/pnr/compile/
+fpga/pango/ip/**/pnr/constraint_check/
+fpga/pango/ip/**/pnr/device_map/
+fpga/pango/ip/**/pnr/place_route/
+fpga/pango/ip/**/pnr/generate_bitstream/
+fpga/pango/ip/**/pnr/report_timing/
+fpga/pango/ip/**/pnr/synthesize/
+fpga/pango/ip/**/pnr/log/
+fpga/pango/ip/**/pnr/logbackup/
+fpga/pango/ip/**/pnr/*.log
+fpga/pango/ip/**/pnr/*.db
+fpga/pango/ip/**/*.sbit
+fpga/pango/ip/**/*.smsk
+fpga/pango/ip/**/*.bgr
+!fpga/pango/ip/**/pnr/ddr_test.fdc
+
+fpga/pango/ip/**/.last_generated
+fpga/pango/ip/**/generate.log

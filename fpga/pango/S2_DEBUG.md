@@ -276,3 +276,46 @@ HDMI-out 视频工程：
 
 当前 S2 用 2_9 的 `false` + `729_772` 已经出场景；如果后面 DDR3 数据/时序
 还有问题，可以再对照 4_12 的 IP/FDC/CPD 做一版，但不要同时改多个变量。
+
+---
+
+## 12. S2 成功（2026-10-28）
+
+**最终位流**：`/mnt/c/Users/BlossilveR/code/ares-video-s2-fb/fpga/pango/generate_bitstream/video_fb_top.sbit`
+（13:35，`All Constraints Met`）。
+**最终画面**：`picture8.jpg`，OV5640 → DDR3 双缓冲 → HDMI，干净、无彩色横条、无抖动。
+
+### 12.1 最终配置
+
+| 项 | 值 |
+| --- | --- |
+| DDR3 IP | 官方 200Pro `2_9` `ddr3_test`，1000 Mbps，`DEVICE_100H_EN=false` |
+| DDR3 约束 | `official_ddr3.fdc`（2_9 官方，CPD `729_772`） |
+| DDR3 引脚 | 2_9 原始 DQ 顺序（无 DQ24..31 反转） |
+| framebuf | vendor `wr_fram_buf`/`rd_fram_buf` + `ipm2l_sdpram`（DRM） |
+| 相机拼接 | `video_dvp_rgb565`（HREF 低电平复位字节相位） |
+| HDMI DE | `USE_EXT_DE=1`，framebuf `vout_de` |
+| AXI | `axi_wlast = axi_wusero_last` |
+| 读侧 | 不 gate `rd_en`/`rd_fsync`（vendor 顶层行为） |
+| 时序 | 无 `set_input_delay`/`set_output_delay`（与官方 100H 相机工程一致） |
+| 相机 IO | 2.5 V / LVCMOS25（200Pro+ J24=2V5，J13 正确） |
+| PnR | `seed 5` |
+| 注入 | `INJECT_PATTERN=0` |
+
+### 12.2 根因
+
+1. **J13 跳线帽位置错误**（物理）→ 摄像头 DVP 数据位错误、彩色横条、且随温度/时间加重；改正后 picture8 干净。
+2. **DDR3 IP 用了 100H 配置**（`DEVICE_100H_EN=true`）+ DQ3 反转 → 官方 200Pro `false` + 原始 DQ 顺序；官方 `2_9` BIST 1000 Mbps `I=1 F=0 A=0 G=0 D=1 E=0 C=0`。
+3. **vendor `cmos_8_16bit` 字节相位 bug**（`cnt` 不随 HREF 复位）→ `video_dvp_rgb565` 的 HREF 相位复位；picture7（vendor 原版）整行颜色翻转，picture5（我们的版本）仅细横条，证明相位逻辑有效。
+4. **800 Mbps 重新生成的 IP 反而更差**（PLL/PHY 配置不匹配）→ 回到 1000 Mbps。
+5. 读闸门 / 2.0 ns input/output delay → 去掉。
+
+### 12.3 隔离证据
+
+- `INJECT_PATTERN=1` 纯色竖条：画面干净 → framebuf/DDR3/HDMI 数据通路正常。
+- 100H `cmos_8_16bit`：整行颜色翻转 → 字节相位问题，不是 DDR3。
+- 官方 `2_9` BIST 1000 Mbps：`I=1`，`P` 持续增长，`C=0`。
+
+### 12.4 下一步
+
+S2 standalone 目标完成；下一步接 SoC（视频流/寄存器接口）。
