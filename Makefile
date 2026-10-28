@@ -241,6 +241,7 @@ ARES_L2_SRCS := $(RTL_ROOT)/common/fe_pkg.sv $(RTL_ROOT)/common/ares_pkg.sv $(RT
                 $(RTL_ROOT)/top/ares_core_top.sv $(RTL_ROOT)/top/ares_2core_l2_top.sv
 
 ARES_CFG_INC := +incdir+$(ARES_HOME)/configs/build/vsrc/include
+ARES_CFG_DEFS := $(shell python3 $(ARES_HOME)/scripts/kconfig/ares_kconfig.py defs 2>/dev/null)
 VERILATOR_LINT_FLAGS := --lint-only -Wall --assert -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
                         -DCONFIG_SIMULATION $(ARES_CFG_INC)
 
@@ -316,6 +317,13 @@ unit-fe-adapter: config-gen
 # rtl/top/test/tb_ares_coremark.sv.
 COREMARK_OUT ?= $(ARES_HOME)/build/coremark
 COREMARK_HEX ?= $(COREMARK_OUT)/coremark_dmem.hex
+# Branch-difftest accuracy model (sim/csrc/branch_difftest.cpp).
+#   make unit-coremark BRDIFF=1
+BRDIFF ?=
+BRDIFF_DEFS   := $(if $(BRDIFF),-DCONFIG_BRANCH_DIFFTEST -DCONFIG_FRONTEND_ARES,)
+BRDIFF_SRCS   := $(if $(BRDIFF),$(ARES_HOME)/sim/csrc/branch_difftest.cpp,)
+BRDIFF_CFLAGS := $(if $(BRDIFF),-CFLAGS "$(ARES_CFG_DEFS) -DCONFIG_BRANCH_DIFFTEST -DCONFIG_FRONTEND_ARES -I$(ARES_HOME)/sim/csrc/include",)
+
 COREMARK_IMAGE_FLAGS ?=
 COREMARK_IMAGE_CMD = python3 "$(ARES_HOME)/scripts/build_coremark_image.py" --out "$(COREMARK_OUT)" $(COREMARK_IMAGE_FLAGS)
 COREMARK_PORT_SRCS := $(wildcard $(ARES_HOME)/tests/benchmarks/coremark/src/*.c) \
@@ -356,11 +364,14 @@ unit-coremark: config-gen
 	@verilator --binary -j 4 --timing -sv --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
 	    -Wno-SIDEEFFECT -Wno-BLKSEQ -Wno-PINCONNECTEMPTY -Wno-UNUSEDSIGNAL \
 	    -Wno-UNOPTFLAT -Wno-WIDTHEXPAND -Wno-WIDTHTRUNC -Wno-CASEINCOMPLETE -Wno-IMPLICIT \
-	    -DCONFIG_SIMULATION $(ARES_CFG_INC) --top-module tb_ares_coremark \
+	    -DCONFIG_SIMULATION $(ARES_CFG_INC) $(BRDIFF_DEFS) $(BRDIFF_CFLAGS) \
+	    --top-module tb_ares_coremark \
 	    --Mdir $(ARES_HOME)/sim/build/unit/tb_ares_coremark \
 	    -o $(ARES_HOME)/sim/build/unit/tb_ares_coremark/tb_ares_coremark \
-	    $(ARES_COREMARK_SRCS) $(RTL_ROOT)/top/test/tb_ares_coremark.sv
-	@$(ARES_HOME)/sim/build/unit/tb_ares_coremark/tb_ares_coremark \
+	    $(ARES_COREMARK_SRCS) $(RTL_ROOT)/top/test/tb_ares_coremark.sv \
+	    $(BRDIFF_SRCS)
+	@ARES_BRDIFF_DMEM="$(if $(strip $(DMEM)),$(DMEM),$(COREMARK_HEX))" \
+	    $(ARES_HOME)/sim/build/unit/tb_ares_coremark/tb_ares_coremark \
 	    +DMEM=$(if $(strip $(DMEM)),$(DMEM),$(COREMARK_HEX)) $(COREMARK_ARGS)
 
 # Two-hart AMP CoreMark on the shared L2 (two full CoreMark copies, hart1's

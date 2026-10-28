@@ -11,6 +11,9 @@
 //=============================================================================
 `timescale 1ns/1ps
 module tb_ares_coremark;
+`ifdef CONFIG_BRANCH_DIFFTEST
+    import "DPI-C" function void branch_difftest_dump_report();
+`endif
     import ares_pkg::*;
 
     localparam int unsigned MEM_WORDS = 1 << 20;  // 16 MiB
@@ -172,6 +175,9 @@ module tb_ares_coremark;
                                 max_cycles, cycle_count));
             end
         end
+`ifdef CONFIG_BRANCH_DIFFTEST
+        branch_difftest_dump_report();
+`endif
         if (errors == 0) begin
             $display("ALL TESTS PASSED: %0d checks - ARES real FE + shared L2 CoreMark", checks);
             $display("CoreMark metrics: retires=%0d cycles=%0d IPC=%0.6f CoreMark/MHz=%0.4f time_ns=%0d hits=%0d misses=%0d pc=%h",

@@ -257,4 +257,37 @@ module ares_core_top #(
         .dbg_sq_used        (dbg_sq_used)
     );
 
+
+`ifdef CONFIG_BRANCH_DIFFTEST
+    //-------------------------------------------------------------------------
+    // Branch difftest: hand every resolved CFI to the reference model in
+    // sim/csrc/branch_difftest.cpp.  The fields are exactly the ones the FE
+    // trains from, so the model sees the RTL's predicted/actual pair.
+    //-------------------------------------------------------------------------
+    import "DPI-C" function void branch_difftest_queue_update(
+        input int update_en,
+        input int update_pc,
+        input int predicted_pc,
+        input int predicted_taken,
+        input int actual_taken,
+        input int actual_target
+    );
+    integer bd_lane;
+    always @(posedge clk) begin
+        if (!rst) begin
+            for (bd_lane = 0; bd_lane < 2; bd_lane = bd_lane + 1) begin
+                if (bpu_update_valid[bd_lane]) begin
+                    branch_difftest_queue_update(
+                        int'(bpu_update_valid[bd_lane]),
+                        int'(bpu_update[bd_lane].update_pc),
+                        int'(bpu_update[bd_lane].pred_meta.pred_target),
+                        int'(bpu_update[bd_lane].pred_meta.pred_taken),
+                        int'(bpu_update[bd_lane].actual_taken),
+                        int'(bpu_update[bd_lane].actual_target));
+                end
+            end
+        end
+    end
+`endif
+
 endmodule
