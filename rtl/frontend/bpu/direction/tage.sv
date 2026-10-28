@@ -114,6 +114,18 @@ module tage (
     // function of the GHV (`tage_hist_collapse`), so keeping them out of the
     // checkpoint array cuts its width by ~2x with no behavioural change.
     logic [TAGE_GHV_WIDTH-1:0] ckpt_mem[TAGE_CKPT_DEPTH];
+
+    // Per-block idx/tag side ring (monotonic: never rolled back on redirect,
+    // so a slot's pointer stays valid until the ring wraps).
+    typedef struct packed {
+        logic [TAGE_BLOCK_META_SEQ_WIDTH-1:0]              seq;
+        logic [TAGE_NUM_TABLES-1:0][TAGE_INDEX_WIDTH-1:0]  idx;
+        logic [TAGE_NUM_TABLES-1:0][TAGE_TAG_WIDTH-1:0]    tag;
+    } tage_block_meta_t;
+
+    tage_block_meta_t block_meta_mem[TAGE_BLOCK_META_DEPTH];
+    logic [TAGE_BLOCK_META_PTR_WIDTH-1:0] block_meta_wptr;
+    logic [TAGE_BLOCK_META_SEQ_WIDTH-1:0] block_meta_gen;
     logic [TAGE_CKPT_PTR_WIDTH-1:0] ckpt_wptr;
 
     // ==================================================================
@@ -139,6 +151,17 @@ module tage (
     logic [TAGE_NUM_TABLES-1:0][TAGE_NUM_SLOTS-1:0][TAGE_CTR_WIDTH-1:0] tbl_up_ctr;
     logic [TAGE_NUM_TABLES-1:0][TAGE_NUM_SLOTS-1:0][TAGE_USEFUL_WIDTH-1:0] tbl_up_useful;
 
+    // Update-side block metadata: the port read feeds the array read port, the
+    // registered copy feeds the training compute (same pipeline stage).
+    tage_block_meta_t upd_block_meta_c, upd_block_meta_d;
+    logic             upd_meta_match_c, upd_meta_match_d;
+    always_comb begin
+        upd_block_meta_c = block_meta_mem[update_meta.block_ptr];
+        upd_meta_match_c = (upd_block_meta_c.seq == update_meta.block_seq);
+        upd_block_meta_d = block_meta_mem[update_meta_d.block_ptr];
+        upd_meta_match_d = (upd_block_meta_d.seq == update_meta_d.block_seq);
+    end
+
     generate
         for (genvar t = 0; t < TAGE_NUM_TABLES; t++) begin : g_tag
             tage_tag_array u_tag (
@@ -151,7 +174,7 @@ module tage (
                 .rd_ctr(tbl_rd_ctr[t]),
                 .rd_useful(tbl_rd_useful[t]),
                 .up_rd_en(update_en),
-                .up_idx(update_meta.idx[t]),
+                .up_idx(upd_block_meta_c.idx[t]),
                 .up_valid(tbl_up_valid[t]),
                 .up_tag(tbl_up_tag[t]),
                 .up_ctr(tbl_up_ctr[t]),
@@ -235,6 +258,8 @@ module tage (
     logic [TAGE_NUM_TABLES-1:0][TAGE_INDEX_WIDTH-1:0] s1_idx;
     logic [TAGE_NUM_TABLES-1:0][TAGE_TAG_WIDTH-1:0] s1_tag;
     logic [TAGE_BASE_NUM_BANKS-1:0][TAGE_BASE_INDEX_WIDTH-1:0] s1_base_idx;
+    logic [TAGE_BLOCK_META_PTR_WIDTH-1:0] s1_block_ptr;
+    logic [TAGE_BLOCK_META_SEQ_WIDTH-1:0] s1_block_seq;
     logic [TAGE_CKPT_PTR_WIDTH-1:0] s1_ckpt_ptr;
 
     logic s2_valid;
@@ -242,6 +267,8 @@ module tage (
     logic [TAGE_NUM_TABLES-1:0][TAGE_INDEX_WIDTH-1:0] s2_idx;
     logic [TAGE_NUM_TABLES-1:0][TAGE_TAG_WIDTH-1:0] s2_tag;
     logic [TAGE_BASE_NUM_BANKS-1:0][TAGE_BASE_INDEX_WIDTH-1:0] s2_base_idx;
+    logic [TAGE_BLOCK_META_PTR_WIDTH-1:0] s2_block_ptr;
+    logic [TAGE_BLOCK_META_SEQ_WIDTH-1:0] s2_block_seq;
     logic [TAGE_BASE_NUM_BANKS-1:0][1:0] s2_base_ctr;
     logic [TAGE_CKPT_PTR_WIDTH-1:0] s2_ckpt_ptr;
     logic [TAGE_NUM_TABLES-1:0][TAGE_NUM_SLOTS-1:0] s2_rd_valid;
@@ -263,7 +290,11 @@ module tage (
             s1_idx <= '0;
             s1_tag <= '0;
             s1_base_idx <= '0;
+            s1_block_ptr <= '0;
+            s1_block_seq <= '0;
             s1_ckpt_ptr <= '0;
+            block_meta_wptr <= '0;
+            block_meta_gen  <= '0;
             s2_valid <= 1'b0;
             s2_pc <= '0;
             s2_idx <= '0;
@@ -281,11 +312,21 @@ module tage (
         end else begin
             s1_valid <= req_valid && !flush;
             if (req_valid && !flush) begin
-                s1_pc       <= fetch_pc;
-                s1_idx      <= idx_s0;
-                s1_tag      <= tag_s0;
-                s1_base_idx <= base_idx_s0;
-                s1_ckpt_ptr <= ckpt_wptr;
+                s1_pc        <= fetch_pc;
+                s1_idx       <= idx_s0;
+                s1_tag       <= tag_s0;
+                s1_base_idx  <= base_idx_s0;
+                s1_ckpt_ptr  <= ckpt_wptr;
+                s1_block_ptr <= block_meta_wptr;
+                s1_block_seq <= block_meta_gen;
+                // Publish this block's idx/tag for the commit-time update.  The
+                // pointer is monotonic: a redirect never invalidates it.
+                block_meta_mem[block_meta_wptr].idx <= idx_s0;
+                block_meta_mem[block_meta_wptr].tag <= tag_s0;
+                block_meta_mem[block_meta_wptr].seq <= block_meta_gen;
+                block_meta_wptr <= block_meta_wptr + 1'b1;
+                if (block_meta_wptr == TAGE_BLOCK_META_DEPTH - 1)
+                    block_meta_gen <= block_meta_gen + 1'b1;
             end
 
             // s1 captures the array output registered in the previous cycle,
@@ -303,8 +344,10 @@ module tage (
                 s2_pc       <= s1_pc;
                 s2_idx      <= s1_idx;
                 s2_tag      <= s1_tag;
-                s2_base_idx <= s1_base_idx;
-                s2_ckpt_ptr <= s1_ckpt_ptr;
+                s2_base_idx  <= s1_base_idx;
+                s2_block_ptr <= s1_block_ptr;
+                s2_block_seq <= s1_block_seq;
+                s2_ckpt_ptr  <= s1_ckpt_ptr;
             end
         end
     end
@@ -349,7 +392,8 @@ module tage (
                 s1_cond_prefix_c[s],
                 s1_ckpt_ptr,
                 TAGE_SLOT_ID_WIDTH'(s),
-                s1_base_idx[TAGE_BASE_NUM_BANKS'(s%TAGE_BASE_NUM_BANKS)],
+                s1_block_ptr,
+                s1_block_seq,
                 base_ctr_rd[TAGE_BASE_NUM_BANKS'(s%TAGE_BASE_NUM_BANKS)],
                 (base_ctr_rd[TAGE_BASE_NUM_BANKS'(s%TAGE_BASE_NUM_BANKS)] >= 2'b10),
                 s1_slot_use_alt_c,
@@ -432,7 +476,8 @@ module tage (
                 cond_prefix_c[s],
                 s2_ckpt_ptr,
                 TAGE_SLOT_ID_WIDTH'(s),
-                s2_base_idx[TAGE_BASE_NUM_BANKS'(s%TAGE_BASE_NUM_BANKS)],
+                s2_block_ptr,
+                s2_block_seq,
                 s2_base_ctr[TAGE_BASE_NUM_BANKS'(s%TAGE_BASE_NUM_BANKS)],
                 (s2_base_ctr[TAGE_BASE_NUM_BANKS'(s%TAGE_BASE_NUM_BANKS)] >= 2'b10),
                 slot_use_alt_c,
@@ -487,9 +532,12 @@ module tage (
 
     always_comb begin
         upd_c = tage_update_compute(
-            update_en_d,
+            update_en_d && upd_meta_match_d,
             actual_taken_d,
             update_meta_d,
+            upd_block_meta_d.idx,
+            upd_block_meta_d.tag,
+            update_meta_d.slot_id,
             tbl_up_valid,
             tbl_up_tag,
             tbl_up_ctr,
@@ -512,7 +560,7 @@ module tage (
         // training by an extra cycle.
         t0_wr_en      = update_en && is_branch;
         t0_wr_bank    = update_meta.slot_id;
-        t0_wr_idx     = update_meta.base_idx;
+        t0_wr_idx     = update_pc[TAGE_BASE_INDEX_WIDTH+1:2];
         t0_wr_ctr     = tage_sat2(update_meta.base_ctr, actual_taken);
         alloc_trig_c  = upd_c.alloc_trig;
         alloc_found_c = upd_c.alloc_found;

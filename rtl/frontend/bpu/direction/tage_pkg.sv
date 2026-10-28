@@ -491,7 +491,9 @@ package tage_pkg;
         input logic [TAGE_COND_PREFIX_WIDTH-1:0] cond_prefix,
         input logic [TAGE_CKPT_PTR_WIDTH-1:0] ckpt_ptr,
         input logic [TAGE_SLOT_ID_WIDTH-1:0] slot_id,
-        input logic [TAGE_BASE_INDEX_WIDTH-1:0] base_idx, input logic [1:0] base_ctr,
+        input logic [TAGE_BLOCK_META_PTR_WIDTH-1:0] block_ptr,
+        input logic [TAGE_BLOCK_META_SEQ_WIDTH-1:0] block_seq,
+        input logic [1:0] base_ctr,
         input logic base_pred, input logic use_alt_bit, input logic has_cfi);
         tage_slot_out_t o;
         tage_slot_pred_t sel;
@@ -503,11 +505,9 @@ package tage_pkg;
         o.meta.ckpt_ptr    = ckpt_ptr;
         o.meta.cond_prefix = cond_prefix;
         o.meta.slot_id     = slot_id;
-        o.meta.base_idx    = base_idx;
+        o.meta.block_ptr   = block_ptr;
+        o.meta.block_seq   = block_seq;
         o.meta.base_ctr    = base_ctr;
-        o.meta.idx         = calc_idx;
-        o.meta.tag         = calc_tag;
-        o.meta.pred_taken  = 1'b0;
         o.pred             = 1'b0;
 
         if (has_cfi) begin
@@ -533,18 +533,12 @@ package tage_pkg;
                 );
                 take_alt = TAGE_USE_ALT_ON_NA && sel.prov_unconf && use_alt_bit;
                 o.meta.valid = 1'b1;
-                o.meta.hit = sel.hit;
                 o.meta.provided = sel.provided;
                 o.meta.provider = sel.provider;
-                o.meta.alt_hit = sel.alt_hit;
-                o.meta.alt = sel.alt;
                 o.meta.provider_ctr = sel.provider_ctr;
                 o.meta.provider_pred = sel.provider_pred;
                 o.meta.alt_pred = sel.alt_pred;
-                o.meta.used_alt = take_alt;
-                o.meta.useful_bits = sel.useful;
                 o.meta.tage_pred = take_alt ? sel.alt_pred : sel.provider_pred;
-                o.meta.pred_taken = o.meta.tage_pred;
                 o.pred = o.meta.tage_pred;
             end else begin
                 // 3rd+ conditional branch: T0 only, not TAGE-managed
@@ -552,7 +546,6 @@ package tage_pkg;
                 o.meta.provider_pred = base_pred;
                 o.meta.alt_pred      = base_pred;
                 o.meta.tage_pred     = base_pred;
-                o.meta.pred_taken    = base_pred;
                 o.pred               = base_pred;
             end
 
@@ -578,6 +571,9 @@ package tage_pkg;
 
     function automatic tage_update_t tage_update_compute(
         input logic upd_en, input logic upd_taken, input tage_meta_t m,
+        input logic [TAGE_NUM_TABLES-1:0][TAGE_INDEX_WIDTH-1:0] idx,
+        input logic [TAGE_NUM_TABLES-1:0][TAGE_TAG_WIDTH-1:0] tag,
+        input logic [TAGE_SLOT_ID_WIDTH-1:0] slot_id,
         input logic [TAGE_NUM_TABLES-1:0][TAGE_NUM_SLOTS-1:0] up_valid,
         input logic [TAGE_NUM_TABLES-1:0][TAGE_NUM_SLOTS-1:0][TAGE_TAG_WIDTH-1:0] up_tag,
         input logic [TAGE_NUM_TABLES-1:0][TAGE_NUM_SLOTS-1:0][TAGE_CTR_WIDTH-1:0] up_ctr,
@@ -595,10 +591,10 @@ package tage_pkg;
         logic [TAGE_USEFUL_WIDTH-1:0] nuseful, eff, neweff;
 
         u     = '0;
-        cslot = m.slot_id[TAGE_SLOT_WIDTH-1:0];
+        cslot = slot_id[TAGE_SLOT_WIDTH-1:0];
         for (int t = 0; t < TAGE_NUM_TABLES; t++) begin
             u.wr_en[t]     = 1'b0;
-            u.wr_idx[t]    = m.idx[t];
+            u.wr_idx[t]    = idx[t];
             u.wr_slot[t]   = cslot;
             u.wr_valid[t]  = 1'b0;
             u.wr_tag[t]    = '0;
@@ -609,18 +605,18 @@ package tage_pkg;
             // ---- provider counter + useful ----
             if (m.provider != '0) begin
                 pt        = int'(m.provider) - 1;
-                tag_match = up_valid[pt][cslot] && (up_tag[pt][cslot] == m.tag[pt]);
+                tag_match = up_valid[pt][cslot] && (up_tag[pt][cslot] == tag[pt]);
                 if (tag_match) begin
-                    eph     = useful_epoch[m.idx[pt][$clog2(TAGE_NUM_BANKS)-1:0]];
+                    eph     = useful_epoch[idx[pt][$clog2(TAGE_NUM_BANKS)-1:0]];
                     nctr    = tage_sat3(up_ctr[pt][cslot], upd_taken);
                     nuseful = tage_useful_eff(up_useful[pt][cslot], eph);
                     if (m.provider_pred != m.alt_pred)
                         nuseful = tage_sat_useful(nuseful, m.provider_pred == upd_taken);
                     u.wr_en[pt]     = 1'b1;
-                    u.wr_idx[pt]    = m.idx[pt];
+                    u.wr_idx[pt]    = idx[pt];
                     u.wr_slot[pt]   = cslot;
                     u.wr_valid[pt]  = 1'b1;
-                    u.wr_tag[pt]    = m.tag[pt];
+                    u.wr_tag[pt]    = tag[pt];
                     u.wr_ctr[pt]    = nctr;
                     u.wr_useful[pt] = tage_useful_eff(nuseful, eph);
                 end
@@ -648,17 +644,17 @@ package tage_pkg;
                     // the provider.
                     free_or_match = !up_valid[t][cslot]
                                  || (tage_useful_eff(up_useful[t][cslot],
-                                         useful_epoch[m.idx[t][$clog2(TAGE_NUM_BANKS)-1:0]]) == '0);
+                                         useful_epoch[idx[t][$clog2(TAGE_NUM_BANKS)-1:0]]) == '0);
                     if ((alloc_cnt < 2) && cand[t] && free_or_match) begin
                         if (!u.alloc_found)
-                            u.alloc_bank = m.idx[t][$clog2(TAGE_NUM_BANKS)-1:0];
+                            u.alloc_bank = idx[t][$clog2(TAGE_NUM_BANKS)-1:0];
                         u.alloc_found = 1'b1;
                         alloc_cnt = alloc_cnt + 1;
                         u.wr_en[t] = 1'b1;
-                        u.wr_idx[t] = m.idx[t];
+                        u.wr_idx[t] = idx[t];
                         u.wr_slot[t] = cslot;
                         u.wr_valid[t] = 1'b1;
-                        u.wr_tag[t] = m.tag[t];
+                        u.wr_tag[t] = tag[t];
                         u.wr_ctr[t] = upd_taken ? {TAGE_CTR_WIDTH{1'b0}} : {TAGE_CTR_WIDTH{1'b1}};
                         u.wr_useful[t] = '0;
                     end
@@ -666,11 +662,11 @@ package tage_pkg;
                 if (!u.alloc_found) begin
                     for (int t = 0; t < TAGE_NUM_TABLES; t++) begin
                         if (cand[t] && up_valid[t][cslot] && !u.wr_en[t]) begin
-                            eph            = useful_epoch[m.idx[t][$clog2(TAGE_NUM_BANKS)-1:0]];
+                            eph            = useful_epoch[idx[t][$clog2(TAGE_NUM_BANKS)-1:0]];
                             eff            = tage_useful_eff(up_useful[t][cslot], eph);
                             neweff         = (eff == '0) ? '0 : eff - 1'b1;
                             u.wr_en[t]     = 1'b1;
-                            u.wr_idx[t]    = m.idx[t];
+                            u.wr_idx[t]    = idx[t];
                             u.wr_slot[t]   = cslot;
                             u.wr_valid[t]  = 1'b1;
                             u.wr_tag[t]    = up_tag[t][cslot];

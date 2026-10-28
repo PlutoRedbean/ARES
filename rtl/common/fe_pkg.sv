@@ -170,6 +170,13 @@ package fe_pkg;
     localparam int unsigned TAGE_PROVIDER_WIDTH = $clog2(TAGE_NUM_TABLES + 1);
     localparam int unsigned TAGE_SLOT_ID_WIDTH = (FETCH_WIDTH > 1) ? $clog2(FETCH_WIDTH) : 1;
     localparam int unsigned TAGE_CKPT_PTR_WIDTH = $clog2(TAGE_CKPT_DEPTH);
+    // Per-block TAGE hash side table: idx/tag are identical for every slot of a
+    // fetch block, so they are stored once per block and the per-slot metadata
+    // only keeps a pointer + generation.  The ring write pointer is monotonic
+    // (never rolled back on redirects), so an entry stays valid until it wraps.
+    localparam int unsigned TAGE_BLOCK_META_DEPTH = 128;
+    localparam int unsigned TAGE_BLOCK_META_PTR_WIDTH = $clog2(TAGE_BLOCK_META_DEPTH);
+    localparam int unsigned TAGE_BLOCK_META_SEQ_WIDTH = 8;
     localparam int unsigned TAGE_COND_PREFIX_WIDTH = $clog2(FETCH_WIDTH + 1);
 
     // ------------------------------------------------------------------
@@ -254,25 +261,18 @@ package fe_pkg;
     typedef struct packed {
         logic valid;  // TAGE-managed conditional branch
         logic meta_valid;  // the S2 backfill wrote this meta (ckpt_ptr/cond_prefix usable)
-        logic [TAGE_NUM_TABLES-1:0] hit;  // T1..T4 tag match
         logic provided;  // a tagged provider exists
         logic [TAGE_PROVIDER_WIDTH-1:0] provider;  // longest-history hit (0 = T0)
-        logic alt_hit;  // a true alternate (2nd longest) exists
-        logic [TAGE_PROVIDER_WIDTH-1:0] alt;  // 2nd longest hit (0 = T0)
         logic [TAGE_CTR_WIDTH-1:0] provider_ctr;  // tagged provider ctr snapshot
         logic [1:0] base_ctr;  // T0 snapshot (RMW)
         logic provider_pred;
         logic alt_pred;
-        logic used_alt;
         logic tage_pred;  // TAGE own direction (pre loop override)
-        logic [TAGE_NUM_TABLES-1:0][TAGE_USEFUL_WIDTH-1:0] useful_bits; // prediction-time snapshot (alloc)
-        logic [TAGE_NUM_TABLES-1:0][TAGE_INDEX_WIDTH-1:0] idx;
-        logic [TAGE_NUM_TABLES-1:0][TAGE_TAG_WIDTH-1:0] tag;
-        logic [TAGE_BASE_INDEX_WIDTH-1:0] base_idx;  // branch PC [10:2]
+        logic [TAGE_BLOCK_META_PTR_WIDTH-1:0] block_ptr;  // per-block idx/tag ring
+        logic [TAGE_BLOCK_META_SEQ_WIDTH-1:0] block_seq;  // ring generation
         logic [TAGE_SLOT_ID_WIDTH-1:0] slot_id;  // instruction slot (T0 bank)
         logic [TAGE_CKPT_PTR_WIDTH-1:0] ckpt_ptr;  // block-before history checkpoint
         logic [TAGE_COND_PREFIX_WIDTH-1:0] cond_prefix;  // on-path cond branches before slot
-        logic pred_taken;
 `ifdef CONFIG_FE_UTAGE
         utage_meta_t utage;  // S1 fast-predictor state (trained at commit)
 `endif
