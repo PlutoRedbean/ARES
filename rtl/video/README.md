@@ -1,10 +1,13 @@
 # rtl/video — 视频子系统 v1（S0/S1/S2/BIST）
 
-> 状态：S0/S1/preview 已实现并出位流，但**已归档**（`archive/`）；当前主线是
+> 状态：**S2 已完成并上板验证**（`picture8.jpg`，画面干净、无横条/抖动）；
+> DDR3 BIST 也已通过；S0/S1/preview 已归档（`archive/`）。当前主线是
 > **S2 摄像头 → DDR3 双缓冲 → HDMI** 和 **DDR3 BIST**。
 > 语言：新增代码全部 **Verilog-2001**（`.v` / `.vh`），不使用 SystemVerilog。
 > 目标板：盘古 200Pro+ / `PG2L200H-6IFBB676`。
-> DDR3：官方 200Pro 2_9 IP，1000 Mbps，`DEVICE_100H_EN=false`。
+> DDR3：官方 200Pro 2_9 IP，1000 Mbps，`DEVICE_100H_EN=false`，原始 DQ 顺序。
+> S2 验证：`D=1 B=1 H=1 C=1 F=1`、`M≈N`；相机 2.5 V（J24=2V5，J13 已修正）；
+> vendor DRM；`video_dvp_rgb565`；读侧无闸门；无 I/O delay；seed 5。
 > 详细状态/坑：`../fpga/pango/README.md`、`../fpga/pango/S2_DEBUG.md`。
 
 ---
@@ -42,7 +45,7 @@ rtl/video/
 | 入口 | 顶层 | 流程 |
 | --- | --- | --- |
 | DDR3 BIST | `video_bist_top.v` | `fpga/pango/flow_bist.tcl`（官方 2_9，1000 Mbps，seed 2） |
-| S2 摄像头→DDR3→HDMI | `video_fb_top.v` | `fpga/pango/flow_video_fb.tcl`（官方 2_9，1000 Mbps，vendor DRM，seed 5） |
+| S2 摄像头→DDR3→HDMI | `video_fb_top.v` | `fpga/pango/flow_video_fb.tcl`（官方 2_9，1000 Mbps，vendor DRM，seed 5；已上板验证） |
 
 `video_defs.vh` 里的 `VIDEO_STAGE_*` 仍保留 S0/S1/S2/BIST 选择，但当前 PDS 流程
 直接指定 `video_fb_top` / `video_bist_top`，不再切 `VIDEO_STAGE_SEL`。
@@ -173,10 +176,19 @@ verilator --lint-only --timing -Wall \
 
 ---
 
-## 7. 下一步
+## 7. 状态与下一步
 
-1. 摄像头数据横条：确认 200Pro+ FMC VADJ / 2.5 V vs 3.3 V，
-   对照 `set_input_delay` 2.0 → 0，必要时用 `cmos_8_16bit` + 输入寄存器结构。
-2. 画面抖动：720p30 在 4K 显示器上的缩放/FreeSync；需要时改 720p60。
-3. `N` 采样已改到 `fb_vout_de`；重新构建后确认 `M≈N`。
-4. 回归：每次改 RTL 先跑 BIST（`I=1/G=0`），再跑 S2（`D=1/B=1`）。
+S2 已完成并上板验证（2026-10-28，`picture8.jpg`）：
+
+- DDR3：官方 200Pro 2_9 IP，1000 Mbps，`DEVICE_100H_EN=false`，原始 DQ 顺序；
+- framebuf：vendor `wr_fram_buf`/`rd_fram_buf` + `ipm2l_sdpram`（DRM）；
+- 相机：`video_dvp_rgb565`（HREF 相位复位），2.5 V/LVCMOS25
+  （200Pro+ J24=2V5，J13 已修正）；
+- 读侧无闸门，无 `set_input_delay`/`set_output_delay`；
+- 状态：`D=1 B=1 H=1 C=1 F=1`，`M≈N`。
+
+下一步：
+
+1. 接 SoC（视频流 / 寄存器接口）；
+2. 如需更高刷新率，再评估 720p60（当前 720p30 已可用）；
+3. 每次改 RTL 先跑 BIST（`I=1/G=0`），再跑 S2（`D=1/B=1`）。
