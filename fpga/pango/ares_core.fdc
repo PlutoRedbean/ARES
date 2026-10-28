@@ -1,0 +1,19 @@
+# ---------------------------------------------------------------------------
+# Core-only timing constraints: ares_core_top (Backend + LSU, no frontend/L2).
+#
+# This run exists to get a first real STA number for the CPU datapath on the
+# Pango PG2L200H without the L2 (whose data array does not infer as BRAM yet).
+# There are no board pins: the top is pure logic, I/O placement is automatic,
+# and no bitstream is generated.
+#
+# Target clock: 100 MHz (10 ns).  The reported slack tells how far the placed
+# and routed design is from that period; rerun with another period to bracket
+# Fmax.
+# ---------------------------------------------------------------------------
+
+create_clock -name sys_clk -period 10.000 -waveform {0.000 5.000} [get_ports {clk}]
+set_clock_uncertainty 0.300 -from [get_clocks {sys_clk}] -to [get_clocks {sys_clk}]
+
+# Reset is a synchronous board signal; treat it as an asynchronous start point
+# so the reset distribution is not timed as data.
+set_false_path -from [get_ports {rst}]
