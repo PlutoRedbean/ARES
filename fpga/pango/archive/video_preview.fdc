@@ -1,0 +1,27 @@
+# ---------------------------------------------------------------------------
+# video_cam_preview_top only: camera pixel clock + preview frame handshake.
+#
+# cmos_8_16bit divides cmos1_pclk by 2 in GTP_IOCLKDIV_E2 (a regional clock).
+# video_cam_preview_top then pushes it through GTP_CLKBUFG so the 640x360
+# preview BRAM can span clock regions (Place-0089 REGION_CLOCK otherwise).
+#
+# PDS infers that divided clock as
+#   cmos1_pclk|g_capture.g_cam1.../CLKDIVOUT_Inferred
+# and does NOT put it in the cmos1_pclk asynchronous group from
+# video_top.fdc, so the preview_wr_bank -> preview_wr_bank_sync CDC gets
+# timed against pix_clk and fails by ~3 ns.  Name the clock explicitly (same
+# point PDS inferred it, before the global buffer) and declare only the
+# camera->HDMI bank handshake asynchronous.
+#
+# This file is added by flow_video_preview.tcl only; video_top.fdc stays
+# usable for the S0/S1 tops.
+#
+# CAM_SEL=1 builds take the pixel clock from cmos2_pclk: change the -source
+# port (and -master_clock) to cmos2_pclk if that build is ever used.
+# ---------------------------------------------------------------------------
+create_generated_clock -name pixel_clk -source [get_ports {cmos1_pclk}] \
+    [get_nets {pixel_clk_io}] -master_clock [get_clocks {cmos1_pclk}] \
+    -multiply_by 1 -divide_by 2
+
+set_false_path -from [get_clocks {pixel_clk}] -to [get_clocks {pix_clk}]
+set_false_path -from [get_clocks {pix_clk}]   -to [get_clocks {pixel_clk}]
