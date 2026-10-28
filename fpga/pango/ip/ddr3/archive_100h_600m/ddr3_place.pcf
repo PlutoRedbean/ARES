@@ -1,2 +1,0 @@
-# Placeholder. dev_map rewrites this PCF with the generated IO/CPD constraints;
-# flow_bist.tcl appends ddr3_phy_place_2255_in.pcf before pnr.

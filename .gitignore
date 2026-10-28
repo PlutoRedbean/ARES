@@ -61,3 +61,21 @@ fpga/pango/ip/**/*.bgr
 
 fpga/pango/ip/**/.last_generated
 fpga/pango/ip/**/generate.log
+
+# Archived / not part of the S2 bitstream or SoC integration
+/rtl/video/archive/
+/rtl/video/alt/
+/rtl/video/sim/
+/rtl/video/test/
+/rtl/video/legacy/cmos_8_16bit.v
+/rtl/video/video_bist_top.v
+/rtl/video/video_ddr3_bist.v
+/rtl/video/video_bist_status.v
+/fpga/pango/archive/
+/fpga/pango/flow_bist.tcl
+/fpga/pango/bist_top.fdc
+/fpga/pango/ip/ddr3/archive_100h_600m/
+/fpga/pango/ip/ddr3/ddr3_test/example_design/
+/fpga/pango/ip/ddr3/ddr3_test/generate.log
+/fpga/pango/ip/ddr3/ddr3_test/.last_generated
+/rtl/frontend/report/
