@@ -1,10 +1,8 @@
 # CoreMark 最快构建与跑分流程
 
 > 目标：从当前仓库快速得到 **CRC8 + 数组化 core_bench_list + 9-PE INT16 matrix engine + 状态机 scanner + O3 + 32 KiB ICache** 的 CoreMark 跑分。
-> 约束：不修改 `tests/benchmarks/coremark/src/*.c`；加速来自构建脚本、新增 TU 和 RTL 配置。
-> 更新：全加速 100-iteration 为 14,263,577 cycles / 7.0109 单核 /
-> 14.0217 双核聚合（2.488x）；4-iteration 为 615,472 cycles /
-> 6.499 / 12.998（2.378x）。
+> 加速算法由构建脚本、新增 TU 和 RTL 配置接入；ARES 移植层及报告部分已适配 UART 和 100 MHz 周期计时，算法与 CRC 校验保留。
+> 当前全加速 100-iteration 实测：每核计时段 14,204,416 cycles，CoreMark/MHz 为 7.040064；正文中的旧 TB 分数表保留作历史对照。
 > 相关文档：[数组化实现](coremark_array_list.md) · [矩阵引擎](coremark_matrix_engine.md) · [状态机扫描器](coremark_state_engine.md) · [最新指令流分析](coremark_latest_hw_acceleration_analysis.md)
 
 ## 0. 环境准备
@@ -26,6 +24,19 @@ mkdir -p "$CCACHE_DIR" "$CCACHE_TEMPDIR"
 > 当前输出与计时方式见 [100 MHz UART 跑分说明](coremark_uart_scoring.md)。
 > 本页旧的退休数和 TB 分数示例是静默输出版本的历史记录；当前分数以程序通过 UART
 > 打印的计时段数据为准。重新执行对应 image 构建目标后再运行。
+
+### 跑分与仿真调试的开关约定
+
+| 用途 | `SIM_HEAVY_CHECKS` | `SIM_INFO` | 设置位置 |
+|---|---:|---:|---|
+| CoreMark 跑分 | `0` | `0` | 在 `make unit-coremark` / `make unit-2core-coremark` 运行命令中显式设置 |
+| 仿真测试、debug、4-iteration 快速验证 | 默认 `1` | 默认 `1` | 不传这两个覆盖参数 |
+
+这两个选项不加在 `make coremark-full-image` 等镜像构建命令上。跑分时依然保留
+CoreMark 的 UART 正文、错误诊断、协议断言及双核 L2 shadow 检查；关闭的仅是
+重型不变量扫描和常规仿真信息。调试时保留默认开启状态；若环境变量或上层 Make
+已将其设为 `0`，显式传 `SIM_HEAVY_CHECKS=1 SIM_INFO=1` 恢复。两种检查配置的
+仿真产物分目录保存，无需手动清理。`SIM_INFO=0` 不改变实际 RTL 计时结果。
 
 ## 1. 生成加速镜像（约 1 分钟）
 
@@ -117,15 +128,16 @@ aggregate: retires=1789624 max_cycles=1237385 IPC=1.446295 CM/MHz=161.6312
 **当前行为**：上面的 TB 分数是历史记录。现在程序从实际迭代数和 RTL 周期计数器
 计算 `Iterations/Sec` 与 `CoreMark/MHz`；4-iter 镜像会按 4 次计算，无需除以 25。
 
-## 5. 100-iteration 正式跑分（约 20 分钟）
+## 5. 100-iteration 跑分（耗时随仿真主机和检查配置变化）
 
 ```bash
 make unit-2core-coremark \
     DMEM=$PWD/build/coremark_array/coremark_dmem.hex \
-    ARES_CFG_INC=$COREMARK_CFG
+    ARES_CFG_INC=$COREMARK_CFG \
+    SIM_HEAVY_CHECKS=0 SIM_INFO=0
 ```
 
-预期：
+历史输出（当前静默跑分不再显示这些 TB 统计，分数读取 UART 报告）：
 
 ```text
 ALL TESTS PASSED: 9 checks - 2 harts + shared L2, two CoreMark instances
@@ -147,7 +159,8 @@ aggregate: retires=44134312 max_cycles=29624227 IPC=1.489805 CM/MHz=6.7512
 make coremark-matrix-array-image
 make unit-2core-coremark \
     DMEM=$PWD/build/coremark_matrix_array/coremark_dmem.hex \
-    ARES_CFG_INC=+incdir+$PWD/build/coremark_32k/include
+    ARES_CFG_INC=+incdir+$PWD/build/coremark_32k/include \
+    SIM_HEAVY_CHECKS=0 SIM_INFO=0
 ```
 
 100-iteration 结果：
@@ -171,7 +184,8 @@ aggregate: retires=29321344 max_cycles=22475821 IPC=1.304573 CM/MHz=8.8985
 make coremark-full-image
 make unit-2core-coremark \
     DMEM=$PWD/build/coremark_full/coremark_dmem.hex \
-    ARES_CFG_INC=+incdir+$PWD/build/coremark_32k/include
+    ARES_CFG_INC=+incdir+$PWD/build/coremark_32k/include \
+    SIM_HEAVY_CHECKS=0 SIM_INFO=0
 ```
 
 4-iteration 结果：
@@ -183,7 +197,7 @@ hart1: retires=332597 cycles=615469 IPC=0.540396 CM/MHz=162.4777
 aggregate: retires=665194 max_cycles=615472 IPC=1.080787 CM/MHz=324.9539
 ```
 
-4-iter 的 TB CM/MHz 除以 25：**6.499 / 12.998**，相对 CRC 基线 **2.378x**。
+以上是旧 TB 的历史输出；当前 4-iter 报告使用实际迭代数计算，无需再除以 25。
 
 100-iteration 结果：
 
@@ -233,8 +247,10 @@ make test-coremark-array
 | `illegal instruction` | RTL 没有 custom-0 CRC8；换当前 RTL 或不要用 CRC 变体 |
 | 分数明显低于对应变体预期 | 忘了 `ARES_CFG_INC=+incdir+.../coremark_32k/include`，用了 8 KiB ICache；或用了旧镜像 |
 | `CoreMark image not found` | 先跑 `make coremark-array-image` |
-| 4-iter 的 CM/MHz 看起来是 80 | TB 按 100 iter 打印，除以 25 |
-| `input.json`/frozen 报错 | CoreMark 源文件被改了；恢复 `tests/benchmarks/coremark` |
+| 4-iter 的 CM/MHz 看起来是 80 | 使用了旧 TB 分数；重建镜像与仿真器，读取 UART 中按实际迭代数计算的结果 |
+| 跑分时仍有 `T=...` / L2 / IPC 信息 | 在运行命令加 `SIM_HEAVY_CHECKS=0 SIM_INFO=0`；构建工具输出和 Verilator `$finish` 行不受此开关控制 |
+| debug 时看不到进度或重型检查 | 去掉跑分覆盖参数，或显式设置 `SIM_HEAVY_CHECKS=1 SIM_INFO=1` |
+| `inputs.json`/frozen 报错 | 核对当前 ARES 移植层和冻结参数（含 100 MHz、UART 输出）；不要用旧静默版端口覆盖当前文件 |
 | 想要 CRC-only | `python3 scripts/build_coremark_crc.py --out build/coremark_crc` |
 
 ## 9. 相关文件
@@ -255,5 +271,6 @@ make test-coremark-array
 
 ```bash
 make coremark-array-image && make test-coremark-array
-# 然后带 32 KiB include 和 DMEM 跑 unit-2core-coremark
+# 然后带 32 KiB include、DMEM 和 SIM_HEAVY_CHECKS=0 SIM_INFO=0 跑分
+# 仿真测试/debug 则省略这两个开关，保留默认开启
 ```

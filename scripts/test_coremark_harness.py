@@ -61,8 +61,24 @@ def main():
         ])
         for label, binary in (("single", args.single), ("dual", args.dual)):
             output = run(binary, f"{label}: a0 update before EBREAK", [f"+DMEM={good}"], True, "ALL TESTS PASSED")
+            assert "\x1b[36mBenchmark clock:" in output, output
+            assert "\x1b[32mALL TESTS PASSED" in output, output
             retired = [int(value) for value in re.findall(r"retires=(\d+)", output)]
             assert retired == ([3] if label == "single" else [3, 3, 6]), output
+            output = run(binary, f"{label}: color disabled",
+                         [f"+DMEM={good}", "+SIM_COLOR=0"], True, "ALL TESTS PASSED")
+            assert "\x1b[" not in output and "Benchmark clock:" in output, output
+            output = run(binary, f"{label}: simulation information disabled",
+                         [f"+DMEM={good}", "+SIM_INFO=0", "+verilator+quiet"], True, "")
+            for message in ("Benchmark clock:", "Simulation heavy checks:", "T=", "ALL TESTS PASSED",
+                            "retires=", "L2 shadow check:", "L2:", "Verilation Report"):
+                assert message not in output, output
+            assert "\x1b[" not in output, output
+            output = run(binary, f"{label}: quiet mode retains errors",
+                         [f"+DMEM={bad}", "+SIM_INFO=0"], False, "CoreMark failed")
+            assert "\x1b[31mFAIL:" in output, output
+            run(binary, f"{label}: quiet mode retains timeout context",
+                [f"+DMEM={loop}", "+SIM_INFO=0", "+TIMEOUT_NS=10000"], False, "*** TIMEOUT:")
             run(binary, f"{label}: nonzero return", [f"+DMEM={bad}"], False, "CoreMark failed")
             run(binary, f"{label}: missing argument", [], False, "is required")
             run(binary, f"{label}: missing file", [f"+DMEM={directory / 'missing.hex'}"], False, "Cannot open DMEM")
@@ -80,6 +96,9 @@ def main():
         injected = sum(int(value) for value in
                        re.findall(r"err_(?:i0|i1|c0|c1)=(\d+)", output))
         assert responses >= 3 and injected == 1, (responses, injected, output)
+        output = run(args.dual, "dual: quiet mode retains shadow errors",
+                     [f"+DMEM={multi}", "+SHADOW_FAULT=1", "+SIM_INFO=0"], False, "CoreMark failed")
+        assert "MISMATCH" in output and "\x1b[31m" in output, output
         output = run(args.dual, "dual: shadow checker clean run is quiet",
                      [f"+DMEM={multi}"], True, "ALL TESTS PASSED")
         assert re.search(r"err_i0=0 err_i1=0 err_c0=0 err_c1=0 err_wb=0", output), output

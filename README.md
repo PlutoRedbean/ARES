@@ -62,6 +62,12 @@ variant is `make coremark-full-image` (CRC + array list + matrix engine +
 state scanner). See [docs/coremark_state_engine.md](docs/coremark_state_engine.md).
 The 100-iteration full variant is 14,263,577 cycles / 7.0109 single-hart /
 14.0217 dual-hart aggregate CoreMark/MHz (2.488x over the CRC+probe baseline).
+For current 100 MHz UART scoring, follow
+[the scoring guide](docs/coremark_uart_scoring.md): explicitly set
+`SIM_HEAVY_CHECKS=0 SIM_INFO=0` on the simulation run command. For simulation
+testing/debugging, omit both overrides and keep their defaults enabled (`1`).
+The figures above are historical TB results; current scores come from the
+program's UART report.
 
 ---
 

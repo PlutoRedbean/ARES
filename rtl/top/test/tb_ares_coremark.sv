@@ -12,6 +12,7 @@
 `timescale 1ns/1ps
 module tb_ares_coremark;
     import ares_pkg::*;
+    import coremark_sim_log_pkg::*;
 
     localparam int unsigned MEM_WORDS = 1 << 20;  // 16 MiB
 
@@ -102,7 +103,7 @@ module tb_ares_coremark;
                 /* verilator lint_off BLKSEQ */
                 errors = errors + 1;
                 /* verilator lint_on BLKSEQ */
-                $display("FAIL: %s", name);
+                sim_error($sformatf("FAIL: %s", name));
             end
         end
     endtask
@@ -143,12 +144,13 @@ module tb_ares_coremark;
 
     string dmem_file;
     initial begin
+        sim_log_init();
         $timeformat(-9, 0, "", 0);
-        $display("Benchmark clock: %0d Hz; UART: 115200 baud, 8N1", CLK_HZ);
+        sim_info($sformatf("Benchmark clock: %0d Hz; UART: 115200 baud, 8N1", CLK_HZ));
 `ifdef ARES_DISABLE_HEAVY_CHECKS
-        $display("Simulation heavy checks: disabled (protocol assertions remain enabled)");
+        sim_info($sformatf("Simulation heavy checks: disabled (protocol assertions remain enabled)"));
 `else
-        $display("Simulation heavy checks: enabled");
+        sim_info($sformatf("Simulation heavy checks: enabled"));
 `endif
         checks = 0; errors = 0;
         for (int i = 0; i < MEM_WORDS; i++) mem[i] = 128'h0;
@@ -184,10 +186,10 @@ module tb_ares_coremark;
             end
         end
         if (errors == 0) begin
-            $display("ALL TESTS PASSED: %0d checks - ARES real FE + shared L2 CoreMark", checks);
-            $display("CoreMark metrics: retires=%0d cycles=%0d IPC=%0.6f time_ns=%0d hits=%0d misses=%0d pc=%h",
+            sim_success($sformatf("ALL TESTS PASSED: %0d checks - ARES real FE + shared L2 CoreMark", checks));
+            sim_info($sformatf("CoreMark metrics: retires=%0d cycles=%0d IPC=%0.6f time_ns=%0d hits=%0d misses=%0d pc=%h",
                      ret_count, cycle_count, real'(ret_count) / real'(cycle_count),
-                     $time, l2_hits, l2_misses, fe_fetch_pc);
+                     $time, l2_hits, l2_misses, fe_fetch_pc));
         end else
             $fatal(1, "CoreMark failed: %0d errors / %0d checks", errors, checks);
         $finish;
@@ -201,26 +203,26 @@ module tb_ares_coremark;
         /* verilator lint_off ZERODLY */
         #(timeout_ns);
         /* verilator lint_on ZERODLY */  // 600 ms: measured completion was ~499 ms
-        $display("*** TIMEOUT: pc=%h done=%0d a0=%h hits=%0d misses=%0d retires=%0d ***",
-                 fe_fetch_pc, done, a0, l2_hits, l2_misses, ret_count);
-        $display("cycles=%0d", cycle_count);
-        $display("FE: iq_occ=%0d ftq_occ=%0d icache_refill=%b icache_req_fire=%b",
+        sim_error($sformatf("*** TIMEOUT: pc=%h done=%0d a0=%h hits=%0d misses=%0d retires=%0d ***",
+                 fe_fetch_pc, done, a0, l2_hits, l2_misses, ret_count));
+        sim_error($sformatf("cycles=%0d", cycle_count));
+        sim_error($sformatf("FE: iq_occ=%0d ftq_occ=%0d icache_refill=%b icache_req_fire=%b",
                  dut.u_fe.iq_occupancy, dut.u_fe.ftq_occupancy,
-                 dut.u_fe.icache_refill, dut.u_fe.icache_req_fire);
-        $display("L2 I: rd_valid=%b rd_ready=%b rsp_valid=%b rsp_ready=%b bridge_state=%0d",
+                 dut.u_fe.icache_refill, dut.u_fe.icache_req_fire));
+        sim_error($sformatf("L2 I: rd_valid=%b rd_ready=%b rsp_valid=%b rsp_ready=%b bridge_state=%0d",
                  dut.l2_i_rd_valid, dut.l2_i_rd_ready,
-                 dut.l2_i_rsp_valid, dut.l2_i_rsp_ready, dut.u_ibridge.state_q);
-        $display("AXI: arvalid=%b arready=%b rvalid=%b rready=%b",
+                 dut.l2_i_rsp_valid, dut.l2_i_rsp_ready, dut.u_ibridge.state_q));
+        sim_error($sformatf("AXI: arvalid=%b arready=%b rvalid=%b rready=%b",
                  dut.ifu_axi.arvalid, dut.ifu_axi.arready,
-                 dut.ifu_axi.rvalid, dut.ifu_axi.rready);
-        $display("BE: occ=%0d free=%0d decerr=%b next=%h ser=%b drain=%b redir=%b",
+                 dut.ifu_axi.rvalid, dut.ifu_axi.rready));
+        sim_error($sformatf("BE: occ=%0d free=%0d decerr=%b next=%h ser=%b drain=%b redir=%b",
                  dut.u_core.u_backend.dbg_occupancy,
                  dut.u_core.u_backend.free_count_w,
                  dut.u_core.u_backend.decode_err,
                  dut.u_core.u_backend.dbg_arch_next_pc,
                  dut.u_core.u_backend.serializing_present_w,
                  dut.u_core.u_backend.irq_drain_w,
-                 dut.u_core.u_backend.redirect_any_w);
+                 dut.u_core.u_backend.redirect_any_w));
         $fatal(1, "CoreMark timeout");
     end
 endmodule

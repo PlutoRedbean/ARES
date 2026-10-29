@@ -20,6 +20,7 @@
 `timescale 1ns/1ps
 module tb_2core_coremark;
     import ares_pkg::*;
+    import coremark_sim_log_pkg::*;
 
     localparam int unsigned MEM_WORDS = 1 << 20;  // 16 MiB
     localparam int unsigned DATA_LINES = 16'h4000;  // 0x8010_0000..0x8013_ffff
@@ -153,8 +154,8 @@ module tb_2core_coremark;
             if (data[8*i +: 8] !== exp) begin
                 errs = errs + 1;
                 if (errs < 4)
-                    $display("[%0t] %s MISMATCH addr=%h byte%0d got=%h exp=%h",
-                             $time, who, {base[23:4], 4'b0000}, i, data[8*i +: 8], exp);
+                    sim_error($sformatf("[%0t] %s MISMATCH addr=%h byte%0d got=%h exp=%h",
+                             $time, who, {base[23:4], 4'b0000}, i, data[8*i +: 8], exp));
                 return;
             end
         end
@@ -179,10 +180,10 @@ module tb_2core_coremark;
                     if (l2_mem_wr_data[8*i +: 8] !== shadow[{l2_mem_wr_addr[23:4], 4'b0000} + i]) begin
                         err_wb = err_wb + 1;
                         if (err_wb < 6)
-                            $display("[%0t] WB MISMATCH addr=%h byte%0d got=%h exp=%h",
+                            sim_error($sformatf("[%0t] WB MISMATCH addr=%h byte%0d got=%h exp=%h",
                                      $time, {l2_mem_wr_addr[23:4], 4'b0000}, i,
                                      l2_mem_wr_data[8*i +: 8],
-                                     shadow[{l2_mem_wr_addr[23:4], 4'b0000} + i]);
+                                     shadow[{l2_mem_wr_addr[23:4], 4'b0000} + i]));
                         break;
                     end
             end
@@ -206,7 +207,7 @@ module tb_2core_coremark;
                 chk_rsp_total = chk_rsp_total + 1;
                 if (!pend_i0_v) begin
                     err_i0 = err_i0 + 1;
-                    if (err_i0 < 4) $display("[%0t] I0 RSP without request", $time);
+                    if (err_i0 < 4) sim_error($sformatf("[%0t] I0 RSP without request", $time));
                 end else chk_data("I0", pend_i0, dut.c0_i_rsp_data, err_i0);
                 pend_i0_v <= 1'b0;
             end
@@ -214,7 +215,7 @@ module tb_2core_coremark;
                 chk_rsp_total = chk_rsp_total + 1;
                 if (!pend_i1_v) begin
                     err_i1 = err_i1 + 1;
-                    if (err_i1 < 4) $display("[%0t] I1 RSP without request", $time);
+                    if (err_i1 < 4) sim_error($sformatf("[%0t] I1 RSP without request", $time));
                 end else chk_data("I1", pend_i1, dut.c1_i_rsp_data, err_i1);
                 pend_i1_v <= 1'b0;
             end
@@ -222,7 +223,7 @@ module tb_2core_coremark;
                 chk_rsp_total = chk_rsp_total + 1;
                 if (!pend_c0_v) begin
                     err_c0 = err_c0 + 1;
-                    if (err_c0 < 4) $display("[%0t] C0 RSP without request", $time);
+                    if (err_c0 < 4) sim_error($sformatf("[%0t] C0 RSP without request", $time));
                 end else chk_data("C0", pend_c0, dut.c0_rsp_data, err_c0);
                 pend_c0_v <= 1'b0;
             end
@@ -230,7 +231,7 @@ module tb_2core_coremark;
                 chk_rsp_total = chk_rsp_total + 1;
                 if (!pend_c1_v) begin
                     err_c1 = err_c1 + 1;
-                    if (err_c1 < 4) $display("[%0t] C1 RSP without request", $time);
+                    if (err_c1 < 4) sim_error($sformatf("[%0t] C1 RSP without request", $time));
                 end else chk_data("C1", pend_c1, dut.c1_rsp_data, err_c1);
                 pend_c1_v <= 1'b0;
             end
@@ -254,7 +255,7 @@ module tb_2core_coremark;
                 /* verilator lint_off BLKSEQ */
                 errors = errors + 1;
                 /* verilator lint_on BLKSEQ */
-                $display("FAIL: %s", name);
+                sim_error($sformatf("FAIL: %s", name));
             end
         end
     endtask
@@ -272,19 +273,19 @@ module tb_2core_coremark;
             ms_tick <= ms_tick + 1;
             if (dut.u_hart1.mem_rd_valid && (dut.u_hart1.mem_rd_addr < 32'h8020_0000)) begin
                 bad_h1_rd <= bad_h1_rd + 1;
-                if (bad_h1_rd < 5) $display("BAD H1 RD addr=%h", dut.u_hart1.mem_rd_addr);
+                if (bad_h1_rd < 5) sim_error($sformatf("BAD H1 RD addr=%h", dut.u_hart1.mem_rd_addr));
             end
             if (dut.u_hart1.mem_wr_valid && (dut.u_hart1.mem_wr_addr < 32'h8020_0000)) begin
                 bad_h1_wr <= bad_h1_wr + 1;
-                if (bad_h1_wr < 5) $display("BAD H1 WR addr=%h", dut.u_hart1.mem_wr_addr);
+                if (bad_h1_wr < 5) sim_error($sformatf("BAD H1 WR addr=%h", dut.u_hart1.mem_wr_addr));
             end
             if (dut.u_hart0.mem_wr_valid && (dut.u_hart0.mem_wr_addr >= 32'h8020_0000)) begin
                 bad_h0_wr <= bad_h0_wr + 1;
-                if (bad_h0_wr < 5) $display("BAD H0 WR addr=%h", dut.u_hart0.mem_wr_addr);
+                if (bad_h0_wr < 5) sim_error($sformatf("BAD H0 WR addr=%h", dut.u_hart0.mem_wr_addr));
             end
-            if (ms_tick % 100000 == 0)
-                $display("T=%0tns ret0=%0d ret1=%0d pc0=%h pc1=%h a0_0=%h a0_1=%h l2=%0d/%0d",
-                         $time, ret0, ret1, c0_fetch_pc, c1_fetch_pc, a0_0, a0_1, l2_hits, l2_misses);
+            if (sim_info_enabled != 0 && ms_tick % 100000 == 0)
+                sim_info($sformatf("T=%0tns ret0=%0d ret1=%0d pc0=%h pc1=%h a0_0=%h a0_1=%h l2=%0d/%0d",
+                         $time, ret0, ret1, c0_fetch_pc, c1_fetch_pc, a0_0, a0_1, l2_hits, l2_misses));
             if (!done0) begin
                 ret0 <= ret0 + unsigned'(c0_retire_valid[0])
                       + unsigned'(c0_retire_valid[1] && !(c0_retire_valid[0] && c0_retire_is_ebreak[0]));
@@ -332,12 +333,13 @@ module tb_2core_coremark;
 
     string dmem_file;
     initial begin
+        sim_log_init();
         $timeformat(-9, 0, "", 0);
-        $display("Benchmark clock: %0d Hz; UART: 115200 baud, 8N1 per hart", CLK_HZ);
+        sim_info($sformatf("Benchmark clock: %0d Hz; UART: 115200 baud, 8N1 per hart", CLK_HZ));
 `ifdef ARES_DISABLE_HEAVY_CHECKS
-        $display("Simulation heavy checks: disabled (protocol assertions and L2 shadow remain enabled)");
+        sim_info($sformatf("Simulation heavy checks: disabled (protocol assertions and L2 shadow remain enabled)"));
 `else
-        $display("Simulation heavy checks: enabled");
+        sim_info($sformatf("Simulation heavy checks: enabled"));
 `endif
         checks = 0; errors = 0;
         shadow_fault_en = $test$plusargs("SHADOW_FAULT");
@@ -379,8 +381,8 @@ module tb_2core_coremark;
               (!hart1_en || (done1 && dut.u_hart1.u_core.lsu_mmio_order_idle && !c1_uart_busy)));
         repeat (3) @(posedge clk); #1;
 
-        $display("L2 shadow check: rsp=%0d err_i0=%0d err_i1=%0d err_c0=%0d err_c1=%0d err_wb=%0d",
-                 chk_rsp_total, err_i0, err_i1, err_c0, err_c1, err_wb);
+        sim_info($sformatf("L2 shadow check: rsp=%0d err_i0=%0d err_i1=%0d err_c0=%0d err_c1=%0d err_wb=%0d",
+                 chk_rsp_total, err_i0, err_i1, err_c0, err_c1, err_wb));
         check(done0 && pass0, "hart0 CoreMark a0=0");
         if (hart1_en) begin
             check(done1 && pass1, "hart1 CoreMark a0=0");
@@ -406,15 +408,15 @@ module tb_2core_coremark;
         end
 
         if (errors == 0) begin
-            $display("ALL TESTS PASSED: %0d checks - 2 harts + shared L2, two CoreMark instances", checks);
-            $display("hart0: retires=%0d cycles=%0d IPC=%0.6f",
-                     ret0, cycles0, real'(ret0) / real'(cycles0));
-            $display("hart1: retires=%0d cycles=%0d IPC=%0.6f",
-                     ret1, cycles1, real'(ret1) / real'(cycles1));
-            $display("aggregate: retires=%0d max_cycles=%0d IPC=%0.6f",
+            sim_success($sformatf("ALL TESTS PASSED: %0d checks - 2 harts + shared L2, two CoreMark instances", checks));
+            sim_info($sformatf("hart0: retires=%0d cycles=%0d IPC=%0.6f",
+                     ret0, cycles0, real'(ret0) / real'(cycles0)));
+            sim_info($sformatf("hart1: retires=%0d cycles=%0d IPC=%0.6f",
+                     ret1, cycles1, real'(ret1) / real'(cycles1)));
+            sim_info($sformatf("aggregate: retires=%0d max_cycles=%0d IPC=%0.6f",
                      ret0 + ret1, (cycles0 > cycles1) ? cycles0 : cycles1,
-                     real'(ret0 + ret1) / real'((cycles0 > cycles1) ? cycles0 : cycles1));
-            $display("L2: hits=%0d misses=%0d", l2_hits, l2_misses);
+                     real'(ret0 + ret1) / real'((cycles0 > cycles1) ? cycles0 : cycles1)));
+            sim_info($sformatf("L2: hits=%0d misses=%0d", l2_hits, l2_misses));
         end else begin
             $fatal(1, "CoreMark failed: %0d errors / %0d checks", errors, checks);
         end
@@ -429,9 +431,9 @@ module tb_2core_coremark;
         /* verilator lint_off ZERODLY */
         #(timeout_ns);
         /* verilator lint_on ZERODLY */  // 600 ms: two shared-L2 CoreMark copies
-        $display("*** TIMEOUT: done0=%0d done1=%0d a0_0=%h a0_1=%h cycles=%0d ret0=%0d ret1=%0d pc0=%h pc1=%h hits=%0d misses=%0d ***",
+        sim_error($sformatf("*** TIMEOUT: done0=%0d done1=%0d a0_0=%h a0_1=%h cycles=%0d ret0=%0d ret1=%0d pc0=%h pc1=%h hits=%0d misses=%0d ***",
                  done0, done1, a0_0, a0_1, cycles, ret0, ret1,
-                 c0_fetch_pc, c1_fetch_pc, l2_hits, l2_misses);
+                 c0_fetch_pc, c1_fetch_pc, l2_hits, l2_misses));
         $fatal(1, "CoreMark timeout");
     end
 endmodule

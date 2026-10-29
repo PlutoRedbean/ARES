@@ -7,7 +7,7 @@ at 100 MHz / 115200 baud / 8N1. The testbench decodes the actual TX waveform
 and prints complete lines with `[hart0]` or `[hart1]` prefixes. It waits for
 the final frame before finishing. The console is not a direct MMIO `$write`.
 
-## Run
+## Benchmark scoring
 
 Rebuild the software image; old images have printf and real timing disabled.
 Keep the existing 32 KiB ICache configuration from the accelerated build guide.
@@ -17,13 +17,60 @@ make coremark-full-image
 make unit-2core-coremark \
     DMEM="$PWD/build/coremark_full/coremark_dmem.hex" \
     ARES_CFG_INC="+incdir+$PWD/build/coremark_32k/include" \
-    SIM_HEAVY_CHECKS=0
+    SIM_HEAVY_CHECKS=0 SIM_INFO=0
 ```
 
-Omit `SIM_HEAVY_CHECKS=0` for full invariant checks. This setting affects host
-simulation cost, not the RTL clock frequency. Both CoreMark benches explicitly
+For scoring, explicitly set both `SIM_HEAVY_CHECKS=0 SIM_INFO=0` on the
+simulation run command, not the image build command. This compiles out heavy
+invariant scans and hides routine harness diagnostics; UART reports and error
+diagnostics remain visible. Protocol assertions and the dual-hart L2 shadow
+checker still run. These settings affect host simulation cost and logging,
+not the RTL clock frequency. Both CoreMark benches explicitly
 generate a 10 ns clock period. The software clock constant is frozen at
 100,000,000 Hz by the image builder and recorded in `inputs.json`.
+
+## Simulation testing and debugging
+
+Keep `SIM_HEAVY_CHECKS` and `SIM_INFO` at their defaults of `1` for simulation
+testing and debugging. Omit the overrides from the scoring command:
+
+```bash
+make unit-2core-coremark \
+    DMEM="$PWD/build/coremark_full/coremark_dmem.hex" \
+    ARES_CFG_INC="+incdir+$PWD/build/coremark_32k/include"
+```
+
+This enables heavy invariant checks and routine harness diagnostics. If the
+shell or an outer Make invocation sets either option to `0`, explicitly pass
+`SIM_HEAVY_CHECKS=1 SIM_INFO=1` to restore debug behavior. The same policy
+applies to `unit-coremark`. Full-check and light-check simulator builds use
+separate directories, so switching modes does not require a manual clean.
+
+### Simulation diagnostic output
+
+Both CoreMark run targets accept `SIM_INFO=1` (default) to display harness
+diagnostics: clock/check settings, periodic `T=...` progress, L2 shadow summary,
+pass message and retire/cycle/IPC/L2 statistics. These lines are cyan; the pass
+message is green. Failing checks and timeout diagnostics are red and remain
+visible with `SIM_INFO=0`. The switch controls printing only, not checking.
+Decoded UART lines, including their `[hart0]` / `[hart1]` routing prefixes,
+retain their original terminal color and are always displayed.
+
+For CoreMark serial output without routine harness information:
+
+```bash
+make unit-2core-coremark \
+    DMEM="$PWD/build/coremark_full/coremark_dmem.hex" \
+    ARES_CFG_INC="+incdir+$PWD/build/coremark_32k/include" \
+    SIM_HEAVY_CHECKS=0 SIM_INFO=0
+```
+
+`SIM_COLOR=0` disables ANSI colors while retaining diagnostics. Both switches
+are runtime settings and do not require a different simulator binary. For
+direct execution, use `+SIM_INFO=0` / `+SIM_COLOR=0`; add `+verilator+quiet` to
+hide Verilator's final performance report, as the Make targets do automatically
+for `SIM_INFO=0`. Build-tool output and Verilator's `$finish` location line
+are outside the testbench logging switch.
 
 ## Timing and score
 
@@ -80,8 +127,8 @@ generated at `build/verification/coremark-uart/coremark-full-100.log`.
 ```bash
 make unit-benchmark-io
 make test-coremark-image
-make build-coremark-sim build-2core-coremark-sim SIM_HEAVY_CHECKS=0
-make test-coremark-harness test-coremark-output SIM_HEAVY_CHECKS=0
+make build-coremark-sim build-2core-coremark-sim
+make test-coremark-harness test-coremark-output
 ```
 
 The device test checks 100 MHz counter advancement, 64-bit carry, response
@@ -90,4 +137,6 @@ The output smoke test uses the production CoreMark port and printf to check
 both single/dual-hart serial reports and all score formulas. It also checks
 that console printf emits no NUL while sprintf still terminates its output.
 Smoke images are not CoreMark benchmark runs. Logs and smoke images are
-written under `build/verification/coremark-uart/`.
+written under `build/verification/coremark-uart/`. Keep the default checks and
+information enabled for these debug/regression commands; the harness and
+output tests also exercise the runtime information/color switches internally.

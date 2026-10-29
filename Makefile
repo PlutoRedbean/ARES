@@ -35,9 +35,14 @@ KCONFIG   := python3 $(ARES_HOME)/scripts/kconfig/ares_kconfig.py
 
 PROGRAM ?=
 
+# Debug defaults stay on; CoreMark scoring explicitly uses SIM_HEAVY_CHECKS=0 SIM_INFO=0.
 # Compile out only expensive invariant scans; normal assertions stay on.
 SIM_HEAVY_CHECKS ?= 1
 ARES_SIM_CHECK_FLAGS := $(if $(filter 0,$(SIM_HEAVY_CHECKS)),-DARES_DISABLE_HEAVY_CHECKS)
+# Runtime CoreMark harness output; UART text and errors remain visible.
+SIM_INFO ?= 1
+SIM_COLOR ?= 1
+COREMARK_LOG_ARGS = +SIM_INFO=$(SIM_INFO) +SIM_COLOR=$(SIM_COLOR) $(if $(filter 0,$(SIM_INFO)),+verilator+quiet)
 
 .PHONY: all lint lint-all lint-backend lint-lsu lint-l2 unit unit-lsu unit-l2 \
         lint-fe-adapter unit-fe-adapter unit-coremark unit-2core-coremark test-coremark-harness \
@@ -438,7 +443,7 @@ ARES_COREMARK_SRCS := $(RTL_ROOT)/common/fe_pkg.sv $(RTL_ROOT)/common/ares_pkg.s
 unit-coremark: build-coremark-sim
 	@hex="$(if $(strip $(DMEM)),$(DMEM),$(COREMARK_HEX))"; 	 test -f "$$hex" || { echo "error: CoreMark image not found: $$hex"; 	   echo "       run 'make coremark-image' (or pass DMEM=<coremark_dmem.hex>)"; exit 1; }
 	@$(COREMARK_SIM_DIR)/tb_ares_coremark/tb_ares_coremark \
-	    +DMEM=$(if $(strip $(DMEM)),$(DMEM),$(COREMARK_HEX)) $(COREMARK_ARGS)
+	    +DMEM=$(if $(strip $(DMEM)),$(DMEM),$(COREMARK_HEX)) $(COREMARK_LOG_ARGS) $(COREMARK_ARGS)
 
 build-coremark-sim: config-gen
 	@mkdir -p $(COREMARK_SIM_DIR)/tb_ares_coremark
@@ -449,7 +454,7 @@ build-coremark-sim: config-gen
 	    --Mdir $(COREMARK_SIM_DIR)/tb_ares_coremark \
 	    -o $(COREMARK_SIM_DIR)/tb_ares_coremark/tb_ares_coremark \
 	    $(ARES_COREMARK_SRCS) $(RTL_ROOT)/top/test/uart_console_monitor.sv \
-	    $(RTL_ROOT)/top/test/tb_ares_coremark.sv
+	    $(RTL_ROOT)/top/test/coremark_sim_log_pkg.sv $(RTL_ROOT)/top/test/tb_ares_coremark.sv
 
 # Two-hart AMP CoreMark on the shared L2 (two full CoreMark copies, hart1's
 # data/stack offset by 1 MiB).  Uses the same generated image as unit-coremark
@@ -459,6 +464,7 @@ ARES_2CORE_COREMARK_SRCS := $(ARES_COREMARK_SRCS) \
     $(RTL_ROOT)/top/ares_frontend_hart.sv \
     $(RTL_ROOT)/top/ares_2core_frontend_l2_top.sv \
     $(RTL_ROOT)/top/test/uart_console_monitor.sv \
+    $(RTL_ROOT)/top/test/coremark_sim_log_pkg.sv \
     $(RTL_ROOT)/top/test/tb_2core_coremark.sv
 
 ifeq ($(strip $(DMEM)),)
@@ -468,7 +474,7 @@ endif
 unit-2core-coremark: build-2core-coremark-sim
 	@hex="$(if $(strip $(DMEM)),$(DMEM),$(COREMARK_HEX))"; 	 test -f "$$hex" || { echo "error: CoreMark image not found: $$hex"; 	   echo "       run 'make coremark-image' (or pass DMEM=<coremark_dmem.hex>)"; exit 1; }
 	@$(COREMARK_SIM_DIR)/tb_2core_coremark/tb_2core_coremark \
-	    +DMEM=$(if $(strip $(DMEM)),$(DMEM),$(COREMARK_HEX)) $(COREMARK_ARGS)
+	    +DMEM=$(if $(strip $(DMEM)),$(DMEM),$(COREMARK_HEX)) $(COREMARK_LOG_ARGS) $(COREMARK_ARGS)
 
 build-2core-coremark-sim: config-gen
 	@mkdir -p $(COREMARK_SIM_DIR)/tb_2core_coremark

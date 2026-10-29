@@ -82,8 +82,20 @@ def check_output(binary, image, harts, out):
     (out / ("single.log" if harts == 1 else "dual.log")).write_text(text)
     assert result.returncode == 0 and "ALL TESTS PASSED" in text, text
     assert "CM/MHz=" not in text and "\x00" not in text, text
+    quiet_result = subprocess.run([str(binary.resolve()), f"+DMEM={image}",
+                                   "+SIM_INFO=0", "+verilator+quiet"],
+                                  capture_output=True, text=True, timeout=180)
+    quiet_text = quiet_result.stdout + quiet_result.stderr
+    (out / ("single-quiet.log" if harts == 1 else "dual-quiet.log")).write_text(quiet_text)
+    assert quiet_result.returncode == 0, quiet_text
+    for message in ("Benchmark clock:", "Simulation heavy checks:", "T=", "ALL TESTS PASSED",
+                    "retires=", "L2 shadow check:", "\x1b["):
+        assert message not in quiet_text, quiet_text
     for hart in range(harts):
-        console = "\n".join(re.findall(rf"^\[hart{hart}\] (.*)$", text, re.MULTILINE))
+        console_lines = re.findall(rf"^\[hart{hart}\] (.*)$", text, re.MULTILINE)
+        quiet_lines = re.findall(rf"^\[hart{hart}\] (.*)$", quiet_text, re.MULTILINE)
+        assert console_lines == quiet_lines, (console_lines, quiet_lines)
+        console = "\n".join(console_lines)
         assert "UART smoke: 1234 42" in console and "UART smoke PASS" in console, console
 
         def field(label):
@@ -99,7 +111,7 @@ def check_output(binary, image, harts, out):
         ]:
             expected = Decimal(numerator * 1_000_000 // denominator) / 1_000_000
             assert Decimal(field(label)) == expected, (label, console)
-        print(f"PASS: {harts}-hart firmware, hart{hart}: RTL serial text and 100 MHz score arithmetic")
+        print(f"PASS: {harts}-hart firmware, hart{hart}: RTL serial text and 100 MHz score arithmetic; quiet mode preserves UART")
 
 
 def main():
