@@ -38,7 +38,9 @@ PROGRAM ?=
 .PHONY: all lint lint-all lint-backend lint-lsu lint-l2 unit unit-lsu unit-l2 \
         lint-fe-adapter unit-fe-adapter unit-coremark unit-2core-coremark test-coremark-harness \
         unit-mt-irq unit-mt-cpu-irq unit-clint unit-plic tb-ares-pkg tb-fe-stub tb-mem-model \
-        coremark-image coremark-array-image test-coremark-image test-coremark-array test-l2-ref-faults \
+        coremark-image coremark-array-image coremark-matrix-image coremark-matrix-array-image \
+        coremark-state-image coremark-full-image \
+        test-coremark-image test-coremark-array test-l2-ref-faults \
         sim run wave isa clean menuconfig defconfig oldconfig savedefconfig \
         loaddefconfig showconfig test-config
 
@@ -287,9 +289,50 @@ lint-l2-frontend: config-gen
 	@set -e; for top in ares_frontend_l2_top ares_2core_frontend_l2_top; do \
 	  echo "[lint] $$top"; \
 	  verilator $(VERILATOR_LINT_FLAGS) -Wno-PINCONNECTEMPTY --top-module $$top \
-	      $(ARES_COREMARK_SRCS) $(RTL_ROOT)/top/ares_frontend_hart.sv \
+	      $(ARES_COREMARK_SRCS) \
+	      $(RTL_ROOT)/top/ares_frontend_hart.sv \
 	      $(RTL_ROOT)/top/ares_2core_frontend_l2_top.sv; \
 	done
+
+# Matrix engine (standalone + 2-core integration)
+.PHONY: lint-mtx9 unit-mtx9
+lint-mtx9:
+	@echo "[lint] mtx9_engine"
+	@verilator $(VERILATOR_LINT_FLAGS) --top-module mtx9_engine \
+	    $(RTL_ROOT)/accel/mtx9_engine.sv
+
+unit-mtx9:
+	@mkdir -p $(ARES_HOME)/sim/build/unit/tb_mtx9_engine
+	@verilator --binary --timing -sv --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+	    -Wno-SIDEEFFECT -Wno-BLKSEQ -Wno-INITIALDLY -Wno-WIDTHTRUNC \
+	    -Wno-WIDTHEXPAND -Wno-UNUSEDSIGNAL -Wno-CASEINCOMPLETE -Wno-IMPLICIT \
+	    -DCONFIG_SIMULATION \
+	    --top-module tb_mtx9_engine \
+	    --Mdir $(ARES_HOME)/sim/build/unit/tb_mtx9_engine \
+	    -o $(ARES_HOME)/sim/build/unit/tb_mtx9_engine/tb_mtx9_engine \
+	    $(RTL_ROOT)/accel/mtx9_engine.sv \
+	    $(RTL_ROOT)/accel/test/unit/tb_mtx9_engine.sv
+	@$(ARES_HOME)/sim/build/unit/tb_mtx9_engine/tb_mtx9_engine
+
+# State-machine token scanner (standalone + SoC integration)
+.PHONY: lint-state9 unit-state9
+lint-state9:
+	@echo "[lint] state9_engine"
+	@verilator $(VERILATOR_LINT_FLAGS) --top-module state9_engine \
+	    $(RTL_ROOT)/accel/state9_engine.sv
+
+unit-state9:
+	@mkdir -p $(ARES_HOME)/sim/build/unit/tb_state9_engine
+	@verilator --binary --timing -sv --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+	    -Wno-SIDEEFFECT -Wno-BLKSEQ -Wno-INITIALDLY -Wno-WIDTHTRUNC \
+	    -Wno-WIDTHEXPAND -Wno-UNUSEDSIGNAL -Wno-CASEINCOMPLETE -Wno-IMPLICIT \
+	    -Wno-UNSIGNED -DCONFIG_SIMULATION \
+	    --top-module tb_state9_engine \
+	    --Mdir $(ARES_HOME)/sim/build/unit/tb_state9_engine \
+	    -o $(ARES_HOME)/sim/build/unit/tb_state9_engine/tb_state9_engine \
+	    $(RTL_ROOT)/accel/state9_engine.sv \
+	    $(RTL_ROOT)/accel/test/unit/tb_state9_engine.sv
+	@$(ARES_HOME)/sim/build/unit/tb_state9_engine/tb_state9_engine
 
 # Retained legacy adapter unit fixture. Current CPU/L2 tops use native C5
 # recovery and two-lane training directly, without this adapter.
@@ -335,6 +378,26 @@ coremark-array-image:
 	@python3 "$(ARES_HOME)/scripts/build_coremark_crc.py" --array-list \
 	    --out "$(ARES_HOME)/build/coremark_array" --jobs 4
 
+# CRC + 9-PE INT16 matrix engine variant.
+coremark-matrix-image:
+	@python3 "$(ARES_HOME)/scripts/build_coremark_crc.py" --matrix-engine \
+	    --out "$(ARES_HOME)/build/coremark_matrix" --jobs 4
+
+# CRC + array-shadow list + 9-PE matrix engine variant.
+coremark-matrix-array-image:
+	@python3 "$(ARES_HOME)/scripts/build_coremark_crc.py" --matrix-engine --array-list \
+	    --out "$(ARES_HOME)/build/coremark_matrix_array" --jobs 4
+
+# CRC + state-machine token scanner variant.
+coremark-state-image:
+	@python3 "$(ARES_HOME)/scripts/build_coremark_crc.py" --state-engine \
+	    --out "$(ARES_HOME)/build/coremark_state" --jobs 4
+
+# CRC + array-shadow list + matrix engine + state scanner.
+coremark-full-image:
+	@python3 "$(ARES_HOME)/scripts/build_coremark_crc.py" --state-engine \
+	    --matrix-engine --array-list --out "$(ARES_HOME)/build/coremark_full" --jobs 4
+
 $(COREMARK_HEX): $(COREMARK_PORT_SRCS)
 	@$(COREMARK_IMAGE_CMD)
 
@@ -358,6 +421,8 @@ endif
 ARES_COREMARK_SRCS := $(RTL_ROOT)/common/fe_pkg.sv $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
     $(ARES_FE_SRCS) $(RTL_ROOT)/frontend/interface/axi_l2_bridge.sv \
     $(RTL_ROOT)/l2/l2_pkg.sv $(RTL_ROOT)/l2/l2_top.sv \
+    $(RTL_ROOT)/accel/mtx9_engine.sv \
+    $(RTL_ROOT)/accel/state9_engine.sv \
     $(wildcard $(RTL_ROOT)/backend/*.sv) $(wildcard $(RTL_ROOT)/memory/*.sv) \
     $(RTL_ROOT)/top/ares_core_top.sv $(RTL_ROOT)/top/ares_frontend_l2_top.sv
 
@@ -410,7 +475,8 @@ unit-l2-frontend: config-gen
 	  verilator --binary -j 4 --timing --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
 	      -Wno-PINCONNECTEMPTY -Wno-BLKSEQ -DCONFIG_SIMULATION $(ARES_CFG_INC) \
 	      --top-module tb_frontend_l2 -GDUAL=$$dual --Mdir $$d -o $$d/tb_frontend_l2 \
-	      $(ARES_COREMARK_SRCS) $(RTL_ROOT)/top/ares_frontend_hart.sv \
+	      $(ARES_COREMARK_SRCS) \
+	      $(RTL_ROOT)/top/ares_frontend_hart.sv \
 	      $(RTL_ROOT)/top/ares_2core_frontend_l2_top.sv $(RTL_ROOT)/top/test/tb_frontend_l2.sv; \
 	  $$d/tb_frontend_l2; \
 	done

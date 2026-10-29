@@ -99,22 +99,77 @@ module ares_frontend_l2_top #(
     logic [127:0] c0_mem_wr_data;
     logic [15:0] c0_mem_wr_be;
 
-    // MMIO stub.
-    /* verilator lint_off UNUSEDSIGNAL */
+    // MMIO accelerators: matrix at 0xA000_1000, state at 0xA000_2000.
+    localparam logic [31:0] MTX_BASE   = 32'hA000_1000;
+    localparam logic [31:0] STATE_BASE = 32'hA000_2000;
+    localparam logic [31:0] ACCEL_MASK = 32'hFFFF_F000;
+
     logic mmio_req_valid, mmio_req_ready, mmio_write;
     logic [31:0] mmio_addr, mmio_wdata;
     logic [3:0] mmio_wstrb;
-    logic mmio_rsp_valid, mmio_rsp_ready;
+    logic mmio_rsp_valid;
     logic [31:0] mmio_rsp_data;
-    /* verilator lint_on UNUSEDSIGNAL */
+
+    wire mmio_mtx_sel   = ((mmio_addr & ACCEL_MASK) == MTX_BASE);
+    wire mmio_state_sel = ((mmio_addr & ACCEL_MASK) == STATE_BASE);
+    wire [1:0] mmio_dev_sel = mmio_mtx_sel ? 2'd1 :
+                              mmio_state_sel ? 2'd2 : 2'd0;
+    logic [1:0] mmio_dev_sel_q;
+    logic mmio_stub_rsp_valid, mmio_mtx_rsp_valid, mmio_state_rsp_valid;
+    logic [31:0] mmio_mtx_rsp_data, mmio_state_rsp_data;
 
     assign mmio_req_ready = 1'b1;
-    assign mmio_rsp_ready = 1'b1;
-    assign mmio_rsp_data  = 32'h0;
+
     always_ff @(posedge clk) begin
-        if (rst) mmio_rsp_valid <= 1'b0;
-        else     mmio_rsp_valid <= mmio_req_valid;
+        if (rst) begin
+            mmio_dev_sel_q      <= 2'd0;
+            mmio_stub_rsp_valid <= 1'b0;
+        end else begin
+            mmio_stub_rsp_valid <= mmio_req_valid && (mmio_dev_sel == 2'd0);
+            if (mmio_req_valid) mmio_dev_sel_q <= mmio_dev_sel;
+        end
     end
+
+    always_comb begin
+        case (mmio_dev_sel_q)
+            2'd1: begin
+                mmio_rsp_valid = mmio_mtx_rsp_valid;
+                mmio_rsp_data  = mmio_mtx_rsp_data;
+            end
+            2'd2: begin
+                mmio_rsp_valid = mmio_state_rsp_valid;
+                mmio_rsp_data  = mmio_state_rsp_data;
+            end
+            default: begin
+                mmio_rsp_valid = mmio_stub_rsp_valid;
+                mmio_rsp_data  = 32'h0;
+            end
+        endcase
+    end
+
+    mtx9_engine u_mtx (
+        .clk(clk), .rst(rst),
+        .host_req_valid(mmio_req_valid && mmio_mtx_sel),
+        .host_req_ready(),
+        .host_write(mmio_write),
+        .host_addr(mmio_addr),
+        .host_wdata(mmio_wdata),
+        .host_wstrb(mmio_wstrb),
+        .host_rsp_valid(mmio_mtx_rsp_valid),
+        .host_rsp_data(mmio_mtx_rsp_data)
+    );
+
+    state9_engine u_state (
+        .clk(clk), .rst(rst),
+        .host_req_valid(mmio_req_valid && mmio_state_sel),
+        .host_req_ready(),
+        .host_write(mmio_write),
+        .host_addr(mmio_addr),
+        .host_wdata(mmio_wdata),
+        .host_wstrb(mmio_wstrb),
+        .host_rsp_valid(mmio_state_rsp_valid),
+        .host_rsp_data(mmio_state_rsp_data)
+    );
 
     ares_core_top #(
         .RESET_MTVEC(RESET_MTVEC),
@@ -138,7 +193,7 @@ module ares_frontend_l2_top #(
         .mmio_req_valid(mmio_req_valid), .mmio_req_ready(mmio_req_ready),
         .mmio_write(mmio_write), .mmio_addr(mmio_addr), .mmio_wdata(mmio_wdata),
         .mmio_wstrb(mmio_wstrb),
-        .mmio_rsp_valid(mmio_rsp_valid), .mmio_rsp_ready(mmio_rsp_ready),
+        .mmio_rsp_valid(mmio_rsp_valid), .mmio_rsp_ready(),
         .mmio_rsp_data(mmio_rsp_data),
         .retire_valid(retire_valid), .retire_pc(retire_pc), .retire_pc_next(),
         .retire_rd_wen(retire_rd_wen), .retire_rd(retire_rd),

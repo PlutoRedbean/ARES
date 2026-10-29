@@ -38,6 +38,17 @@ module ares_frontend_hart #(
     output logic [127:0] mem_wr_data,
     output logic [ 15:0] mem_wr_be,
 
+    //---- MMIO device channel ------------------------------------------------
+    output logic        mmio_req_valid,
+    input  logic        mmio_req_ready,
+    output logic        mmio_write,
+    output logic [31:0] mmio_addr,
+    output logic [31:0] mmio_wdata,
+    output logic [ 3:0] mmio_wstrb,
+    input  logic        mmio_rsp_valid,
+    output logic        mmio_rsp_ready,
+    input  logic [31:0] mmio_rsp_data,
+
     //---- observation --------------------------------------------------------
     output logic [31:0] fetch_pc,
     output logic [ 1:0] retire_valid,
@@ -112,22 +123,6 @@ module ares_frontend_hart #(
     assign mem_wr_addr = core_mem_wr_addr + DATA_OFFSET;
     assign mem_wr_data = core_mem_wr_data;
     assign mem_wr_be = core_mem_wr_be;
-
-    /* verilator lint_off UNUSEDSIGNAL */
-    logic mmio_req_valid, mmio_req_ready, mmio_write;
-    logic [31:0] mmio_addr, mmio_wdata;
-    logic [3:0] mmio_wstrb;
-    logic mmio_rsp_valid, mmio_rsp_ready;
-    logic [31:0] mmio_rsp_data;
-    /* verilator lint_on UNUSEDSIGNAL */
-
-    assign mmio_req_ready = 1'b1;
-    assign mmio_rsp_ready = 1'b1;
-    assign mmio_rsp_data  = 32'h0;
-    always_ff @(posedge clk) begin
-        if (rst) mmio_rsp_valid <= 1'b0;
-        else     mmio_rsp_valid <= mmio_req_valid;
-    end
 
     ares_core_top #(
         .RESET_MTVEC(RESET_MTVEC),
