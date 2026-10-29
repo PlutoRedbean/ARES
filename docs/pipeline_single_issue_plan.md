@@ -1,6 +1,6 @@
 # ARES FPGA 单发射流水线 SoC 实施计划（PG2L200H）
 
-> 状态：Draft v0.2（M0 完成、M1 core 语义完成；ISA/CoreMark/Pango 待后续）
+> 状态：Draft v0.3（M0/M1 完成，ISA 36/36 与基线 CoreMark 仿真通过；Pango 待后续）
 > 日期：2026-10-30
 > 目标分支：`pipeline-single-issue`（待从 `pipeline` 创建）
 > 关联文档：[implementation_plan.md](implementation_plan.md)、[jyd_soc_integration.md](jyd_soc_integration.md)、[coremark_uart_scoring.md](coremark_uart_scoring.md)
@@ -268,9 +268,9 @@ wire [31:0] byte_addr = 32'h8000_0000 + ({addra, 2'b00});
 
 时序要求：地址发出后下一拍 `douta` 有效；若综合 BRAM 需要 output register 导致 2-cycle，必须在 core 侧加 fetch stall，不能静默改成 2-cycle。
 
-### 7.2 `pipeline_perip_compat`
+### 7.2 CoreMark 设备窗口（已直接实现在 `perip_bridge`）
 
-把 CoreMark 的 `0xA000_xxxx` 映射到 jyd 的 `0x8020_xxxx`：
+在 `soc/jyd/perip_bridge.sv` 内直接处理 `0xA000_xxxx`，不增加独立兼容模块：
 
 | CoreMark 地址 | 功能 | jyd 目标 |
 | --- | --- | --- |
@@ -280,9 +280,9 @@ wire [31:0] byte_addr = 32'h8000_0000 + ({addra, 2'b00});
 | `0xA000_0054` | cycle counter high | 新 64-bit 计数器高 32 位 |
 | 其他 `0xA000_xxxx` | 保留/返回 0 | 可选：透传到 jyd 外设 |
 
-- 该层只做地址/读数据转换，不改变 jyd 外设的时序；
-- 对 UART 写：直接转发；对 status 读：读 jyd `CONSOLE_STATUS` 后重排 bit；
-- 对 cycle counter：读操作返回计数器，写忽略；不要占用 jyd 的 `0x8020_0050` 毫秒计数器。
+- UART 写通过 `perip_addr_eff` 别名到 `CONSOLE_ADDR`；status 读返回 bit0 = `~console_tx_ready`；
+- cycle counter 使用独立 64-bit `cycle_count`，占用 `RESP_CNT` 响应通道但不覆盖 `0x8020_0050` 毫秒计数器；
+- 该实现已通过 `make pipeline-coremark` 验证。
 
 ### 7.3 `pipeline_cycle_counter`
 
@@ -292,7 +292,7 @@ wire [31:0] byte_addr = 32'h8000_0000 + ({addra, 2'b00});
 
 ### 7.4 `pipeline_soc_top`
 
-- 实例化 5-stage core wrapper、`IROM_BMEM32`、perip compat、jyd perip bridge、BRAM、cycle counter；
+- 实例化 5-stage core wrapper、`IROM_BMEM32`、jyd perip bridge（含 CoreMark 窗口）、BRAM、cycle counter；
 - `timer_irq` 固定 0；
 - 保留 jyd 的 `virtual_sw/key/led/seg` 端口（可裁剪）；
 - 不实例化 ARES `ares_frontend_l2_top`/`ares_core_top`。
@@ -342,13 +342,13 @@ wire [31:0] byte_addr = 32'h8000_0000 + ({addra, 2'b00});
 make pipeline-core-gen
 make pipeline-lint
 make pipeline-smoke
+make pipeline-isa       # 36/36
+make pipeline-coremark  # baseline 100 iterations
 ```
 
 后续目标：
 
 ```bash
-make pipeline-isa
-make pipeline-coremark
 make pipeline-coremark DMEM=$PWD/build/coremark/coremark_dmem.hex
 ```
 
@@ -371,8 +371,8 @@ make pipeline-coremark DMEM=$PWD/build/coremark/coremark_dmem.hex
 
 | 阶段 | 验收 |
 | --- | --- |
-| M1 | core 语义 smoke：`fence` 前后 store 均完成、`ebreak` retire 并 halt；ISA 36/36 与逐指令对拍待接入 |
-| M2 | 基线 CoreMark 1 iteration：`a0=0`，CRC 正确；100 iterations：UART 打印完整分数 |
+| M1 | core 语义 smoke + ISA 36/36：`fence` 前后 store、`ebreak` retire/halt 均通过 |
+| M2 | 基线 CoreMark 100 iterations：`a0=0`、CRC 正确、UART 打印完整分数；仿真已通过（2.293729 CoreMark/MHz） |
 | M3 | Pango 综合/实现通过；资源/时序报告；上板 UART 打印同一分数 |
 | M4 | 可选：中断/RT-Thread、加速镜像、双核 |
 
@@ -410,19 +410,25 @@ make pipeline-coremark DMEM=$PWD/build/coremark/coremark_dmem.hex
 - `EBREAK` 通过 `retire_is_ebreak` 可见，并触发 sticky halt；
 - `retire_valid/pc/pc_next/rd_wen/rd/wdata/is_ebreak` 从 `Mundus`/`myCPU`/`student_top` 导出；
 - `Mundus.sv` 由 ARES 内 `make pipeline-core-gen` 生成；
-- smoke 覆盖 `fence` 前后 store、`ebreak` retire/halt。
+- smoke 覆盖 `fence` 前后 store、`ebreak` retire/halt；
+- `make pipeline-isa` 36/36 通过。
 
 待完成：
 
-- core-only ISA 36/36（需要把 ARES ISA 回归接到 pipeline TB）；
-- retire PC/GPR 与参考模型的逐指令对拍。
+- retire PC/GPR 与独立参考模型的逐指令对拍（ISA 结果已通过）。
 
 ### M2：pipeline SoC 仿真与 CoreMark
 
-- 接入 `IROM_BMEM32`、perip compat、cycle counter；
-- CoreMark 1 iteration 对 CRC/a0；
-- CoreMark 100 iterations 从 UART 读分数；
-- 记录 cycles/IPC。
+已完成：
+
+- `IROM_BMEM32`、`perip_bridge` 内的 `0xA000` 设备窗口、64-bit cycle counter；
+- 基线 CoreMark 100 iterations：`43,597,126` timed cycles，`2.293729` CoreMark/MHz；
+- CRCs `e714 / 1fd7 / 8e3a / 988c`，`CoreMark PASS`，`a0=0`。
+
+后续：
+
+- 上板 Pango 实现；
+- 加速镜像与多核。
 
 ### M3：Pango 实现与上板
 

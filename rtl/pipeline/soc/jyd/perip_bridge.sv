@@ -60,6 +60,13 @@ module perip_bridge(
     localparam logic [31:0] CNT_START_CMD   = 32'h8000_0000;
     localparam logic [31:0] CNT_STOP_CMD    = 32'hFFFF_FFFF;
 
+    // CoreMark compatibility window.  The benchmark image uses the ARES
+    // 0xA000_xxxx device map; the jyd bridge keeps its native 0x8020 map.
+    localparam logic [31:0] BENCH_CYCLE_LO    = 32'hA000_0050;
+    localparam logic [31:0] BENCH_CYCLE_HI    = 32'hA000_0054;
+    localparam logic [31:0] BENCH_UART_TX     = 32'hA000_03F8;
+    localparam logic [31:0] BENCH_UART_STATUS = 32'hA000_03FC;
+
     // Read-response source tag. Address decoding is completed when the
     // request enters the bridge; only this compact tag follows the two-cycle
     // memory response pipeline.
@@ -132,6 +139,12 @@ module perip_bridge(
     logic [STORE_QUEUE_PTR_WIDTH-1:0] store_tail_q;
     logic [STORE_QUEUE_COUNT_WIDTH-1:0] store_count_q;
 
+    logic [63:0] cycle_count;
+
+    wire [31:0] perip_addr_eff =
+        (perip_addr == BENCH_UART_TX)     ? CONSOLE_ADDR :
+        (perip_addr == BENCH_UART_STATUS) ? CONSOLE_STATUS : perip_addr;
+
     logic        store_empty;
     logic        store_full;
     logic        store_enqueue;
@@ -197,7 +210,7 @@ module perip_bridge(
                 end else begin
                     // Keep MMIO writes ordered after queued and staged stores.
                     perip_ready = store_empty && !bram_write_valid_q;
-                    if (perip_addr == CONSOLE_ADDR) begin
+                    if (perip_addr_eff == CONSOLE_ADDR) begin
                         perip_ready = perip_ready && console_tx_ready;
                     end
                 end
@@ -224,7 +237,7 @@ module perip_bridge(
 
     // Simulation-only character sink used by the RT-Thread console driver.
     always_ff @(posedge clk) begin
-        if (!rst && mmio_write_accept && perip_addr == CONSOLE_ADDR) begin
+        if (!rst && mmio_write_accept && perip_addr_eff == CONSOLE_ADDR) begin
             $write("%c", perip_wdata[7:0]);
         end
         if (!rst && mmio_write_accept && perip_addr == LED_ADDR) begin
@@ -241,7 +254,7 @@ module perip_bridge(
             console_rx_data  <= 8'd0;
             console_rx_valid <= 1'b0;
         end else if (console_rx_valid) begin
-            if (read_accept && perip_addr == CONSOLE_RX) begin
+            if (read_accept && perip_addr_eff == CONSOLE_RX) begin
                 console_rx_valid <= 1'b0;
             end
         end else begin
@@ -271,7 +284,7 @@ module perip_bridge(
             console_tx_ack_sync_cpu[0] <= console_tx_ack_cnt;
             console_tx_ack_sync_cpu[1] <= console_tx_ack_sync_cpu[0];
 
-            if (mmio_write_accept && perip_addr == CONSOLE_ADDR) begin
+            if (mmio_write_accept && perip_addr_eff == CONSOLE_ADDR) begin
                 console_tx_data_cpu <= perip_wdata[7:0];
                 console_tx_req_cpu  <= ~console_tx_req_cpu;
             end
@@ -332,7 +345,7 @@ module perip_bridge(
             if (console_rx_req_sync_cpu[1] != console_rx_ack_cpu) begin
                 console_rx_data <= console_rx_data_cnt;
             end
-            if (read_accept && perip_addr == CONSOLE_RX &&
+            if (read_accept && perip_addr_eff == CONSOLE_RX &&
                 console_rx_valid) begin
                 console_rx_ack_cpu <= console_rx_req_sync_cpu[1];
             end
@@ -509,7 +522,7 @@ module perip_bridge(
         cnt_enable_cfg_next = cnt_enable_cfg;
 
         if (mmio_write_accept) begin
-            unique case (perip_addr)
+            unique case (perip_addr_eff)
                 LED_ADDR: begin
                     LED_next = perip_wdata;
                 end
@@ -551,14 +564,24 @@ module perip_bridge(
     always_comb begin
         response_tag_next = RESP_NONE;
         mmio_rdata_next   = 32'd0;
+        cycle_sel_next    = 1'b0;
+        cycle_hi_next     = 1'b0;
 
         if (read_accept) begin
             if (dram_write_hit) begin
                 response_tag_next = RESP_DRAM;
-            end else if (perip_addr == CNT_ADDR) begin
+            end else if (perip_addr == BENCH_CYCLE_LO) begin
+                response_tag_next = RESP_CNT;
+                cycle_sel_next    = 1'b1;
+                cycle_hi_next     = 1'b0;
+            end else if (perip_addr == BENCH_CYCLE_HI) begin
+                response_tag_next = RESP_CNT;
+                cycle_sel_next    = 1'b1;
+                cycle_hi_next     = 1'b1;
+            end else if (perip_addr_eff == CNT_ADDR) begin
                 response_tag_next = RESP_CNT;
             end else begin
-                unique case (perip_addr)
+                unique case (perip_addr_eff)
                     SW0_ADDR: begin
                         response_tag_next = RESP_MMIO;
                         mmio_rdata_next   = sw_cpu[31:0];
@@ -581,11 +604,9 @@ module perip_bridge(
                     end
                     CONSOLE_STATUS: begin
                         response_tag_next = RESP_MMIO;
-                        mmio_rdata_next   = {
-                            30'd0,
-                            console_tx_ready,
-                            console_rx_valid
-                        };
+                        mmio_rdata_next   = (perip_addr == BENCH_UART_STATUS)
+                            ? {30'd0, ~console_tx_ready, console_rx_valid}
+                            : {30'd0, console_tx_ready,  console_rx_valid};
                     end
                     CONSOLE_RX: begin
                         response_tag_next = RESP_MMIO;
@@ -690,6 +711,12 @@ module perip_bridge(
         .perip_rdata (dram_rdata)
     );
 
+    // Free-running 64-bit CPU cycle counter for the CoreMark window.
+    always_ff @(posedge clk) begin
+        if (rst) cycle_count <= 64'd0;
+        else     cycle_count <= cycle_count + 64'd1;
+    end
+
     // Counter performs its own CDC internally.
     counter counter_inst (
         .cpu_clk        (clk),
@@ -701,6 +728,8 @@ module perip_bridge(
     );
 
     logic [1:0]  response_tag_r2;
+    logic        cycle_sel_next, cycle_sel_r, cycle_sel_r2;
+    logic        cycle_hi_next,  cycle_hi_r,  cycle_hi_r2;
     logic [31:0] mmio_rdata_r;
     logic [31:0] cnt_rdata_r;
     logic [31:0] cnt_rdata_r2;
@@ -715,6 +744,10 @@ module perip_bridge(
         if (rst) begin
             response_tag_r  <= RESP_NONE;
             response_tag_r2 <= RESP_NONE;
+            cycle_sel_r     <= 1'b0;
+            cycle_sel_r2    <= 1'b0;
+            cycle_hi_r      <= 1'b0;
+            cycle_hi_r2     <= 1'b0;
             mmio_rdata_r     <= 32'd0;
             cnt_rdata_r      <= 32'd0;
             cnt_rdata_r2     <= 32'd0;
@@ -725,6 +758,10 @@ module perip_bridge(
         end else begin
             response_tag_r  <= response_tag_next;
             response_tag_r2 <= response_tag_r;
+            cycle_sel_r     <= cycle_sel_next;
+            cycle_sel_r2    <= cycle_sel_r;
+            cycle_hi_r      <= cycle_hi_next;
+            cycle_hi_r2     <= cycle_hi_r;
             mmio_rdata_r     <= mmio_rdata;
             cnt_rdata_r      <= cnt_rdata;
             cnt_rdata_r2     <= cnt_rdata_r;
@@ -760,7 +797,9 @@ module perip_bridge(
         unique case (response_tag_r2)
             RESP_MMIO: perip_rdata = mmio_rdata_r;
             RESP_DRAM: perip_rdata = dram_rdata_forwarded;
-            RESP_CNT:  perip_rdata = cnt_rdata_r2;
+            RESP_CNT:  perip_rdata = cycle_sel_r2
+                ? (cycle_hi_r2 ? cycle_count[63:32] : cycle_count[31:0])
+                : cnt_rdata_r2;
             default:   perip_rdata = 32'd0;
         endcase
     end

@@ -693,7 +693,7 @@ unit-frontend-modes:
 test-images:
 	@python3 $(ARES_HOME)/scripts/test_split_image.py
 
-.PHONY: pipeline-core-gen pipeline-lint pipeline-smoke
+.PHONY: pipeline-core-gen pipeline-lint pipeline-smoke pipeline-isa-sim pipeline-isa pipeline-coremark
 pipeline-core-gen:
 	@cd $(ARES_HOME)/rtl/pipeline/gen && \
 	  MILL_WORKSPACE_ROOT=$$(pwd) ./mill -i Mundus.runMain npc.Elaborate \
@@ -710,3 +710,29 @@ pipeline-smoke:
 	    rtl/pipeline/test/tb_pipeline_smoke.sv rtl/pipeline/test/sim_main.cpp \
 	    -Mdir $(ARES_HOME)/build/pipeline_smoke -o $(ARES_HOME)/build/pipeline_smoke/pipeline_smoke
 	@$(ARES_HOME)/build/pipeline_smoke/pipeline_smoke
+
+pipeline-isa-sim:
+	@mkdir -p $(ARES_HOME)/build/pipeline_isa
+	@cd $(ARES_HOME) && CCACHE_DISABLE=1 verilator --cc --exe --build --language 1800-2017 -D__VERILATOR__ -Wno-fatal \
+	    --top-module tb_pipeline_isa -f rtl/pipeline/pipeline.f \
+	    rtl/pipeline/test/tb_pipeline_isa.sv rtl/pipeline/test/sim_isa_main.cpp \
+	    -Mdir $(ARES_HOME)/build/pipeline_isa -o $(ARES_HOME)/build/pipeline_isa/pipeline_isa
+
+pipeline-isa: pipeline-isa-sim
+	@set -e; pass=0; fail=0; \
+	for bin in $(ARES_HOME)/tests/cpu-tests/build/*-riscv32-ares.bin; do \
+	    name=$$(basename $$bin -riscv32-ares.bin); \
+	    if $(ARES_HOME)/build/pipeline_isa/pipeline_isa $$bin 2000000 \
+	        > $(ARES_HOME)/build/pipeline_isa/$$name.log 2>&1; then \
+	        printf '[%14s] PASS\n' $$name; pass=$$((pass+1)); \
+	    else \
+	        printf '[%14s] FAIL\n' $$name; tail -3 $(ARES_HOME)/build/pipeline_isa/$$name.log; fail=$$((fail+1)); \
+	    fi; \
+	done; \
+	echo "ISA pass=$$pass fail=$$fail"; test $$fail -eq 0
+
+pipeline-coremark: pipeline-isa-sim
+	@test -f $(ARES_HOME)/build/coremark/coremark.bin || \
+	  { echo "error: build/coremark/coremark.bin missing; run 'make coremark-image'"; exit 1; }
+	@$(ARES_HOME)/build/pipeline_isa/pipeline_isa \
+	    $(ARES_HOME)/build/coremark/coremark.bin 200000000

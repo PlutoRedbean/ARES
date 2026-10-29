@@ -1,8 +1,9 @@
-# ARES pipeline single-issue SoC (M1)
+# ARES pipeline single-issue SoC (M1.5 + CoreMark simulation)
 
-Status: M1 core semantics are implemented and verified in the standalone smoke
-test.  The core and SoC sources are imported from ysyx-workbench/npc; the jyd
-SoC uses a 32-bit IROM with no 64-bit compatibility path.
+Status: M1 core semantics, 36/36 ISA tests, and the baseline 100-iteration
+CoreMark all pass in the standalone simulation.  The core and SoC sources are
+imported from ysyx-workbench/npc; the jyd SoC uses a 32-bit IROM with no
+64-bit compatibility path.
 
 ## Source provenance
 
@@ -70,6 +71,11 @@ rtl/pipeline/gen/                        # ARES-local mill build for the core
   - `PERIP.idle` and `LSU.idle` were added for the fence handshake.
 - `soc/jyd/perip_bridge.sv` exports `perip_idle` (store queue empty, no staged
   BRAM write, no response in flight).
+- `soc/jyd/perip_bridge.sv` also implements the CoreMark `0xA000_xxxx` window:
+  - `0xA000_03F8` write aliases the native UART TX;
+  - `0xA000_03FC` read returns bit0 = UART busy (`~console_tx_ready`);
+  - `0xA000_0050/54` read a free-running 64-bit CPU cycle counter.
+  The native jyd `0x8020_xxxx` map remains unchanged.
 
 ## Verification
 
@@ -77,6 +83,8 @@ rtl/pipeline/gen/                        # ARES-local mill build for the core
 make pipeline-core-gen   # Chisel -> rtl/pipeline/core/vsrc/build/Mundus.sv
 make pipeline-lint
 make pipeline-smoke
+make pipeline-isa         # 36/36 cpu-tests
+make pipeline-coremark    # baseline 100-iteration CoreMark
 ```
 
 - `pipeline-core-gen`: writes the generated core into ARES, not into npc.
@@ -89,15 +97,21 @@ make pipeline-smoke
   - store `0x66` to `0x80100004` after the fence (proves the fence released);
   - `RETIRE ebreak pc=0x80000018` and `ebreak_seen=1`;
   - the pipeline halts after EBREAK.
+- `pipeline-isa`: 36/36 ISA tests pass.  The harness loads each
+  `tests/cpu-tests/build/*-riscv32-ares.bin` image and checks EBREAK plus a0.
+- `pipeline-coremark`: baseline `build/coremark/coremark.bin`, 100 iterations:
+  - timed cycles `43,597,126`;
+  - `2,293,729` CoreMark/MHz;
+  - CRCs `e714 / 1fd7 / 8e3a / 988c` and `CoreMark PASS`.
 
 ## Known gaps (next milestones)
 
 - Pango PDS is not installed on this Linux host; PG2L200H
   SystemVerilog/PDS/resource/timing checks remain pending.
-- Full ISA regression and ARES-style retire scoreboard are not integrated yet;
-  the smoke test is a focused M1 check.
-- UART/cycle-counter CoreMark compatibility window, ISA images, and CoreMark
-  images are not yet integrated.
+- The ISA/CoreMark harnesses are standalone DPI TBs, not the ARES
+  `tb_ares_cpu`/`tb_ares_coremark` scoreboards.
+- The CoreMark `0xA000` window is currently a direct bridge modification; a
+  native `0x8020` software/platform variant is still possible later.
 - `IROM_BMEM32`/BRAM non-Verilator paths are placeholders; Pango BRAM wrappers
   and image initialization are M3 work.
 
