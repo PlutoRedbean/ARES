@@ -103,7 +103,6 @@ MAIN_RETURN_TYPE main(int argc, char *argv[]) {
 
   ioe_init();
 
-  ee_printf("Running CoreMark for %d iterations\n", ITERATIONS);
 
 	/* first call any initializations needed */
 	portable_init(&(results[0].port), &argc, argv);
@@ -217,6 +216,7 @@ MAIN_RETURN_TYPE main(int argc, char *argv[]) {
 		results[0].iterations*=1+10/divisor;
 	}
 	/* perform actual benchmark */
+	ee_printf("Running CoreMark for %d iterations\n", results[0].iterations);
 	start_time();
 #if (MULTITHREAD>1)
 	if (default_num_contexts>MULTITHREAD) {
@@ -271,17 +271,17 @@ MAIN_RETURN_TYPE main(int argc, char *argv[]) {
 			results[i].err=0;
 			if ((results[i].execs & ID_LIST) &&
 				(results[i].crclist!=list_known_crc[known_id])) {
-				ee_printf("[%u]ERROR! list crc 0x%04x - should be 0x%04x\n",i,results[i].crclist,list_known_crc[known_id]);
+				ee_printf("[%d]ERROR! list crc 0x%04x - should be 0x%04x\n",i,results[i].crclist,list_known_crc[known_id]);
 				results[i].err++;
 			}
 			if ((results[i].execs & ID_MATRIX) &&
 				(results[i].crcmatrix!=matrix_known_crc[known_id])) {
-				ee_printf("[%u]ERROR! matrix crc 0x%04x - should be 0x%04x\n",i,results[i].crcmatrix,matrix_known_crc[known_id]);
+				ee_printf("[%d]ERROR! matrix crc 0x%04x - should be 0x%04x\n",i,results[i].crcmatrix,matrix_known_crc[known_id]);
 				results[i].err++;
 			}
 			if ((results[i].execs & ID_STATE) &&
 				(results[i].crcstate!=state_known_crc[known_id])) {
-				ee_printf("[%u]ERROR! state crc 0x%04x - should be 0x%04x\n",i,results[i].crcstate,state_known_crc[known_id]);
+				ee_printf("[%d]ERROR! state crc 0x%04x - should be 0x%04x\n",i,results[i].crcstate,state_known_crc[known_id]);
 				results[i].err++;
 			}
 			total_errors+=results[i].err;
@@ -290,14 +290,7 @@ MAIN_RETURN_TYPE main(int argc, char *argv[]) {
 	total_errors+=check_data_types();
 	/* and report results */
 	ee_printf("CoreMark Size    : %d\n",(int)results[0].size);
-#if HAS_FLOAT
-	ee_printf("Total time (ms)  : %f\n",time_in_secs(total_time));
-	if (time_in_secs(total_time) > 0)
-		ee_printf("Iterations/mSec  : %f\n",default_num_contexts*results[0].iterations/time_in_secs(total_time));
-#else
-	ee_printf("Total time (ms)  : %d\n",time_in_secs(total_time));
-#endif
-	ee_printf("Iterations       : %d\n",(int)default_num_contexts*results[0].iterations);
+	coremark_report_time(total_time, default_num_contexts * results[0].iterations);
 	ee_printf("Compiler version : %s\n",COMPILER_VERSION);
 #if (MULTITHREAD>1)
 	ee_printf("Parallel %s : %d\n",PARALLEL_METHOD,default_num_contexts);
@@ -315,12 +308,8 @@ MAIN_RETURN_TYPE main(int argc, char *argv[]) {
 			ee_printf("[%d]crcstate      : 0x%04x\n",i,results[i].crcstate);
 	for (i=0 ; i<default_num_contexts; i++)
 		ee_printf("[%d]crcfinal      : 0x%04x\n",i,results[i].crc);
-  ee_printf("Finised in %d ms.\n", (int)total_time);
-	if (total_errors==0) {
-    ee_printf("==================================================\n");
-	  ee_printf("CoreMark PASS       %d Marks\n", 2921400 / time_in_secs(total_time) * ITERATIONS / 1000);
-	  ee_printf("                vs. 100000 Marks (i7-7700K @ 4.20GHz)\n");
-  }
+	if (total_errors==0)
+		ee_printf("CoreMark PASS\n");
 	if (total_errors>0)
 		ee_printf("Errors detected\n");
 	if (total_errors<0)

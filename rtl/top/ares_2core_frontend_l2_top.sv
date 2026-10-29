@@ -8,17 +8,21 @@
 //
 // hart1's D-side address is offset by C1_DATA_OFFSET so two CoreMark images
 // can use the same code addresses but private data/stack regions.  Interrupts
-// and MMIO xbar are still stubs; this top is the AMP CoreMark data path.
+// remain tied off; each hart has benchmark UART/timer and accelerator devices.
 //=============================================================================
 module ares_2core_frontend_l2_top #(
     parameter logic [31:0] RESET_MTVEC    = ares_pkg::RESET_PC,
     parameter logic [31:0] RESET_VEC      = ares_pkg::RESET_PC,
     parameter int unsigned L2_SETS        = 128,
     parameter logic [31:0] C1_DATA_OFFSET = 32'h0010_0000,
-    parameter bit          HART1_ENABLE   = 1'b1
+    parameter bit          HART1_ENABLE   = 1'b1,
+    parameter int unsigned CLK_HZ         = 100_000_000,
+    parameter int unsigned UART_BAUD      = 115_200
 ) (
     input logic clk,
     input logic rst,
+    output logic c0_uart_tx, c0_uart_busy,
+    output logic c1_uart_tx, c1_uart_busy,
     // Runtime hart1 enable (bring-up / debug).  ANDed with HART1_ENABLE so a
     // simulation can compare "hart0 alone" against "both harts" with the same
     // hardware configuration.
@@ -98,13 +102,13 @@ module ares_2core_frontend_l2_top #(
     logic c0_mmio_req_valid, c0_mmio_req_ready, c0_mmio_write;
     logic [31:0] c0_mmio_addr, c0_mmio_wdata;
     logic [3:0] c0_mmio_wstrb;
-    logic c0_mmio_rsp_valid;
+    logic c0_mmio_rsp_valid, c0_mmio_rsp_ready;
     logic [31:0] c0_mmio_rsp_data;
 
     logic c1_mmio_req_valid, c1_mmio_req_ready, c1_mmio_write;
     logic [31:0] c1_mmio_addr, c1_mmio_wdata;
     logic [3:0] c1_mmio_wstrb;
-    logic c1_mmio_rsp_valid;
+    logic c1_mmio_rsp_valid, c1_mmio_rsp_ready;
     logic [31:0] c1_mmio_rsp_data;
 
     wire c0_mtx_sel   = ((c0_mmio_addr & ACCEL_MASK) == MTX_BASE);
@@ -116,37 +120,46 @@ module ares_2core_frontend_l2_top #(
     wire [1:0] c1_dev_sel = c1_mtx_sel ? 2'd1 : c1_state_sel ? 2'd2 : 2'd0;
 
     logic [1:0] c0_dev_sel_q, c1_dev_sel_q;
-    logic c0_stub_rsp_valid, c1_stub_rsp_valid;
+    logic c0_io_rsp_valid, c1_io_rsp_valid, c0_io_req_ready, c1_io_req_ready;
+    logic [31:0] c0_io_rsp_data, c1_io_rsp_data;
     logic c0_mtx_rsp_valid, c1_mtx_rsp_valid;
     logic c0_state_rsp_valid, c1_state_rsp_valid;
     logic [31:0] c0_mtx_rsp_data, c1_mtx_rsp_data;
     logic [31:0] c0_state_rsp_data, c1_state_rsp_data;
 
-    always_ff @(posedge clk) begin
-        if (rst) begin
-            c0_dev_sel_q      <= 2'd0;
-            c0_stub_rsp_valid <= 1'b0;
-        end else begin
-            c0_stub_rsp_valid <= c0_mmio_req_valid && (c0_dev_sel == 2'd0);
-            if (c0_mmio_req_valid) c0_dev_sel_q <= c0_dev_sel;
-        end
-    end
+    ares_benchmark_io #(.CLK_HZ(CLK_HZ), .UART_BAUD(UART_BAUD)) u_io0 (
+        .clk(clk), .rst(rst),
+        .host_req_valid(c0_mmio_req_valid && (c0_dev_sel == 2'd0)),
+        .host_req_ready(c0_io_req_ready), .host_write(c0_mmio_write),
+        .host_addr(c0_mmio_addr), .host_wdata(c0_mmio_wdata), .host_wstrb(c0_mmio_wstrb),
+        .host_rsp_valid(c0_io_rsp_valid), .host_rsp_ready(c0_mmio_rsp_ready),
+        .host_rsp_data(c0_io_rsp_data), .uart_tx(c0_uart_tx), .uart_busy(c0_uart_busy)
+    );
 
     always_ff @(posedge clk) begin
-        if (rst1) begin
-            c1_dev_sel_q      <= 2'd0;
-            c1_stub_rsp_valid <= 1'b0;
-        end else begin
-            c1_stub_rsp_valid <= c1_mmio_req_valid && (c1_dev_sel == 2'd0);
-            if (c1_mmio_req_valid) c1_dev_sel_q <= c1_dev_sel;
-        end
+        if (rst) c0_dev_sel_q <= 2'd0;
+        else if (c0_mmio_req_valid && c0_mmio_req_ready) c0_dev_sel_q <= c0_dev_sel;
+    end
+
+    ares_benchmark_io #(.CLK_HZ(CLK_HZ), .UART_BAUD(UART_BAUD)) u_io1 (
+        .clk(clk), .rst(rst1),
+        .host_req_valid(c1_mmio_req_valid && (c1_dev_sel == 2'd0)),
+        .host_req_ready(c1_io_req_ready), .host_write(c1_mmio_write),
+        .host_addr(c1_mmio_addr), .host_wdata(c1_mmio_wdata), .host_wstrb(c1_mmio_wstrb),
+        .host_rsp_valid(c1_io_rsp_valid), .host_rsp_ready(c1_mmio_rsp_ready),
+        .host_rsp_data(c1_io_rsp_data), .uart_tx(c1_uart_tx), .uart_busy(c1_uart_busy)
+    );
+
+    always_ff @(posedge clk) begin
+        if (rst1) c1_dev_sel_q <= 2'd0;
+        else if (c1_mmio_req_valid && c1_mmio_req_ready) c1_dev_sel_q <= c1_dev_sel;
     end
 
     always_comb begin
         case (c0_dev_sel_q)
             2'd1: begin c0_mmio_rsp_valid = c0_mtx_rsp_valid;   c0_mmio_rsp_data = c0_mtx_rsp_data; end
             2'd2: begin c0_mmio_rsp_valid = c0_state_rsp_valid; c0_mmio_rsp_data = c0_state_rsp_data; end
-            default: begin c0_mmio_rsp_valid = c0_stub_rsp_valid; c0_mmio_rsp_data = 32'h0; end
+            default: begin c0_mmio_rsp_valid = c0_io_rsp_valid; c0_mmio_rsp_data = c0_io_rsp_data; end
         endcase
     end
 
@@ -154,12 +167,12 @@ module ares_2core_frontend_l2_top #(
         case (c1_dev_sel_q)
             2'd1: begin c1_mmio_rsp_valid = c1_mtx_rsp_valid;   c1_mmio_rsp_data = c1_mtx_rsp_data; end
             2'd2: begin c1_mmio_rsp_valid = c1_state_rsp_valid; c1_mmio_rsp_data = c1_state_rsp_data; end
-            default: begin c1_mmio_rsp_valid = c1_stub_rsp_valid; c1_mmio_rsp_data = 32'h0; end
+            default: begin c1_mmio_rsp_valid = c1_io_rsp_valid; c1_mmio_rsp_data = c1_io_rsp_data; end
         endcase
     end
 
-    assign c0_mmio_req_ready = 1'b1;
-    assign c1_mmio_req_ready = 1'b1;
+    assign c0_mmio_req_ready = (c0_dev_sel == 2'd0) ? c0_io_req_ready : 1'b1;
+    assign c1_mmio_req_ready = (c1_dev_sel == 2'd0) ? c1_io_req_ready : 1'b1;
 
     mtx9_engine u_mtx0 (
         .clk(clk), .rst(rst),
@@ -223,7 +236,7 @@ module ares_2core_frontend_l2_top #(
         .mmio_req_valid(c0_mmio_req_valid), .mmio_req_ready(c0_mmio_req_ready),
         .mmio_write(c0_mmio_write), .mmio_addr(c0_mmio_addr), .mmio_wdata(c0_mmio_wdata),
         .mmio_wstrb(c0_mmio_wstrb),
-        .mmio_rsp_valid(c0_mmio_rsp_valid), .mmio_rsp_ready(),
+        .mmio_rsp_valid(c0_mmio_rsp_valid), .mmio_rsp_ready(c0_mmio_rsp_ready),
         .mmio_rsp_data(c0_mmio_rsp_data),
         .fetch_pc(c0_fetch_pc),
         .retire_valid(c0_retire_valid), .retire_rd_wen(c0_retire_rd_wen),
@@ -245,7 +258,7 @@ module ares_2core_frontend_l2_top #(
         .mmio_req_valid(c1_mmio_req_valid), .mmio_req_ready(c1_mmio_req_ready),
         .mmio_write(c1_mmio_write), .mmio_addr(c1_mmio_addr), .mmio_wdata(c1_mmio_wdata),
         .mmio_wstrb(c1_mmio_wstrb),
-        .mmio_rsp_valid(c1_mmio_rsp_valid), .mmio_rsp_ready(),
+        .mmio_rsp_valid(c1_mmio_rsp_valid), .mmio_rsp_ready(c1_mmio_rsp_ready),
         .mmio_rsp_data(c1_mmio_rsp_data),
         .fetch_pc(c1_fetch_pc),
         .retire_valid(c1_retire_valid), .retire_rd_wen(c1_retire_rd_wen),

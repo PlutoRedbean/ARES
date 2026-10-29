@@ -23,6 +23,10 @@ mkdir -p "$CCACHE_DIR" "$CCACHE_TEMPDIR"
 
 需要：RISC-V 裸机工具链（`riscv64-unknown-elf-`）、Python 3、Verilator、主机 gcc。
 
+> 当前输出与计时方式见 [100 MHz UART 跑分说明](coremark_uart_scoring.md)。
+> 本页旧的退休数和 TB 分数示例是静默输出版本的历史记录；当前分数以程序通过 UART
+> 打印的计时段数据为准。重新执行对应 image 构建目标后再运行。
+
 ## 1. 生成加速镜像（约 1 分钟）
 
 ```bash
@@ -110,8 +114,8 @@ hart1: retires=894812 cycles=1237382 IPC=0.723149 CM/MHz=80.8158
 aggregate: retires=1789624 max_cycles=1237385 IPC=1.446295 CM/MHz=161.6312
 ```
 
-**注意**：TB 的 `CM/MHz` 按 100 iterations 计算（`100e6/cycles`）。4-iter 打印的
-80.8156 / 161.6312 要除以 25，才是 **3.233 / 6.465 CM/MHz**。
+**当前行为**：上面的 TB 分数是历史记录。现在程序从实际迭代数和 RTL 周期计数器
+计算 `Iterations/Sec` 与 `CoreMark/MHz`；4-iter 镜像会按 4 次计算，无需除以 25。
 
 ## 5. 100-iteration 正式跑分（约 20 分钟）
 

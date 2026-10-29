@@ -42,6 +42,7 @@ ARES_SIM_CHECK_FLAGS := $(if $(filter 0,$(SIM_HEAVY_CHECKS)),-DARES_DISABLE_HEAV
 .PHONY: all lint lint-all lint-backend lint-lsu lint-l2 unit unit-lsu unit-l2 \
         lint-fe-adapter unit-fe-adapter unit-coremark unit-2core-coremark test-coremark-harness \
         build-coremark-sim build-2core-coremark-sim \
+        unit-benchmark-io test-coremark-output \
         unit-mt-irq unit-mt-cpu-irq unit-clint unit-plic tb-ares-pkg tb-fe-stub tb-mem-model \
         coremark-image coremark-array-image coremark-matrix-image coremark-matrix-array-image \
         coremark-state-image coremark-full-image \
@@ -430,6 +431,7 @@ ARES_COREMARK_SRCS := $(RTL_ROOT)/common/fe_pkg.sv $(RTL_ROOT)/common/ares_pkg.s
     $(RTL_ROOT)/l2/l2_pkg.sv $(RTL_ROOT)/l2/l2_top.sv \
     $(RTL_ROOT)/accel/mtx9_engine.sv \
     $(RTL_ROOT)/accel/state9_engine.sv \
+    $(RTL_ROOT)/board/ares_uart.sv $(RTL_ROOT)/top/ares_benchmark_io.sv \
     $(wildcard $(RTL_ROOT)/backend/*.sv) $(wildcard $(RTL_ROOT)/memory/*.sv) \
     $(RTL_ROOT)/top/ares_core_top.sv $(RTL_ROOT)/top/ares_frontend_l2_top.sv
 
@@ -446,7 +448,8 @@ build-coremark-sim: config-gen
 	    -DCONFIG_SIMULATION $(ARES_SIM_CHECK_FLAGS) $(ARES_CFG_INC) --top-module tb_ares_coremark \
 	    --Mdir $(COREMARK_SIM_DIR)/tb_ares_coremark \
 	    -o $(COREMARK_SIM_DIR)/tb_ares_coremark/tb_ares_coremark \
-	    $(ARES_COREMARK_SRCS) $(RTL_ROOT)/top/test/tb_ares_coremark.sv
+	    $(ARES_COREMARK_SRCS) $(RTL_ROOT)/top/test/uart_console_monitor.sv \
+	    $(RTL_ROOT)/top/test/tb_ares_coremark.sv
 
 # Two-hart AMP CoreMark on the shared L2 (two full CoreMark copies, hart1's
 # data/stack offset by 1 MiB).  Uses the same generated image as unit-coremark
@@ -455,6 +458,7 @@ build-coremark-sim: config-gen
 ARES_2CORE_COREMARK_SRCS := $(ARES_COREMARK_SRCS) \
     $(RTL_ROOT)/top/ares_frontend_hart.sv \
     $(RTL_ROOT)/top/ares_2core_frontend_l2_top.sv \
+    $(RTL_ROOT)/top/test/uart_console_monitor.sv \
     $(RTL_ROOT)/top/test/tb_2core_coremark.sv
 
 ifeq ($(strip $(DMEM)),)
@@ -478,6 +482,21 @@ build-2core-coremark-sim: config-gen
 
 test-coremark-harness:
 	@python3 "$(ARES_HOME)/scripts/test_coremark_harness.py" \
+	    --single $(COREMARK_SIM_DIR)/tb_ares_coremark/tb_ares_coremark \
+	    --dual $(COREMARK_SIM_DIR)/tb_2core_coremark/tb_2core_coremark
+
+unit-benchmark-io:
+	@mkdir -p $(ARES_HOME)/sim/build/unit/tb_benchmark_io
+	@verilator -O3 -CFLAGS -O3 --binary -j 4 --timing --assert -Wall \
+	    -Wno-DECLFILENAME -Wno-TIMESCALEMOD -Wno-PINCONNECTEMPTY -Wno-SYNCASYNCNET \
+	    --top-module tb_benchmark_io --Mdir $(ARES_HOME)/sim/build/unit/tb_benchmark_io \
+	    -o tb_benchmark_io $(RTL_ROOT)/board/ares_uart.sv \
+	    $(RTL_ROOT)/top/ares_benchmark_io.sv $(RTL_ROOT)/top/test/uart_console_monitor.sv \
+	    $(RTL_ROOT)/top/test/tb_benchmark_io.sv
+	@$(ARES_HOME)/sim/build/unit/tb_benchmark_io/tb_benchmark_io
+
+test-coremark-output:
+	@python3 "$(ARES_HOME)/scripts/test_coremark_output.py" \
 	    --single $(COREMARK_SIM_DIR)/tb_ares_coremark/tb_ares_coremark \
 	    --dual $(COREMARK_SIM_DIR)/tb_2core_coremark/tb_2core_coremark
 

@@ -188,7 +188,8 @@ int __printf__(__put_func__ put_func, void *out, const char *fmt, va_list *ap) {
     }
   }
 
-  put_func(out, '\0', bytes);
+  // String formatting needs a terminator; console output must not transmit it.
+  if (put_func == __sputc__) put_func(out, '\0', bytes);
 
   return bytes;
 }

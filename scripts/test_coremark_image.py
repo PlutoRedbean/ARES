@@ -247,6 +247,21 @@ def test_driver(tmp: Path) -> None:
         fail("driver: frozen parameter drift refused",
              f"exit={result.returncode} err={result.stderr.strip()}")
 
+    # Refuse a software clock mismatch or silently disabled UART reporting.
+    for name, before, after in [
+        ("clock drift refused", "#define COREMARK_CLOCK_HZ 100000000u", "#define COREMARK_CLOCK_HZ 200000000u"),
+        ("disabled UART output refused", "#define HAS_PRINTF 1", "#define HAS_PRINTF 0"),
+    ]:
+        changed = tmp / name.replace(" ", "-")
+        shutil.copytree(port, changed)
+        config = changed / "include/core_portme.h"
+        config.write_text(config.read_text().replace(before, after))
+        result = run("--port", str(changed), "--out", str(changed / "out"), "--no-build")
+        if result.returncode != 0 and "frozen parameter changed" in result.stderr:
+            ok("driver: " + name)
+        else:
+            fail("driver: " + name, f"exit={result.returncode} err={result.stderr.strip()}")
+
     # An unmodified port must still stage cleanly when only checking the gate.
     result = run("--port", str(port), "--out", str(tmp / "o4"), "--no-build")
     if result.returncode != 0 and "ELF not found" in result.stderr:
@@ -274,6 +289,21 @@ def test_driver(tmp: Path) -> None:
     else:
         fail("driver: out-of-tree output",
              f"exit={result.returncode} err={result.stderr.strip()[:300]}")
+
+    # Accelerated ports live below build/. Ignore only nested build artefacts,
+    # rather than excluding every input because an ancestor is named build.
+    nested_port = tmp / "build/source-port"
+    shutil.copytree(port, nested_port)
+    result = run("--port", str(nested_port), "--out", str(out), "--no-build")
+    if result.returncode == 0:
+        metadata = json.loads(inputs.read_text())
+        if ("src/core_main.c" in metadata["port_sources_sha256"]
+                and metadata["frozen"]["clock_hz"] == 100000000):
+            ok("driver: nested build port hashes and 100 MHz timing recorded")
+        else:
+            fail("driver: nested build port hashes and 100 MHz timing recorded", str(metadata))
+    else:
+        fail("driver: nested build port hashes and 100 MHz timing recorded", result.stderr)
 
 
 def main() -> int:

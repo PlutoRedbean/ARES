@@ -15,9 +15,10 @@ module tb_ares_coremark;
 
     localparam int unsigned MEM_WORDS = 1 << 20;  // 16 MiB
 
-    logic clk, rst;
+    localparam int unsigned CLK_HZ = 100_000_000;
+    logic clk, rst, uart_tx, uart_busy;
     initial begin clk = 1'b0; rst = 1'b1; end
-    always #5 clk = ~clk;
+    always #(5ns) clk = ~clk;  // 100 MHz
 
     logic         l2_mem_rd_valid, l2_mem_rd_ready, l2_mem_rsp_valid, l2_mem_rsp_ready;
     logic [31:0]  l2_mem_rd_addr, l2_mem_wr_addr;
@@ -32,12 +33,14 @@ module tb_ares_coremark;
     logic [31:0]  retire_wdata [2];
     logic [31:0]  retire_pc [2];
 
+    uart_console_monitor #(.CLK_HZ(CLK_HZ)) u_console (.rst(rst), .tx(uart_tx));
+
     ares_frontend_l2_top #(
         .RESET_MTVEC(32'h8000_0000),
         .RESET_VEC(32'h8000_0000),
-        .L2_SETS(128)
+        .L2_SETS(128), .CLK_HZ(CLK_HZ)
     ) dut (
-        .clk(clk), .rst(rst),
+        .clk(clk), .rst(rst), .uart_tx(uart_tx), .uart_busy(uart_busy),
         .l2_mem_rd_valid(l2_mem_rd_valid), .l2_mem_rd_ready(l2_mem_rd_ready),
         .l2_mem_rd_addr(l2_mem_rd_addr),
         .l2_mem_rsp_valid(l2_mem_rsp_valid), .l2_mem_rsp_ready(l2_mem_rsp_ready),
@@ -140,6 +143,8 @@ module tb_ares_coremark;
 
     string dmem_file;
     initial begin
+        $timeformat(-9, 0, "", 0);
+        $display("Benchmark clock: %0d Hz; UART: 115200 baud, 8N1", CLK_HZ);
 `ifdef ARES_DISABLE_HEAVY_CHECKS
         $display("Simulation heavy checks: disabled (protocol assertions remain enabled)");
 `else
@@ -161,7 +166,8 @@ module tb_ares_coremark;
         repeat (5) @(posedge clk);
         #1; rst = 1'b0;
 
-        wait (done);
+        // EBREAK may retire with committed UART stores still queued in the SQ.
+        wait (done && dut.u_core.lsu_mmio_order_idle && !uart_busy);
         repeat (3) @(posedge clk); #1;
 
         check(done, "CoreMark reached EBREAK");
@@ -179,9 +185,9 @@ module tb_ares_coremark;
         end
         if (errors == 0) begin
             $display("ALL TESTS PASSED: %0d checks - ARES real FE + shared L2 CoreMark", checks);
-            $display("CoreMark metrics: retires=%0d cycles=%0d IPC=%0.6f CoreMark/MHz=%0.4f time_ns=%0d hits=%0d misses=%0d pc=%h",
+            $display("CoreMark metrics: retires=%0d cycles=%0d IPC=%0.6f time_ns=%0d hits=%0d misses=%0d pc=%h",
                      ret_count, cycle_count, real'(ret_count) / real'(cycle_count),
-                     100.0e6 / real'(cycle_count), $time, l2_hits, l2_misses, fe_fetch_pc);
+                     $time, l2_hits, l2_misses, fe_fetch_pc);
         end else
             $fatal(1, "CoreMark failed: %0d errors / %0d checks", errors, checks);
         $finish;

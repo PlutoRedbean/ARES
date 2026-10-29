@@ -1,4 +1,5 @@
 #include "coremark.h"
+#include <ares.h>
 
 #if VALIDATION_RUN
 	volatile ee_s32 seed1_volatile=0x3415;
@@ -17,77 +18,68 @@
 #endif
 	volatile ee_s32 seed4_volatile=ITERATIONS;
 	volatile ee_s32 seed5_volatile=0;
-/* Porting : Timing functions
-	How to capture time and convert to seconds must be ported to whatever is supported by the platform.
-	e.g. Read value from on board RTC, read value from cpu clock cycles performance counter etc.
-	Sample implementation for standard time.h and windows.h definitions included.
-*/
-/* Define : TIMER_RES_DIVIDER
-	Divider to trade off timer resolution and total time that can be measured.
+/* 100 MHz RTL clock ticks, independent of host execution speed. */
+static CORE_TICKS start_time_val, stop_time_val;
 
-	Use lower values to increase resolution, but make sure that overflow does not occur.
-	If there are issues with the return value overflowing, increase this value.
-	*/
-#define NSECS_PER_SEC CLOCKS_PER_SEC
-#define CORETIMETYPE clock_t
-#define GETMYTIME(_t) (*_t=clock())
-#define MYTIMEDIFF(fin,ini) ((fin)-(ini))
-#define TIMER_RES_DIVIDER 1
-#define SAMPLE_TIME_IMPLEMENTATION 1
-#define EE_TICKS_PER_SEC (NSECS_PER_SEC / TIMER_RES_DIVIDER)
+static CORE_TICKS read_cycles(void) {
+  uint32_t hi, lo;
+  do {
+    hi = inl(BENCH_CYCLE_HI);
+    lo = inl(BENCH_CYCLE_LO);
+  } while (hi != inl(BENCH_CYCLE_HI));
+  return ((uint64_t)hi << 32) | lo;
+}
 
-static uint32_t uptime_ms() { return io_read(AM_TIMER_UPTIME).us / 1000; }
-
-/** Define Host specific (POSIX), or target specific global time variables. */
-unsigned long start_time_val, stop_time_val;
-
-/* Function : start_time
-	This function will be called right before starting the timed portion of the benchmark.
-
-	Implementation may be capturing a system timer (as implemented in the example code)
-	or zeroing some system parameters - e.g. setting the cpu clocks cycles to 0.
-*/
 void start_time(void) {
-#if USE_CLOCK
-  start_time_val = uptime_ms();
-#else
-  start_time_val = 0;
-#endif
+  /* Finish the startup banner before entering the timed section. */
+  while (inl(SERIAL_STATUS) & 1u) {}
+  __asm__ volatile("fence iorw, iorw" ::: "memory");
+  start_time_val = read_cycles();
+  __asm__ volatile("" ::: "memory");
 }
-/* Function : stop_time
-	This function will be called right after ending the timed portion of the benchmark.
 
-	Implementation may be capturing a system timer (as implemented in the example code)
-	or other system parameters - e.g. reading the current value of cpu cycles counter.
-*/
 void stop_time(void) {
-#if USE_CLOCK
-  stop_time_val = uptime_ms();
-#else
-  stop_time_val = 1;
-#endif
+  __asm__ volatile("fence iorw, iorw" ::: "memory");
+  stop_time_val = read_cycles();
 }
-/* Function : get_time
-	Return an abstract "ticks" number that signifies time on the system.
 
-	Actual value returned may be cpu cycles, milliseconds or any other value,
-	as long as it can be converted to seconds by <time_in_secs>.
-	This methodology is taken to accomodate any hardware or simulated platform.
-	The sample implementation returns millisecs by default,
-	and the resolution is controlled by <TIMER_RES_DIVIDER>
-*/
 CORE_TICKS get_time(void) {
   return stop_time_val - start_time_val;
 }
 
-/* Function : time_in_secs
-	Convert the value returned by get_time to seconds.
-
-	The <secs_ret> type is used to accomodate systems with no support for floating point.
-	Default implementation implemented by the EE_TICKS_PER_SEC macro above.
-*/
 secs_ret time_in_secs(CORE_TICKS ticks) {
-  return ticks;
+  return ticks / COREMARK_CLOCK_HZ;
+}
+
+/* klib printf has no 64-bit or floating-point formatter. Keep all digits
+ * using integer arithmetic; six fractional digits resolve sub-second runs. */
+static void print_u64(uint64_t value) {
+  char text[21];
+  char *p = text + sizeof(text);
+  *--p = '\0';
+  do {
+    *--p = '0' + value % 10;
+    value /= 10;
+  } while (value);
+  ee_printf("%s", p);
+}
+
+static void print_ratio(const char *label, uint64_t numerator, uint64_t denominator) {
+  ee_printf("%s", label);
+  print_u64(numerator / denominator);
+  ee_printf(".%06d\n", (int)((numerator % denominator) * 1000000u / denominator));
+}
+
+void coremark_report_time(CORE_TICKS ticks, ee_u32 iterations) {
+  assert(ticks != 0);
+  ee_printf("CPU clock (MHz) : %d\n", COREMARK_CLOCK_HZ / 1000000u);
+  ee_printf("Total ticks     : ");
+  print_u64(ticks);
+  ee_printf("\n");
+  print_ratio("Total time (secs): ", ticks, COREMARK_CLOCK_HZ);
+  ee_printf("Iterations      : %d\n", iterations);
+  print_ratio("Iterations/Sec  : ", (uint64_t)iterations * COREMARK_CLOCK_HZ, ticks);
+  print_ratio("CoreMark/MHz    : ", (uint64_t)iterations * 1000000u, ticks);
 }
 
 ee_u32 default_num_contexts=1;

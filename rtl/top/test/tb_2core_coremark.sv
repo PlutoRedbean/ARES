@@ -7,7 +7,8 @@
 //
 // Checked:
 //   * both harts reach EBREAK with a0 = 0 (two independent CoreMark copies);
-//   * per-hart retires/cycles/IPC and the aggregate CoreMark/MHz;
+//   * per-hart and aggregate retire/cycle/IPC diagnostics;
+//     CoreMark scores are printed by the program over each hart's UART;
 //   * hart1 stays inside its data window and hart0 never writes hart1's;
 //   * an independent "L2 shadow" golden model: every I/D read response of both
 //     harts and every dirty writeback beat must equal the shadow memory.
@@ -24,10 +25,12 @@ module tb_2core_coremark;
     localparam int unsigned DATA_LINES = 16'h4000;  // 0x8010_0000..0x8013_ffff
     localparam logic [31:0] C1_OFFSET  = 32'h0010_0000;
 
+    localparam int unsigned CLK_HZ = 100_000_000;
     logic clk, rst;
+    logic c0_uart_tx, c0_uart_busy, c1_uart_tx, c1_uart_busy;
     logic hart1_en;
     initial begin clk = 1'b0; rst = 1'b1; hart1_en = 1'b1; end
-    always #5 clk = ~clk;
+    always #(5ns) clk = ~clk;  // 100 MHz
 
     logic         l2_mem_rd_valid, l2_mem_rd_ready, l2_mem_rsp_valid, l2_mem_rsp_ready;
     logic [31:0]  l2_mem_rd_addr, l2_mem_wr_addr;
@@ -45,14 +48,23 @@ module tb_2core_coremark;
     logic [4:0] c1_retire_rd [2];
     logic [31:0] c1_retire_wdata [2], c1_retire_pc [2];
 
+    uart_console_monitor #(.HART_ID(0), .CLK_HZ(CLK_HZ)) u_console0 (
+        .rst(rst), .tx(c0_uart_tx)
+    );
+    uart_console_monitor #(.HART_ID(1), .CLK_HZ(CLK_HZ)) u_console1 (
+        .rst(rst), .tx(c1_uart_tx)
+    );
+
     ares_2core_frontend_l2_top #(
         .RESET_MTVEC(32'h8000_0000),
         .RESET_VEC(32'h8000_0000),
-        .L2_SETS(128),
+        .L2_SETS(128), .CLK_HZ(CLK_HZ),
         .C1_DATA_OFFSET(C1_OFFSET),
         .HART1_ENABLE(1'b1)
     ) dut (
         .clk(clk), .rst(rst), .hart1_en(hart1_en),
+        .c0_uart_tx(c0_uart_tx), .c0_uart_busy(c0_uart_busy),
+        .c1_uart_tx(c1_uart_tx), .c1_uart_busy(c1_uart_busy),
         .l2_mem_rd_valid(l2_mem_rd_valid), .l2_mem_rd_ready(l2_mem_rd_ready),
         .l2_mem_rd_addr(l2_mem_rd_addr),
         .l2_mem_rsp_valid(l2_mem_rsp_valid), .l2_mem_rsp_ready(l2_mem_rsp_ready),
@@ -320,6 +332,8 @@ module tb_2core_coremark;
 
     string dmem_file;
     initial begin
+        $timeformat(-9, 0, "", 0);
+        $display("Benchmark clock: %0d Hz; UART: 115200 baud, 8N1 per hart", CLK_HZ);
 `ifdef ARES_DISABLE_HEAVY_CHECKS
         $display("Simulation heavy checks: disabled (protocol assertions and L2 shadow remain enabled)");
 `else
@@ -360,7 +374,9 @@ module tb_2core_coremark;
 
         // With hart1 held in reset the run ends when hart0 finishes (used to
         // produce a hart0-only reference stream with the same binary).
-        wait (done0 && (done1 || !hart1_en));
+        // Drain committed MMIO stores as well as the final serial frame.
+        wait (done0 && dut.u_hart0.u_core.lsu_mmio_order_idle && !c0_uart_busy &&
+              (!hart1_en || (done1 && dut.u_hart1.u_core.lsu_mmio_order_idle && !c1_uart_busy)));
         repeat (3) @(posedge clk); #1;
 
         $display("L2 shadow check: rsp=%0d err_i0=%0d err_i1=%0d err_c0=%0d err_c1=%0d err_wb=%0d",
@@ -391,14 +407,13 @@ module tb_2core_coremark;
 
         if (errors == 0) begin
             $display("ALL TESTS PASSED: %0d checks - 2 harts + shared L2, two CoreMark instances", checks);
-            $display("hart0: retires=%0d cycles=%0d IPC=%0.6f CM/MHz=%0.4f",
-                     ret0, cycles0, real'(ret0) / real'(cycles0), 100.0e6 / real'(cycles0));
-            $display("hart1: retires=%0d cycles=%0d IPC=%0.6f CM/MHz=%0.4f",
-                     ret1, cycles1, real'(ret1) / real'(cycles1), 100.0e6 / real'(cycles1));
-            $display("aggregate: retires=%0d max_cycles=%0d IPC=%0.6f CM/MHz=%0.4f",
+            $display("hart0: retires=%0d cycles=%0d IPC=%0.6f",
+                     ret0, cycles0, real'(ret0) / real'(cycles0));
+            $display("hart1: retires=%0d cycles=%0d IPC=%0.6f",
+                     ret1, cycles1, real'(ret1) / real'(cycles1));
+            $display("aggregate: retires=%0d max_cycles=%0d IPC=%0.6f",
                      ret0 + ret1, (cycles0 > cycles1) ? cycles0 : cycles1,
-                     real'(ret0 + ret1) / real'((cycles0 > cycles1) ? cycles0 : cycles1),
-                     (hart1_en ? 200.0e6 : 100.0e6) / real'((cycles0 > cycles1) ? cycles0 : cycles1));
+                     real'(ret0 + ret1) / real'((cycles0 > cycles1) ? cycles0 : cycles1));
             $display("L2: hits=%0d misses=%0d", l2_hits, l2_misses);
         end else begin
             $fatal(1, "CoreMark failed: %0d errors / %0d checks", errors, checks);

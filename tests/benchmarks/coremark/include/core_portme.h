@@ -12,6 +12,7 @@
 
 #define ITERATIONS 100
 #define MEM_METHOD MEM_STATIC
+#define COREMARK_CLOCK_HZ 100000000u
 
 /************************/
 /* Data types and settings */
@@ -34,7 +35,7 @@
 	and implementation of functions thereof.
 */
 #ifndef USE_CLOCK
-#define USE_CLOCK 0
+#define USE_CLOCK 1
 #endif
 /* Configuration : HAS_STDIO
 	Define to 1 if the platform has stdio.h.
@@ -46,13 +47,13 @@
 	Define to 1 if the platform has stdio.h and implements the printf function.
 */
 #ifndef HAS_PRINTF
-#define HAS_PRINTF 0
+#define HAS_PRINTF 1
 #endif
 
 /* Configuration : CORE_TICKS
 	Define type of return from the timing functions.
  */
-typedef uint32_t CORE_TICKS;
+	typedef uint64_t CORE_TICKS;
 
 /* Definitions : COMPILER_VERSION, COMPILER_FLAGS, MEM_LOCATION
 	Initialize these strings per platform
@@ -165,6 +166,7 @@ typedef size_t ee_size_t;
 	Not used for this simple port, must cintain the value 1.
 */
 extern ee_u32 default_num_contexts;
+void coremark_report_time(CORE_TICKS ticks, ee_u32 iterations);
 
 typedef struct CORE_PORTABLE_S {
 	ee_u8	portable_id;

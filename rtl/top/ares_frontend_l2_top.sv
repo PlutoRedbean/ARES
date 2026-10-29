@@ -11,15 +11,18 @@
 //   * redirects carry independent history and predictor checkpoints;
 //   * two-lane BPU updates use the frontend's native credit interface.
 //
-// MMIO is a one-cycle stub; CoreMark does not use it.
+// MMIO includes the matrix/state engines, a cycle counter and an RTL UART.
 //=============================================================================
 module ares_frontend_l2_top #(
     parameter logic [31:0] RESET_MTVEC = ares_pkg::RESET_PC,
     parameter logic [31:0] RESET_VEC   = ares_pkg::RESET_PC,
-    parameter int unsigned L2_SETS     = 128
+    parameter int unsigned L2_SETS     = 128,
+    parameter int unsigned CLK_HZ      = 100_000_000,
+    parameter int unsigned UART_BAUD   = 115_200
 ) (
     input logic clk,
     input logic rst,
+    output logic uart_tx, uart_busy,
 
     //---- shared L2 memory port ---------------------------------------------
     output logic         l2_mem_rd_valid,
@@ -107,7 +110,7 @@ module ares_frontend_l2_top #(
     logic mmio_req_valid, mmio_req_ready, mmio_write;
     logic [31:0] mmio_addr, mmio_wdata;
     logic [3:0] mmio_wstrb;
-    logic mmio_rsp_valid;
+    logic mmio_rsp_valid, mmio_rsp_ready;
     logic [31:0] mmio_rsp_data;
 
     wire mmio_mtx_sel   = ((mmio_addr & ACCEL_MASK) == MTX_BASE);
@@ -115,19 +118,24 @@ module ares_frontend_l2_top #(
     wire [1:0] mmio_dev_sel = mmio_mtx_sel ? 2'd1 :
                               mmio_state_sel ? 2'd2 : 2'd0;
     logic [1:0] mmio_dev_sel_q;
-    logic mmio_stub_rsp_valid, mmio_mtx_rsp_valid, mmio_state_rsp_valid;
+    logic mmio_io_rsp_valid, mmio_io_req_ready, mmio_mtx_rsp_valid, mmio_state_rsp_valid;
+    logic [31:0] mmio_io_rsp_data;
     logic [31:0] mmio_mtx_rsp_data, mmio_state_rsp_data;
 
-    assign mmio_req_ready = 1'b1;
+    assign mmio_req_ready = (mmio_dev_sel == 2'd0) ? mmio_io_req_ready : 1'b1;
+
+    ares_benchmark_io #(.CLK_HZ(CLK_HZ), .UART_BAUD(UART_BAUD)) u_io (
+        .clk(clk), .rst(rst),
+        .host_req_valid(mmio_req_valid && (mmio_dev_sel == 2'd0)),
+        .host_req_ready(mmio_io_req_ready), .host_write(mmio_write),
+        .host_addr(mmio_addr), .host_wdata(mmio_wdata), .host_wstrb(mmio_wstrb),
+        .host_rsp_valid(mmio_io_rsp_valid), .host_rsp_ready(mmio_rsp_ready),
+        .host_rsp_data(mmio_io_rsp_data), .uart_tx(uart_tx), .uart_busy(uart_busy)
+    );
 
     always_ff @(posedge clk) begin
-        if (rst) begin
-            mmio_dev_sel_q      <= 2'd0;
-            mmio_stub_rsp_valid <= 1'b0;
-        end else begin
-            mmio_stub_rsp_valid <= mmio_req_valid && (mmio_dev_sel == 2'd0);
-            if (mmio_req_valid) mmio_dev_sel_q <= mmio_dev_sel;
-        end
+        if (rst) mmio_dev_sel_q <= 2'd0;
+        else if (mmio_req_valid && mmio_req_ready) mmio_dev_sel_q <= mmio_dev_sel;
     end
 
     always_comb begin
@@ -141,8 +149,8 @@ module ares_frontend_l2_top #(
                 mmio_rsp_data  = mmio_state_rsp_data;
             end
             default: begin
-                mmio_rsp_valid = mmio_stub_rsp_valid;
-                mmio_rsp_data  = 32'h0;
+                mmio_rsp_valid = mmio_io_rsp_valid;
+                mmio_rsp_data  = mmio_io_rsp_data;
             end
         endcase
     end
@@ -193,7 +201,7 @@ module ares_frontend_l2_top #(
         .mmio_req_valid(mmio_req_valid), .mmio_req_ready(mmio_req_ready),
         .mmio_write(mmio_write), .mmio_addr(mmio_addr), .mmio_wdata(mmio_wdata),
         .mmio_wstrb(mmio_wstrb),
-        .mmio_rsp_valid(mmio_rsp_valid), .mmio_rsp_ready(),
+        .mmio_rsp_valid(mmio_rsp_valid), .mmio_rsp_ready(mmio_rsp_ready),
         .mmio_rsp_data(mmio_rsp_data),
         .retire_valid(retire_valid), .retire_pc(retire_pc), .retire_pc_next(),
         .retire_rd_wen(retire_rd_wen), .retire_rd(retire_rd),

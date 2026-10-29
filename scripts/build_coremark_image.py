@@ -46,6 +46,10 @@ FROZEN_CHECKS = [
      "TOTAL_DATA_SIZE must be 2*1000 (2000 bytes)", "2000"),
     ("include/core_portme.h", r"#define\s+ITERATIONS\s+100\b",
      "ITERATIONS must be 100", "100"),
+    ("include/core_portme.h", r"#define\s+COREMARK_CLOCK_HZ\s+100000000u\b",
+     "COREMARK_CLOCK_HZ must be 100000000 (100 MHz RTL clock)", "100000000"),
+    ("include/core_portme.h", r"#define\s+HAS_PRINTF\s+1\b",
+     "HAS_PRINTF must be 1 (CoreMark reports through the RTL UART)", "1"),
     ("include/core_portme.h", r"#define\s+MEM_METHOD\s+MEM_STATIC\b",
      "MEM_METHOD must be MEM_STATIC (no malloc in the ARES runtime)", "MEM_STATIC"),
     ("include/core_portme.h", r"#define\s+MULTITHREAD\s+1\b",
@@ -142,6 +146,9 @@ def check_frozen(port: Path) -> dict:
         "multithread": 1,
         "march": "rv32im_zicsr",
         "mabi": "ilp32",
+        "clock_hz": 100000000,
+        "timer": "rtl_cycle_counter",
+        "console": "rtl_uart_115200_8n1",
     }
 
 
@@ -232,7 +239,8 @@ def main() -> int:
 
     config = root / "configs/build/.config"
     port_hashes = {str(p.relative_to(port)): sha256(p)
-                   for p in sorted(port.rglob("*")) if p.is_file() and "build" not in p.parts}
+                   for p in sorted(port.rglob("*"))
+                   if p.is_file() and "build" not in p.relative_to(port).parts}
     inputs = {
         "schema": 1,
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),

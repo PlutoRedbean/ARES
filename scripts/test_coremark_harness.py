@@ -85,9 +85,10 @@ def main():
         assert re.search(r"err_i0=0 err_i1=0 err_c0=0 err_c1=0 err_wb=0", output), output
         output = run(args.dual, "dual: disabled hart1", [f"+DMEM={good}", "+H1EN=0"], True, "ALL TESTS PASSED")
         assert [int(value) for value in re.findall(r"retires=(\d+)", output)] == [3, 0, 3], output
-        hart0_score = re.search(r"hart0:.*CM/MHz=(\S+)", output).group(1)
-        aggregate_score = re.search(r"aggregate:.*CM/MHz=(\S+)", output).group(1)
-        assert aggregate_score == hart0_score, output
+        hart0_cycles = re.search(r"hart0:.*cycles=(\d+)", output).group(1)
+        aggregate_cycles = re.search(r"aggregate:.*max_cycles=(\d+)", output).group(1)
+        assert aggregate_cycles == hart0_cycles, output
+        assert "CM/MHz=" not in output, output  # synthetic images have no score
         run(args.dual, "dual: hart1 failure is fatal", [f"+DMEM={asymmetric}"], False, "CoreMark failed")
         run(args.dual, "dual: hart0 success waits for hart1", [f"+DMEM={waiting}", "+TIMEOUT_NS=10000"], False, "CoreMark timeout")
     print(f"ALL TESTS PASSED: CoreMark harness {checks} checks")

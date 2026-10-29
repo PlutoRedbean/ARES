@@ -1,7 +1,8 @@
 # CoreMark image for the ARES L2 testbenches
 
 Vendored EEMBC CoreMark 1.0 sources plus the ARES AbstractMachine port.  The
-benchmark core is unmodified; see `NOTICE.md` for hashes, frozen parameters
+algorithms and CRC comparisons are retained, with ARES timing/reporting; see
+`NOTICE.md` for hashes, frozen parameters
 and the trademark boundary, and `LICENSE.md` for the license.
 
 Normal use is through the repository-level target, which stamps the image and
@@ -18,3 +19,19 @@ Then the long-program regressions pick the generated image up automatically:
 
 Passing `DMEM=<path>` still overrides the generated image.  Long programs are
 deliberately not part of `make all`.
+
+CoreMark now prints its own report through the RTL UART at 115200 baud, 8N1.
+Both testbenches use a 100 MHz clock. The program measures the timed algorithm
+interval with the 64-bit RTL cycle counter; host wall time and serial output
+are excluded from the score. Each decoded line is prefixed with its hart ID.
+
+    make coremark-full-image
+    make unit-2core-coremark \
+        DMEM="$PWD/build/coremark_full/coremark_dmem.hex" \
+        ARES_CFG_INC="+incdir+$PWD/build/coremark_32k/include" \
+        SIM_HEAVY_CHECKS=0
+
+Rebuild old images to enable UART reports. TB retire/IPC/L2 summaries are
+whole-program diagnostics and no longer calculate a hardcoded 100-iteration
+score. See `docs/coremark_uart_scoring.md` at the repository root for formulas,
+measurement boundaries and focused validation commands.
