@@ -692,3 +692,21 @@ unit-frontend-modes:
 
 test-images:
 	@python3 $(ARES_HOME)/scripts/test_split_image.py
+
+.PHONY: pipeline-core-gen pipeline-lint pipeline-smoke
+pipeline-core-gen:
+	@cd $(ARES_HOME)/rtl/pipeline/gen && \
+	  MILL_WORKSPACE_ROOT=$$(pwd) ./mill -i Mundus.runMain npc.Elaborate \
+	      --target-dir ../core/vsrc/build
+
+pipeline-lint:
+	@cd $(ARES_HOME) && verilator --lint-only --language 1800-2017 -D__VERILATOR__ -Wall -Wno-fatal \
+	    --top-module student_top -f rtl/pipeline/pipeline.f
+
+pipeline-smoke:
+	@mkdir -p $(ARES_HOME)/build/pipeline_smoke
+	@cd $(ARES_HOME) && CCACHE_DISABLE=1 verilator --cc --exe --build --language 1800-2017 -D__VERILATOR__ -Wno-fatal \
+	    --top-module tb_pipeline_smoke -f rtl/pipeline/pipeline.f \
+	    rtl/pipeline/test/tb_pipeline_smoke.sv rtl/pipeline/test/sim_main.cpp \
+	    -Mdir $(ARES_HOME)/build/pipeline_smoke -o $(ARES_HOME)/build/pipeline_smoke/pipeline_smoke
+	@$(ARES_HOME)/build/pipeline_smoke/pipeline_smoke
