@@ -36,6 +36,8 @@ PROGRAM   ?=
 ARGS      ?=
 MODE      ?= batch
 MAX_CYCLES ?= 20000000
+SIM_HEAVY_CHECKS ?= 1
+ARES_SIM_CHECK_FLAGS := $(if $(filter 0,$(SIM_HEAVY_CHECKS)),-DARES_DISABLE_HEAVY_CHECKS)
 
 ifeq ($(MODE),wave)
   BUILD_TAG  := _wave
@@ -46,6 +48,9 @@ else
   V_MODE_DEF :=
   V_MODE_OPT :=
 endif
+
+# The check selection changes generated C++; keep a separate light model.
+BUILD_TAG := $(BUILD_TAG)$(if $(filter 0,$(SIM_HEAVY_CHECKS)),_light)
 
 # One build directory per top module: switching TOPNAME never reuses a stale
 # binary (the ARES unit test benches share this Makefile).
@@ -92,7 +97,7 @@ ARES_CFG_DEPS   := $(ARES_CFG_VH)
 ARES_CFG_DEFS   := $(shell python3 $(ARES_CFG_SCRIPT) defs 2>/dev/null)
 
 V_INC_PATH := $(ARES_CFG_DIR)/vsrc/include
-V_DEF_MACRO := -D__VERILATOR__ -DCONFIG_SIMULATION $(ARES_CFG_DEFS)
+V_DEF_MACRO := -D__VERILATOR__ -DCONFIG_SIMULATION $(ARES_SIM_CHECK_FLAGS) $(ARES_CFG_DEFS)
 V_ASSERT := --assert
 VERILATOR_IGNORE := -Wno-DECLFILENAME -Wno-TIMESCALEMOD
 VERILATOR_WARN := -Wall
@@ -142,7 +147,7 @@ $(BIN): $(SIM_HOME)/Makefile $(VSRCS) $(CXX_SRCS) $(wildcard $(CXX_INC)/*.h) $(A
 	@mkdir -p $(BUILD_DIR) $(BUILD_DIR)/ccache-tmp
 	@printf '#define TOP_NAME V%s\n#define TOP_STR "%s"\n#include "V%s.h"\n' \
 		'$(TOPNAME)' '$(TOPNAME)' '$(TOPNAME)' > $(TOP_HEADER)
-	@echo "[verilator] building $(TOPNAME) ($(MODE))"
+	@echo "[verilator] building $(TOPNAME) ($(MODE), O3, heavy checks=$(SIM_HEAVY_CHECKS))"
 	$(VERILATOR) $(VERILATOR_FLAGS) \
 		--top-module $(TOPNAME) $(VSRCS) \
 		$(addprefix -CFLAGS , $(CXXFLAGS)) \
@@ -154,7 +159,7 @@ run: $(BIN)
 
 wave:
 	@$(MAKE) MODE=wave run PROGRAM=$(PROGRAM) \
-		ARGS="$(ARGS) --wave=$(SIM_HOME)/build_wave/waveform.fst"
+		ARGS="$(ARGS) --wave=$(SIM_HOME)/build_wave$(if $(filter 0,$(SIM_HEAVY_CHECKS)),_light)/waveform.fst"
 
 lint: $(ARES_CFG_VH)
 	$(VERILATOR) --lint-only $(VERILATOR_IGNORE) $(VERILATOR_WARN) $(V_ASSERT) \

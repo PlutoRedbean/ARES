@@ -610,6 +610,7 @@ module lq (
             a_alloc_idx_free: assert (!e_alive[lq_alloc_idx]);
         a_compl_not_killed: assert (!(compl_valid_c && kill_mask[compl_tag.slot_index]));
         a_ord_count: assert (ord_cnt == alive_cnt);
+`ifndef ARES_DISABLE_HEAVY_CHECKS
         for (int a = 0; a < LQ_ENTRIES; a++) begin
             for (int b = a + 1; b < LQ_ENTRIES; b++) begin
                 if ((a[2:0] < ord_cnt) && (b[2:0] < ord_cnt))
@@ -618,6 +619,7 @@ module lq (
                     a_tag_unique: assert (e_tag[a] != e_tag[b]);
             end
         end
+`endif
         if (lookup_valid)
             a_lookup_registered: assert (e_addr_valid[lk_sel_idx] && !e_mmio[lk_sel_idx]);
         if (mmio_req_valid)

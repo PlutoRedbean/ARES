@@ -35,8 +35,13 @@ KCONFIG   := python3 $(ARES_HOME)/scripts/kconfig/ares_kconfig.py
 
 PROGRAM ?=
 
+# Compile out only expensive invariant scans; normal assertions stay on.
+SIM_HEAVY_CHECKS ?= 1
+ARES_SIM_CHECK_FLAGS := $(if $(filter 0,$(SIM_HEAVY_CHECKS)),-DARES_DISABLE_HEAVY_CHECKS)
+
 .PHONY: all lint lint-all lint-backend lint-lsu lint-l2 unit unit-lsu unit-l2 \
         lint-fe-adapter unit-fe-adapter unit-coremark unit-2core-coremark test-coremark-harness \
+        build-coremark-sim build-2core-coremark-sim \
         unit-mt-irq unit-mt-cpu-irq unit-clint unit-plic tb-ares-pkg tb-fe-stub tb-mem-model \
         coremark-image coremark-array-image coremark-matrix-image coremark-matrix-array-image \
         coremark-state-image coremark-full-image \
@@ -90,7 +95,7 @@ unit-board: config-gen board-firmware
 	    $(RTL_ROOT)/soc/jyd/ares_reset_sync.sv $(RTL_ROOT)/board/ares_uart.sv $(RTL_ROOT)/board/test/tb_board_io.sv
 	@$(ARES_HOME)/sim/build/unit/tb_board_io/tb_board_io
 	@verilator --binary -j 4 --timing --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
-	    -Wno-PINCONNECTEMPTY -DCONFIG_SIMULATION $(ARES_CFG_INC) --top-module tb_board \
+	    -Wno-PINCONNECTEMPTY -DCONFIG_SIMULATION $(ARES_SIM_CHECK_FLAGS) $(ARES_CFG_INC) --top-module tb_board \
 	    --Mdir $(ARES_HOME)/sim/build/unit/tb_board -o tb_board $(ARES_BOARD_PLATFORM) $(RTL_ROOT)/board/test/tb_board.sv
 	@$(ARES_HOME)/sim/build/unit/tb_board/tb_board +IROM_HEX=$(ARES_HOME)/build/firmware/c4-board/irom.hex +DRAM_HEX=$(ARES_HOME)/build/firmware/c4-board/dram.hex
 
@@ -145,13 +150,13 @@ unit-soc: config-gen
 	@python3 $(ARES_HOME)/scripts/build_soc_smoke.py
 	@mkdir -p $(ARES_HOME)/sim/build/unit/tb_jyd_bus
 	@verilator --binary --timing --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
-	    -Wno-PINCONNECTEMPTY -DCONFIG_SIMULATION $(ARES_CFG_INC) --top-module tb_jyd_bus \
+	    -Wno-PINCONNECTEMPTY -DCONFIG_SIMULATION $(ARES_SIM_CHECK_FLAGS) $(ARES_CFG_INC) --top-module tb_jyd_bus \
 	    --Mdir $(ARES_HOME)/sim/build/unit/tb_jyd_bus -o tb_jyd_bus \
 	    $(ARES_SOC_SRCS) $(RTL_ROOT)/soc/jyd/test/tb_jyd_bus.sv
 	@$(ARES_HOME)/sim/build/unit/tb_jyd_bus/tb_jyd_bus
 	@mkdir -p $(ARES_HOME)/sim/build/unit/tb_student_top
 	@verilator --binary --timing --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
-	    -Wno-PINCONNECTEMPTY -DCONFIG_SIMULATION $(ARES_CFG_INC) --top-module tb_student_top \
+	    -Wno-PINCONNECTEMPTY -DCONFIG_SIMULATION $(ARES_SIM_CHECK_FLAGS) $(ARES_CFG_INC) --top-module tb_student_top \
 	    --Mdir $(ARES_HOME)/sim/build/unit/tb_student_top -o tb_student_top \
 	    $(RTL_ROOT)/common/fe_pkg.sv $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
 	    $(wildcard $(RTL_ROOT)/backend/*.sv) $(wildcard $(RTL_ROOT)/memory/*.sv) \
@@ -164,7 +169,7 @@ unit-soc: config-gen
 unit-mt-irq: config-gen
 	@mkdir -p $(ARES_HOME)/sim/build/unit/tb_mt_irq
 	@verilator --binary --timing --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
-	    -Wno-PINCONNECTEMPTY -DCONFIG_SIMULATION $(ARES_CFG_INC) --top-module tb_mt_irq \
+	    -Wno-PINCONNECTEMPTY -DCONFIG_SIMULATION $(ARES_SIM_CHECK_FLAGS) $(ARES_CFG_INC) --top-module tb_mt_irq \
 	    --Mdir $(ARES_HOME)/sim/build/unit/tb_mt_irq -o tb_mt_irq \
 	    $(RTL_ROOT)/soc/ares_mt_host_adapter.sv \
 	    $(MINITENSOR_HOME)/rtl/interface/core_v_xif.sv \
@@ -177,7 +182,7 @@ unit-mt-irq: config-gen
 unit-mt-cpu-irq: config-gen
 	@mkdir -p $(ARES_HOME)/sim/build/unit/tb_mt_cpu_irq
 	@verilator --binary --timing --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
-	    -Wno-PINCONNECTEMPTY -DCONFIG_SIMULATION $(ARES_CFG_INC) --top-module tb_mt_cpu_irq \
+	    -Wno-PINCONNECTEMPTY -DCONFIG_SIMULATION $(ARES_SIM_CHECK_FLAGS) $(ARES_CFG_INC) --top-module tb_mt_cpu_irq \
 	    --Mdir $(ARES_HOME)/sim/build/unit/tb_mt_cpu_irq -o tb_mt_cpu_irq \
 	    $(RTL_ROOT)/common/fe_pkg.sv $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
 	    $(wildcard $(RTL_ROOT)/backend/*.sv) $(wildcard $(RTL_ROOT)/memory/*.sv) \
@@ -193,7 +198,7 @@ unit-mt-cpu-irq: config-gen
 unit-clint: config-gen
 	@mkdir -p $(ARES_HOME)/sim/build/unit/tb_clint
 	@verilator --binary --timing --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
-	    -DCONFIG_SIMULATION $(ARES_CFG_INC) --top-module tb_clint \
+	    -DCONFIG_SIMULATION $(ARES_SIM_CHECK_FLAGS) $(ARES_CFG_INC) --top-module tb_clint \
 	    --Mdir $(ARES_HOME)/sim/build/unit/tb_clint -o tb_clint \
 	    $(RTL_ROOT)/soc/soc_clint.sv $(RTL_ROOT)/soc/test/tb_clint.sv
 	@$(ARES_HOME)/sim/build/unit/tb_clint/tb_clint
@@ -203,7 +208,7 @@ unit-clint: config-gen
 unit-plic: config-gen
 	@mkdir -p $(ARES_HOME)/sim/build/unit/tb_plic
 	@verilator --binary --timing --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
-	    -DCONFIG_SIMULATION $(ARES_CFG_INC) --top-module tb_plic \
+	    -DCONFIG_SIMULATION $(ARES_SIM_CHECK_FLAGS) $(ARES_CFG_INC) --top-module tb_plic \
 	    --Mdir $(ARES_HOME)/sim/build/unit/tb_plic -o tb_plic \
 	    $(RTL_ROOT)/soc/soc_plic.sv $(RTL_ROOT)/soc/test/tb_plic.sv
 	@$(ARES_HOME)/sim/build/unit/tb_plic/tb_plic
@@ -244,7 +249,7 @@ ARES_L2_SRCS := $(RTL_ROOT)/common/fe_pkg.sv $(RTL_ROOT)/common/ares_pkg.sv $(RT
 
 ARES_CFG_INC := +incdir+$(ARES_HOME)/configs/build/vsrc/include
 VERILATOR_LINT_FLAGS := --lint-only -Wall --assert -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
-                        -DCONFIG_SIMULATION $(ARES_CFG_INC)
+                        -DCONFIG_SIMULATION $(ARES_SIM_CHECK_FLAGS) $(ARES_CFG_INC)
 
 # fe_pkg.sv includes the generated configuration header (configs/Kconfig).
 config-gen:
@@ -344,7 +349,7 @@ lint-fe-adapter: config-gen
 unit-fe-adapter: config-gen
 	@mkdir -p $(ARES_HOME)/sim/build/unit/tb_fe_legacy_adapter
 	@verilator --binary --timing -sv --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
-	    -Wno-SIDEEFFECT -Wno-BLKSEQ -DCONFIG_SIMULATION $(ARES_CFG_INC) \
+	    -Wno-SIDEEFFECT -Wno-BLKSEQ -DCONFIG_SIMULATION $(ARES_SIM_CHECK_FLAGS) $(ARES_CFG_INC) \
 	    --top-module tb_fe_legacy_adapter \
 	    --Mdir $(ARES_HOME)/sim/build/unit/tb_fe_legacy_adapter \
 	    -o $(ARES_HOME)/sim/build/unit/tb_fe_legacy_adapter/tb_fe_legacy_adapter \
@@ -359,6 +364,8 @@ unit-fe-adapter: config-gen
 # rtl/top/test/tb_ares_coremark.sv.
 COREMARK_OUT ?= $(ARES_HOME)/build/coremark
 COREMARK_HEX ?= $(COREMARK_OUT)/coremark_dmem.hex
+# Full-check and light models must not reuse each other's generated C++.
+COREMARK_SIM_DIR ?= $(ARES_HOME)/sim/build/unit$(if $(filter 0,$(SIM_HEAVY_CHECKS)),_light)
 COREMARK_IMAGE_FLAGS ?=
 COREMARK_IMAGE_CMD = python3 "$(ARES_HOME)/scripts/build_coremark_image.py" --out "$(COREMARK_OUT)" $(COREMARK_IMAGE_FLAGS)
 COREMARK_PORT_SRCS := $(wildcard $(ARES_HOME)/tests/benchmarks/coremark/src/*.c) \
@@ -426,18 +433,20 @@ ARES_COREMARK_SRCS := $(RTL_ROOT)/common/fe_pkg.sv $(RTL_ROOT)/common/ares_pkg.s
     $(wildcard $(RTL_ROOT)/backend/*.sv) $(wildcard $(RTL_ROOT)/memory/*.sv) \
     $(RTL_ROOT)/top/ares_core_top.sv $(RTL_ROOT)/top/ares_frontend_l2_top.sv
 
-unit-coremark: config-gen
+unit-coremark: build-coremark-sim
 	@hex="$(if $(strip $(DMEM)),$(DMEM),$(COREMARK_HEX))"; 	 test -f "$$hex" || { echo "error: CoreMark image not found: $$hex"; 	   echo "       run 'make coremark-image' (or pass DMEM=<coremark_dmem.hex>)"; exit 1; }
-	@mkdir -p $(ARES_HOME)/sim/build/unit/tb_ares_coremark
+	@$(COREMARK_SIM_DIR)/tb_ares_coremark/tb_ares_coremark \
+	    +DMEM=$(if $(strip $(DMEM)),$(DMEM),$(COREMARK_HEX)) $(COREMARK_ARGS)
+
+build-coremark-sim: config-gen
+	@mkdir -p $(COREMARK_SIM_DIR)/tb_ares_coremark
 	@verilator -O3 -CFLAGS -O3 --binary -j 4 --timing -sv --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
 	    -Wno-SIDEEFFECT -Wno-BLKSEQ -Wno-PINCONNECTEMPTY -Wno-UNUSEDSIGNAL \
 	    -Wno-UNOPTFLAT -Wno-WIDTHEXPAND -Wno-WIDTHTRUNC -Wno-CASEINCOMPLETE -Wno-IMPLICIT \
-	    -DCONFIG_SIMULATION $(ARES_CFG_INC) --top-module tb_ares_coremark \
-	    --Mdir $(ARES_HOME)/sim/build/unit/tb_ares_coremark \
-	    -o $(ARES_HOME)/sim/build/unit/tb_ares_coremark/tb_ares_coremark \
+	    -DCONFIG_SIMULATION $(ARES_SIM_CHECK_FLAGS) $(ARES_CFG_INC) --top-module tb_ares_coremark \
+	    --Mdir $(COREMARK_SIM_DIR)/tb_ares_coremark \
+	    -o $(COREMARK_SIM_DIR)/tb_ares_coremark/tb_ares_coremark \
 	    $(ARES_COREMARK_SRCS) $(RTL_ROOT)/top/test/tb_ares_coremark.sv
-	@$(ARES_HOME)/sim/build/unit/tb_ares_coremark/tb_ares_coremark \
-	    +DMEM=$(if $(strip $(DMEM)),$(DMEM),$(COREMARK_HEX)) $(COREMARK_ARGS)
 
 # Two-hart AMP CoreMark on the shared L2 (two full CoreMark copies, hart1's
 # data/stack offset by 1 MiB).  Uses the same generated image as unit-coremark
@@ -452,28 +461,32 @@ ifeq ($(strip $(DMEM)),)
 unit-2core-coremark: $(COREMARK_HEX)
 endif
 
-unit-2core-coremark: config-gen
+unit-2core-coremark: build-2core-coremark-sim
 	@hex="$(if $(strip $(DMEM)),$(DMEM),$(COREMARK_HEX))"; 	 test -f "$$hex" || { echo "error: CoreMark image not found: $$hex"; 	   echo "       run 'make coremark-image' (or pass DMEM=<coremark_dmem.hex>)"; exit 1; }
-	@mkdir -p $(ARES_HOME)/sim/build/unit/tb_2core_coremark
+	@$(COREMARK_SIM_DIR)/tb_2core_coremark/tb_2core_coremark \
+	    +DMEM=$(if $(strip $(DMEM)),$(DMEM),$(COREMARK_HEX)) $(COREMARK_ARGS)
+
+build-2core-coremark-sim: config-gen
+	@mkdir -p $(COREMARK_SIM_DIR)/tb_2core_coremark
 	@verilator -O3 -CFLAGS -O3 --binary -j 4 --timing -sv --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
 	    -Wno-SIDEEFFECT -Wno-BLKSEQ -Wno-PINCONNECTEMPTY -Wno-UNUSEDSIGNAL \
 	    -Wno-UNOPTFLAT -Wno-WIDTHEXPAND -Wno-WIDTHTRUNC -Wno-CASEINCOMPLETE -Wno-IMPLICIT \
-	    -DCONFIG_SIMULATION $(ARES_CFG_INC) --top-module tb_2core_coremark \
-	    --Mdir $(ARES_HOME)/sim/build/unit/tb_2core_coremark \
-	    -o $(ARES_HOME)/sim/build/unit/tb_2core_coremark/tb_2core_coremark \
+	    -DCONFIG_SIMULATION $(ARES_SIM_CHECK_FLAGS) $(ARES_CFG_INC) --top-module tb_2core_coremark \
+	    --Mdir $(COREMARK_SIM_DIR)/tb_2core_coremark \
+	    -o $(COREMARK_SIM_DIR)/tb_2core_coremark/tb_2core_coremark \
 	    $(ARES_2CORE_COREMARK_SRCS)
-	@$(ARES_HOME)/sim/build/unit/tb_2core_coremark/tb_2core_coremark \
-	    +DMEM=$(if $(strip $(DMEM)),$(DMEM),$(COREMARK_HEX)) $(COREMARK_ARGS)
 
 test-coremark-harness:
-	@python3 "$(ARES_HOME)/scripts/test_coremark_harness.py"
+	@python3 "$(ARES_HOME)/scripts/test_coremark_harness.py" \
+	    --single $(COREMARK_SIM_DIR)/tb_ares_coremark/tb_ares_coremark \
+	    --dual $(COREMARK_SIM_DIR)/tb_2core_coremark/tb_2core_coremark
 
 .PHONY: unit-l2-frontend
 unit-l2-frontend: config-gen
 	@set -e; for dual in 0 1; do \
 	  d=$(ARES_HOME)/sim/build/unit/tb_frontend_l2_$$dual; mkdir -p $$d; \
 	  verilator --binary -j 4 --timing --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
-	      -Wno-PINCONNECTEMPTY -Wno-BLKSEQ -DCONFIG_SIMULATION $(ARES_CFG_INC) \
+	      -Wno-PINCONNECTEMPTY -Wno-BLKSEQ -DCONFIG_SIMULATION $(ARES_SIM_CHECK_FLAGS) $(ARES_CFG_INC) \
 	      --top-module tb_frontend_l2 -GDUAL=$$dual --Mdir $$d -o $$d/tb_frontend_l2 \
 	      $(ARES_COREMARK_SRCS) \
 	      $(RTL_ROOT)/top/ares_frontend_hart.sv \
@@ -494,7 +507,7 @@ unit-l2: config-gen
 	  rm -rf $$d; mkdir -p $$d/ccache-tmp; \
 	  CCACHE_TEMPDIR=$$d/ccache-tmp verilator --binary --timing -sv --assert \
 	      -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD -Wno-SIDEEFFECT -Wno-BLKSEQ \
-	      -Wno-PINCONNECTEMPTY -DCONFIG_SIMULATION $(ARES_CFG_INC) \
+	      -Wno-PINCONNECTEMPTY -DCONFIG_SIMULATION $(ARES_SIM_CHECK_FLAGS) $(ARES_CFG_INC) \
 	      --top-module $$tb --Mdir $$d -o $$d/$$tb $(ARES_L2_SRCS) $$tb_src; \
 	  if $$d/$$tb > $$d/run.log 2>&1; then \
 	    grep -E "ALL TESTS PASSED" $$d/run.log | head -1; \
@@ -510,7 +523,7 @@ unit: config-gen
 	  rm -rf $$d; mkdir -p $$d/ccache-tmp; \
 	  CCACHE_TEMPDIR=$$d/ccache-tmp verilator --binary --timing -sv --assert \
 	      -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD -Wno-SIDEEFFECT -Wno-BLKSEQ \
-	      -DCONFIG_SIMULATION $(ARES_CFG_INC) \
+	      -DCONFIG_SIMULATION $(ARES_SIM_CHECK_FLAGS) $(ARES_CFG_INC) \
 	      --top-module $$tb --Mdir $$d -o $$d/$$tb $(ARES_UNIT_SRCS); \
 	  if $$d/$$tb > $$d/run.log 2>&1; then \
 	    grep -E 'ALL TESTS PASSED|coverage:|phase[123]' $$d/run.log; \
@@ -526,7 +539,7 @@ unit-lsu: config-gen
 	  rm -rf $$d; mkdir -p $$d/ccache-tmp; \
 	  CCACHE_TEMPDIR=$$d/ccache-tmp verilator --binary --timing -sv --assert \
 	      -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD -Wno-SIDEEFFECT -Wno-BLKSEQ \
-	      -DCONFIG_SIMULATION $(ARES_CFG_INC) \
+	      -DCONFIG_SIMULATION $(ARES_SIM_CHECK_FLAGS) $(ARES_CFG_INC) \
 	      --top-module $$tb --Mdir $$d -o $$d/$$tb $(ARES_LSU_UNIT_SRCS); \
 	  if $$d/$$tb > $$d/run.log 2>&1; then \
 	    grep -E "ALL TESTS PASSED" $$d/run.log | head -1; \
@@ -604,7 +617,7 @@ unit-frontend: config-gen
 	  d=$(FE_UNIT_BUILD)/$$tb; mkdir -p $$d; \
 	  echo "[unit-frontend] $$tb"; \
 	  verilator --binary -j 4 --timing --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
-	      -Wno-PINCONNECTEMPTY -Wno-UNUSEDSIGNAL -Wno-BLKSEQ -DCONFIG_SIMULATION $(ARES_CFG_INC) \
+	      -Wno-PINCONNECTEMPTY -Wno-UNUSEDSIGNAL -Wno-BLKSEQ -DCONFIG_SIMULATION $(ARES_SIM_CHECK_FLAGS) $(ARES_CFG_INC) \
 	      --top-module $$tb --Mdir $$d -o $$d/$$tb \
 	      $(RTL_ROOT)/common/fe_pkg.sv $(RTL_ROOT)/common/ares_pkg.sv $(RTL_ROOT)/common/lsu_pkg.sv \
 	      $(wildcard $(RTL_ROOT)/backend/*.sv) $(wildcard $(RTL_ROOT)/memory/*.sv) \

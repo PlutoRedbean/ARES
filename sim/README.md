@@ -30,6 +30,46 @@ Commands that still pass `ARES_RTL=1` work, but the switch is no longer needed.
 Builds use separate ignored directories for each top under `sim/build/` and
 `sim/build_wave/`. Generated configuration lives under `configs/build/`.
 
+## Optimization and optional heavy checks
+
+The main `sim/Makefile` build and the repository-root CoreMark simulation
+targets use Verilator `-O3` and C++ `-O3`. Ordinary assertions remain enabled.
+`SIM_HEAVY_CHECKS=1` is the default; use `SIM_HEAVY_CHECKS=0` to compile out the
+following simulation-only invariant scans and their associated assertions:
+
+| Module | Optional checks |
+| --- | --- |
+| `be_top` | Uncommitted source dependency scan and per-register youngest producer reconstruction |
+| `lq` | Pairwise queue-order and tag uniqueness |
+| `sq` | Flush suffix and occupied/committed prefix scans |
+| `mshr` | Pairwise physical-line and set/way lock uniqueness |
+
+The switch defines `ARES_DISABLE_HEAVY_CHECKS` at compile time. It removes the
+checker computations as well as the assertions; it does not disable
+`CONFIG_SIMULATION`, ordinary protocol assertions, CIQ occupancy checks, LQ
+completion tracking, or the dual-core L2 shadow checker. Full-check builds
+remain the correctness-validation configuration. No speedup has been measured
+for this option yet.
+
+```bash
+# Build the simulators only; do not build a benchmark image or run CoreMark.
+make build-coremark-sim build-2core-coremark-sim
+make build-coremark-sim build-2core-coremark-sim SIM_HEAVY_CHECKS=0
+
+# Run only the short synthetic RV32 harness checks, without CoreMark.
+make test-coremark-harness
+make test-coremark-harness SIM_HEAVY_CHECKS=0
+
+# Subsequent full benchmark runs use the selected check configuration.
+make unit-2core-coremark SIM_HEAVY_CHECKS=0
+```
+
+CoreMark simulators use `sim/build/unit/` for full checks and
+`sim/build/unit_light/` for light checks. The normal CPU harness uses
+`sim/build_light/` (or `sim/build_wave_light/`) for light checks. This keeps the
+two configurations from reusing a binary built with different checks.
+CoreMark testbenches print the selected check mode at startup.
+
 ## Layout
 
 | Path | Contents |

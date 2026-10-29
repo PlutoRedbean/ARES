@@ -320,6 +320,11 @@ module tb_2core_coremark;
 
     string dmem_file;
     initial begin
+`ifdef ARES_DISABLE_HEAVY_CHECKS
+        $display("Simulation heavy checks: disabled (protocol assertions and L2 shadow remain enabled)");
+`else
+        $display("Simulation heavy checks: enabled");
+`endif
         checks = 0; errors = 0;
         shadow_fault_en = $test$plusargs("SHADOW_FAULT");
         shadow_fault_used = 1'b0;

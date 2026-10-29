@@ -140,6 +140,11 @@ module tb_ares_coremark;
 
     string dmem_file;
     initial begin
+`ifdef ARES_DISABLE_HEAVY_CHECKS
+        $display("Simulation heavy checks: disabled (protocol assertions remain enabled)");
+`else
+        $display("Simulation heavy checks: enabled");
+`endif
         checks = 0; errors = 0;
         for (int i = 0; i < MEM_WORDS; i++) mem[i] = 128'h0;
 

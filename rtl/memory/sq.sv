@@ -422,6 +422,7 @@ module sq (
     // Simulation-only invariant / protocol checks (LSU_INTERFACES.md section 4
     // point 10, memory.md 5.1/5.2).  They add no hardware.
     //-------------------------------------------------------------------------
+`ifndef ARES_DISABLE_HEAVY_CHECKS
     logic kill_suffix_violation;
     logic occupied_prefix_violation;
     logic committed_prefix_violation;
@@ -447,6 +448,8 @@ module sq (
         end
     end
 
+`endif
+
     always_comb begin
         a_commit_ptr_invariant: assert (commit_ptr_r ==
             ((head_r + committed_cnt_r[2:0]) & PTR_MASK));
@@ -456,9 +459,11 @@ module sq (
         a_committed_popcount:   assert (committed_cnt_r == popcount8(committed_r));
         a_tail_head_delta:      assert (((tail_r - head_r) & PTR_MASK)
                                         == occupancy_r[2:0]);
+`ifndef ARES_DISABLE_HEAVY_CHECKS
         a_occupied_prefix:      assert (!occupied_prefix_violation);
         a_committed_prefix:     assert (!committed_prefix_violation);
         a_kill_suffix:          assert (!kill_suffix_violation);
+`endif
     end
 
     // Interface-pulse protocol checks.  These combine an external pulse

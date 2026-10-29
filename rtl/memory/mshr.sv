@@ -609,8 +609,6 @@ module mshr (
     //=========================================================================
     logic [N-1:0] in_wake;
     logic [N-1:0] in_install_wake;
-    logic         line_dup;
-    logic         lock_dup;
 
     always_comb begin
         for (int unsigned e = 0; e < N; e++) begin
@@ -619,6 +617,8 @@ module mshr (
         end
     end
 
+`ifndef ARES_DISABLE_HEAVY_CHECKS
+    logic line_dup, lock_dup;
     always_comb begin
         line_dup = 1'b0;
         lock_dup = 1'b0;
@@ -630,6 +630,8 @@ module mshr (
             end
         end
     end
+
+`endif
 
     // capture / refill ownership
     a_cap_rsp_matched: assert property (@(posedge clk) disable iff (rst)
@@ -678,8 +680,10 @@ module mshr (
         busy == lock_valid);
 
     // same physical line never tracked twice, same (set,way) never double locked
+`ifndef ARES_DISABLE_HEAVY_CHECKS
     a_line_unique: assert property (@(posedge clk) disable iff (rst) !line_dup);
     a_lock_unique: assert property (@(posedge clk) disable iff (rst) !lock_dup);
+`endif
 
     // allocation only ever targets a cycle-start FREE entry
     a_resv_target_free: assert property (@(posedge clk) disable iff (rst)

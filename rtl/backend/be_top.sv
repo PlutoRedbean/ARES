@@ -787,6 +787,9 @@ module be_top #(
     assign load_head_tag = commit_ptr_w;
 
 `ifdef CONFIG_SIMULATION
+`ifndef ARES_DISABLE_HEAVY_CHECKS
+    // Full dependency/map scans are optional; ordinary protocol assertions below
+    // remain enabled in light simulation builds.
     //-------------------------------------------------------------------------
     // An RF read is only legal when no uncommitted producer of that register
     // exists (backend.md 8.4).  Entries committing this cycle are excluded.
@@ -939,6 +942,8 @@ module be_top #(
                 );
             end
     end
+
+`endif
 
     // Checkpoints only exist for control transfers (backend.md 15.2).
     logic [CIQ_ENTRIES-1:0] cp_branch_ok_w;
