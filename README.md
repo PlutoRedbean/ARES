@@ -49,6 +49,20 @@ see [docs/coremark_array_list.md](docs/coremark_array_list.md). The shortest
 end-to-end image + 4/100-iteration RTL flow is in
 [docs/coremark_fast_build.md](docs/coremark_fast_build.md).
 
+For the optional 9-PE INT16 matrix engine (`--matrix-engine`, MMIO at
+`0xA000_1000`), build with `make coremark-matrix-image` or
+`make coremark-matrix-array-image`, and see
+[docs/coremark_matrix_engine.md](docs/coremark_matrix_engine.md). The engine
+implements the exact `matrix_test()` result for N=9; other N fall back to the
+reference function.
+
+For the optional state-machine token scanner (`--state-engine`, MMIO at
+`0xA000_2000`), build with `make coremark-state-image`; the combined fastest
+variant is `make coremark-full-image` (CRC + array list + matrix engine +
+state scanner). See [docs/coremark_state_engine.md](docs/coremark_state_engine.md).
+The 100-iteration full variant is 14,263,577 cycles / 7.0109 single-hart /
+14.0217 dual-hart aggregate CoreMark/MHz (2.488x over the CRC+probe baseline).
+
 ---
 
 ## Repository layout

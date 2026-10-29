@@ -5,6 +5,12 @@
 > 软件基线：CRC8 自定义指令 + 符号插入（不改 `core_util.c`）、`-O3 -funroll-loops`、32 KiB ICache、speculative load probe（`fae6af9` 及之后的工作树）
 > 数据来源：仓库内 RV32IM ISS（retire 数与 RTL 完全一致）+ 4/10/100-iteration RTL 性能计数器 + 新增的按 PC 相位归因 TB（`build/analysis/tb_phase.sv`）
 > 说明：本文所有 CM/MHz 都是 RTL 仿真值；板级分数还要乘实际 Fmax。当前 FPGA 目标 250 MHz 尚未收敛，Fmax/PPA 是另一条独立工作流。
+> 实现更新：9-PE INT16 矩阵引擎与状态机 token scanner 已实现并集成；
+> 100-iteration CRC + array list + matrix engine 为 22,475,821 cycles /
+> 4.4492 单核 / 8.8985 双核聚合（1.579x）；再加 state scanner 的
+> 100-iteration 为 14,263,577 cycles / 7.0109 单核 / 14.0217 双核聚合
+> （2.488x）。详见
+> [矩阵引擎](coremark_matrix_engine.md) 与 [状态机扫描器](coremark_state_engine.md)。
 
 ---
 
