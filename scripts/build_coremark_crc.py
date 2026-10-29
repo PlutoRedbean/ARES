@@ -30,6 +30,12 @@ translation units.
 Usage:
     python3 scripts/build_coremark_crc.py [--out build/coremark_crc]
     python3 scripts/build_coremark_crc.py --array-list [--out build/coremark_array]
+    python3 scripts/build_coremark_crc.py --array-list --matrix-engine \
+        --state-engine --mt [--out build/coremark_full_mt]
+
+--mt stages scripts/coremark_mt/ through build_coremark_image.py --mt, so the
+accelerated TUs are combined with MEM_STACK / MULTITHREAD=2 / the shared MMIO
+mailbox and hart0 prints one aggregate report.
 """
 
 from __future__ import annotations
@@ -666,6 +672,9 @@ def main() -> int:
                     help="also replace core_bench_matrix with the mtx9 engine driver")
     ap.add_argument("--state-engine", action="store_true",
                     help="also replace core_bench_state with the state9 scanner driver")
+    ap.add_argument("--mt", action="store_true",
+                    help="also build the 2-hart MULTITHREAD=2 single-report image "
+                         "(overlay is applied by build_coremark_image.py --mt)")
     args = ap.parse_args()
 
     if args.state_engine and args.matrix_engine and args.array_list:
@@ -684,6 +693,8 @@ def main() -> int:
         default_out = ROOT / "build/coremark_array"
     else:
         default_out = ROOT / "build/coremark_crc"
+    if args.mt:
+        default_out = default_out.with_name(default_out.name + "_mt")
     out = (args.out or default_out).resolve()
     src_port = out / "src_port"
     if src_port.exists():
@@ -707,6 +718,8 @@ def main() -> int:
 
     cmd = [sys.executable, str(ROOT / "scripts/build_coremark_image.py"),
            "--port", str(src_port), "--out", str(out), "--jobs", str(args.jobs)]
+    if args.mt:
+        cmd.append("--mt")
     print("+", " ".join(cmd))
     return subprocess.call(cmd)
 

@@ -3,6 +3,7 @@
 > 目标：从当前仓库快速得到 **CRC8 + 数组化 core_bench_list + 9-PE INT16 matrix engine + 状态机 scanner + O3 + 32 KiB ICache** 的 CoreMark 跑分。
 > 加速算法由构建脚本、新增 TU 和 RTL 配置接入；ARES 移植层及报告部分已适配 UART 和 100 MHz 周期计时，算法与 CRC 校验保留。
 > 当前全加速 100-iteration 实测：每核计时段 14,204,416 cycles，CoreMark/MHz 为 7.040064；正文中的旧 TB 分数表保留作历史对照。
+> 需要标准 `MULTITHREAD=2` 单份报告时用 `make coremark-full-mt-image`，见 [CoreMark MULTITHREAD=2](coremark_multithread.md)：同一套加速下程序打印 `200 iterations / 14.0595 CoreMark/MHz`。
 > 相关文档：[数组化实现](coremark_array_list.md) · [矩阵引擎](coremark_matrix_engine.md) · [状态机扫描器](coremark_state_engine.md) · [最新指令流分析](coremark_latest_hw_acceleration_analysis.md)
 
 ## 0. 环境准备

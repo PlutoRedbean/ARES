@@ -97,6 +97,7 @@ module ares_2core_frontend_l2_top #(
     //---- per-hart MMIO: matrix 0xA000_1000, state 0xA000_2000 ---------------
     localparam logic [31:0] MTX_BASE   = 32'hA000_1000;
     localparam logic [31:0] STATE_BASE = 32'hA000_2000;
+    localparam logic [31:0] MBOX_BASE  = 32'hA000_3000;
     localparam logic [31:0] ACCEL_MASK = 32'hFFFF_F000;
 
     logic c0_mmio_req_valid, c0_mmio_req_ready, c0_mmio_write;
@@ -113,11 +114,13 @@ module ares_2core_frontend_l2_top #(
 
     wire c0_mtx_sel   = ((c0_mmio_addr & ACCEL_MASK) == MTX_BASE);
     wire c0_state_sel = ((c0_mmio_addr & ACCEL_MASK) == STATE_BASE);
+    wire c0_mbox_sel  = ((c0_mmio_addr & ACCEL_MASK) == MBOX_BASE);
     wire c1_mtx_sel   = ((c1_mmio_addr & ACCEL_MASK) == MTX_BASE);
     wire c1_state_sel = ((c1_mmio_addr & ACCEL_MASK) == STATE_BASE);
+    wire c1_mbox_sel  = ((c1_mmio_addr & ACCEL_MASK) == MBOX_BASE);
 
-    wire [1:0] c0_dev_sel = c0_mtx_sel ? 2'd1 : c0_state_sel ? 2'd2 : 2'd0;
-    wire [1:0] c1_dev_sel = c1_mtx_sel ? 2'd1 : c1_state_sel ? 2'd2 : 2'd0;
+    wire [1:0] c0_dev_sel = c0_mbox_sel ? 2'd3 : c0_mtx_sel ? 2'd1 : c0_state_sel ? 2'd2 : 2'd0;
+    wire [1:0] c1_dev_sel = c1_mbox_sel ? 2'd3 : c1_mtx_sel ? 2'd1 : c1_state_sel ? 2'd2 : 2'd0;
 
     logic [1:0] c0_dev_sel_q, c1_dev_sel_q;
     logic c0_io_rsp_valid, c1_io_rsp_valid, c0_io_req_ready, c1_io_req_ready;
@@ -126,6 +129,9 @@ module ares_2core_frontend_l2_top #(
     logic c0_state_rsp_valid, c1_state_rsp_valid;
     logic [31:0] c0_mtx_rsp_data, c1_mtx_rsp_data;
     logic [31:0] c0_state_rsp_data, c1_state_rsp_data;
+    logic c0_mbox_rsp_valid, c1_mbox_rsp_valid;
+    logic c0_mbox_req_ready, c1_mbox_req_ready;
+    logic [31:0] c0_mbox_rsp_data, c1_mbox_rsp_data;
 
     ares_benchmark_io #(.CLK_HZ(CLK_HZ), .UART_BAUD(UART_BAUD)) u_io0 (
         .clk(clk), .rst(rst),
@@ -155,10 +161,26 @@ module ares_2core_frontend_l2_top #(
         else if (c1_mmio_req_valid && c1_mmio_req_ready) c1_dev_sel_q <= c1_dev_sel;
     end
 
+    // Shared CoreMark mailbox: one device, both harts (see ares_coremark_mbox.sv).
+    ares_coremark_mbox u_mbox (
+        .clk(clk), .rst(rst),
+        .p0_req_valid(c0_mmio_req_valid && c0_mbox_sel),
+        .p0_req_ready(c0_mbox_req_ready), .p0_write(c0_mmio_write),
+        .p0_addr(c0_mmio_addr), .p0_wdata(c0_mmio_wdata), .p0_wstrb(c0_mmio_wstrb),
+        .p0_rsp_valid(c0_mbox_rsp_valid), .p0_rsp_ready(c0_mmio_rsp_ready),
+        .p0_rsp_data(c0_mbox_rsp_data),
+        .p1_req_valid(c1_mmio_req_valid && c1_mbox_sel),
+        .p1_req_ready(c1_mbox_req_ready), .p1_write(c1_mmio_write),
+        .p1_addr(c1_mmio_addr), .p1_wdata(c1_mmio_wdata), .p1_wstrb(c1_mmio_wstrb),
+        .p1_rsp_valid(c1_mbox_rsp_valid), .p1_rsp_ready(c1_mmio_rsp_ready),
+        .p1_rsp_data(c1_mbox_rsp_data)
+    );
+
     always_comb begin
         case (c0_dev_sel_q)
             2'd1: begin c0_mmio_rsp_valid = c0_mtx_rsp_valid;   c0_mmio_rsp_data = c0_mtx_rsp_data; end
             2'd2: begin c0_mmio_rsp_valid = c0_state_rsp_valid; c0_mmio_rsp_data = c0_state_rsp_data; end
+            2'd3: begin c0_mmio_rsp_valid = c0_mbox_rsp_valid;  c0_mmio_rsp_data = c0_mbox_rsp_data; end
             default: begin c0_mmio_rsp_valid = c0_io_rsp_valid; c0_mmio_rsp_data = c0_io_rsp_data; end
         endcase
     end
@@ -167,12 +189,15 @@ module ares_2core_frontend_l2_top #(
         case (c1_dev_sel_q)
             2'd1: begin c1_mmio_rsp_valid = c1_mtx_rsp_valid;   c1_mmio_rsp_data = c1_mtx_rsp_data; end
             2'd2: begin c1_mmio_rsp_valid = c1_state_rsp_valid; c1_mmio_rsp_data = c1_state_rsp_data; end
+            2'd3: begin c1_mmio_rsp_valid = c1_mbox_rsp_valid;  c1_mmio_rsp_data = c1_mbox_rsp_data; end
             default: begin c1_mmio_rsp_valid = c1_io_rsp_valid; c1_mmio_rsp_data = c1_io_rsp_data; end
         endcase
     end
 
-    assign c0_mmio_req_ready = (c0_dev_sel == 2'd0) ? c0_io_req_ready : 1'b1;
-    assign c1_mmio_req_ready = (c1_dev_sel == 2'd0) ? c1_io_req_ready : 1'b1;
+    assign c0_mmio_req_ready = (c0_dev_sel == 2'd3) ? c0_mbox_req_ready :
+                               (c0_dev_sel == 2'd0) ? c0_io_req_ready : 1'b1;
+    assign c1_mmio_req_ready = (c1_dev_sel == 2'd3) ? c1_mbox_req_ready :
+                               (c1_dev_sel == 2'd0) ? c1_io_req_ready : 1'b1;
 
     mtx9_engine u_mtx0 (
         .clk(clk), .rst(rst),

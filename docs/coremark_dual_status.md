@@ -32,3 +32,7 @@
 历史 shadow：21,981 响应，i0/i1/c0/c1/writeback 零错误。旧 `21,229,636 / IPC=0.425063` 是 TB 少计双退休；修正统计不改变单核 cycles 和 2.0022。
 
 双核指两份独立 AMP 实例，非 SMP／官方 MULTITHREAD=2。一次程序通过不关闭 L2-M1 的全部随机反压／复位／压力门禁；正式 SoC 的 MMIO／IRQ／启动／DMA／软件及 PPA 另行验收。
+
+## MULTITHREAD=2 单份报告（2026-10-29）
+
+上表的“聚合”是 testbench 把两份独立实例相加得到的诊断值，不是 CoreMark 程序的输出。若需要程序自己打印一份标准 MT 报告，用 `make coremark-mt-image` + `make unit-2core-coremark-mt`：staged overlay（`scripts/coremark_mt/`）把 `MEM_STACK`/`MULTITHREAD=2` 和共享 MMIO 邮箱接进 port，EEMBC 源码零修改。实测 `200 iterations / 45,456,305 ticks = 4.3998 CoreMark/MHz`，`[0]`/`[1]` CRC 相同、`CoreMark PASS`。详见 [CoreMark MULTITHREAD=2](coremark_multithread.md)。

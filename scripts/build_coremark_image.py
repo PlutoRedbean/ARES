@@ -159,6 +159,49 @@ def stage_port(port: Path, stage: Path) -> None:
                     ignore=shutil.ignore_patterns("build", "__pycache__", "*.pyc"))
 
 
+MT_OVERLAY = {
+    "core_portme.h": "include/core_portme.h",
+    "core_portme.c": "src/core_portme.c",
+}
+
+
+def apply_mt_overlay(stage: Path, root: Path) -> dict:
+    """Replace the two ARES port files in the *staged* copy only.
+
+    The repository copy under tests/benchmarks/coremark/ is never written, so
+    the vendored CoreMark tree (and NOTICE.md's SHA table) stays byte-identical.
+    """
+    overlay = root / "scripts" / "coremark_mt"
+    hashes = {}
+    for name, relative in MT_OVERLAY.items():
+        source = overlay / name
+        target = stage / relative
+        if not source.is_file():
+            die(f"MT overlay missing: {source}")
+        if not target.is_file():
+            die(f"MT overlay target missing in staged port: {target}")
+        shutil.copyfile(source, target)
+        hashes[relative] = sha256(target)
+    return hashes
+
+
+def check_mt_overlay(stage: Path) -> None:
+    header = (stage / "include" / "core_portme.h").read_text()
+    checks = [
+        (r"#define\s+MEM_METHOD\s+MEM_STACK\b",
+         "MEM_STACK (core_main.c rejects MEM_STATIC with MULTITHREAD>1)"),
+        (r"#define\s+MULTITHREAD\s+2\b", "MULTITHREAD=2"),
+        (r"#define\s+PARALLEL_METHOD\s+\"", "PARALLEL_METHOD string"),
+    ]
+    for pattern, description in checks:
+        if not re.search(pattern, header):
+            die(f"MT overlay check failed: {description} missing from core_portme.h")
+    source = (stage / "src" / "core_portme.c").read_text()
+    for hook in ("core_start_parallel", "core_stop_parallel", "MBOX_DONE"):
+        if hook not in source:
+            die(f"MT overlay check failed: {hook} missing from core_portme.c")
+
+
 def build(stage: Path, root: Path, cross_compile: str, jobs: int | None,
           ccache: bool, log_path: Path) -> None:
     env = {k: v for k, v in os.environ.items()
@@ -184,12 +227,16 @@ def main() -> int:
     root = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--out", type=Path, default=root / "build/coremark",
-                        help="output directory (default build/coremark)")
+    parser.add_argument("--out", type=Path, default=None,
+                        help="output directory (default build/coremark, "
+                             "or build/coremark_mt with --mt)")
     parser.add_argument("--port", type=Path, default=root / "tests/benchmarks/coremark",
                         help="CoreMark port directory to build")
     parser.add_argument("--no-build", action="store_true",
                         help="reuse the ELF already staged under --out")
+    parser.add_argument("--mt", action="store_true",
+                        help="overlay the 2-hart MULTITHREAD=2 port from "
+                             "scripts/coremark_mt/ onto the staged copy")
     parser.add_argument("--cross-compile", default=DEFAULT_CROSS_COMPILE,
                         help=f"toolchain prefix (default {DEFAULT_CROSS_COMPILE})")
     parser.add_argument("--base", type=lambda v: int(v, 0), default=elf_image.DEFAULT_BASE,
@@ -202,18 +249,33 @@ def main() -> int:
     parser.add_argument("--json", action="store_true", help="print inputs.json to stdout")
     args = parser.parse_args()
 
-    out = args.out.resolve()
+    if args.out is not None:
+        out = args.out.resolve()
+    elif args.mt:
+        out = (root / "build/coremark_mt").resolve()
+    else:
+        out = (root / "build/coremark").resolve()
     port = args.port.resolve()
     if not port.is_dir():
         die(f"CoreMark port directory not found: {port}")
 
     frozen = check_frozen(port)
     stage = out / "port"
+    mt_hashes = {}
     if not args.no_build:
         with output_lock(out):
             stage_port(port, stage)
+            if args.mt:
+                mt_hashes = apply_mt_overlay(stage, root)
+                check_mt_overlay(stage)
             build(stage, root, args.cross_compile, args.jobs, args.ccache,
                   out / "build.log")
+    if args.mt:
+        frozen.update({
+            "mem_method": "MEM_STACK",
+            "multithread": 2,
+            "parallel_method": "ares-2hart-mbox",
+        })
 
     elf = stage / "build" / ELF_NAME
     if not elf.is_file():
@@ -261,6 +323,7 @@ def main() -> int:
             if config.is_file() else None,
         },
         "port_sources_sha256": port_hashes,
+        "mt_overlay_sha256": mt_hashes,
         "tools": {
             "gcc": command_version([f"{args.cross_compile}gcc", "--version"]),
             "make": command_version(["make", "--version"]),
@@ -285,8 +348,12 @@ def main() -> int:
         print(f"  bin     {rel(bin_path, root)}  sha256 {inputs['image']['sha256']['bin']}")
         print(f"  hex     {rel(hex_path, root)}  sha256 {hex_sha}")
         print(f"  inputs  {rel(out / 'inputs.json', root)}")
-        print("frozen:  ITERATIONS=100 TOTAL_DATA_SIZE=2000 seeds=0/0/0x66 "
-              "MEM_STATIC MULTITHREAD=1 rv32im_zicsr/ilp32")
+        if args.mt:
+            print("frozen:  ITERATIONS=100 TOTAL_DATA_SIZE=2000 seeds=0/0/0x66 "
+                  "MEM_STACK MULTITHREAD=2 (staged overlay) rv32im_zicsr/ilp32")
+        else:
+            print("frozen:  ITERATIONS=100 TOTAL_DATA_SIZE=2000 seeds=0/0/0x66 "
+                  "MEM_STATIC MULTITHREAD=1 rv32im_zicsr/ilp32")
     else:
         print(json.dumps(inputs, indent=2))
     return 0
