@@ -97,7 +97,7 @@ V_ASSERT := --assert
 VERILATOR_IGNORE := -Wno-DECLFILENAME -Wno-TIMESCALEMOD
 VERILATOR_WARN := -Wall
 
-VERILATOR_FLAGS := $(VERILATOR_IGNORE) $(VERILATOR_WARN) $(V_ASSERT) \
+VERILATOR_FLAGS := -O3 $(VERILATOR_IGNORE) $(VERILATOR_WARN) $(V_ASSERT) \
                    --timescale "1ns/1ns" --no-timing \
                    --autoflush --x-assign unique --x-initial unique \
                    --build -cc -j 8 \
@@ -116,7 +116,7 @@ CXX_INC  := $(SIM_HOME)/csrc/include
 TOP_HEADER := $(BUILD_DIR)/verilator_top.h
 C_DEF_MACRO := $(V_MODE_DEF)
 
-CXXFLAGS := -O2 -std=c++17 -Wall -Wno-unused-variable -Wno-unused-parameter \
+CXXFLAGS := -O3 -std=c++17 -Wall -Wno-unused-variable -Wno-unused-parameter \
             -I$(CXX_INC) -I$(BUILD_DIR) $(C_DEF_MACRO)
 
 # ccache (when the toolchain is wrapped with it) defaults to a temporary
@@ -138,7 +138,7 @@ $(ARES_CFG_VH): $(ARES_CFG_SCRIPT) $(wildcard $(ARES_HOME)/configs/Kconfig) $(wi
                 $(wildcard $(ARES_CFG_DIR)/.config)
 	@python3 $(ARES_CFG_SCRIPT) gen
 
-$(BIN): $(VSRCS) $(CXX_SRCS) $(wildcard $(CXX_INC)/*.h) $(ARES_CFG_DEPS)
+$(BIN): $(SIM_HOME)/Makefile $(VSRCS) $(CXX_SRCS) $(wildcard $(CXX_INC)/*.h) $(ARES_CFG_DEPS)
 	@mkdir -p $(BUILD_DIR) $(BUILD_DIR)/ccache-tmp
 	@printf '#define TOP_NAME V%s\n#define TOP_STR "%s"\n#include "V%s.h"\n' \
 		'$(TOPNAME)' '$(TOPNAME)' '$(TOPNAME)' > $(TOP_HEADER)

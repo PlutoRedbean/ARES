@@ -429,7 +429,7 @@ ARES_COREMARK_SRCS := $(RTL_ROOT)/common/fe_pkg.sv $(RTL_ROOT)/common/ares_pkg.s
 unit-coremark: config-gen
 	@hex="$(if $(strip $(DMEM)),$(DMEM),$(COREMARK_HEX))"; 	 test -f "$$hex" || { echo "error: CoreMark image not found: $$hex"; 	   echo "       run 'make coremark-image' (or pass DMEM=<coremark_dmem.hex>)"; exit 1; }
 	@mkdir -p $(ARES_HOME)/sim/build/unit/tb_ares_coremark
-	@verilator --binary -j 4 --timing -sv --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+	@verilator -O3 -CFLAGS -O3 --binary -j 4 --timing -sv --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
 	    -Wno-SIDEEFFECT -Wno-BLKSEQ -Wno-PINCONNECTEMPTY -Wno-UNUSEDSIGNAL \
 	    -Wno-UNOPTFLAT -Wno-WIDTHEXPAND -Wno-WIDTHTRUNC -Wno-CASEINCOMPLETE -Wno-IMPLICIT \
 	    -DCONFIG_SIMULATION $(ARES_CFG_INC) --top-module tb_ares_coremark \
@@ -455,7 +455,7 @@ endif
 unit-2core-coremark: config-gen
 	@hex="$(if $(strip $(DMEM)),$(DMEM),$(COREMARK_HEX))"; 	 test -f "$$hex" || { echo "error: CoreMark image not found: $$hex"; 	   echo "       run 'make coremark-image' (or pass DMEM=<coremark_dmem.hex>)"; exit 1; }
 	@mkdir -p $(ARES_HOME)/sim/build/unit/tb_2core_coremark
-	@verilator --binary -j 4 --timing -sv --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+	@verilator -O3 -CFLAGS -O3 --binary -j 4 --timing -sv --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
 	    -Wno-SIDEEFFECT -Wno-BLKSEQ -Wno-PINCONNECTEMPTY -Wno-UNUSEDSIGNAL \
 	    -Wno-UNOPTFLAT -Wno-WIDTHEXPAND -Wno-WIDTHTRUNC -Wno-CASEINCOMPLETE -Wno-IMPLICIT \
 	    -DCONFIG_SIMULATION $(ARES_CFG_INC) --top-module tb_2core_coremark \
