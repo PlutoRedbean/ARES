@@ -22,25 +22,25 @@ module student_top#(
     output [P_SEG_CNT - 1:0]                    virtual_seg   ,
 
     // Pipeline-core commit observation (M1)
-    output logic        retire_valid,
-    output logic [31:0] retire_pc,
-    output logic [31:0] retire_pc_next,
-    output logic        retire_rd_wen,
-    output logic [ 4:0] retire_rd,
-    output logic [31:0] retire_wdata,
-    output logic        retire_is_ebreak
+    output wire        retire_valid,
+    output wire [31:0] retire_pc,
+    output wire [31:0] retire_pc_next,
+    output wire        retire_rd_wen,
+    output wire [ 4:0] retire_rd,
+    output wire [31:0] retire_wdata,
+    output wire        retire_is_ebreak
 );
 
     // IROM: one 32-bit instruction per entry (no 64-bit pair path).
-    logic [31:0] pc;
-    logic [`CONFIG_IROM_ADDR_WIDTH:0] inst_addr;
-    logic [31:0] instruction;
+    wire [31:0] pc;
+    wire [`CONFIG_IROM_ADDR_WIDTH:0] inst_addr;
+    wire [31:0] instruction;
 
     // perip
-    logic [31:0] perip_addr, perip_wdata, perip_rdata;
-    logic perip_valid, perip_ready, perip_rvalid, perip_wen;
-    logic [1:0] perip_mask;
-    logic perip_idle;
+    wire [31:0] perip_addr, perip_wdata, perip_rdata;
+    wire perip_valid, perip_ready, perip_rvalid, perip_wen;
+    wire [1:0] perip_mask;
+    wire perip_idle;
 
     // 32-bit word index; CONFIG_IROM_ADDR_WIDTH is the old 64-bit-pair width.
     assign inst_addr = pc[`CONFIG_IROM_ADDR_WIDTH + 2:2];

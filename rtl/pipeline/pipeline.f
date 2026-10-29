@@ -32,15 +32,14 @@ rtl/pipeline/soc/ip/div.v
 rtl/pipeline/soc/ip/DCacheData_BRAM.v
 rtl/pipeline/soc/ip/DCacheTag_BRAM.v
 rtl/pipeline/soc/ip/BRAM.v
-rtl/pipeline/soc/ip/xpm_cdc_verilator_stubs.sv
 rtl/pipeline/soc/ip/StoreBuffer_DPIC.v
 
 rtl/pipeline/soc/jyd/student_top.sv
 rtl/pipeline/soc/jyd/irom_bmem32.sv
 rtl/pipeline/soc/jyd/perip_bridge.sv
 rtl/pipeline/soc/jyd/bram_driver.sv
-rtl/pipeline/soc/jyd/counter.sv
+rtl/pipeline/soc/jyd/counter.v
 rtl/pipeline/soc/jyd/uart.sv
-rtl/pipeline/soc/jyd/cdc_xpm_nofifo_lib.sv
+rtl/pipeline/soc/pango/pipeline_cdc.v
 rtl/pipeline/soc/jyd/display_seg.sv
 rtl/pipeline/soc/jyd/seg7.sv

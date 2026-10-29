@@ -21,15 +21,15 @@
 
 
 module bram_driver(
-    input  logic         clk,
-    input  logic [17:0]  read_addr,
-    input  logic         write_valid,
-    input  logic [17:0]  write_addr,
-    input  logic [31:0]  write_data,
-    input  logic [3:0]   write_wea,
-    output logic [31:0]  perip_rdata
+    input  wire         clk,
+    input  wire [17:0]  read_addr,
+    input  wire         write_valid,
+    input  wire [17:0]  write_addr,
+    input  wire [31:0]  write_data,
+    input  wire [3:0]   write_wea,
+    output wire [31:0]  perip_rdata
 );
-    logic [31:0] bram_rdata_raw;
+    wire [31:0] bram_rdata_raw;
 
     BRAM Mem_BRAM (
         .clka       (clk),

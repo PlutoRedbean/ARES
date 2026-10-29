@@ -21,11 +21,11 @@
 
 
 module seg7(
-    input  logic [3:0]      din     ,
-    output logic [6:0]      dout    
+    input  wire [3:0]      din     ,
+    output reg  [6:0]      dout
 );
  
-always_comb begin
+always @(*) begin
     case(din)
         4'h0:dout = 7'b011_1111;
         4'h1:dout = 7'b000_0110;

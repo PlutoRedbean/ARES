@@ -32,7 +32,10 @@ module div #(
 
     always @(posedge aclk) begin
         if (fire && divisor_is_zero) begin
-            data_pipe[0] <= {$random, $random};
+            // RV32M divide-by-zero: quotient = -1, remainder = dividend.
+            // Deterministic and synthesizable; the original $random probe is
+            // a simulation-only artifact and cannot be synthesized by PDS.
+            data_pipe[0] <= {32'hFFFF_FFFF, s_axis_dividend_tdata};
         end else begin
             data_pipe[0] <= {quotient, remainder};
         end

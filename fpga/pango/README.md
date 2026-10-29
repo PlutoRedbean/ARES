@@ -6,6 +6,9 @@
 >
 > 器件：`PG2L200H-6IFBB676`，PDS 2022.2-SP6.4；只能用 `synthesize -ads`
 >（PDS 自带 Synplify 无 license）。Verilog-2001。
+>
+> 单发射流水线 SoC 是独立流程，见 [pipeline/README.md](pipeline/README.md)；
+> 它不使用本目录的 DDR3/视频 IP，也不修改现有流程。
 
 ---
 

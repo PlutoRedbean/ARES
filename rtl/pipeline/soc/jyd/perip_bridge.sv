@@ -1,177 +1,200 @@
 `timescale 1ns / 1ps
 `include "autoconf.vh"
 //////////////////////////////////////////////////////////////////////////////////
-// perip_bridge.sv replacement, no asynchronous FIFO.
+// perip_bridge.sv - jyd peripheral bridge with Pango-portable CDC.
 //
-// CDC policy:
+// CDC policy (implementation in soc/pango/pipeline_cdc.v):
 //   - virtual_sw_input / virtual_key_input:
-//       These are treated as bitwise-independent switch/key levels generated in
+//       Treated as bitwise-independent switch/key levels generated in
 //       cnt_clk domain. Each bit is synchronized to clk domain using
-//       xpm_cdc_array_single.
+//       pipeline_cdc_array_single.
 //   - LED / SEG CPU configuration:
 //       CPU writes are coherent multi-bit snapshots. The latest {seg_wdata, LED}
-//       snapshot is transferred from clk domain to cnt_clk domain using
-//       xpm_cdc_handshake through cdc_mailbox_xpm.
+//       snapshot is transferred from clk domain to cnt_clk domain using a
+//       four-phase bundled-data handshake (pipeline_cdc_mailbox).
 //   - cnt_enable_cfg:
-//       Kept in CPU domain and synchronized inside counter.sv by xpm_cdc_single.
+//       Kept in CPU domain and synchronized inside counter.v.
 //   - counter value:
-//       Synchronized inside counter.sv by xpm_cdc_gray.
+//       Synchronized inside counter.v by pipeline_cdc_gray.
+//   - cnt_clk reset:
+//       Asynchronous assert / synchronous release per clock domain.
 //////////////////////////////////////////////////////////////////////////////////
 
 module perip_bridge(
-    input  logic         clk,
-    input  logic         cnt_clk,
-    input  logic         rst,
+    input  wire         clk,
+    input  wire         cnt_clk,
+    input  wire         rst,
 
-    input  logic         perip_valid,
-    output logic         perip_ready,
-    output logic         perip_rvalid,
-    output logic         perip_idle,
-    input  logic [31:0]  perip_addr,
-    input  logic [31:0]  perip_wdata,
-    input  logic         perip_wen,
-    input  logic [1:0]   perip_mask,
-    output logic [31:0]  perip_rdata,
-    output logic         timer_irq,
+    input  wire         perip_valid,
+    output reg           perip_ready,
+    output wire         perip_rvalid,
+    output wire         perip_idle,
+    input  wire [31:0]  perip_addr,
+    input  wire [31:0]  perip_wdata,
+    input  wire         perip_wen,
+    input  wire [1:0]   perip_mask,
+    output reg  [31:0]  perip_rdata,
+    output wire         timer_irq,
 
-    input  logic [63:0]  virtual_sw_input,
-    input  logic [7:0]   virtual_key_input,
+    input  wire [63:0]  virtual_sw_input,
+    input  wire [7:0]   virtual_key_input,
 
-    input  logic [7:0]   uart_rx_data,
-    input  logic         uart_rx_ready,
-    input  logic         uart_tx_busy,
-    output logic [7:0]   uart_tx_data,
-    output logic         uart_tx_start,
+    input  wire [7:0]   uart_rx_data,
+    input  wire         uart_rx_ready,
+    input  wire         uart_tx_busy,
+    output wire [7:0]   uart_tx_data,
+    output wire         uart_tx_start,
 
-    output logic [39:0]  virtual_seg_output,
-    output logic [31:0]  virtual_led_output
+    output wire [39:0]  virtual_seg_output,
+    output wire [31:0]  virtual_led_output
 );
-    localparam logic [31:0] DRAM_ADDR_START = 32'h8010_0000;
-    localparam logic [31:0] DRAM_ADDR_END   = 32'h8013_FFFF;
-    localparam logic [31:0] SW0_ADDR        = 32'h8020_0000;
-    localparam logic [31:0] SW1_ADDR        = 32'h8020_0004;
-    localparam logic [31:0] KEY_ADDR        = 32'h8020_0010;
-    localparam logic [31:0] SEG_ADDR        = 32'h8020_0020;
-    localparam logic [31:0] LED_ADDR        = 32'h8020_0040;
-    localparam logic [31:0] CNT_ADDR        = 32'h8020_0050;
-    localparam logic [31:0] CONSOLE_ADDR    = 32'h8020_0060;
-    localparam logic [31:0] CONSOLE_STATUS  = 32'h8020_0064;
-    localparam logic [31:0] CONSOLE_RX      = 32'h8020_0068;
-    localparam logic [31:0] CNT_START_CMD   = 32'h8000_0000;
-    localparam logic [31:0] CNT_STOP_CMD    = 32'hFFFF_FFFF;
+    localparam [31:0] DRAM_ADDR_START = 32'h8010_0000;
+    localparam [31:0] DRAM_ADDR_END   = 32'h8013_FFFF;
+    localparam [31:0] SW0_ADDR        = 32'h8020_0000;
+    localparam [31:0] SW1_ADDR        = 32'h8020_0004;
+    localparam [31:0] KEY_ADDR        = 32'h8020_0010;
+    localparam [31:0] SEG_ADDR        = 32'h8020_0020;
+    localparam [31:0] LED_ADDR        = 32'h8020_0040;
+    localparam [31:0] CNT_ADDR        = 32'h8020_0050;
+    localparam [31:0] CONSOLE_ADDR    = 32'h8020_0060;
+    localparam [31:0] CONSOLE_STATUS  = 32'h8020_0064;
+    localparam [31:0] CONSOLE_RX      = 32'h8020_0068;
+    localparam [31:0] CNT_START_CMD   = 32'h8000_0000;
+    localparam [31:0] CNT_STOP_CMD    = 32'hFFFF_FFFF;
 
     // CoreMark compatibility window.  The benchmark image uses the ARES
     // 0xA000_xxxx device map; the jyd bridge keeps its native 0x8020 map.
-    localparam logic [31:0] BENCH_CYCLE_LO    = 32'hA000_0050;
-    localparam logic [31:0] BENCH_CYCLE_HI    = 32'hA000_0054;
-    localparam logic [31:0] BENCH_UART_TX     = 32'hA000_03F8;
-    localparam logic [31:0] BENCH_UART_STATUS = 32'hA000_03FC;
+    localparam [31:0] BENCH_CYCLE_LO    = 32'hA000_0050;
+    localparam [31:0] BENCH_CYCLE_HI    = 32'hA000_0054;
+    localparam [31:0] BENCH_UART_TX     = 32'hA000_03F8;
+    localparam [31:0] BENCH_UART_STATUS = 32'hA000_03FC;
 
     // Read-response source tag. Address decoding is completed when the
     // request enters the bridge; only this compact tag follows the two-cycle
     // memory response pipeline.
-    localparam logic [1:0] RESP_NONE = 2'd0;
-    localparam logic [1:0] RESP_MMIO = 2'd1;
-    localparam logic [1:0] RESP_DRAM = 2'd2;
-    localparam logic [1:0] RESP_CNT  = 2'd3;
+    localparam [1:0] RESP_NONE = 2'd0;
+    localparam [1:0] RESP_MMIO = 2'd1;
+    localparam [1:0] RESP_DRAM = 2'd2;
+    localparam [1:0] RESP_CNT  = 2'd3;
 
-    localparam int STORE_QUEUE_DEPTH = `CONFIG_STORE_BUFFER_DEPTH;
-    localparam int STORE_QUEUE_PTR_WIDTH =
+    localparam integer STORE_QUEUE_DEPTH = `CONFIG_STORE_BUFFER_DEPTH;
+    localparam integer STORE_QUEUE_PTR_WIDTH =
         (STORE_QUEUE_DEPTH > 1) ? $clog2(STORE_QUEUE_DEPTH) : 1;
-    localparam int STORE_QUEUE_COUNT_WIDTH = $clog2(STORE_QUEUE_DEPTH + 1);
+    localparam integer STORE_QUEUE_COUNT_WIDTH = $clog2(STORE_QUEUE_DEPTH + 1);
 
-    logic [31:0] LED;
-    logic [31:0] LED_next;
-    logic [31:0] seg_wdata;
-    logic [31:0] seg_wdata_next;
-    logic        cnt_enable_cfg;
-    logic        cnt_enable_cfg_next;
+    reg  [31:0] LED;
+    reg  [31:0] LED_next;
+    reg  [31:0] seg_wdata;
+    reg  [31:0] seg_wdata_next;
+    reg         cnt_enable_cfg;
+    reg         cnt_enable_cfg_next;
 
-    logic [31:0] cnt_rdata;
-    logic [31:0] mmio_rdata;
-    logic [31:0] mmio_rdata_next;
-    logic [31:0] dram_rdata;
+    wire [31:0] cnt_rdata;
+    reg  [31:0] mmio_rdata;
+    reg  [31:0] mmio_rdata_next;
+    wire [31:0] dram_rdata;
 
-    (* keep = "true" *) logic dram_read_hit;
-    (* keep = "true" *) logic dram_write_hit;
+    (* keep = "true" *) wire dram_read_hit;
+    (* keep = "true" *) wire dram_write_hit;
 
-    logic [1:0]  response_tag_next;
-    logic [1:0]  response_tag_r;
+    reg  [1:0]  response_tag_next;
+    reg  [1:0]  response_tag_r;
 
-    logic [63:0] sw_cpu;
-    logic [7:0]  key_cpu;
+    wire [63:0] sw_cpu;
+    wire [7:0]  key_cpu;
 
-    logic        ledseg_src_valid;
-    logic [63:0] ledseg_src_data;
-    logic [63:0] ledseg_cnt_data;
-    logic        ledseg_cnt_valid;
-    logic [31:0] seg_wdata_cnt;
-    logic [31:0] LED_cnt;
-    logic [39:0] seg_output_comb;
-    logic [39:0] seg_output_q;
-    logic [31:0] led_output_q;
-    logic [7:0]  console_rx_data;
-    logic        console_rx_valid;
-    logic        console_tx_ready;
+    wire        cnt_rst;
+    wire        ledseg_src_valid;
+    wire [63:0] ledseg_src_data;
+    wire [63:0] ledseg_cnt_data;
+    wire        ledseg_cnt_valid;
+    reg  [31:0] seg_wdata_cnt;
+    reg  [31:0] LED_cnt;
+    wire [39:0] seg_output_comb;
+    reg  [39:0] seg_output_q;
+    reg  [31:0] led_output_q;
+    reg  [7:0]  console_rx_data;
+    reg         console_rx_valid;
+    wire        console_tx_ready;
 
 `ifndef __VERILATOR__
     // The console uses one-entry toggle handshakes in each direction.  The
     // character data stays stable until the corresponding acknowledgement
     // returns, making the data bus a safe bundled-data CDC path.
-    logic [7:0] console_tx_data_cpu;
-    logic       console_tx_req_cpu;
-    (* ASYNC_REG = "TRUE" *) logic [1:0] console_tx_ack_sync_cpu;
-    (* ASYNC_REG = "TRUE" *) logic [1:0] console_tx_req_sync_cnt;
-    logic       console_tx_ack_cnt;
+    reg  [7:0] console_tx_data_cpu;
+    reg        console_tx_req_cpu;
+    (* async_reg = "true" *) reg [1:0] console_tx_ack_sync_cpu;
+    (* async_reg = "true" *) reg [1:0] console_tx_req_sync_cnt;
+    reg        console_tx_ack_cnt;
 
-    logic [7:0] console_rx_data_cnt;
-    logic       console_rx_req_cnt;
-    logic       console_rx_ack_cpu;
-    (* ASYNC_REG = "TRUE" *) logic [1:0] console_rx_req_sync_cpu;
-    (* ASYNC_REG = "TRUE" *) logic [1:0] console_rx_ack_sync_cnt;
-    logic       uart_rx_ready_d;
+    reg  [7:0] console_rx_data_cnt;
+    reg        console_rx_req_cnt;
+    reg        console_rx_ack_cpu;
+    (* async_reg = "true" *) reg [1:0] console_rx_req_sync_cpu;
+    (* async_reg = "true" *) reg [1:0] console_rx_ack_sync_cnt;
+    reg        uart_rx_ready_d;
+
+    reg  [7:0] uart_tx_data_r;
+    reg        uart_tx_start_r;
 `endif
 
-    logic [17:0] store_addr_q  [0:STORE_QUEUE_DEPTH-1];
-    logic [31:0] store_wdata_q [0:STORE_QUEUE_DEPTH-1];
-    logic [1:0]  store_mask_q  [0:STORE_QUEUE_DEPTH-1];
-    logic [STORE_QUEUE_PTR_WIDTH-1:0] store_head_q;
-    logic [STORE_QUEUE_PTR_WIDTH-1:0] store_tail_q;
-    logic [STORE_QUEUE_COUNT_WIDTH-1:0] store_count_q;
+    reg  [17:0] store_addr_q  [0:STORE_QUEUE_DEPTH-1];
+    reg  [31:0] store_wdata_q [0:STORE_QUEUE_DEPTH-1];
+    reg  [1:0]  store_mask_q  [0:STORE_QUEUE_DEPTH-1];
+    reg  [STORE_QUEUE_PTR_WIDTH-1:0] store_head_q;
+    reg  [STORE_QUEUE_PTR_WIDTH-1:0] store_tail_q;
+    reg  [STORE_QUEUE_COUNT_WIDTH-1:0] store_count_q;
 
-    logic [63:0] cycle_count;
+    reg  [63:0] cycle_count;
 
     wire [31:0] perip_addr_eff =
         (perip_addr == BENCH_UART_TX)     ? CONSOLE_ADDR :
         (perip_addr == BENCH_UART_STATUS) ? CONSOLE_STATUS : perip_addr;
 
-    logic        store_empty;
-    logic        store_full;
-    logic        store_enqueue;
-    logic        store_dequeue;
-    logic        read_accept;
-    logic        dram_load_request;
-    logic        dram_load_accept;
-    logic        mmio_write_accept;
-    logic        bram_write_valid_q;
-    logic [17:0] bram_cmd_addr_q;
-    logic [31:0] bram_cmd_wdata_q;
-    logic [3:0]  bram_cmd_wea_q;
-    logic [STORE_QUEUE_PTR_WIDTH-1:0] store_scan_index;
-    logic [3:0]  store_scan_byte_en;
-    logic [31:0] store_scan_word_data;
-    logic [3:0]  load_forward_mask_next;
-    logic [31:0] load_forward_data_next;
-    logic [3:0]  staged_forward_mask;
+    wire        store_empty;
+    wire        store_full;
+    wire        store_enqueue;
+    wire        store_dequeue;
+    wire        read_accept;
+    wire        dram_load_request;
+    wire        dram_load_accept;
+    wire        mmio_write_accept;
+    reg         bram_write_valid_q;
+    reg  [17:0] bram_cmd_addr_q;
+    reg  [31:0] bram_cmd_wdata_q;
+    reg  [3:0]  bram_cmd_wea_q;
+    reg  [STORE_QUEUE_PTR_WIDTH-1:0] store_scan_index;
+    reg  [3:0]  store_scan_byte_en;
+    reg  [31:0] store_scan_word_data;
+    reg  [3:0]  load_forward_mask_next;
+    reg  [31:0] load_forward_data_next;
+    wire [3:0]  staged_forward_mask;
+
+    // Response-pipeline registers (declared here because Verilog-2001 requires
+    // a declaration before the first procedural assignment).
+    reg  [1:0]  response_tag_r2;
+    reg         cycle_sel_next, cycle_sel_r, cycle_sel_r2;
+    reg         cycle_hi_next,  cycle_hi_r,  cycle_hi_r2;
+    reg  [31:0] mmio_rdata_r;
+    reg  [31:0] cnt_rdata_r;
+    reg  [31:0] cnt_rdata_r2;
+    reg  [3:0]  load_forward_mask_r;
+    reg  [3:0]  load_forward_mask_r2;
+    reg  [31:0] load_forward_data_r;
+    reg  [31:0] load_forward_data_r2;
+    wire [31:0] load_forward_bit_mask;
+    wire [31:0] dram_rdata_forwarded;
+
+    integer entry;
+    integer byte_lane;
 
     assign dram_read_hit  = perip_addr[31:18] == 14'b1000_0000_0001_00;
     assign dram_write_hit = perip_addr[31:18] == 14'b1000_0000_0001_00;
 
-    function automatic logic [3:0] store_byte_enable(
-        input logic [17:0] addr,
-        input logic [1:0]  mask
-    );
-        unique case (mask)
+    function [3:0] store_byte_enable;
+        input [17:0] addr;
+        input [1:0]  mask;
+        case (mask)
             2'b10: store_byte_enable = 4'b1111;
             2'b01: store_byte_enable = addr[1] ? 4'b1100 : 4'b0011;
             2'b00: store_byte_enable = 4'b0001 << addr[1:0];
@@ -179,11 +202,10 @@ module perip_bridge(
         endcase
     endfunction
 
-    function automatic logic [31:0] store_word_data(
-        input logic [31:0] wdata,
-        input logic [1:0]  mask
-    );
-        unique case (mask)
+    function [31:0] store_word_data;
+        input [31:0] wdata;
+        input [1:0]  mask;
+        case (mask)
             2'b10: store_word_data = wdata;
             2'b01: store_word_data = {2{wdata[15:0]}};
             2'b00: store_word_data = {4{wdata[7:0]}};
@@ -195,12 +217,11 @@ module perip_bridge(
     // port. The read port remains independently available to cacheable DRAM
     // loads; MMIO operations still wait for queued and staged stores.
     assign store_empty = store_count_q == 0;
-    assign store_full = store_count_q ==
-                        STORE_QUEUE_COUNT_WIDTH'(STORE_QUEUE_DEPTH);
+    assign store_full = store_count_q == STORE_QUEUE_DEPTH;
     assign dram_load_request = perip_valid && !perip_wen && dram_read_hit;
     assign store_dequeue = (~rst) && (~store_empty);
 
-    always_comb begin
+    always @(*) begin
         perip_ready = 1'b1;
         if (perip_valid) begin
             if (perip_wen) begin
@@ -236,7 +257,7 @@ module perip_bridge(
     import "DPI-C" function void sim_led_write(input int value);
 
     // Simulation-only character sink used by the RT-Thread console driver.
-    always_ff @(posedge clk) begin
+    always @(posedge clk) begin
         if (!rst && mmio_write_accept && perip_addr_eff == CONSOLE_ADDR) begin
             $write("%c", perip_wdata[7:0]);
         end
@@ -247,7 +268,7 @@ module perip_bridge(
 
     // One-byte simulation RX register. The DPI side supplies scripted input
     // first and then polls the host terminal without blocking RTL execution.
-    always_ff @(posedge clk) begin : sim_console_rx
+    always @(posedge clk) begin : sim_console_rx
         integer next_char;
 
         if (rst) begin
@@ -275,7 +296,7 @@ module perip_bridge(
     assign console_tx_ready =
         console_tx_req_cpu == console_tx_ack_sync_cpu[1];
 
-    always_ff @(posedge clk) begin
+    always @(posedge clk) begin
         if (rst) begin
             console_tx_data_cpu    <= 8'd0;
             console_tx_req_cpu     <= 1'b0;
@@ -291,21 +312,30 @@ module perip_bridge(
         end
     end
 
-    always_ff @(posedge cnt_clk) begin
-        if (rst) begin
+    // Reset for the peripheral clock domain: async assert, sync release.
+    // The bridge has one reset input, so derive the cnt_clk-domain reset here
+    // instead of releasing it asynchronously to cnt_clk on the board.
+    pipeline_cdc_reset_sync u_cnt_rst (
+        .clk    (cnt_clk),
+        .rst_in (rst),
+        .rst_out(cnt_rst)
+    );
+
+    always @(posedge cnt_clk) begin
+        if (cnt_rst) begin
             console_tx_req_sync_cnt <= 2'b00;
             console_tx_ack_cnt      <= 1'b0;
-            uart_tx_data            <= 8'd0;
-            uart_tx_start           <= 1'b0;
+            uart_tx_data_r          <= 8'd0;
+            uart_tx_start_r         <= 1'b0;
         end else begin
             console_tx_req_sync_cnt[0] <= console_tx_req_cpu;
             console_tx_req_sync_cnt[1] <= console_tx_req_sync_cnt[0];
-            uart_tx_start <= 1'b0;
+            uart_tx_start_r <= 1'b0;
 
             if ((console_tx_req_sync_cnt[1] != console_tx_ack_cnt) &&
                 !uart_tx_busy) begin
-                uart_tx_data       <= console_tx_data_cpu;
-                uart_tx_start      <= 1'b1;
+                uart_tx_data_r     <= console_tx_data_cpu;
+                uart_tx_start_r    <= 1'b1;
                 console_tx_ack_cnt <= console_tx_req_sync_cnt[1];
             end
         end
@@ -314,8 +344,8 @@ module perip_bridge(
     // UART -> CPU receive path.  uart.sv holds rx_ready high for several
     // clocks, so accept only its rising edge.  One unread byte is retained
     // until the CPU reads CONSOLE_RX.
-    always_ff @(posedge cnt_clk) begin
-        if (rst) begin
+    always @(posedge cnt_clk) begin
+        if (cnt_rst) begin
             console_rx_ack_sync_cnt <= 2'b00;
             uart_rx_ready_d         <= 1'b0;
             console_rx_data_cnt     <= 8'd0;
@@ -333,7 +363,7 @@ module perip_bridge(
         end
     end
 
-    always_ff @(posedge clk) begin
+    always @(posedge clk) begin
         if (rst) begin
             console_rx_req_sync_cpu <= 2'b00;
             console_rx_ack_cpu      <= 1'b0;
@@ -352,8 +382,12 @@ module perip_bridge(
         end
     end
 
-    assign console_rx_valid =
-        console_rx_req_sync_cpu[1] != console_rx_ack_cpu;
+    always @(*) begin
+        console_rx_valid = console_rx_req_sync_cpu[1] != console_rx_ack_cpu;
+    end
+
+    assign uart_tx_data  = uart_tx_data_r;
+    assign uart_tx_start = uart_tx_start_r;
 `endif
     assign staged_forward_mask =
         dram_load_request && bram_write_valid_q &&
@@ -365,8 +399,8 @@ module perip_bridge(
     // Port-A write has already left the queue, so it is applied first. Queue
     // entries are then visited from oldest to youngest, allowing each younger
     // matching store to overwrite the bytes supplied by older stores.
-    always_comb begin
-        store_scan_index = '0;
+    always @(*) begin
+        store_scan_index = {STORE_QUEUE_PTR_WIDTH{1'b0}};
         store_scan_byte_en = 4'd0;
         store_scan_word_data = 32'd0;
         load_forward_mask_next = 4'd0;
@@ -379,10 +413,10 @@ module perip_bridge(
                 load_forward_data_next = bram_cmd_wdata_q;
             end
 
-            for (int entry = 0; entry < STORE_QUEUE_DEPTH; entry++) begin
+            for (entry = 0; entry < STORE_QUEUE_DEPTH; entry = entry + 1) begin
                 store_scan_index =
-                    store_head_q + STORE_QUEUE_PTR_WIDTH'(entry);
-                if ((STORE_QUEUE_COUNT_WIDTH'(entry) < store_count_q) &&
+                    store_head_q + entry[STORE_QUEUE_PTR_WIDTH-1:0];
+                if ((entry < store_count_q) &&
                     (store_addr_q[store_scan_index][17:2] ==
                      perip_addr[17:2])) begin
                     store_scan_byte_en = store_byte_enable(
@@ -392,7 +426,7 @@ module perip_bridge(
                         store_wdata_q[store_scan_index],
                         store_mask_q[store_scan_index]);
 
-                    for (int byte_lane = 0; byte_lane < 4; byte_lane++) begin
+                    for (byte_lane = 0; byte_lane < 4; byte_lane = byte_lane + 1) begin
                         if (store_scan_byte_en[byte_lane]) begin
                             load_forward_mask_next[byte_lane] = 1'b1;
                             load_forward_data_next[byte_lane * 8 +: 8] =
@@ -425,16 +459,16 @@ module perip_bridge(
                              !perip_ready),
         .mmio_write_blocked (perip_valid && perip_wen && !dram_write_hit &&
                              !perip_ready),
-        .occupancy          (32'(store_count_q)),
-        .depth              (32'(STORE_QUEUE_DEPTH))
+        .occupancy          ({{(32-STORE_QUEUE_COUNT_WIDTH){1'b0}}, store_count_q}),
+        .depth              (STORE_QUEUE_DEPTH)
     );
 `endif
 
-    always_ff @(posedge clk) begin
+    always @(posedge clk) begin
         if (rst) begin
-            store_head_q  <= '0;
-            store_tail_q  <= '0;
-            store_count_q <= '0;
+            store_head_q  <= {STORE_QUEUE_PTR_WIDTH{1'b0}};
+            store_tail_q  <= {STORE_QUEUE_PTR_WIDTH{1'b0}};
+            store_count_q <= {STORE_QUEUE_COUNT_WIDTH{1'b0}};
         end else begin
             if (store_enqueue) begin
                 store_addr_q[store_tail_q]  <= perip_addr[17:0];
@@ -451,7 +485,7 @@ module perip_bridge(
                 end
             end
 
-            unique case ({store_enqueue, store_dequeue})
+            case ({store_enqueue, store_dequeue})
                 2'b10: store_count_q <= store_count_q + 1'b1;
                 2'b01: store_count_q <= store_count_q - 1'b1;
                 default: begin
@@ -463,7 +497,7 @@ module perip_bridge(
     // Register only writes before the large BRAM array. Read addresses retain
     // their original direct, two-cycle path. A staged write is consumed while
     // the next store is captured, preserving one store per cycle throughput.
-    always_ff @(posedge clk) begin
+    always @(posedge clk) begin
         if (rst) begin
             bram_write_valid_q <= 1'b0;
             bram_cmd_addr_q  <= 18'd0;
@@ -491,7 +525,7 @@ module perip_bridge(
     // These are switch/key states, so each bit is independent. This avoids
     // pretending that the whole 72-bit bus is an atomic value.
     // -------------------------------------------------------------------------
-    cdc_array_single_xpm #(
+    pipeline_cdc_array_single #(
         .WIDTH        (64),
         .DEST_SYNC_FF (2),
         .INIT_SYNC_FF (0)
@@ -502,7 +536,7 @@ module perip_bridge(
         .dest_out (sw_cpu)
     );
 
-    cdc_array_single_xpm #(
+    pipeline_cdc_array_single #(
         .WIDTH        (8),
         .DEST_SYNC_FF (2),
         .INIT_SYNC_FF (0)
@@ -516,13 +550,13 @@ module perip_bridge(
     // -------------------------------------------------------------------------
     // CPU-domain MMIO write registers.
     // -------------------------------------------------------------------------
-    always_comb begin
+    always @(*) begin
         LED_next            = LED;
         seg_wdata_next      = seg_wdata;
         cnt_enable_cfg_next = cnt_enable_cfg;
 
         if (mmio_write_accept) begin
-            unique case (perip_addr_eff)
+            case (perip_addr_eff)
                 LED_ADDR: begin
                     LED_next = perip_wdata;
                 end
@@ -545,7 +579,7 @@ module perip_bridge(
         end
     end
 
-    always_ff @(posedge clk) begin
+    always @(posedge clk) begin
         if (rst) begin
             LED            <= 32'd0;
             seg_wdata      <= 32'd0;
@@ -561,7 +595,7 @@ module perip_bridge(
     // tag here, before the response data is available. MMIO data selection is
     // folded into the same decode so the address is never decoded again on
     // the response path.
-    always_comb begin
+    always @(*) begin
         response_tag_next = RESP_NONE;
         mmio_rdata_next   = 32'd0;
         cycle_sel_next    = 1'b0;
@@ -581,7 +615,7 @@ module perip_bridge(
             end else if (perip_addr_eff == CNT_ADDR) begin
                 response_tag_next = RESP_CNT;
             end else begin
-                unique case (perip_addr_eff)
+                case (perip_addr_eff)
                     SW0_ADDR: begin
                         response_tag_next = RESP_MMIO;
                         mmio_rdata_next   = sw_cpu[31:0];
@@ -620,7 +654,7 @@ module perip_bridge(
     end
 
     // First response-data pipeline stage for MMIO reads.
-    always_ff @(posedge clk) begin
+    always @(posedge clk) begin
         if (rst) begin
             mmio_rdata <= 32'd0;
         end else begin
@@ -637,7 +671,7 @@ module perip_bridge(
                               ((perip_addr == LED_ADDR) || (perip_addr == SEG_ADDR));
     assign ledseg_src_data  = {seg_wdata_next, LED_next};
 
-    cdc_mailbox_xpm #(
+    pipeline_cdc_mailbox #(
         .WIDTH        (64),
         .DEST_SYNC_FF (2),
         .SRC_SYNC_FF  (2),
@@ -649,15 +683,15 @@ module perip_bridge(
         .src_valid  (ledseg_src_valid),
         .src_busy   (),
         .dest_clk   (cnt_clk),
-        .dest_rst   (rst),
+        .dest_rst   (cnt_rst),
         .dest_data  (ledseg_cnt_data),
         .dest_valid (ledseg_cnt_valid)
     );
 
     // Latch a transferred snapshot only when the handshake destination pulse arrives.
     // This consumes ledseg_cnt_valid explicitly and avoids using invalid intermediate data.
-    always_ff @(posedge cnt_clk) begin
-        if (rst) begin
+    always @(posedge cnt_clk) begin
+        if (cnt_rst) begin
             seg_wdata_cnt <= 32'd0;
             LED_cnt       <= 32'd0;
         end else if (ledseg_cnt_valid) begin
@@ -670,7 +704,7 @@ module perip_bridge(
     // signals consumed by twin_controller stay in the same clock domain.
     display_seg seg_driver (
         .clk  (cnt_clk),
-        .rst  (rst),
+        .rst  (cnt_rst),
         .s    (seg_wdata_cnt),
         .seg1 (seg_output_comb[6:0]),
         .seg2 (seg_output_comb[16:10]),
@@ -685,8 +719,8 @@ module perip_bridge(
     assign seg_output_comb[27] = 1'b0;
     assign seg_output_comb[37] = 1'b0;
 
-    always_ff @(posedge cnt_clk) begin
-        if (rst) begin
+    always @(posedge cnt_clk) begin
+        if (cnt_rst) begin
             seg_output_q <= 40'd0;
             led_output_q <= 32'd0;
         end else begin
@@ -712,7 +746,7 @@ module perip_bridge(
     );
 
     // Free-running 64-bit CPU cycle counter for the CoreMark window.
-    always_ff @(posedge clk) begin
+    always @(posedge clk) begin
         if (rst) cycle_count <= 64'd0;
         else     cycle_count <= cycle_count + 64'd1;
     end
@@ -727,20 +761,7 @@ module perip_bridge(
         .timer_irq      (timer_irq)
     );
 
-    logic [1:0]  response_tag_r2;
-    logic        cycle_sel_next, cycle_sel_r, cycle_sel_r2;
-    logic        cycle_hi_next,  cycle_hi_r,  cycle_hi_r2;
-    logic [31:0] mmio_rdata_r;
-    logic [31:0] cnt_rdata_r;
-    logic [31:0] cnt_rdata_r2;
-    logic [3:0]  load_forward_mask_r;
-    logic [3:0]  load_forward_mask_r2;
-    logic [31:0] load_forward_data_r;
-    logic [31:0] load_forward_data_r2;
-    logic [31:0] load_forward_bit_mask;
-    logic [31:0] dram_rdata_forwarded;
-
-    always_ff @(posedge clk) begin
+    always @(posedge clk) begin
         if (rst) begin
             response_tag_r  <= RESP_NONE;
             response_tag_r2 <= RESP_NONE;
@@ -793,8 +814,8 @@ module perip_bridge(
                         response_tag_r == RESP_NONE &&
                         response_tag_r2 == RESP_NONE;
 
-    always_comb begin
-        unique case (response_tag_r2)
+    always @(*) begin
+        case (response_tag_r2)
             RESP_MMIO: perip_rdata = mmio_rdata_r;
             RESP_DRAM: perip_rdata = dram_rdata_forwarded;
             RESP_CNT:  perip_rdata = cycle_sel_r2

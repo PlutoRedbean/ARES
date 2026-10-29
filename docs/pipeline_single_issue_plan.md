@@ -1,8 +1,9 @@
 # ARES FPGA 单发射流水线 SoC 实施计划（PG2L200H）
 
-> 状态：Draft v0.3（M0/M1 完成，ISA 36/36 与基线 CoreMark 仿真通过；Pango 待后续）
+> 状态：Draft v0.4（M0/M1/M2 完成，ISA 36/36 与基线 CoreMark 仿真通过；Pango RTL 平台层已落地，PDS 综合/实现/上板待执行）
 > 日期：2026-10-30
-> 目标分支：`pipeline-single-issue`（待从 `pipeline` 创建）
+> v0.4 变更：完成 RTL 层 Pango 适配——移除 Xilinx XPM、加入可综合并初始化的 IROM/DRAM、100/50 MHz PLL、分域复位、UART 板级顶层与 PDS 约束/流程；新增 `make pipeline-image`、`make pipeline-pango-lint` 与 `make pipeline-console`。SoC 侧 RTL 已按 Verilog-2001 兼容风格转换并由 `--language 1364-2005` 检查。综合、实现、资源/时序和上板仍归 M3，在 Pango 工具环境执行。
+> 当前分支：`pipeline-single-issue`
 > 关联文档：[implementation_plan.md](implementation_plan.md)、[jyd_soc_integration.md](jyd_soc_integration.md)、[coremark_uart_scoring.md](coremark_uart_scoring.md)
 
 ---
@@ -84,17 +85,26 @@ rtl/pipeline/
 │   ├── vsrc/DPIC/                   # 仅 DPIC 定义时启用
 │   └── vsrc/build/Mundus.sv         # 生成物（firtool 1.77.0）
 ├── soc/
-│   ├── jyd/student_top.sv           # 已直接改为 32-bit IROM + 5-stage CPU
-│   ├── jyd/irom_bmem32.sv           # 32-bit IROM（取代 64-bit IROM_BMEM）
-│   ├── jyd/perip_bridge.sv          # jyd 原始 2-bit mask 版本
-│   ├── jyd/{bram_driver,counter,uart,cdc_xpm_nofifo_lib,display_seg,seg7}.sv
-│   └── ip/                          # BRAM/DCache/MDU/DPIC 模型
-├── test/                            # tb_pipeline_smoke + sim_main.cpp
+│   ├── jyd/student_top.sv           # 32-bit IROM + 5-stage CPU
+│   ├── jyd/irom_bmem32.sv           # 32-bit IROM，仿真 DPI / 综合 inferred BRAM
+│   ├── jyd/perip_bridge.sv          # jyd 2-bit mask 外设桥 + 0xA000 CoreMark 窗口
+│   ├── jyd/{bram_driver,uart,display_seg,seg7}.sv
+│   ├── jyd/counter.v                # ms 计数器（generic CDC）
+│   ├── pango/pipeline_cdc.v         # 2FF/gray/4-phase mailbox，无 XPM
+│   ├── pango/pipeline_bram.v        # 256 KiB inferred DRAM
+│   └── ip/                          # DPI BRAM/DCache/MDU 模型
+├── board/
+│   ├── pipeline_pll.v               # GTP_GPLL 27 -> 100/50 MHz
+│   ├── pipeline_pll_sim.v           # Verilator 行为模型
+│   ├── pipeline_clk_reset.v         # PLL + 分域异步复位/同步释放
+│   └── pipeline_board_top.v         # Pango 板级顶层（UART/LED）
+├── test/                            # tb_pipeline_smoke / tb_pipeline_isa + DPI 模型
 ├── include/
 │   ├── pipeline_autoconf.vh         # core + SoC 合并配置
 │   └── autoconf.vh                  # jyd include 兼容 shim
 ├── gen/                             # ARES-local mill build for Mundus.sv
 ├── pipeline.f                       # Verilator filelist
+├── pipeline_pango.f                 # PDS 综合 filelist（无 DPI、无 XPM）
 └── README.md                        # 来源/修改/验证记录
 ```
 
@@ -178,7 +188,7 @@ PG2L200H board
 - `perip_bridge.sv` 的 DRAM/MMIO/存储队列/2-bit mask 结构；
 - `bram_driver.sv` 的 BRAM 读写接口；
 - `uart.sv` 的 UART 收发（仅换时钟/波特率参数）；
-- `counter.sv` 的毫秒计数器（保留给后续 RT-Thread，不作为 CoreMark 计时）；
+- `counter.v` 的毫秒计数器（由 jyd `counter.sv` 移植，generic CDC；保留给后续 RT-Thread，不作为 CoreMark 计时）；
 - `student_top.sv` 的端口和实例化结构（替换 CPU、直接改 32-bit IROM）；
 - `top.sv` 仅作板级连接参考，不能直接作为 Pango 顶层。
 
@@ -188,7 +198,7 @@ PG2L200H board
 - jyd 分支的 `Mundus` 生成物：不是 5-stage-pipeline 的 core；
 - jyd 的 `autoconf.vh`：不能直接给 5-stage core 用；
 - `IROM_BMEM` 的 64-bit/DPI 版本：不再使用；改为 `IROM_BMEM32`，且其 DPI 版本不能综合；
-- `cdc_xpm_nofifo_lib.sv` 的 Xilinx XPM：Pango 不可用；
+- `cdc_xpm_nofifo_lib.sv` 的 Xilinx XPM：已由 `soc/pango/pipeline_cdc.v` 取代，Pango 不可用 XPM；
 - `top.sv` 的 Vivado PLL/UART 板级实现：Pango 需要重做。
 
 ---
@@ -297,13 +307,16 @@ wire [31:0] byte_addr = 32'h8000_0000 + ({addra, 2'b00});
 - 保留 jyd 的 `virtual_sw/key/led/seg` 端口（可裁剪）；
 - 不实例化 ARES `ares_frontend_l2_top`/`ares_core_top`。
 
-### 7.5 Pango 板级适配
+### 7.5 Pango 板级适配（RTL 层已完成，PDS 待执行）
 
-- 用 Pango PLL 替换 jyd `top.sv` 的 `pll`；
-- UART 建议 115200（当前 jyd 顶层是 50 MHz/9600；CoreMark 计时不含 UART 传输，但串口太慢会影响上板体验）；
-- 用 Pango BRAM wrapper 替换 `IROM_BMEM32`/`BRAM` 的 DPI 模型；
-- 用通用 2FF/gray CDC 替换 `cdc_xpm_nofifo_lib.sv` 的 Xilinx XPM；
-- 新建 `fpga/pango/pipeline/` 流程和约束，不修改现有 video 流程。
+- [x] Pango PLL：`board/pipeline_pll.v`（`GTP_GPLL`，27 MHz -> 100 MHz CPU / 50 MHz 外设，VCO 1000 MHz）；
+- [x] UART 115200，50 MHz 外设时钟；
+- [x] 可综合存储：`soc/pango/pipeline_bram.v`（256 KiB inferred DRAM）+ `IROM_BMEM32` 综合分支，均由 `make pipeline-image` 生成的 `build/pipeline/*.hex` 初始化；
+- [x] 通用 CDC：`soc/pango/pipeline_cdc.v`（2FF single/array、gray、4-phase mailbox），删除 Xilinx XPM 依赖；
+- [x] 分域复位：异步置位/同步释放，CPU 与 50 MHz 域各自复位；
+- [x] `fpga/pango/pipeline/`：板级约束 + PDS 流程，不修改现有 video 流程；
+- [x] 本地板级 elaboration：`make pipeline-pango-lint`（行为 PLL + 完整 SoC）；
+- [ ] PDS `compile -> synthesize -ads -> dev_map -> pnr` 实跑、资源/时序报告、上板。
 
 ---
 
@@ -344,12 +357,15 @@ make pipeline-lint
 make pipeline-smoke
 make pipeline-isa       # 36/36
 make pipeline-coremark  # baseline 100 iterations
+make pipeline-image     # Pango IROM/DRAM readmemh 拆分
+make pipeline-pango-lint # 板级顶层 + PLL 模型 + Pango CDC
+make pipeline-console    # 非 __VERILATOR__ 路径：CDC + 真实 UART + mailbox
 ```
 
-后续目标：
+PDS 主机（Windows）后续执行：
 
-```bash
-make pipeline-coremark DMEM=$PWD/build/coremark/coremark_dmem.hex
+```text
+D:\PDS_2022.2-SP6.4\bin\pds_shell.exe -file fpga/pango/pipeline/flow_pipeline.tcl -project_name pipeline_soc
 ```
 
 必须区分：
@@ -399,7 +415,7 @@ make pipeline-coremark DMEM=$PWD/build/coremark/coremark_dmem.hex
 
 待完成：
 
-- PDS 不在当前 Linux 主机上，PG2L200H 的 SystemVerilog/PDS 兼容性检查、资源/时序评估需要到 Pango 工具环境执行；
+- PDS 不在当前 Linux 主机上；PG2L200H 的 `compile/synthesize/dev_map/pnr`、资源/时序评估需要到 Pango 工具环境执行。RTL 平台层、PDS 流程与本地板级 elaboration 已完成；
 - `Mundus.sv` 现在由 `rtl/pipeline/gen` 在 ARES 内生成；miller 缓存 `gen/out` 已忽略。
 
 ### M1：core 语义与 ISA
@@ -432,10 +448,20 @@ make pipeline-coremark DMEM=$PWD/build/coremark/coremark_dmem.hex
 
 ### M3：Pango 实现与上板
 
-- Pango BRAM/CDC/PLL/UART 适配；
-- 综合/实现，输出资源/时序；
-- 上板跑 100 iterations，UART 分数与仿真一致；
-- 形成资源/时序对比报告。
+RTL 层已完成（本机）：
+
+- [x] Pango BRAM/CDC/PLL/UART 适配；
+- [x] `make pipeline-image`：ELF -> 8192-word IROM + 65536-word DRAM，校验越界字节；
+- [x] PDS 约束（`pipeline_board.fdc`）与流程（`flow_pipeline.tcl`）；
+- [x] 本地 elaboration：`make pipeline-pango-lint`；SoC RTL 通过 Verilog-2001 解析检查；
+- [x] 板级同路径定向测试：`make pipeline-console`（100/50 MHz 双时钟、无 XPM、真实 UART/mailbox、inferred DRAM），`CONSOLE PASS errors=0`。
+
+待执行（Pango 工具主机）：
+
+- [ ] `compile -> synthesize -ads -> dev_map -> pnr` 通过，导出资源/时序；
+- [ ] 上板跑 100 iterations，UART 分数与仿真一致（timed cycles `43,597,126`、`2.293729` CoreMark/MHz、CRC `e714/1fd7/8e3a/988c`）；
+- [ ] 形成资源/时序对比报告；
+- [ ] 首次构建确认 `GTP_GPLL` 参数、`$readmemh` 推断 BRAM 和引脚约束。
 
 ### M4：后续扩展
 
@@ -450,9 +476,10 @@ make pipeline-coremark DMEM=$PWD/build/coremark/coremark_dmem.hex
 
 | 风险 | 影响 | 缓解 |
 | --- | --- | --- |
-| Pango PDS 对 SystemVerilog 支持不足 | jyd/ARES RTL 无法直接综合 | M0 先用最小 SV 文件验证；必要时提供 Verilog-2001 包装层 |
-| Xilinx XPM 无法在 Pango 使用 | jyd SoC 的 CDC 不能综合 | 替换为通用 2FF/gray CDC；先做单元仿真 |
-| jyd IROM/BRAM 是 DPI 模型 | 无法上板 | 写 Pango BRAM wrapper；仿真/综合两套文件列表 |
+| PDS 的 HDL 语言支持 | 无法综合 | **已缓解**：PDS 支持 `-verilog_standard {SystemVerilog}`；SoC 侧另按 Verilog-2001 风格转换并用 `verilator --language 1364-2005` 检查；剩余风险由首次 PDS `compile` 确认 |
+| Xilinx XPM 无法在 Pango 使用 | jyd SoC 的 CDC 不能综合 | **已解决**：`pipeline_cdc.v` 通用 2FF/gray/4-phase mailbox，仿真保持通过 |
+| jyd IROM/BRAM 是 DPI 模型 | 无法上板 | **已解决**：`pipeline_bram.v` + `IROM_BMEM32` 综合分支，`$readmemh` 初始化；仿真/综合两套文件列表 |
+| `$readmemh` 推断 BRAM 在 PDS 的行为 | 首次构建可能报找不到初始化文件或未推断为 BRAM | 流程 `cd` 到仓库根并检查 `build/pipeline/*.hex`；首次构建核对 DRM 用量与初始化结果 |
 | 5-stage core 无 `fence/ebreak/retire` | CoreMark 计时不可信/无法结束 | 在 Chisel 中补；M1 验收 |
 | 32-bit IROM 地址/时序错误 | 取指错/跑飞 | `inst_addr = pc[..:2]`，`IROM_BMEM32` 保持 1-cycle；单指令/ISA 回归先验证 |
 | UART status 位定义不一致 | 计时包含启动输出 | 兼容层规范化 bit0=busy；TB 等待 UART drain |
@@ -465,14 +492,20 @@ make pipeline-coremark DMEM=$PWD/build/coremark/coremark_dmem.hex
 
 ## 12. 待确认项
 
-1. PDS 2022.2-SP6.4 对 jyd/ARES 使用的 SystemVerilog 语法支持范围；是否需要 Verilog-2001 包装层。
-2. PG2L200H 板级的 PLL、UART 引脚、时钟频率、复位极性；现有 `fpga/pango` 约束是否可复用。
-3. 目标资源预算（LUT/FF/BRAM/DSP）和最低频率；是否以 100 MHz 为验收。
-4. 是否允许在 npc 的 `5-stage-pipeline` 上新建 core-fix 分支并重新生成 `Mundus.sv`（本计划假设允许）。
-5. 分支名是否用 `pipeline-single-issue`；文档是否需要在 `README.md` 增加入口。
-6. UART 波特率：保持 jyd 的 9600，还是改为 115200。
-7. 第一版是否接受“兼容窗口 + 不改 `ares.h`”的方案；还是希望直接改成 `0x8020` 原生映射。
+已确定：
+
+1. ~~PDS 的 SystemVerilog 支持范围~~：PDS 支持 `compile -verilog_standard {SystemVerilog}`；本设计另按 Verilog-2001 兼容风格编写，首次 PDS `compile` 做最终确认。
+2. ~~板级引脚/时钟~~：复用 board profile 的 `clk_27m` D18、`rst_n` C22、`uart_tx` C24、`led[7:0]`；PLL 27 MHz -> 100/50 MHz；UART 115200。**UART RX 没有现成引脚约束，第一版 tie 1（只发不收）**。
+3. ~~core-fix 分支~~：M1 修改已在 `core/scsrc` 内完成并重新生成 `Mundus.sv`。
+4. ~~分支名~~：`pipeline-single-issue`。
+5. ~~UART 波特率~~：115200。
+6. ~~CoreMark 映射~~：保留 `0xA000` 兼容窗口，不改 `ares.h`。
+
+仍需确认：
+
+7. 目标资源预算（LUT/FF/BRAM/DSP）和最低频率；是否以 100 MHz 为验收（流程当前按 100 MHz 约束）。
 8. CoreMark 目标分数/最低可接受分数；是否只记录相对当前 OoO 的比值。
+9. 板级 UART RX 是否接线；若需要接收，补充引脚约束并把 board top 的 tie 换成真实端口。
 
 ---
 
@@ -496,5 +529,9 @@ soc:
   新增 rtl/pipeline/test/{tb_pipeline_smoke.sv,sim_main.cpp}
   新增 rtl/pipeline/gen/{build.sc,mill,.mill-version,configs/scsrc/autoconf.scala}
 ```
+
+注：本地已将 `counter.sv` 端口化为 `soc/jyd/counter.v`，并删除
+`cdc_xpm_nofifo_lib.sv` / `xpm_cdc_verilator_stubs.sv`，改由
+`soc/pango/pipeline_cdc.v` 提供 CDC。上方是导入时的来源清单。
 
 > DCache/MDU wrapper 取自 5-stage-pipeline（与生成核的索引宽度一致）；BRAM/StoreBuffer_DPIC 取自 jyd SoC。

@@ -1,9 +1,13 @@
 # ARES pipeline single-issue SoC (M1.5 + CoreMark simulation)
 
 Status: M1 core semantics, 36/36 ISA tests, and the baseline 100-iteration
-CoreMark all pass in the standalone simulation.  The core and SoC sources are
-imported from ysyx-workbench/npc; the jyd SoC uses a 32-bit IROM with no
-64-bit compatibility path.
+CoreMark all pass in the standalone simulation.  The RTL-level Pango platform
+layer is in place: Xilinx XPM CDC removed, inferred/initialized IROM+DRAM,
+100/50 MHz PLL, per-domain reset, UART board top, and a PDS flow.  The PDS
+synthesis/implementation/board run itself still has to be executed on the
+Pango tool host.  The core and SoC sources are imported from
+ysyx-workbench/npc; the jyd SoC uses a 32-bit IROM with no 64-bit
+compatibility path.
 
 ## Source provenance
 
@@ -41,6 +45,8 @@ rtl/pipeline/core/vsrc/DPIC/             # empty unless DPIC is defined
 rtl/pipeline/core/vsrc/build/Mundus.sv   # generated core (ARES target)
 rtl/pipeline/soc/jyd/                    # jyd SoC / peripheral RTL
 rtl/pipeline/soc/ip/                     # jyd/5-stage memory and MDU models
+rtl/pipeline/soc/pango/                  # Pango CDC + inferred DRAM
+rtl/pipeline/board/                      # PLL, clock/reset, board top
 rtl/pipeline/test/                       # smoke TB + DPI memory model
 rtl/pipeline/gen/                        # ARES-local mill build for the core
 ```
@@ -55,7 +61,8 @@ rtl/pipeline/gen/                        # ARES-local mill build for the core
     interrupt port and interrupts are out of scope;
   - commit observation ports are exported.
 - `soc/jyd/irom_bmem32.sv`: 8192 x 32-bit entries, one-cycle read, DPI
-  `vaddr_read` for simulation, inferred BRAM placeholder for synthesis.
+  `vaddr_read` for simulation, inferred BRAM initialized from
+  `build/pipeline/irom.hex` for synthesis.
 - `include/pipeline_autoconf.vh`: merged core/SoC parameters.
   `CONFIG_IROM_ADDR_WIDTH` remains 12 (old 64-bit-pair width); the 32-bit
   wrapper uses one extra address bit.
@@ -77,6 +84,38 @@ rtl/pipeline/gen/                        # ARES-local mill build for the core
   - `0xA000_0050/54` read a free-running 64-bit CPU cycle counter.
   The native jyd `0x8020_xxxx` map remains unchanged.
 
+## Pango platform layer (M3 RTL preparation)
+
+The imported jyd SoC depended on Xilinx XPM and DPI-only memories.  Those are
+replaced by portable, synthesizable RTL:
+
+| Area | Implementation |
+| --- | --- |
+| CDC | `soc/pango/pipeline_cdc.v`: 2-FF single/array synchronizers, gray-code counter CDC, four-phase bundled-data mailbox. No XPM. |
+| Reset | Async assert / sync release per clock domain (`pipeline_cdc_reset_sync`), including a `cnt_rst` inside `perip_bridge` and `counter`. |
+| DRAM | `soc/pango/pipeline_bram.v` (`BRAM`, 65536 x 32, byte enables, 2-cycle read) replaces the DPI model in the PDS file list; initialized from `build/pipeline/dram.hex`. |
+| IROM | `irom_bmem32.sv` synthesizes to inferred BRAM initialized from `build/pipeline/irom.hex`. |
+| MDU | Divide-by-zero now returns the architectural `{-1, dividend}` instead of the non-synthesizable `$random` probe. |
+| Clocks | `board/pipeline_pll.v`: 27 MHz -> 100 MHz CPU / 50 MHz peripheral (`GTP_GPLL`), simulation model in `pipeline_pll_sim.v`. |
+| Board | `board/pipeline_board_top.v` + `fpga/pango/pipeline/`: pins, generated clocks, PDS `compile/synthesize/dev_map/pnr` flow. |
+
+File lists:
+
+- `pipeline.f`: Verilator simulation (DPI memories, behavioural PLL).
+- `pipeline_pango.f`: PDS synthesis (no DPI, inferred memories, `GTP_GPLL`).
+
+SoC-side RTL is written in Verilog-2001-compatible style (checked with
+`verilator --language 1364-2005`); the generated `Mundus.sv` is also
+Verilog-2001 style.  The PDS flow compiles with
+`-verilog_standard {SystemVerilog}` so either parser setting works.
+
+Image split (the ARES ELF is dense from 0x8000_0000):
+
+```bash
+make coremark-image     # if build/coremark does not exist yet
+make pipeline-image     # -> build/pipeline/{irom,dram}.hex + image.json
+```
+
 ## Verification
 
 ```bash
@@ -85,6 +124,9 @@ make pipeline-lint
 make pipeline-smoke
 make pipeline-isa         # 36/36 cpu-tests
 make pipeline-coremark    # baseline 100-iteration CoreMark
+make pipeline-image       # Pango IROM/DRAM readmemh split
+make pipeline-pango-lint  # board top + PLL model + Pango CDC
+make pipeline-console     # Pango-only CDC/UART/mailbox directed test
 ```
 
 - `pipeline-core-gen`: writes the generated core into ARES, not into npc.
@@ -103,17 +145,28 @@ make pipeline-coremark    # baseline 100-iteration CoreMark
   - timed cycles `43,597,126`;
   - `2,293,729` CoreMark/MHz;
   - CRCs `e714 / 1fd7 / 8e3a / 988c` and `CoreMark PASS`.
+- `pipeline-console`: compiles the SoC without `__VERILATOR__`, so it runs the
+  same CDC/UART/BRAM path as the Pango board (100 MHz CPU / 50 MHz peripheral,
+  generic CDC, real UART toggle handshake, LED/SEG mailbox, inferred IROM/DRAM
+  initialized from `build/pipeline/{irom,dram}.hex`).  It checks the IROM/DRAM
+  image words, SW CDC, LED mailbox, `O K \n` on the UART pin, and the cycle
+  counter; `CONSOLE PASS` with `errors=0`.  The IROM/DRAM word checks assume
+  the frozen CoreMark image in `build/pipeline/image.json`.
 
 ## Known gaps (next milestones)
 
-- Pango PDS is not installed on this Linux host; PG2L200H
-  SystemVerilog/PDS/resource/timing checks remain pending.
+- Pango PDS is not installed on this Linux host.  The RTL/platform layer is
+  ready, but PG2L200H synthesis, implementation, timing/resources and the
+  on-board run still have to be executed on the Pango host; see
+  `fpga/pango/pipeline/README.md`.
+- The board top ties UART RX idle because the existing Pango board profile has
+  no RX pin.  CoreMark scoring only needs TX.
 - The ISA/CoreMark harnesses are standalone DPI TBs, not the ARES
   `tb_ares_cpu`/`tb_ares_coremark` scoreboards.
 - The CoreMark `0xA000` window is currently a direct bridge modification; a
   native `0x8020` software/platform variant is still possible later.
-- `IROM_BMEM32`/BRAM non-Verilator paths are placeholders; Pango BRAM wrappers
-  and image initialization are M3 work.
+- The PLL parameters and inferred-RAM `$readmemh` flow must be confirmed by
+  the first PDS build (see the flow README for expected reports).
 
 ## Regeneration
 

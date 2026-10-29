@@ -693,7 +693,7 @@ unit-frontend-modes:
 test-images:
 	@python3 $(ARES_HOME)/scripts/test_split_image.py
 
-.PHONY: pipeline-core-gen pipeline-lint pipeline-smoke pipeline-isa-sim pipeline-isa pipeline-coremark
+.PHONY: pipeline-core-gen pipeline-lint pipeline-smoke pipeline-isa-sim pipeline-isa pipeline-coremark pipeline-image pipeline-pango-lint pipeline-console
 pipeline-core-gen:
 	@cd $(ARES_HOME)/rtl/pipeline/gen && \
 	  MILL_WORKSPACE_ROOT=$$(pwd) ./mill -i Mundus.runMain npc.Elaborate \
@@ -736,3 +736,47 @@ pipeline-coremark: pipeline-isa-sim
 	  { echo "error: build/coremark/coremark.bin missing; run 'make coremark-image'"; exit 1; }
 	@$(ARES_HOME)/build/pipeline_isa/pipeline_isa \
 	    $(ARES_HOME)/build/coremark/coremark.bin 200000000
+
+# Split the ARES ELF image into the two local Pango memories:
+#   build/pipeline/irom.hex  8192 x 32-bit  (0x8000_0000)
+#   build/pipeline/dram.hex 65536 x 32-bit  (0x8010_0000)
+pipeline-image:
+	@test -f $(ARES_HOME)/build/coremark/coremark-riscv32-ares.elf || \
+	  { echo "error: build/coremark/coremark-riscv32-ares.elf missing; run 'make coremark-image'"; exit 1; }
+	@python3 $(ARES_HOME)/scripts/pipeline_image.py \
+	    --elf   $(ARES_HOME)/build/coremark/coremark-riscv32-ares.elf \
+	    --irom  $(ARES_HOME)/build/pipeline/irom.hex \
+	    --dram  $(ARES_HOME)/build/pipeline/dram.hex \
+	    --json  $(ARES_HOME)/build/pipeline/image.json
+
+# Directed test of the Pango-only path: generic CDC, real UART toggle
+# handshake, LED/SEG mailbox and the inferred IROM/DRAM.  Compiles with
+# -U__VERILATOR__ so perip_bridge/counter take their synthesis branches.
+pipeline-console:
+	@mkdir -p $(ARES_HOME)/build/pipeline_console
+	@cd $(ARES_HOME) && CCACHE_DISABLE=1 verilator --cc --exe --build --timing --language 1800-2017 -U__VERILATOR__ -Wno-fatal \
+	    --top-module tb_pipeline_console -Irtl/pipeline/include -Irtl/pipeline/core/vsrc/include \
+	    rtl/pipeline/soc/pango/pipeline_cdc.v \
+	    rtl/pipeline/soc/pango/pipeline_bram.v \
+	    rtl/pipeline/soc/jyd/perip_bridge.sv \
+	    rtl/pipeline/soc/jyd/irom_bmem32.sv \
+	    rtl/pipeline/soc/jyd/bram_driver.sv \
+	    rtl/pipeline/soc/jyd/counter.v \
+	    rtl/pipeline/soc/jyd/uart.sv \
+	    rtl/pipeline/soc/jyd/display_seg.sv \
+	    rtl/pipeline/soc/jyd/seg7.sv \
+	    rtl/pipeline/test/tb_pipeline_console.sv \
+	    rtl/pipeline/test/sim_console_main.cpp \
+	    -Mdir $(ARES_HOME)/build/pipeline_console -o $(ARES_HOME)/build/pipeline_console/pipeline_console
+	@$(ARES_HOME)/build/pipeline_console/pipeline_console
+
+# Elaborate the Pango board layer (PLL + clock/reset + UART + SoC) with the
+# behavioural PLL model.  This is the local check for the board top; the PDS
+# synthesis/implementation run happens on the Pango tool host.
+pipeline-pango-lint:
+	@cd $(ARES_HOME) && verilator --lint-only --language 1800-2017 -D__VERILATOR__ -Wall -Wno-fatal \
+	    --top-module pipeline_board_top -Irtl/pipeline/include -Irtl/pipeline/core/vsrc/include \
+	    -f rtl/pipeline/pipeline.f \
+	    rtl/pipeline/board/pipeline_pll_sim.v \
+	    rtl/pipeline/board/pipeline_clk_reset.v \
+	    rtl/pipeline/board/pipeline_board_top.v
