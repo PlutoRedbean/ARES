@@ -32,6 +32,21 @@ class PERIP extends Bundle {
   val rdata = Input(UInt(32.W))
 }
 
+// Coherence sideband for the write-through L1 D-cache.
+//
+// The shared L2 uses a write-invalidate protocol: when any hart commits a
+// store, every other hart receives a one-cycle invalidate tagged with the
+// stored word address.  `epoch` increments on every accepted L2 write.  A refill
+// captures the epoch when its load leaves L1; if the epoch changed while the
+// refill was in flight, the line is not installed.  This closes the
+// read-then-remote-write race without adding a per-line directory or a
+// partition of the tag RAM.
+class COH extends Bundle {
+  val inv_valid = Input(Bool())
+  val inv_addr  = Input(UInt(32.W))
+  val epoch     = Input(UInt(8.W))
+}
+
 // IF → ID Payload
 class IF_ID_Payload extends Bundle {
   val pc   = UInt(PC_DATA_WIDTH.W)

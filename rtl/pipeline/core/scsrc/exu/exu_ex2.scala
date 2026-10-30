@@ -39,12 +39,18 @@ class exu_ex2 extends Module {
     bitResult := BIT_EX2.io.result
   }
 
+  val CRC8_EX2 = Module(new CRC8Ex2)
+  CRC8_EX2.io.bit_data := io.in.bits.bit_data
+  CRC8_EX2.io.bit_aux  := io.in.bits.bit_aux
+  val isCrc8 = io.in.bits.bit_ctrl === BIT_CRC8
+
   val isTwoStageBitOp = io.in.bits.bit_ctrl === BIT_CLZ ||
                         io.in.bits.bit_ctrl === BIT_CTZ ||
                         io.in.bits.bit_ctrl === BIT_CPOP ||
                         io.in.bits.bit_ctrl === BIT_XPERM4 ||
-                        io.in.bits.bit_ctrl === BIT_ROR
-  val reg_data = Mux(isTwoStageBitOp, bitResult, base_reg_data)
+                        io.in.bits.bit_ctrl === BIT_ROR || isCrc8
+  val stage2Result = Mux(isCrc8, CRC8_EX2.io.result, bitResult)
+  val reg_data = Mux(isTwoStageBitOp, stage2Result, base_reg_data)
 
   io.out.bits.pc        := io.in.bits.pc
   io.out.bits.pc_next   := io.in.bits.pc_next

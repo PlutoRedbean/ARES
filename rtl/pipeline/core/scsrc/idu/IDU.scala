@@ -140,10 +140,13 @@ class IDU extends Module {
   if (CONFIG_RV32_ZBB_ROR)     bitCtrlCases :+= ((inst === ROR)    -> BIT_ROR)
   if (CONFIG_RV32_ZBC_CLMUL)   bitCtrlCases :+= ((inst === CLMUL)  -> BIT_CLMUL)
   if (CONFIG_RV32_ZBB_ZEXT_H)  bitCtrlCases :+= ((inst === ZEXT_H) -> BIT_ZEXT_H)
+  // ARES custom-0 CRC8 accelerator instruction (CoreMark build variant).
+  bitCtrlCases :+= ((inst === CRC8) -> BIT_CRC8)
 
   val bit_ctrl = MuxCase(BIT_NONE, bitCtrlCases)
   val is_bit_inst = bit_ctrl =/= BIT_NONE
-  val is_bit_binary = bit_ctrl === BIT_XPERM4 || bit_ctrl === BIT_ROR || bit_ctrl === BIT_CLMUL
+  val is_bit_binary = bit_ctrl === BIT_XPERM4 || bit_ctrl === BIT_ROR ||
+                      bit_ctrl === BIT_CLMUL || bit_ctrl === BIT_CRC8
 
   val inst_type    = Mux(is_bit_inst, R,             base_inst_type)
   val alu_operand1 = Mux(is_bit_inst, OPR_RS1,       base_alu_operand1)

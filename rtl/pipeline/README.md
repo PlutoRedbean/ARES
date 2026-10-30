@@ -1,4 +1,4 @@
-# ARES pipeline single-issue SoC (M1.5 + CoreMark simulation)
+# ARES pipeline single-issue SoC (M1.5 + CoreMark + M4 acceleration)
 
 Status: M1 core semantics, 36/36 ISA tests, and the baseline 100-iteration
 CoreMark all pass in the standalone simulation.  The RTL-level Pango platform
@@ -8,6 +8,13 @@ synthesis/implementation/board run itself still has to be executed on the
 Pango tool host.  The core and SoC sources are imported from
 ysyx-workbench/npc; the jyd SoC uses a 32-bit IROM with no 64-bit
 compatibility path.
+
+M4 accelerated images are also implemented on this pipeline: the core decodes
+the ARES custom-0 CRC8 instruction (split into two 4-bit EX1/EX2 stages), and
+the SoC instantiates the existing 9-PE matrix engine and state-machine token
+scanner behind a small 0xA000_1000 / 0xA000_2000 MMIO wrapper.  The 100-iteration
+simulation passes all known CoreMark CRCs; full acceleration reaches
+7.916002 CoreMark/MHz.  See [docs/pipeline_accel_images.md](../../docs/pipeline_accel_images.md).
 
 ## Source provenance
 
@@ -22,8 +29,8 @@ tree; the npc checkout remains untouched.
 
 Generated core RTL:
 
-- `core/vsrc/build/Mundus.sv` (firtool 1.77.0, 3192 lines)
-- SHA-256 `4b50ab9388b322afdd2dc15fec6fc9724c78d637fd1365e551da63f05d71c05c`
+- `core/vsrc/build/Mundus.sv` (firtool 1.77.0, 3326 lines)
+- SHA-256 `54b79fdd0d2614e12518a8bdafb285fa979cee71e03da016313e147d63c70ca9`
 - Generated **inside this ARES checkout** by `rtl/pipeline/gen` with
   `make pipeline-core-gen`; the output target is
   `rtl/pipeline/core/vsrc/build/Mundus.sv`.
@@ -102,12 +109,14 @@ replaced by portable, synthesizable RTL:
 File lists:
 
 - `pipeline.f`: Verilator simulation (DPI memories, behavioural PLL).
+- `pipeline_mc.f`: `pipeline.f` plus the multi-hart coherent SoC files.
 - `pipeline_pango.f`: PDS synthesis (no DPI, inferred memories, `GTP_GPLL`).
 
-SoC-side RTL is written in Verilog-2001-compatible style (checked with
-`verilator --language 1364-2005`); the generated `Mundus.sv` is also
+The SoC wrappers (`student_top`, `perip_bridge`, `pipeline_accel`) are
+written in Verilog-2001-compatible style; the reused accelerator engines
+(`rtl/accel/*.sv`) are SystemVerilog.  The generated `Mundus.sv` is
 Verilog-2001 style.  The PDS flow compiles with
-`-verilog_standard {SystemVerilog}` so either parser setting works.
+`-verilog_standard {SystemVerilog}`, which covers the accelerator engines.
 
 Image split (the ARES ELF is dense from 0x8000_0000):
 
@@ -127,6 +136,11 @@ make pipeline-coremark    # baseline 100-iteration CoreMark
 make pipeline-image       # Pango IROM/DRAM readmemh split
 make pipeline-pango-lint  # board top + PLL model + Pango CDC
 make pipeline-console     # Pango-only CDC/UART/mailbox directed test
+make pipeline-coremark-images          # CRC / matrix / state / full
+make pipeline-coremark-{crc,matrix,state,full}
+make pipeline-image PIPELINE_IMAGE_ELF=<elf> PIPELINE_IMAGE_OUT=<dir>
+make pipeline-mc-test                  # 2-hart + 4-hart coherent SoC
+make pipeline-mc-lint                  # both CORES options
 ```
 
 - `pipeline-core-gen`: writes the generated core into ARES, not into npc.
@@ -153,8 +167,55 @@ make pipeline-console     # Pango-only CDC/UART/mailbox directed test
   counter; `CONSOLE PASS` with `errors=0`.  The IROM/DRAM word checks assume
   the frozen CoreMark image in `build/pipeline/image.json`.
 
+## M4 accelerated images
+
+The pipeline SoC reuses the OoO accelerator RTL and software variants:
+
+| Variant | Hardware | 100-iter CoreMark/MHz |
+| --- | --- | ---: |
+| Baseline | - | 2.293729 |
+| CRC | custom-0 CRC8, EX1/EX2 4-bit stages | 2.676882 |
+| CRC + matrix | `mtx9_engine` at 0xA000_1000 | 4.080407 |
+| CRC + state | `state9_engine` at 0xA000_2000 | 4.289536 |
+| Full | CRC + array list + matrix + state | 7.916002 |
+
+All four variants print `e714 / 1fd7 / 8e3a / 988c` and `CoreMark PASS`.
+The full image occupies 7609 / 8192 IROM words, so code-size headroom is small.
+See `docs/pipeline_accel_images.md` for the MMIO map, response timing and
+critical-path notes.
+
+## M4 multi-hart coherent SoC
+
+The pipeline SoC now has a configurable 2/4-hart coherent build:
+
+| Block | File | Role |
+| --- | --- | --- |
+| Hart | `soc/mc/pipeline_hart.sv` | Mundus core + private IROM + L2/MMIO adapter |
+| L2 | `soc/mc/pipeline_l2.sv` | 64 B line, 16 B beat, 4-way write-back shared L2; word-granular write-invalidate and an 8-bit coherence epoch |
+| Core port | `soc/mc/pipeline_core_port.sv` | 32-bit perip ↔ 128-bit L2 beat + private MMIO; one outstanding request |
+| MMIO | `soc/mc/pipeline_mmio.sv` | Per-hart hart-id/count, 64-bit cycle counter, UART, LED |
+| SoC | `soc/mc/pipeline_mc_soc_top.sv` | `CORES=2` or `CORES=4`; shared L2, per-hart IROM/MMIO |
+
+The L1 D-cache is write-through, so coherence is write-invalidate: an L2
+store pulses the exact word address to every other hart, and the L1 clears that
+direct-mapped tag.  A refill carries the epoch sampled when the load left L1;
+if any L2 write happened while the refill was in flight, the line is not
+installed.  This avoids a per-line directory and keeps the invalidate sideband
+to a single tag-RAM write.  The L2 request is latched before lookup; arbitration
+is a small round-robin over hart valid bits, not a path through the data arrays.
+
+`student_top` remains the single-hart profile.  `pipeline_mc_soc_top` is the
+2/4-hart profile; `core_en` holds selected harts in reset for debug.  The
+multi-hart MMIO is private per hart, so an MMIO load always sees the two-cycle
+response the pipeline core expects; the shared resource is the L2/DRAM.
+
+See [docs/pipeline_multicore.md](../../docs/pipeline_multicore.md) for the
+protocol, memory map, timing notes and test evidence.
+
 ## Known gaps (next milestones)
 
+- The full accelerated CoreMark image uses 7609 / 8192 IROM words (about
+  30.4 KiB of 32 KiB); further code growth needs trimming or a larger IROM.
 - Pango PDS is not installed on this Linux host.  The RTL/platform layer is
   ready, but PG2L200H synthesis, implementation, timing/resources and the
   on-board run still have to be executed on the Pango host; see
@@ -167,6 +228,9 @@ make pipeline-console     # Pango-only CDC/UART/mailbox directed test
   native `0x8020` software/platform variant is still possible later.
 - The PLL parameters and inferred-RAM `$readmemh` flow must be confirmed by
   the first PDS build (see the flow README for expected reports).
+- The 2/4-hart coherent top is verified in Verilator.  A Pango board wrapper
+  and 128-bit shared-DRAM `$readmemh` image are still needed for PDS/board
+  signoff; the L2 itself is BRAM-friendly and has no vendor primitives.
 
 ## Regeneration
 

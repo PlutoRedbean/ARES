@@ -4,6 +4,8 @@
 > The vendored EEMBC benchmark sources, including `src/core_util.c`, are not
 > modified. The acceleration is a separate build variant plus one custom
 > instruction in the ARES backend.
+> The single-issue pipeline core also decodes this instruction, split into a
+> two-stage CRC datapath; see [pipeline_accel_images.md](pipeline_accel_images.md).
 
 ## 1. Scope
 
@@ -81,7 +83,9 @@ if (carry) crc |= 0x8000; else crc &= 0x7fff
 ```
 
 It has latency 1 and is routed through the existing ALU0/ALU1 ports; no new
-issue port, queue or completion path is required.
+issue port, queue or completion path is required.  On the single-issue pipeline
+core the same encoding uses a two-cycle EX1/EX2 datapath (four CRC steps per
+stage) instead of one cycle; see [pipeline_accel_images.md](pipeline_accel_images.md).
 
 ### RTL files
 

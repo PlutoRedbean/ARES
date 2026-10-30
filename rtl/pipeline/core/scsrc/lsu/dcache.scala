@@ -40,6 +40,12 @@ class DCache extends Module {
     val refill_valid = Input(Bool())
     val refill_addr = Input(UInt(MEM_ADDR_WIDTH.W))
     val refill_data = Input(UInt(MEM_DATA_WIDTH.W))
+
+    // Write-invalidate coherence sideband and the epoch captured when the
+    // corresponding L1 miss was issued.  The tag write below is the only
+    // invalidate action; L1 data is a copy of the shared L2 line.
+    val coh = new COH()
+    val refill_epoch = Input(UInt(8.W))
   })
 
   private def index(addr: UInt): UInt = addr(IndexWidth + 1, 2)
@@ -70,7 +76,9 @@ class DCache extends Module {
 
   val lookup_index = index(io.lookup_addr)
   val refill_index = index(io.refill_addr)
+  val inv_index    = index(io.coh.inv_addr)
   val refill_write = Wire(Bool())
+  val inv_write    = Wire(Bool())
 
   val refill_read_collision = refill_write && io.lookup_valid &&
                               lookup_index === refill_index
@@ -177,7 +185,16 @@ class DCache extends Module {
     resp_valid := false.B
   }
 
-  refill_write := tag_ready && io.refill_valid && !store_write
+  // A remote store invalidates the direct-mapped tag.  Clearing the whole
+  // index (rather than comparing the remote tag) keeps the invalidate path
+  // to a single tag-RAM write and cannot leave a stale alias behind.
+  inv_write := tag_ready && io.coh.inv_valid
+
+  // Do not install a line if any L2 write was accepted after this load left
+  // L1.  The load itself may still return the older value (it was ordered
+  // before that write), but the stale line must not become cached.
+  val refill_epoch_ok = io.refill_epoch === io.coh.epoch
+  refill_write := tag_ready && io.refill_valid && !store_write && refill_epoch_ok
   val cache_write = store_write || refill_write
   val cache_write_index = Mux(store_write, index(resp_addr), refill_index)
   val cache_write_data = Mux(store_write, merged_store_data, io.refill_data)
@@ -190,10 +207,12 @@ class DCache extends Module {
   data.io.addrb := lookup_index
 
   tags.io.clka := clock
-  tags.io.wea := tag_init_busy || refill_write
-  tags.io.addra := Mux(tag_init_busy, tag_init_index, refill_index)
+  tags.io.wea := tag_init_busy || inv_write || refill_write
+  tags.io.addra := Mux(tag_init_busy, tag_init_index,
+    Mux(inv_write, inv_index, refill_index))
   tags.io.dina := Mux(tag_init_busy,
-    0.U((TagWidth + 1).W), Cat(true.B, tag(io.refill_addr)))
+    0.U((TagWidth + 1).W),
+    Mux(inv_write, 0.U((TagWidth + 1).W), Cat(true.B, tag(io.refill_addr))))
   tags.io.clkb := clock
   tags.io.addrb := lookup_index
 

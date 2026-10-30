@@ -5,6 +5,8 @@
 > 100-iteration：14,263,577 cycles / 7.0109 单核 / 14.0217 双核聚合（2.488x）。
 > 约束：tests/benchmarks/coremark/src/*.c 不修改；软件替换通过新增 TU 和
 > 链接层符号重命名完成。
+> 该扫描器也由单发射 pipeline SoC 复用（0xA000_2000），见
+> [pipeline_accel_images.md](pipeline_accel_images.md)。
 
 ## 1. 做什么
 

@@ -2,7 +2,11 @@
 +incdir+rtl/pipeline/core/vsrc/include
 
 # ---------------------------------------------------------------------------
-# Pango PDS synthesis file list (Verilog-2001 flow)
+# Pango PDS synthesis file list (SystemVerilog accepted by PDS)
+#
+# The SoC wrappers stay Verilog-2001 style; the reused CoreMark accelerator
+# engines are SystemVerilog and are compiled with the PDS SystemVerilog
+# standard (the flow passes -verilog_standard {SystemVerilog}).
 #
 # Differences from pipeline.f (Verilator simulation):
 #   * no DPI memory models (BRAM.v / StoreBuffer_DPIC / DPIC core hooks)
@@ -42,6 +46,11 @@ rtl/pipeline/soc/ip/div.v
 rtl/pipeline/soc/ip/DCacheData_BRAM.v
 rtl/pipeline/soc/ip/DCacheTag_BRAM.v
 
+# CoreMark accelerator engines + MMIO wrapper
+rtl/accel/mtx9_engine.sv
+rtl/accel/state9_engine.sv
+rtl/pipeline/soc/jyd/pipeline_accel.sv
+
 # jyd SoC
 rtl/pipeline/soc/jyd/student_top.sv
 rtl/pipeline/soc/jyd/irom_bmem32.sv
@@ -58,3 +67,15 @@ rtl/pipeline/soc/pango/pipeline_bram.v
 rtl/pipeline/board/pipeline_pll.v
 rtl/pipeline/board/pipeline_clk_reset.v
 rtl/pipeline/board/pipeline_board_top.v
+
+# ---------------------------------------------------------------------------
+# Multi-hart coherent SoC (M4).  pipeline_mc_soc_top is not instantiated by the
+# single-hart pipeline_board_top; the files are listed so a future Pango board
+# wrapper can use the same synthesis file list.  The downstream 128-bit L2
+# memory port is left for that wrapper (shared DRAM/BRAM).
+# ---------------------------------------------------------------------------
+rtl/pipeline/soc/mc/pipeline_l2.sv
+rtl/pipeline/soc/mc/pipeline_core_port.sv
+rtl/pipeline/soc/mc/pipeline_mmio.sv
+rtl/pipeline/soc/mc/pipeline_hart.sv
+rtl/pipeline/soc/mc/pipeline_mc_soc_top.sv

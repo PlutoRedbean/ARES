@@ -5,6 +5,8 @@
 > 4.4492 / 8.8985 CM/MHz（相对原基线 1.579x）。
 > 约束：tests/benchmarks/coremark/src/*.c 不修改；软件替换通过新增 TU 和
 > 链接层符号重命名完成。
+> 该引擎也由单发射 pipeline SoC 复用（0xA000_1000），见
+> [pipeline_accel_images.md](pipeline_accel_images.md)。
 
 ## 1. 做什么
 

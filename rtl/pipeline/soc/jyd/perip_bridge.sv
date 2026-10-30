@@ -72,10 +72,11 @@ module perip_bridge(
     // Read-response source tag. Address decoding is completed when the
     // request enters the bridge; only this compact tag follows the two-cycle
     // memory response pipeline.
-    localparam [1:0] RESP_NONE = 2'd0;
-    localparam [1:0] RESP_MMIO = 2'd1;
-    localparam [1:0] RESP_DRAM = 2'd2;
-    localparam [1:0] RESP_CNT  = 2'd3;
+    localparam [2:0] RESP_NONE  = 3'd0;
+    localparam [2:0] RESP_MMIO  = 3'd1;
+    localparam [2:0] RESP_DRAM  = 3'd2;
+    localparam [2:0] RESP_CNT   = 3'd3;
+    localparam [2:0] RESP_ACCEL = 3'd4;
 
     localparam integer STORE_QUEUE_DEPTH = `CONFIG_STORE_BUFFER_DEPTH;
     localparam integer STORE_QUEUE_PTR_WIDTH =
@@ -97,8 +98,8 @@ module perip_bridge(
     (* keep = "true" *) wire dram_read_hit;
     (* keep = "true" *) wire dram_write_hit;
 
-    reg  [1:0]  response_tag_next;
-    reg  [1:0]  response_tag_r;
+    reg  [2:0]  response_tag_next;
+    reg  [2:0]  response_tag_r;
 
     wire [63:0] sw_cpu;
     wire [7:0]  key_cpu;
@@ -172,7 +173,7 @@ module perip_bridge(
 
     // Response-pipeline registers (declared here because Verilog-2001 requires
     // a declaration before the first procedural assignment).
-    reg  [1:0]  response_tag_r2;
+    reg  [2:0]  response_tag_r2;
     reg         cycle_sel_next, cycle_sel_r, cycle_sel_r2;
     reg         cycle_hi_next,  cycle_hi_r,  cycle_hi_r2;
     reg  [31:0] mmio_rdata_r;
@@ -212,6 +213,35 @@ module perip_bridge(
             default: store_word_data = 32'd0;
         endcase
     endfunction
+
+    // -------------------------------------------------------------------------
+    // CoreMark accelerator window.  Only the 4 KiB page decode and a single
+    // response register live here; the engines keep their own pipelined /
+    // multi-cycle datapaths.  A request is forwarded only when the bridge has
+    // already accepted it (perip_ready), keeping the 2-cycle response tag and
+    // the accelerator response aligned.
+    // -------------------------------------------------------------------------
+    localparam [19:0] ACCEL_MTX_PAGE = 20'hA0001;
+    localparam [19:0] ACCEL_ST_PAGE  = 20'hA0002;
+
+    wire accel_hit = (perip_addr[31:12] == ACCEL_MTX_PAGE) ||
+                     (perip_addr[31:12] == ACCEL_ST_PAGE);
+    wire [3:0] accel_wstrb = store_byte_enable(perip_addr[17:0], perip_mask);
+    wire accel_req_valid = perip_valid && perip_ready && accel_hit;
+    wire [31:0] accel_rsp_data;
+    wire        accel_rsp_valid;
+
+    pipeline_accel u_pipeline_accel (
+        .clk       (clk),
+        .rst       (rst),
+        .req_valid (accel_req_valid),
+        .req_write (perip_wen),
+        .req_addr  (perip_addr),
+        .req_wdata (perip_wdata),
+        .req_wstrb (accel_wstrb),
+        .rsp_data  (accel_rsp_data),
+        .rsp_valid (accel_rsp_valid)
+    );
 
     // The bridge store queue drains continuously into the dedicated BRAM write
     // port. The read port remains independently available to cacheable DRAM
@@ -604,6 +634,8 @@ module perip_bridge(
         if (read_accept) begin
             if (dram_write_hit) begin
                 response_tag_next = RESP_DRAM;
+            end else if (accel_hit) begin
+                response_tag_next = RESP_ACCEL;
             end else if (perip_addr == BENCH_CYCLE_LO) begin
                 response_tag_next = RESP_CNT;
                 cycle_sel_next    = 1'b1;
@@ -811,6 +843,7 @@ module perip_bridge(
     // Conservative fence target: no queued/staged store and no read/write
     // response in flight.  FENCE additionally waits for the core LSU idle.
     assign perip_idle = store_empty && !bram_write_valid_q && !perip_valid &&
+                        !accel_rsp_valid &&
                         response_tag_r == RESP_NONE &&
                         response_tag_r2 == RESP_NONE;
 
@@ -821,6 +854,7 @@ module perip_bridge(
             RESP_CNT:  perip_rdata = cycle_sel_r2
                 ? (cycle_hi_r2 ? cycle_count[63:32] : cycle_count[31:0])
                 : cnt_rdata_r2;
+            RESP_ACCEL: perip_rdata = accel_rsp_data;
             default:   perip_rdata = 32'd0;
         endcase
     end

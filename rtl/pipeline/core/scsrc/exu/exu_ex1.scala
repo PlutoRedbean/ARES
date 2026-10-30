@@ -78,6 +78,13 @@ class exu_ex1 extends Module {
   val bitData     = WireDefault(0.U(REG_DATA_WIDTH.W))
   val bitAux      = WireDefault(0.U(REG_DATA_WIDTH.W))
   val bitEx1Result = WireDefault(0.U(REG_DATA_WIDTH.W))
+
+  // CRC8 is split across EX1/EX2.  Keeping four bit steps per stage bounds
+  // the combinational path while the result remains a WHEN_ABS_EX2 operand.
+  val isCrc8 = bit_ctrl === BIT_CRC8
+  val CRC8_EX1 = Module(new CRC8Ex1)
+  CRC8_EX1.io.rs1 := rs1_val
+  CRC8_EX1.io.rs2 := rs2_val
   if (CONFIG_RV32_ZBB_CLZ || CONFIG_RV32_ZBB_CTZ || CONFIG_RV32_ZBB_CPOP ||
       CONFIG_RV32_ZBB_ORC_B || CONFIG_RV32_ZBB_ZEXT_H ||
       CONFIG_RV32_ZBKX_XPERM4 || CONFIG_RV32_ZBB_ROR) {
@@ -152,8 +159,8 @@ class exu_ex1 extends Module {
   io.out.bits.reg_data := reg_val
   io.out.bits.mdu_ctrl := mdu_ctrl
   io.out.bits.bit_ctrl := bit_ctrl
-  io.out.bits.bit_data := bitData
-  io.out.bits.bit_aux := bitAux
+  io.out.bits.bit_data := Mux(isCrc8, CRC8_EX1.io.bit_data, bitData)
+  io.out.bits.bit_aux := Mux(isCrc8, CRC8_EX1.io.bit_aux, bitAux)
   io.out.bits.L_sign := ex_in.bits.L_sign
   io.out.bits.mem_bytes := ex_in.bits.mem_bytes
   io.out.bits.rd_addr := ex_in.bits.rd_addr

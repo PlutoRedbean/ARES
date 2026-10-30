@@ -313,6 +313,7 @@ module IDU(
   output [11:0] io_out_bits_alu_ctrl,
   output [8:0]  io_out_bits_bru_ctrl,
   output [4:0]  io_out_bits_mdu_ctrl,
+  output [3:0]  io_out_bits_bit_ctrl,
   output [2:0]  io_out_bits_csr_ctrl,
   output [5:0]  io_out_bits_csr_mask,
   output        io_out_bits_jump,
@@ -411,8 +412,21 @@ module IDU(
   wire             _GEN_64 = _GEN_9 | _GEN_10 | _GEN_11 | _GEN_12;
   wire             _GEN_65 = _GEN_5 | _GEN_6 | _GEN_7 | _GEN_8 | _GEN_64;
   wire             _GEN_66 = _GEN_0 | _GEN_1 | _GEN_2 | _GEN_3 | _GEN_4 | _GEN_65;
+  wire             _GEN_67 =
+    _GEN_26 | _GEN_27 | _GEN_28 | _GEN_29 | _GEN_30 | _GEN_31 | _GEN_32 | _GEN_33
+    | _GEN_34 | _GEN_35 | _GEN_36 | _GEN_37 | _GEN_38 | _GEN_39 | _GEN_40 | _GEN_41
+    | _GEN_42 | _GEN_43 | _GEN_44 | _GEN_45 | _GEN_46;
+  wire             _GEN_68 =
+    _GEN_44 | _GEN_45 | _GEN_46 | _GEN_47 | _GEN_48 | _GEN_49 | _GEN_53 | ~_GEN_50;
+  wire             _GEN_69 = _GEN_31 | _GEN_32 | _GEN_33 | _GEN_59;
+  wire             _GEN_70 = _GEN_24 | _GEN_25 | _GEN_61;
+  wire             _GEN_71 =
+    _GEN_14 | _GEN_15 | _GEN_16 | _GEN_17 | _GEN_18 | _GEN_19 | _GEN_20 | _GEN_21
+    | _GEN_22 | _GEN_23 | _GEN_24 | _GEN_25;
+  wire [3:0]       bit_ctrl = _GEN == 17'hB ? 4'h9 : 4'h0;
+  wire [1:0]       _GEN_72 = {bit_ctrl[3], bit_ctrl[0]};
   wire [2:0]       inst_type =
-    _GEN_66
+    (|_GEN_72) | _GEN_66
       ? 3'h0
       : _GEN_63
           ? 3'h1
@@ -437,49 +451,39 @@ module IDU(
                                               : _GEN_55
                                                   ? 3'h6
                                                   : _GEN_53 ? 3'h0 : {_GEN_52, 2'h0};
-  wire             _GEN_67 =
-    _GEN_26 | _GEN_27 | _GEN_28 | _GEN_29 | _GEN_30 | _GEN_31 | _GEN_32 | _GEN_33
-    | _GEN_34 | _GEN_35 | _GEN_36 | _GEN_37 | _GEN_38 | _GEN_39 | _GEN_40 | _GEN_41
-    | _GEN_42 | _GEN_43 | _GEN_44 | _GEN_45 | _GEN_46;
-  wire             _GEN_68 =
-    _GEN_0 | _GEN_1 | _GEN_2 | _GEN_3 | _GEN_4 | _GEN_5 | _GEN_6 | _GEN_7 | _GEN_8
-    | _GEN_9 | _GEN_10 | _GEN_11 | _GEN_12 | _GEN_14 | _GEN_15 | _GEN_16 | _GEN_17
-    | _GEN_18 | _GEN_19 | _GEN_20 | _GEN_21 | _GEN_22 | _GEN_23 | _GEN_24;
+  wire             _GEN_73 =
+    (|_GEN_72) | _GEN_0 | _GEN_1 | _GEN_2 | _GEN_3 | _GEN_4 | _GEN_5 | _GEN_6 | _GEN_7
+    | _GEN_8 | _GEN_9 | _GEN_10 | _GEN_11 | _GEN_12 | _GEN_14 | _GEN_15 | _GEN_16
+    | _GEN_17 | _GEN_18 | _GEN_19 | _GEN_20 | _GEN_21 | _GEN_22 | _GEN_23 | _GEN_24;
   wire [5:0]       alu_operand1 =
-    _GEN_68
+    _GEN_73
       ? 6'h4
       : _GEN_25 ? 6'h20 : _GEN_67 ? 6'h4 : _GEN_54 | ~(_GEN_53 | ~_GEN_52) ? 6'h2 : 6'h1;
-  wire             _GEN_69 =
-    _GEN_44 | _GEN_45 | _GEN_46 | _GEN_47 | _GEN_48 | _GEN_49 | _GEN_53 | ~_GEN_50;
-  wire             _GEN_70 = _GEN_31 | _GEN_32 | _GEN_33 | _GEN_59;
   wire [5:0]       alu_operand2 =
-    _GEN_66
-      ? 6'h8
-      : _GEN_63
-          ? 6'h2
-          : _GEN_62
-              ? 6'h8
-              : _GEN_24
-                  ? 6'h20
-                  : _GEN_25
-                      ? 6'h1
-                      : _GEN_61
-                          ? 6'h2
-                          : _GEN_70
-                              ? 6'h8
-                              : _GEN_58
-                                  ? 6'h2
-                                  : _GEN_57
-                                      ? 6'h8
-                                      : _GEN_56 ? 6'h2 : _GEN_69 ? 6'h1 : 6'h10;
-  wire             _GEN_71 = _GEN_0 | _GEN_1 | _GEN_2 | _GEN_3 | _GEN_4;
-  wire             _GEN_72 = _GEN_24 | _GEN_25 | _GEN_61;
-  wire             _GEN_73 =
-    _GEN_14 | _GEN_15 | _GEN_16 | _GEN_17 | _GEN_18 | _GEN_19 | _GEN_20 | _GEN_21
-    | _GEN_22 | _GEN_23 | _GEN_24 | _GEN_25;
+    (|_GEN_72)
+      ? ((&_GEN_72) ? 6'h8 : 6'h1)
+      : _GEN_66
+          ? 6'h8
+          : _GEN_63
+              ? 6'h2
+              : _GEN_62
+                  ? 6'h8
+                  : _GEN_24
+                      ? 6'h20
+                      : _GEN_25
+                          ? 6'h1
+                          : _GEN_61
+                              ? 6'h2
+                              : _GEN_69
+                                  ? 6'h8
+                                  : _GEN_58
+                                      ? 6'h2
+                                      : _GEN_57
+                                          ? 6'h8
+                                          : _GEN_56 ? 6'h2 : _GEN_68 ? 6'h1 : 6'h10;
   wire             _GEN_74 =
-    _GEN_0 | _GEN_1 | _GEN_2 | _GEN_3 | _GEN_4 | _GEN_5 | _GEN_6 | _GEN_7 | _GEN_8
-    | _GEN_9 | _GEN_10 | _GEN_11 | _GEN_12 | _GEN_73;
+    (|_GEN_72) | _GEN_0 | _GEN_1 | _GEN_2 | _GEN_3 | _GEN_4 | _GEN_5 | _GEN_6 | _GEN_7
+    | _GEN_8 | _GEN_9 | _GEN_10 | _GEN_11 | _GEN_12 | _GEN_71;
   wire [7:0][31:0] _GEN_75 =
     {{32'h0},
      {{27'h0, io_in_bits_inst[19:15]}},
@@ -503,61 +507,64 @@ module IDU(
   assign io_out_valid = io_in_valid;
   assign io_out_bits_predicted_pc = io_in_bits_predicted_pc;
   assign io_out_bits_alu_ctrl =
-    _GEN_0
-      ? 12'h4
-      : _GEN_1
-          ? 12'h8
-          : _GEN_2
-              ? 12'h40
-              : _GEN_3
-                  ? 12'h20
-                  : _GEN_4
-                      ? 12'h10
-                      : _GEN_65
-                          ? 12'h1
-                          : _GEN_14
-                              ? 12'h4
-                              : _GEN_15
-                                  ? 12'h40
-                                  : _GEN_16
-                                      ? 12'h20
-                                      : _GEN_17
-                                          ? 12'h10
-                                          : _GEN_62
-                                              ? 12'h1
-                                              : _GEN_24
-                                                  ? 12'h2
-                                                  : _GEN_25
-                                                      ? 12'h1
-                                                      : _GEN_26 | _GEN_27 | _GEN_28
-                                                        | _GEN_29 | _GEN_30 | _GEN_60
-                                                          ? 12'h4
-                                                          : _GEN_34
-                                                              ? 12'h80
-                                                              : _GEN_35
-                                                                  ? 12'h100
-                                                                  : _GEN_36
-                                                                      ? 12'h200
-                                                                      : _GEN_37
-                                                                          ? 12'h80
-                                                                          : _GEN_38
-                                                                              ? 12'h100
-                                                                              : _GEN_39
-                                                                                  ? 12'h200
-                                                                                  : _GEN_40
-                                                                                      ? 12'h400
-                                                                                      : _GEN_41
-                                                                                          ? 12'h800
-                                                                                          : _GEN_42
-                                                                                              ? 12'h400
-                                                                                              : _GEN_43
-                                                                                                  ? 12'h800
-                                                                                                  : _GEN_69
-                                                                                                      ? 12'h1
-                                                                                                      : 12'h4;
+    (|_GEN_72)
+      ? 12'h1
+      : _GEN_0
+          ? 12'h4
+          : _GEN_1
+              ? 12'h8
+              : _GEN_2
+                  ? 12'h40
+                  : _GEN_3
+                      ? 12'h20
+                      : _GEN_4
+                          ? 12'h10
+                          : _GEN_65
+                              ? 12'h1
+                              : _GEN_14
+                                  ? 12'h4
+                                  : _GEN_15
+                                      ? 12'h40
+                                      : _GEN_16
+                                          ? 12'h20
+                                          : _GEN_17
+                                              ? 12'h10
+                                              : _GEN_62
+                                                  ? 12'h1
+                                                  : _GEN_24
+                                                      ? 12'h2
+                                                      : _GEN_25
+                                                          ? 12'h1
+                                                          : _GEN_26 | _GEN_27 | _GEN_28
+                                                            | _GEN_29 | _GEN_30 | _GEN_60
+                                                              ? 12'h4
+                                                              : _GEN_34
+                                                                  ? 12'h80
+                                                                  : _GEN_35
+                                                                      ? 12'h100
+                                                                      : _GEN_36
+                                                                          ? 12'h200
+                                                                          : _GEN_37
+                                                                              ? 12'h80
+                                                                              : _GEN_38
+                                                                                  ? 12'h100
+                                                                                  : _GEN_39
+                                                                                      ? 12'h200
+                                                                                      : _GEN_40
+                                                                                          ? 12'h400
+                                                                                          : _GEN_41
+                                                                                              ? 12'h800
+                                                                                              : _GEN_42
+                                                                                                  ? 12'h400
+                                                                                                  : _GEN_43
+                                                                                                      ? 12'h800
+                                                                                                      : _GEN_68
+                                                                                                          ? 12'h1
+                                                                                                          : 12'h4;
   assign io_out_bits_bru_ctrl =
-    _GEN_0 | _GEN_1 | _GEN_2 | _GEN_3 | _GEN_4 | _GEN_5 | _GEN_6 | _GEN_7 | _GEN_8
-    | _GEN_9 | _GEN_10 | _GEN_11 | _GEN_12 | _GEN_14 | _GEN_15 | _GEN_16 | _GEN_17
+    (|_GEN_72) | _GEN_0 | _GEN_1 | _GEN_2 | _GEN_3 | _GEN_4 | _GEN_5 | _GEN_6 | _GEN_7
+    | _GEN_8 | _GEN_9 | _GEN_10 | _GEN_11 | _GEN_12 | _GEN_14 | _GEN_15 | _GEN_16
+    | _GEN_17
       ? 9'h0
       : _GEN_18
           ? 9'h9
@@ -571,7 +578,7 @@ module IDU(
                           ? 9'h41
                           : _GEN_23 ? 9'h101 : _GEN_24 ? 9'h4 : {7'h0, _GEN_25, 1'h0};
   assign io_out_bits_mdu_ctrl =
-    _GEN_71
+    (|_GEN_72) | _GEN_0 | _GEN_1 | _GEN_2 | _GEN_3 | _GEN_4
       ? 5'h0
       : _GEN_5
           ? 5'h1
@@ -584,6 +591,7 @@ module IDU(
                       : _GEN_9
                           ? 5'h1E
                           : _GEN_10 ? 5'h6 : _GEN_11 ? 5'h1A : {3'h0, _GEN_12, 1'h0};
+  assign io_out_bits_bit_ctrl = bit_ctrl;
   assign io_out_bits_csr_ctrl = inst_type == 3'h6 ? io_in_bits_inst[14:12] : 3'h0;
   assign io_out_bits_csr_mask =
     io_in_bits_inst[31:20] == 12'h342
@@ -604,30 +612,35 @@ module IDU(
   assign io_out_bits_imm = _GEN_75[inst_type];
   assign io_out_bits_rs1_addr = io_in_bits_inst[19:15];
   assign io_out_bits_rs2_addr = io_in_bits_inst[24:20];
-  assign io_out_bits_rs1_need = _GEN_68 | ~(_GEN_25 | ~_GEN_67) ? 5'h1E : 5'h0;
+  assign io_out_bits_rs1_need = _GEN_73 | ~(_GEN_25 | ~_GEN_67) ? 5'h1E : 5'h0;
   assign io_out_bits_rs2_need =
-    _GEN_66 | ~(_GEN_63 | ~(_GEN_62 | ~(_GEN_72 | ~(_GEN_70 | ~(_GEN_58 | ~_GEN_57)))))
+    ((|_GEN_72)
+       ? (&_GEN_72)
+       : _GEN_66
+         | ~(_GEN_63 | ~(_GEN_62 | ~(_GEN_70 | ~(_GEN_69 | ~(_GEN_58 | ~_GEN_57))))))
       ? 5'h1E
       : 5'h0;
   assign io_out_bits_when =
-    _GEN_71
-      ? 5'h0
-      : _GEN_5 | _GEN_6 | _GEN_7 | _GEN_8
-          ? 5'hF
-          : _GEN_64 ? 5'h1F : _GEN_73 ? 5'h0 : {4'h0, _GEN_61};
+    (|_GEN_72)
+      ? {4'h0, _GEN_72 != 2'h2}
+      : _GEN_0 | _GEN_1 | _GEN_2 | _GEN_3 | _GEN_4
+          ? 5'h0
+          : _GEN_5 | _GEN_6 | _GEN_7 | _GEN_8
+              ? 5'hF
+              : _GEN_64 ? 5'h1F : _GEN_71 ? 5'h0 : {4'h0, _GEN_61};
   assign io_out_bits_pc = io_in_bits_pc;
   assign io_out_bits_rd_addr = io_in_bits_inst[11:7];
   assign io_out_bits_rd_wen =
-    _GEN_0 | _GEN_1 | _GEN_2 | _GEN_3 | _GEN_4 | _GEN_5 | _GEN_6 | _GEN_7 | _GEN_8
-    | _GEN_9 | _GEN_10 | _GEN_11 | _GEN_12 | _GEN_63 | ~_GEN_62
-    & (_GEN_72 | ~_GEN_60
+    (|_GEN_72) | _GEN_0 | _GEN_1 | _GEN_2 | _GEN_3 | _GEN_4 | _GEN_5 | _GEN_6 | _GEN_7
+    | _GEN_8 | _GEN_9 | _GEN_10 | _GEN_11 | _GEN_12 | _GEN_63 | ~_GEN_62
+    & (_GEN_70 | ~_GEN_60
        & (_GEN_34 | _GEN_35 | _GEN_36 | _GEN_37 | _GEN_38 | _GEN_39 | _GEN_40 | _GEN_41
           | _GEN_42 | _GEN_43 | _GEN_55 | ~_GEN_53 & (_GEN_50 | _GEN_51)));
   assign io_out_bits_L_sign = ~_GEN_74 & (_GEN_26 | _GEN_27);
   assign io_out_bits_mem_wen =
-    ~(_GEN_0 | _GEN_1 | _GEN_2 | _GEN_3 | _GEN_4 | _GEN_5 | _GEN_6 | _GEN_7 | _GEN_8
-      | _GEN_9 | _GEN_10 | _GEN_11 | _GEN_12 | _GEN_14 | _GEN_15 | _GEN_16 | _GEN_17
-      | _GEN_18 | _GEN_19 | _GEN_20 | _GEN_21 | _GEN_22 | _GEN_23 | _GEN_72)
+    ~((|_GEN_72) | _GEN_0 | _GEN_1 | _GEN_2 | _GEN_3 | _GEN_4 | _GEN_5 | _GEN_6 | _GEN_7
+      | _GEN_8 | _GEN_9 | _GEN_10 | _GEN_11 | _GEN_12 | _GEN_14 | _GEN_15 | _GEN_16
+      | _GEN_17 | _GEN_18 | _GEN_19 | _GEN_20 | _GEN_21 | _GEN_22 | _GEN_23 | _GEN_70)
     & (_GEN_31 | _GEN_32 | _GEN_33);
   assign io_out_bits_mem_bytes =
     _GEN_74
@@ -877,6 +890,7 @@ module ISU(
   input  [11:0] io_in_bits_alu_ctrl,
   input  [8:0]  io_in_bits_bru_ctrl,
   input  [4:0]  io_in_bits_mdu_ctrl,
+  input  [3:0]  io_in_bits_bit_ctrl,
   input  [2:0]  io_in_bits_csr_ctrl,
   input  [5:0]  io_in_bits_csr_mask,
   input         io_in_bits_jump,
@@ -904,6 +918,7 @@ module ISU(
   output [11:0] io_out_bits_alu_ctrl,
   output [8:0]  io_out_bits_bru_ctrl,
   output [4:0]  io_out_bits_mdu_ctrl,
+  output [3:0]  io_out_bits_bit_ctrl,
   output [2:0]  io_out_bits_csr_ctrl,
   output [5:0]  io_out_bits_csr_mask,
   output        io_out_bits_jump,
@@ -1012,7 +1027,8 @@ module ISU(
     .io_rs1_fwd_sel_iss    (_isu_ctrl_io_rs1_fwd_sel_iss),
     .io_rs2_fwd_sel_iss    (_isu_ctrl_io_rs2_fwd_sel_iss),
     .io_agu_fwd_sel_iss    (_isu_ctrl_io_agu_fwd_sel_iss),
-    .io_raw_long_valid_iss (io_in_valid & io_in_bits_mdu_ctrl[1:0] == 2'h2),
+    .io_raw_long_valid_iss
+      (io_in_valid & (io_in_bits_mdu_ctrl[1:0] == 2'h2 | io_in_bits_bit_ctrl == 4'h7)),
     .io_long_stall_wb      (io_long_stall_wb),
     .io_backend_stall      (io_backend_stall),
     .io_long_in_flight     (io_long_in_flight),
@@ -1046,6 +1062,7 @@ module ISU(
   assign io_out_bits_alu_ctrl = io_in_bits_alu_ctrl;
   assign io_out_bits_bru_ctrl = io_in_bits_bru_ctrl;
   assign io_out_bits_mdu_ctrl = io_in_bits_mdu_ctrl;
+  assign io_out_bits_bit_ctrl = io_in_bits_bit_ctrl;
   assign io_out_bits_csr_ctrl = io_in_bits_csr_ctrl;
   assign io_out_bits_csr_mask = io_in_bits_csr_mask;
   assign io_out_bits_jump = io_in_bits_jump;
@@ -1232,6 +1249,30 @@ module DIV(
   assign io_done = div_done_reg;
 endmodule
 
+module CRC8Ex1(
+  input  [31:0] io_rs1,
+                io_rs2,
+  output [31:0] io_bit_data,
+                io_bit_aux
+);
+
+  wire        io_bit_aux_x16 = io_rs1[0] ^ io_rs2[0];
+  wire [14:0] io_bit_aux_cx = {1'h0, {14{io_bit_aux_x16}} & 14'h2001} ^ io_rs2[15:1];
+  wire        io_bit_aux_x16_1 = io_rs1[1] ^ io_bit_aux_cx[0];
+  wire [14:0] io_bit_aux_cx_1 =
+    {1'h0, {14{io_bit_aux_x16_1}} & 14'h2001} ^ {io_bit_aux_x16, io_bit_aux_cx[14:1]};
+  wire        io_bit_aux_x16_2 = io_rs1[2] ^ io_bit_aux_cx_1[0];
+  wire [14:0] io_bit_aux_cx_2 =
+    {1'h0, {14{io_bit_aux_x16_2}} & 14'h2001} ^ {io_bit_aux_x16_1, io_bit_aux_cx_1[14:1]};
+  wire        io_bit_aux_x16_3 = io_rs1[3] ^ io_bit_aux_cx_2[0];
+  assign io_bit_data = io_rs1;
+  assign io_bit_aux =
+    {16'h0,
+     io_bit_aux_x16_3,
+     {1'h0, {14{io_bit_aux_x16_3}} & 14'h2001}
+       ^ {io_bit_aux_x16_2, io_bit_aux_cx_2[14:1]}};
+endmodule
+
 module CSR(
   input         clock,
                 reset,
@@ -1346,6 +1387,8 @@ module exu_ex1(
   output [31:0] io_out_bits_reg_data,
   output [4:0]  io_out_bits_mdu_ctrl,
   output [3:0]  io_out_bits_bit_ctrl,
+  output [31:0] io_out_bits_bit_data,
+                io_out_bits_bit_aux,
   output        io_out_bits_L_sign,
   output [1:0]  io_out_bits_mem_bytes,
   output [4:0]  io_out_bits_rd_addr,
@@ -1375,11 +1418,14 @@ module exu_ex1(
   wire [31:0] _CSR_io_rdata;
   wire [31:0] _CSR_io_mtvec;
   wire [31:0] _CSR_io_mepc;
+  wire [31:0] _CRC8_EX1_io_bit_data;
+  wire [31:0] _CRC8_EX1_io_bit_aux;
   wire        _DIV_io_stall;
   wire        _BRU_io_redirect;
   wire [31:0] _BRU_io_target_pc;
   wire [31:0] _ALU_io_dout;
   wire        valid = io_in_valid & ~io_flush;
+  wire        isCrc8 = io_in_bits_bit_ctrl == 4'h9;
   wire        io_out_valid_0 = valid & ~_DIV_io_stall;
   wire        exu_fire = io_out_valid_0 & io_out_ready;
   wire        is_ecall = io_in_bits_envir == 3'h1;
@@ -1431,6 +1477,12 @@ module exu_ex1(
     .io_busy     (io_div_busy),
     .io_done     (io_div_done)
   );
+  CRC8Ex1 CRC8_EX1 (
+    .io_rs1      (io_in_bits_rs1_val),
+    .io_rs2      (io_in_bits_rs2_val),
+    .io_bit_data (_CRC8_EX1_io_bit_data),
+    .io_bit_aux  (_CRC8_EX1_io_bit_aux)
+  );
   CSR CSR (
     .clock      (clock),
     .reset      (reset),
@@ -1455,6 +1507,8 @@ module exu_ex1(
   assign io_out_bits_reg_data = reg_val;
   assign io_out_bits_mdu_ctrl = io_in_bits_mdu_ctrl;
   assign io_out_bits_bit_ctrl = io_in_bits_bit_ctrl;
+  assign io_out_bits_bit_data = isCrc8 ? _CRC8_EX1_io_bit_data : 32'h0;
+  assign io_out_bits_bit_aux = isCrc8 ? _CRC8_EX1_io_bit_aux : 32'h0;
   assign io_out_bits_L_sign = io_in_bits_L_sign;
   assign io_out_bits_mem_bytes = io_in_bits_mem_bytes;
   assign io_out_bits_rd_addr = io_in_bits_rd_addr;
@@ -1482,6 +1536,23 @@ module exu_ex1(
   assign io_rd_when = io_in_bits_when;
 endmodule
 
+module CRC8Ex2(
+  input  [31:0] io_bit_data,
+                io_bit_aux,
+  output [31:0] io_result
+);
+
+  wire        crc_x16 = io_bit_data[4] ^ io_bit_aux[0];
+  wire [14:0] crc_cx = {1'h0, {14{crc_x16}} & 14'h2001} ^ io_bit_aux[15:1];
+  wire        crc_x16_1 = io_bit_data[5] ^ crc_cx[0];
+  wire [14:0] crc_cx_1 = {1'h0, {14{crc_x16_1}} & 14'h2001} ^ {crc_x16, crc_cx[14:1]};
+  wire        crc_x16_2 = io_bit_data[6] ^ crc_cx_1[0];
+  wire [14:0] crc_cx_2 = {1'h0, {14{crc_x16_2}} & 14'h2001} ^ {crc_x16_1, crc_cx_1[14:1]};
+  wire        crc_x16_3 = io_bit_data[7] ^ crc_cx_2[0];
+  assign io_result =
+    {16'h0, crc_x16_3, {1'h0, {14{crc_x16_3}} & 14'h2001} ^ {crc_x16_2, crc_cx_2[14:1]}};
+endmodule
+
 module exu_ex2(
   output        io_in_ready,
   input         io_in_valid,
@@ -1490,6 +1561,8 @@ module exu_ex2(
                 io_in_bits_reg_data,
   input  [4:0]  io_in_bits_mdu_ctrl,
   input  [3:0]  io_in_bits_bit_ctrl,
+  input  [31:0] io_in_bits_bit_data,
+                io_in_bits_bit_aux,
   input  [4:0]  io_in_bits_rd_addr,
   input         io_in_bits_rd_wen,
                 io_in_bits_is_load,
@@ -1516,13 +1589,20 @@ module exu_ex2(
                 io_rd_when
 );
 
+  wire [31:0] _CRC8_EX2_io_result;
+  wire        isCrc8 = io_in_bits_bit_ctrl == 4'h9;
   wire [31:0] reg_data =
     io_in_bits_bit_ctrl == 4'h1 | io_in_bits_bit_ctrl == 4'h2
     | io_in_bits_bit_ctrl == 4'h3 | io_in_bits_bit_ctrl == 4'h5
-    | io_in_bits_bit_ctrl == 4'h6
-      ? 32'h0
+    | io_in_bits_bit_ctrl == 4'h6 | isCrc8
+      ? (isCrc8 ? _CRC8_EX2_io_result : 32'h0)
       : io_in_bits_is_load & io_cache_hit ? io_rdata_fast : io_in_bits_reg_data;
   wire [4:0]  _io_rd_when_T = {3'h0, ~io_cache_hit, 1'h1};
+  CRC8Ex2 CRC8_EX2 (
+    .io_bit_data (io_in_bits_bit_data),
+    .io_bit_aux  (io_in_bits_bit_aux),
+    .io_result   (_CRC8_EX2_io_result)
+  );
   assign io_in_ready = io_out_ready;
   assign io_out_valid = io_in_valid;
   assign io_out_bits_pc = io_in_bits_pc;
@@ -1659,7 +1739,11 @@ module DCache(
   output [31:0] io_resp_data,
   input         io_refill_valid,
   input  [31:0] io_refill_addr,
-                io_refill_data
+                io_refill_data,
+  input         io_coh_inv_valid,
+  input  [31:0] io_coh_inv_addr,
+  input  [7:0]  io_coh_epoch,
+                io_refill_epoch
 );
 
   wire [5:0]       _tags_doutb;
@@ -1707,7 +1791,9 @@ module DCache(
   reg              held_req_valid;
   reg              held_req_hit;
   reg  [31:0]      held_req_data;
-  wire             refill_write = tag_ready & io_refill_valid & ~store_write;
+  wire             inv_write = tag_ready & io_coh_inv_valid;
+  wire             refill_write =
+    tag_ready & io_refill_valid & ~store_write & io_refill_epoch == io_coh_epoch;
   wire             refill_read_collision =
     refill_write & io_lookup_valid & io_lookup_addr[12:2] == io_refill_addr[12:2];
   wire             raw_req_hit =
@@ -1791,9 +1877,12 @@ module DCache(
   );
   DCacheTag_BRAM tags (
     .clka  (clock),
-    .wea   (tag_init_busy | refill_write),
-    .addra (tag_init_busy ? tag_init_index : io_refill_addr[12:2]),
-    .dina  (tag_init_busy ? 6'h0 : {1'h1, io_refill_addr[17:13]}),
+    .wea   (tag_init_busy | inv_write | refill_write),
+    .addra
+      (tag_init_busy
+         ? tag_init_index
+         : inv_write ? io_coh_inv_addr[12:2] : io_refill_addr[12:2]),
+    .dina  (tag_init_busy | inv_write ? 6'h0 : {1'h1, io_refill_addr[17:13]}),
     .clkb  (clock),
     .addrb (io_lookup_addr[12:2]),
     .doutb (_tags_doutb)
@@ -1815,7 +1904,8 @@ module LSU(
   output        io_out_bits_cache_hit,
   output [31:0] io_out_bits_rdata_fast,
                 io_out_bits_rdata_slow,
-  input         io_stall,
+  input         io_flush,
+                io_stall,
                 io_slow_ready,
                 io_lookup_valid,
   input  [31:0] io_lookup_addr,
@@ -1827,6 +1917,9 @@ module LSU(
   output [1:0]  io_perip_mask,
   output [31:0] io_perip_wdata,
   input  [31:0] io_perip_rdata,
+  input         io_coh_inv_valid,
+  input  [31:0] io_coh_inv_addr,
+  input  [7:0]  io_coh_epoch,
   output        io_idle
 );
 
@@ -1842,11 +1935,13 @@ module LSU(
   reg              ls2_L_sign;
   reg              ls2_mem_wen;
   reg  [1:0]       ls2_mem_bytes;
+  reg  [7:0]       ls2_epoch;
   reg              ls3_valid;
   reg  [31:0]      ls3_addr;
   reg              ls3_L_sign;
   reg              ls3_mem_wen;
   reg  [1:0]       ls3_mem_bytes;
+  reg  [7:0]       ls3_epoch;
   wire             ls1_cacheable = io_in_bits_addr[31:18] == 14'h2004;
   wire             ls2_cacheable = ls2_addr[31:18] == 14'h2004;
   wire             _younger_store_same_word_T_1 = ls2_mem_bytes != 2'h3;
@@ -1892,11 +1987,12 @@ module LSU(
   wire [1:0]       _GEN_1 = {slow_response_enqueue, slow_response_dequeue};
   always @(posedge clock) begin
     if (io_in_ready) begin
-      ls2_valid <= io_in_valid;
+      ls2_valid <= io_in_valid & ~io_flush;
       ls2_addr <= io_in_bits_addr;
       ls2_L_sign <= io_in_bits_L_sign;
       ls2_mem_wen <= io_in_bits_mem_wen;
       ls2_mem_bytes <= io_in_bits_mem_bytes;
+      ls2_epoch <= io_coh_epoch;
     end
     if (io_out_ready) begin
       ls3_valid <= ls2_valid;
@@ -1904,6 +2000,7 @@ module LSU(
       ls3_L_sign <= ls2_L_sign;
       ls3_mem_wen <= ls2_mem_wen;
       ls3_mem_bytes <= ls2_mem_bytes;
+      ls3_epoch <= ls2_epoch;
       ls3_cacheable <= ls2_cacheable;
       ls3_cache_hit <= ls2_cache_hit;
     end
@@ -1928,26 +2025,30 @@ module LSU(
     end
   end // always @(posedge)
   DCache dcache (
-    .clock           (clock),
-    .reset           (reset),
-    .io_lookup_valid (io_lookup_valid),
-    .io_lookup_addr  (io_lookup_addr),
-    .io_req_present  (ls1_mem_valid & ls1_cacheable),
-    .io_req_valid    (io_in_ready & ls1_mem_valid & ls1_cacheable),
-    .io_req_addr     (io_in_bits_addr),
-    .io_req_write    (io_in_bits_mem_wen),
-    .io_req_wdata    (io_in_bits_mem_wdata),
-    .io_req_bytes    (io_in_bits_mem_bytes),
-    .io_resp_fire    (io_out_ready & ls2_valid),
-    .io_resp_hit     (_dcache_io_resp_hit),
-    .io_resp_data    (_dcache_io_resp_data),
+    .clock            (clock),
+    .reset            (reset),
+    .io_lookup_valid  (io_lookup_valid),
+    .io_lookup_addr   (io_lookup_addr),
+    .io_req_present   (ls1_mem_valid & ls1_cacheable),
+    .io_req_valid     (io_in_ready & ls1_mem_valid & ls1_cacheable),
+    .io_req_addr      (io_in_bits_addr),
+    .io_req_write     (io_in_bits_mem_wen),
+    .io_req_wdata     (io_in_bits_mem_wdata),
+    .io_req_bytes     (io_in_bits_mem_bytes),
+    .io_resp_fire     (io_out_ready & ls2_valid),
+    .io_resp_hit      (_dcache_io_resp_hit),
+    .io_resp_data     (_dcache_io_resp_data),
     .io_refill_valid
       (ls3_valid & io_slow_ready & ~ls3_mem_wen & _refill_valid_T_2 & ls3_cacheable
        & ~ls3_cache_hit
        & ~(ls2_valid & ls2_mem_wen & _younger_store_same_word_T_1
            & ls2_addr[31:2] == ls3_addr[31:2])),
-    .io_refill_addr  (ls3_addr),
-    .io_refill_data  (slow_rdata_raw)
+    .io_refill_addr   (ls3_addr),
+    .io_refill_data   (slow_rdata_raw),
+    .io_coh_inv_valid (io_coh_inv_valid),
+    .io_coh_inv_addr  (io_coh_inv_addr),
+    .io_coh_epoch     (io_coh_epoch),
+    .io_refill_epoch  (ls3_epoch)
   );
   assign io_out_bits_cache_hit = ls2_cache_hit;
   assign io_out_bits_rdata_fast = _GEN[ls2_mem_bytes];
@@ -2022,6 +2123,9 @@ module EXU(
   output [1:0]  io_perip_mask,
   output [31:0] io_perip_wdata,
   input  [31:0] io_perip_rdata,
+  input         io_coh_inv_valid,
+  input  [31:0] io_coh_inv_addr,
+  input  [7:0]  io_coh_epoch,
   input         io_lsu_lookup_valid,
   input  [31:0] io_lsu_lookup_addr,
   output        io_lsu_idle,
@@ -2064,6 +2168,7 @@ module EXU(
 
   reg         valid;
   reg         exu_ex2_io_in_bits_r_is_load;
+  reg  [31:0] exu_ex2_io_in_bits_r_addr;
   wire        _lsu_io_out_bits_cache_hit;
   wire [31:0] _lsu_io_out_bits_rdata_fast;
   wire [31:0] _lsu_io_out_bits_rdata_slow;
@@ -2105,6 +2210,8 @@ module EXU(
   wire [31:0] _exu_ex1_io_out_bits_reg_data;
   wire [4:0]  _exu_ex1_io_out_bits_mdu_ctrl;
   wire [3:0]  _exu_ex1_io_out_bits_bit_ctrl;
+  wire [31:0] _exu_ex1_io_out_bits_bit_data;
+  wire [31:0] _exu_ex1_io_out_bits_bit_aux;
   wire        _exu_ex1_io_out_bits_L_sign;
   wire [1:0]  _exu_ex1_io_out_bits_mem_bytes;
   wire [4:0]  _exu_ex1_io_out_bits_rd_addr;
@@ -2121,6 +2228,8 @@ module EXU(
   reg  [31:0] exu_ex2_io_in_bits_r_reg_data;
   reg  [4:0]  exu_ex2_io_in_bits_r_mdu_ctrl;
   reg  [3:0]  exu_ex2_io_in_bits_r_bit_ctrl;
+  reg  [31:0] exu_ex2_io_in_bits_r_bit_data;
+  reg  [31:0] exu_ex2_io_in_bits_r_bit_aux;
   reg  [4:0]  exu_ex2_io_in_bits_r_rd_addr;
   reg         exu_ex2_io_in_bits_r_rd_wen;
   reg  [2:0]  exu_ex2_io_in_bits_r_envir;
@@ -2155,9 +2264,12 @@ module EXU(
     if (_exu_ex1_io_out_valid & _exu_ex2_io_in_ready & ~_GEN) begin
       exu_ex2_io_in_bits_r_pc <= _exu_ex1_io_out_bits_pc;
       exu_ex2_io_in_bits_r_pc_next <= _exu_ex1_io_out_bits_pc_next;
+      exu_ex2_io_in_bits_r_addr <= _exu_ex1_io_out_bits_addr;
       exu_ex2_io_in_bits_r_reg_data <= _exu_ex1_io_out_bits_reg_data;
       exu_ex2_io_in_bits_r_mdu_ctrl <= _exu_ex1_io_out_bits_mdu_ctrl;
       exu_ex2_io_in_bits_r_bit_ctrl <= _exu_ex1_io_out_bits_bit_ctrl;
+      exu_ex2_io_in_bits_r_bit_data <= _exu_ex1_io_out_bits_bit_data;
+      exu_ex2_io_in_bits_r_bit_aux <= _exu_ex1_io_out_bits_bit_aux;
       exu_ex2_io_in_bits_r_rd_addr <= _exu_ex1_io_out_bits_rd_addr;
       exu_ex2_io_in_bits_r_rd_wen <= _exu_ex1_io_out_bits_rd_wen;
       exu_ex2_io_in_bits_r_is_load <= _exu_ex1_io_out_bits_is_load;
@@ -2235,6 +2347,8 @@ module EXU(
     .io_out_bits_reg_data           (_exu_ex1_io_out_bits_reg_data),
     .io_out_bits_mdu_ctrl           (_exu_ex1_io_out_bits_mdu_ctrl),
     .io_out_bits_bit_ctrl           (_exu_ex1_io_out_bits_bit_ctrl),
+    .io_out_bits_bit_data           (_exu_ex1_io_out_bits_bit_data),
+    .io_out_bits_bit_aux            (_exu_ex1_io_out_bits_bit_aux),
     .io_out_bits_L_sign             (_exu_ex1_io_out_bits_L_sign),
     .io_out_bits_mem_bytes          (_exu_ex1_io_out_bits_mem_bytes),
     .io_out_bits_rd_addr            (_exu_ex1_io_out_bits_rd_addr),
@@ -2268,6 +2382,8 @@ module EXU(
     .io_in_bits_reg_data   (exu_ex2_io_in_bits_r_reg_data),
     .io_in_bits_mdu_ctrl   (exu_ex2_io_in_bits_r_mdu_ctrl),
     .io_in_bits_bit_ctrl   (exu_ex2_io_in_bits_r_bit_ctrl),
+    .io_in_bits_bit_data   (exu_ex2_io_in_bits_r_bit_data),
+    .io_in_bits_bit_aux    (exu_ex2_io_in_bits_r_bit_aux),
     .io_in_bits_rd_addr    (exu_ex2_io_in_bits_r_rd_addr),
     .io_in_bits_rd_wen     (exu_ex2_io_in_bits_r_rd_wen),
     .io_in_bits_is_load    (exu_ex2_io_in_bits_r_is_load),
@@ -2365,6 +2481,7 @@ module EXU(
     .io_out_bits_cache_hit  (_lsu_io_out_bits_cache_hit),
     .io_out_bits_rdata_fast (_lsu_io_out_bits_rdata_fast),
     .io_out_bits_rdata_slow (_lsu_io_out_bits_rdata_slow),
+    .io_flush               (io_flush),
     .io_stall               (io_ex1_ex2_stall),
     .io_slow_ready          (lsu_io_slow_ready),
     .io_lookup_valid        (io_lsu_lookup_valid),
@@ -2377,13 +2494,17 @@ module EXU(
     .io_perip_mask          (io_perip_mask),
     .io_perip_wdata         (io_perip_wdata),
     .io_perip_rdata         (io_perip_rdata),
+    .io_coh_inv_valid       (io_coh_inv_valid),
+    .io_coh_inv_addr        (io_coh_inv_addr),
+    .io_coh_epoch           (io_coh_epoch),
     .io_idle                (io_lsu_idle)
   );
   assign io_out_valid = _exu_ex4_io_out_valid;
   assign io_out_bits_mdu_ctrl = _exu_ex4_io_out_bits_mdu_ctrl;
   assign io_out_bits_bit_ctrl = _exu_ex4_io_out_bits_bit_ctrl;
   assign io_load_miss_replay =
-    valid & exu_ex2_io_in_bits_r_is_load & ~_lsu_io_out_bits_cache_hit & io_in_valid
+    valid & exu_ex2_io_in_bits_r_is_load & ~_lsu_io_out_bits_cache_hit
+    & exu_ex2_io_in_bits_r_addr[31:18] == 14'h2004 & io_in_valid
     & (io_in_bits_rs1_where_ex1[3] & (|io_in_bits_rs1_need) | io_in_bits_rs2_where_ex1[3]
        & (|io_in_bits_rs2_need));
   assign io_replay_pc = io_in_bits_pc;
@@ -2540,6 +2661,9 @@ module Mundus(
   output [1:0]  io_perip_mask,
   output [31:0] io_perip_wdata,
   input  [31:0] io_perip_rdata,
+  input         io_coh_inv_valid,
+  input  [31:0] io_coh_inv_addr,
+  input  [7:0]  io_coh_epoch,
   output        io_retire_valid,
   output [31:0] io_retire_pc,
                 io_retire_pc_next,
@@ -2627,6 +2751,7 @@ module Mundus(
   wire [11:0] _ISU_io_out_bits_alu_ctrl;
   wire [8:0]  _ISU_io_out_bits_bru_ctrl;
   wire [4:0]  _ISU_io_out_bits_mdu_ctrl;
+  wire [3:0]  _ISU_io_out_bits_bit_ctrl;
   wire [2:0]  _ISU_io_out_bits_csr_ctrl;
   wire [5:0]  _ISU_io_out_bits_csr_mask;
   wire        _ISU_io_out_bits_jump;
@@ -2658,6 +2783,7 @@ module Mundus(
   wire [11:0] _IDU_io_out_bits_alu_ctrl;
   wire [8:0]  _IDU_io_out_bits_bru_ctrl;
   wire [4:0]  _IDU_io_out_bits_mdu_ctrl;
+  wire [3:0]  _IDU_io_out_bits_bit_ctrl;
   wire [2:0]  _IDU_io_out_bits_csr_ctrl;
   wire [5:0]  _IDU_io_out_bits_csr_mask;
   wire        _IDU_io_out_bits_jump;
@@ -2700,6 +2826,7 @@ module Mundus(
   reg  [11:0] ISU_io_in_bits_r_alu_ctrl;
   reg  [8:0]  ISU_io_in_bits_r_bru_ctrl;
   reg  [4:0]  ISU_io_in_bits_r_mdu_ctrl;
+  reg  [3:0]  ISU_io_in_bits_r_bit_ctrl;
   reg  [2:0]  ISU_io_in_bits_r_csr_ctrl;
   reg  [5:0]  ISU_io_in_bits_r_csr_mask;
   reg         ISU_io_in_bits_r_jump;
@@ -2786,6 +2913,7 @@ module Mundus(
       ISU_io_in_bits_r_alu_ctrl <= _IDU_io_out_bits_alu_ctrl;
       ISU_io_in_bits_r_bru_ctrl <= _IDU_io_out_bits_bru_ctrl;
       ISU_io_in_bits_r_mdu_ctrl <= _IDU_io_out_bits_mdu_ctrl;
+      ISU_io_in_bits_r_bit_ctrl <= _IDU_io_out_bits_bit_ctrl;
       ISU_io_in_bits_r_csr_ctrl <= _IDU_io_out_bits_csr_ctrl;
       ISU_io_in_bits_r_csr_mask <= _IDU_io_out_bits_csr_mask;
       ISU_io_in_bits_r_jump <= _IDU_io_out_bits_jump;
@@ -2815,7 +2943,7 @@ module Mundus(
       EXU_io_in_bits_r_alu_ctrl <= _ISU_io_out_bits_alu_ctrl;
       EXU_io_in_bits_r_bru_ctrl <= _ISU_io_out_bits_bru_ctrl;
       EXU_io_in_bits_r_mdu_ctrl <= _ISU_io_out_bits_mdu_ctrl;
-      EXU_io_in_bits_r_bit_ctrl <= 4'h0;
+      EXU_io_in_bits_r_bit_ctrl <= _ISU_io_out_bits_bit_ctrl;
       EXU_io_in_bits_r_csr_ctrl <= _ISU_io_out_bits_csr_ctrl;
       EXU_io_in_bits_r_csr_mask <= _ISU_io_out_bits_csr_mask;
       EXU_io_in_bits_r_jump <= _ISU_io_out_bits_jump;
@@ -2910,6 +3038,7 @@ module Mundus(
     .io_out_bits_alu_ctrl     (_IDU_io_out_bits_alu_ctrl),
     .io_out_bits_bru_ctrl     (_IDU_io_out_bits_bru_ctrl),
     .io_out_bits_mdu_ctrl     (_IDU_io_out_bits_mdu_ctrl),
+    .io_out_bits_bit_ctrl     (_IDU_io_out_bits_bit_ctrl),
     .io_out_bits_csr_ctrl     (_IDU_io_out_bits_csr_ctrl),
     .io_out_bits_csr_mask     (_IDU_io_out_bits_csr_mask),
     .io_out_bits_jump         (_IDU_io_out_bits_jump),
@@ -2944,6 +3073,7 @@ module Mundus(
     .io_in_bits_alu_ctrl       (ISU_io_in_bits_r_alu_ctrl),
     .io_in_bits_bru_ctrl       (ISU_io_in_bits_r_bru_ctrl),
     .io_in_bits_mdu_ctrl       (ISU_io_in_bits_r_mdu_ctrl),
+    .io_in_bits_bit_ctrl       (ISU_io_in_bits_r_bit_ctrl),
     .io_in_bits_csr_ctrl       (ISU_io_in_bits_r_csr_ctrl),
     .io_in_bits_csr_mask       (ISU_io_in_bits_r_csr_mask),
     .io_in_bits_jump           (ISU_io_in_bits_r_jump),
@@ -2971,6 +3101,7 @@ module Mundus(
     .io_out_bits_alu_ctrl      (_ISU_io_out_bits_alu_ctrl),
     .io_out_bits_bru_ctrl      (_ISU_io_out_bits_bru_ctrl),
     .io_out_bits_mdu_ctrl      (_ISU_io_out_bits_mdu_ctrl),
+    .io_out_bits_bit_ctrl      (_ISU_io_out_bits_bit_ctrl),
     .io_out_bits_csr_ctrl      (_ISU_io_out_bits_csr_ctrl),
     .io_out_bits_csr_mask      (_ISU_io_out_bits_csr_mask),
     .io_out_bits_jump          (_ISU_io_out_bits_jump),
@@ -3094,6 +3225,9 @@ module Mundus(
     .io_perip_mask                  (io_perip_mask),
     .io_perip_wdata                 (io_perip_wdata),
     .io_perip_rdata                 (io_perip_rdata),
+    .io_coh_inv_valid               (io_coh_inv_valid),
+    .io_coh_inv_addr                (io_coh_inv_addr),
+    .io_coh_epoch                   (io_coh_epoch),
     .io_lsu_lookup_valid
       (ISU_io_out_ready & _ISU_io_out_valid & ~EXU_io_flush
        & _ISU_io_out_bits_mem_bytes != 2'h3),

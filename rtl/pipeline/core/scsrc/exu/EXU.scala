@@ -31,6 +31,7 @@ class EXU extends Module {
     val ex3_ex4_bubble = Input(Bool())
 
     val perip = new PERIP()
+    val coh = new COH()
 
     val lsu_lookup_valid = Input(Bool())
     val lsu_lookup_addr = Input(UInt(MEM_ADDR_WIDTH.W))
@@ -109,9 +110,15 @@ class EXU extends Module {
   lsu.io.lookup_addr       := io.lsu_lookup_addr
   lsu.io.out.ready         := exu_ex2.io.out.ready
   lsu.io.slow_ready        := exu_ex3.io.out.ready
-  lsu.io.flush             := ex1_ex2_bubble
+  // A frontend redirect kills younger memory operations.  LS2 is the
+  // youngest memory stage; LS3 (an older instruction that already advanced
+  // past the redirecting branch) must still complete.  Previously this used
+  // the always-false ex1_ex2_bubble, so a wrong-path store could survive a
+  // branch resolution and block a later FENCE.
+  lsu.io.flush             := io.flush || ex1_ex2_bubble
   lsu.io.stall             := ex1_ex2_stall
   lsu.io.perip             <> io.perip
+  lsu.io.coh               := io.coh
   io.lsu_idle              := lsu.io.idle
   exu_ex2.io.cache_hit     := lsu.io.out.bits.cache_hit
   exu_ex2.io.rdata_fast    := lsu.io.out.bits.rdata_fast
@@ -155,9 +162,18 @@ class EXU extends Module {
   // path and adds no cycle to the hit case.
   io.ex1_rd.when            := exu_ex1.io.rd.when
 
+  // The replay path is only for the L1 D-cache window.  An MMIO load has
+  // cache_hit=0 by construction, but its response is delivered through the
+  // slow-response buffer and may be delayed by other harts; treating it as a
+  // cache miss would replay the dependent instruction while the response is
+  // still in flight.
+  private def cacheableLoad(addr: UInt): Bool =
+    addr(31, 18) === "b1000_0000_0001_00".U(14.W)
+
   val ex2_load_miss = exu_ex2.io.in.valid &&
                       exu_ex2.io.in.bits.is_load &&
-                      !lsu.io.out.bits.cache_hit
+                      !lsu.io.out.bits.cache_hit &&
+                      cacheableLoad(exu_ex2.io.in.bits.addr)
   val ex1_depends_on_ex2_load = io.in.valid && (
     (io.in.bits.rs1_where_ex1(WHR_IDX_EX2) && io.in.bits.rs1_need.orR) ||
     (io.in.bits.rs2_where_ex1(WHR_IDX_EX2) && io.in.bits.rs2_need.orR))

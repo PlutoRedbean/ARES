@@ -18,6 +18,7 @@ class LSU extends Module {
     val lookup_valid = Input(Bool())
     val lookup_addr = Input(UInt(MEM_ADDR_WIDTH.W))
     val perip = new PERIP()
+    val coh = new COH()
     val idle = Output(Bool())
   })
 
@@ -63,6 +64,9 @@ class LSU extends Module {
   val ls2_mem_wen   = RegEnable(ls1_mem_wen           , io.in.ready)
   val ls2_mem_bytes = RegEnable(ls1_mem_bytes         , io.in.ready)
   val ls2_mem_wdata = RegEnable(ls1_mem_wdata         , io.in.ready)
+  // Epoch travels with the load so a later refill can prove that no remote
+  // write was accepted after this request left L1.
+  val ls2_epoch     = RegEnable(io.coh.epoch          , io.in.ready)
 
   val ls3_valid     = RegEnable(ls2_valid    , io.out.ready)
   val ls3_addr      = RegEnable(ls2_addr     , io.out.ready)
@@ -70,6 +74,7 @@ class LSU extends Module {
   val ls3_mem_wen   = RegEnable(ls2_mem_wen  , io.out.ready)
   val ls3_mem_bytes = RegEnable(ls2_mem_bytes, io.out.ready)
   val ls3_mem_wdata = RegEnable(ls2_mem_wdata, io.out.ready)
+  val ls3_epoch     = RegEnable(ls2_epoch    , io.out.ready)
 
   val dcache = Module(new DCache)
   val ls1_cacheable = cacheable(ls1_addr)
@@ -170,6 +175,8 @@ class LSU extends Module {
   dcache.io.refill_valid := refill_valid
   dcache.io.refill_addr := ls3_addr
   dcache.io.refill_data := slow_rdata_raw
+  dcache.io.refill_epoch := ls3_epoch
+  dcache.io.coh := io.coh
 
   if (CONFIG_SIMULATION) {
     val DPIC = Module(new LSU_DPIC)

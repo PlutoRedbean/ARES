@@ -69,6 +69,14 @@ testing/debugging, omit both overrides and keep their defaults enabled (`1`).
 The figures above are historical TB results; current scores come from the
 program's UART report.
 
+The same accelerated images also run on the single-issue pipeline SoC
+(`pipeline-single-issue` branch). The pipeline core adds a two-stage
+custom-0 CRC8 instruction, and the SoC reuses the matrix/state engines behind
+a thin MMIO wrapper. Build/run with `make pipeline-coremark-images` and
+`make pipeline-coremark-crc` (also `-matrix`, `-state`, `-full`). The
+100-iteration full variant reaches 7.916002 CoreMark/MHz; see
+[docs/pipeline_accel_images.md](docs/pipeline_accel_images.md).
+
 ---
 
 ## Repository layout

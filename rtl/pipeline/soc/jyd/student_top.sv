@@ -63,6 +63,10 @@ module student_top#(
         .perip_wdata        (perip_wdata),    
         .perip_rdata        (perip_rdata),    
         .perip_idle         (perip_idle),
+        // Single-hart profile: no remote L1 invalidations.
+        .coh_inv_valid      (1'b0),
+        .coh_inv_addr       (32'd0),
+        .coh_epoch          (8'd0),
         .retire_valid       (retire_valid),
         .retire_pc          (retire_pc),
         .retire_pc_next     (retire_pc_next),

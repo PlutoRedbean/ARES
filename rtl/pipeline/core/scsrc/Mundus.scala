@@ -30,6 +30,7 @@ class Mundus extends Module {
   val io = IO(new Bundle {
     val irom  = new IROM()
     val perip = new PERIP()
+    val coh   = new COH()
     val retire = Output(new RetireBundle)
   })
 
@@ -228,6 +229,7 @@ class Mundus extends Module {
   EXU.io.ex2_ex3_bubble := ex2_ex3_bubble
   EXU.io.ex3_ex4_bubble := ex3_ex4_bubble
   EXU.io.perip <> io.perip
+  EXU.io.coh   := io.coh
 
   /*---------------------------------------------------------------------------*/
   // EXU: Execution Unit

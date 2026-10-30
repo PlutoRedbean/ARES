@@ -1,10 +1,12 @@
 # ARES FPGA 单发射流水线 SoC 实施计划（PG2L200H）
 
-> 状态：Draft v0.4（M0/M1/M2 完成，ISA 36/36 与基线 CoreMark 仿真通过；Pango RTL 平台层已落地，PDS 综合/实现/上板待执行）
+> 状态：Draft v0.6（M0/M1/M2 完成，ISA 36/36 与基线 CoreMark 仿真通过；M4 加速镜像（CRC/矩阵/状态机）已完成 100-iteration 仿真；M4 双核/四核与写失效一致性 RTL 与 Verilator 验证已完成，Pango RTL 平台层已落地，PDS 综合/实现/上板待执行）
 > 日期：2026-10-30
+> v0.6 变更：完成 M4 双核/四核与一致性 RTL。新增参数化 `pipeline_mc_soc_top`（`CORES=2/4`）、共享写回 L2、每核 IROM/MMIO 适配与写失效一致性；L1 为写直达，L2 按字地址向其他核发失效，并用 8-bit epoch 抑制在途 refill 的旧行安装。新增 `make pipeline-mc-test`/`pipeline-mc-lint`、`tests/pipeline-mc` 无分支一致性测试与 L2 定向 TB。2/4 核仿真分别 PASS，单核 smoke/ISA 36/36 保持通过。详见 [pipeline_multicore.md](pipeline_multicore.md)。
+> v0.5 变更：完成 M4 加速镜像。pipeline core 增加两拍流水的 custom-0 CRC8 指令（EX1/EX2 各 4 个 bit step），SoC 复用 `rtl/accel/mtx9_engine.sv` / `state9_engine.sv` 并新增 `pipeline_accel.sv` 薄 MMIO 封装；新增 `pipeline-coremark-crc/matrix/state/full` 与 `pipeline-coremark-images`。100-iteration：CRC 2.6769、矩阵 4.0804、状态机 4.2895、全加速 7.9160 CoreMark/MHz，四个 CRC 全对。详见 [pipeline_accel_images.md](pipeline_accel_images.md)。
 > v0.4 变更：完成 RTL 层 Pango 适配——移除 Xilinx XPM、加入可综合并初始化的 IROM/DRAM、100/50 MHz PLL、分域复位、UART 板级顶层与 PDS 约束/流程；新增 `make pipeline-image`、`make pipeline-pango-lint` 与 `make pipeline-console`。SoC 侧 RTL 已按 Verilog-2001 兼容风格转换并由 `--language 1364-2005` 检查。综合、实现、资源/时序和上板仍归 M3，在 Pango 工具环境执行。
 > 当前分支：`pipeline-single-issue`
-> 关联文档：[implementation_plan.md](implementation_plan.md)、[jyd_soc_integration.md](jyd_soc_integration.md)、[coremark_uart_scoring.md](coremark_uart_scoring.md)
+> 关联文档：[implementation_plan.md](implementation_plan.md)、[jyd_soc_integration.md](jyd_soc_integration.md)、[coremark_uart_scoring.md](coremark_uart_scoring.md)、[pipeline_accel_images.md](pipeline_accel_images.md)
 
 ---
 
@@ -24,9 +26,9 @@
 
 ### 1.3 本期不做
 
-- 双核/四核、SMP/AMP、原子操作、缓存一致性；
+- ~~双核/四核~~（v0.6 已实现 2/4 核与写失效一致性，见 [pipeline_multicore.md](pipeline_multicore.md)）、SMP/AMP 软件栈、原子操作；
 - 中断、CLINT/PLIC、RT-Thread；
-- CRC / 矩阵引擎 / 状态机扫描器等 CoreMark 加速镜像；
+- CRC / 矩阵引擎 / 状态机扫描器等 CoreMark 加速镜像（M4 已补充，见 §M4）；
 - miniTensor、L2/ICache 重构；
 - 维护 ARES 主线 OoO 后端的等价功能。
 
@@ -357,6 +359,8 @@ make pipeline-lint
 make pipeline-smoke
 make pipeline-isa       # 36/36
 make pipeline-coremark  # baseline 100 iterations
+make pipeline-coremark-images  # CRC / matrix / state / full images
+make pipeline-coremark-{crc,matrix,state,full}  # 100-iteration variants
 make pipeline-image     # Pango IROM/DRAM readmemh 拆分
 make pipeline-pango-lint # 板级顶层 + PLL 模型 + Pango CDC
 make pipeline-console    # 非 __VERILATOR__ 路径：CDC + 真实 UART + mailbox
@@ -390,12 +394,14 @@ D:\PDS_2022.2-SP6.4\bin\pds_shell.exe -file fpga/pango/pipeline/flow_pipeline.tc
 | M1 | core 语义 smoke + ISA 36/36：`fence` 前后 store、`ebreak` retire/halt 均通过 |
 | M2 | 基线 CoreMark 100 iterations：`a0=0`、CRC 正确、UART 打印完整分数；仿真已通过（2.293729 CoreMark/MHz） |
 | M3 | Pango 综合/实现通过；资源/时序报告；上板 UART 打印同一分数 |
-| M4 | 可选：中断/RT-Thread、加速镜像、双核 |
+| M4 | 加速镜像已完成：CRC 2.6769、矩阵 4.0804、状态机 4.2895、全加速 7.9160 CoreMark/MHz；双核/四核 + 写失效一致性 RTL/Verilator 已完成；中断/RT-Thread 与 PDS/板级仍为后续 |
 
 ### 9.4 分数口径
 
 - 只比较 **同镜像、同频率** 的 pipeline 与当前 OoO：基线 vs 基线；
-- 当前 7.04 CoreMark/MHz 是加速镜像结果，不能作为单发射基线的直接对比；
+- 当前 7.04 CoreMark/MHz 是 OoO 加速镜像结果，不能作为单发射基线的直接对比；
+- pipeline M4 全加速 7.9160 CoreMark/MHz 是本单发射实现 + 同一套加速镜像的结果，
+  也不与 OoO 的 7.0109 直接换算；
 - 记录：timed cycles、iterations、CoreMark/MHz、IPC、D-Cache miss、分支 mispredict（如可得）。
 
 ---
@@ -465,10 +471,39 @@ RTL 层已完成（本机）：
 
 ### M4：后续扩展
 
+M4 整体状态：**未关闭**。已完成“加速镜像”与“双核/四核 + 写失效一致性”
+RTL/Verilator 子项；中断/RTOS、I-Cache/L2 的最终性能结构以及 PDS/板级签核仍未完成。
+
+已完成（加速镜像，100-iteration Verilator 仿真）：
+
+- CRC：custom-0 CRC8 指令，EX1/EX2 各 4 个 bit step，2 拍结果延迟；
+  37,356,886 timed cycles / 2.676882 CoreMark/MHz（1.167x）；
+- 矩阵：复用 9-PE INT16 引擎，MMIO 0xA000_1000；
+  24,507,356 timed cycles / 4.080407 CoreMark/MHz（1.779x）；
+- 状态机：复用 token scanner，MMIO 0xA000_2000；
+  23,312,540 timed cycles / 4.289536 CoreMark/MHz（1.870x）；
+- 全加速（CRC + array list + 矩阵 + 状态机）：
+  12,632,638 timed cycles / 7.916002 CoreMark/MHz（3.451x）；
+- 四个变体均通过 CoreMark PASS，CRC 为 e714 / 1fd7 / 8e3a / 988c；
+- 实现、关键路径与验证记录见 [pipeline_accel_images.md](pipeline_accel_images.md)。
+
+已完成（双核/四核 + 一致性，Verilator）：
+
+- `pipeline_mc_soc_top` 的 `CORES=2/4` 参数化；harts 共享 64 B 行、4-way、
+  write-back/write-allocate L2，每核私有 IROM 与 MMIO；
+- L1 写直达 + L2 写失效：按字地址向其他核发一拍失效，8-bit epoch 阻止
+  在途 refill 安装旧行；
+- `make pipeline-mc-test` 2/4 核均 PASS（`cycles=4167`/`4221`，两核/四核
+  `a0=0`）；`make pipeline-mc-lint` 两配置 0 error；单核 `pipeline-smoke`、
+  `pipeline-isa` 36/36 保持通过；
+- 架构、协议、关键路径与测试证据见 [pipeline_multicore.md](pipeline_multicore.md)。
+
+待完成：
+
 - 中断/RT-Thread；
-- CRC/矩阵/状态机加速镜像；
-- 双核/四核与一致性方案；
-- 视资源决定是否加 I-Cache/L2。
+- 视资源决定最终 I-Cache/L2 结构（MSHR/bank/WBQ/QoS）；
+- 双核/四核的 Pango 板级 wrapper、128-bit DRAM 镜像与 PDS 综合/实现/上板；
+- 加速镜像与多核组合的资源/时序签核。
 
 ---
 

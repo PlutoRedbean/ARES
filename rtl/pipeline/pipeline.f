@@ -34,6 +34,9 @@ rtl/pipeline/soc/ip/DCacheTag_BRAM.v
 rtl/pipeline/soc/ip/BRAM.v
 rtl/pipeline/soc/ip/StoreBuffer_DPIC.v
 
+rtl/accel/mtx9_engine.sv
+rtl/accel/state9_engine.sv
+rtl/pipeline/soc/jyd/pipeline_accel.sv
 rtl/pipeline/soc/jyd/student_top.sv
 rtl/pipeline/soc/jyd/irom_bmem32.sv
 rtl/pipeline/soc/jyd/perip_bridge.sv
