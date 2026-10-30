@@ -697,7 +697,7 @@ unit-frontend-modes:
 test-images:
 	@python3 $(ARES_HOME)/scripts/test_split_image.py
 
-.PHONY: pipeline-core-gen pipeline-lint pipeline-smoke pipeline-isa-sim pipeline-isa pipeline-coremark pipeline-coremark-nocache pipeline-coremark-crc pipeline-coremark-matrix pipeline-coremark-state pipeline-coremark-full pipeline-coremark-images pipeline-coremark-mc coremark-full-mc-image pipeline-image pipeline-pango-lint pipeline-console pipeline-mc-images pipeline-mc-lint pipeline-mc-run pipeline-mc-test
+.PHONY: pipeline-core-gen pipeline-lint pipeline-smoke pipeline-isa-sim pipeline-isa pipeline-coremark pipeline-coremark-nocache pipeline-coremark-serial pipeline-coremark-crc pipeline-coremark-matrix pipeline-coremark-state pipeline-coremark-full pipeline-coremark-images pipeline-coremark-mc coremark-full-mc-image pipeline-image pipeline-pango-lint pipeline-console pipeline-mc-images pipeline-mc-lint pipeline-mc-run pipeline-mc-test
 
 # Accelerated image locations (built by the existing ARES CoreMark scripts).
 PIPELINE_COREMARK_CRC_BIN    ?= $(ARES_HOME)/build/coremark_crc/coremark.bin
@@ -770,6 +770,19 @@ pipeline-coremark-nocache:
 	    -Mdir $(ARES_HOME)/build/pipeline_isa_nocache \
 	    -o $(ARES_HOME)/build/pipeline_isa_nocache/pipeline_isa
 	@$(ARES_HOME)/build/pipeline_isa_nocache/pipeline_isa \
+	    $(ARES_HOME)/build/coremark/coremark.bin 200000000
+
+# Same image with the serialised 2-cycle cache hit path (ICACHE_PIPE_HITS=0).
+pipeline-coremark-serial:
+	@test -f $(ARES_HOME)/build/coremark/coremark.bin || \
+	  { echo "error: build/coremark/coremark.bin missing; run 'make coremark-image'"; exit 1; }
+	@mkdir -p $(ARES_HOME)/build/pipeline_isa_serial
+	@cd $(ARES_HOME) && CCACHE_DISABLE=1 verilator --cc --exe --build --language 1800-2017 -D__VERILATOR__ -Wno-fatal \
+	    --top-module tb_pipeline_isa -GICACHE_PIPE_HITS=0 -f rtl/pipeline/pipeline.f \
+	    $(ARES_HOME)/rtl/pipeline/test/tb_pipeline_isa.sv $(ARES_HOME)/rtl/pipeline/test/sim_isa_main.cpp \
+	    -Mdir $(ARES_HOME)/build/pipeline_isa_serial \
+	    -o $(ARES_HOME)/build/pipeline_isa_serial/pipeline_isa
+	@$(ARES_HOME)/build/pipeline_isa_serial/pipeline_isa \
 	    $(ARES_HOME)/build/coremark/coremark.bin 200000000
 
 # M4 accelerated images.  The same software build flow as the OoO core is

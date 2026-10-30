@@ -20,8 +20,13 @@ IFU (Mundus)  <->  pipeline_icache  <->  pipeline_irom_passthrough  <->  IROM_BM
    req/rsp            1-wide, 4 KiB          refill adapter, 1 cycle/beat
 ```
 
-`student_top` exposes `USE_ICACHE` (default `1`).  `USE_ICACHE=0` instantiates
-only the 1-cycle passthrough and reproduces the pre-cache baseline exactly.
+`student_top` exposes two build-time switches:
+
+- `USE_ICACHE` (default `1`): `0` instantiates only the 1-cycle passthrough
+  and reproduces the pre-cache baseline exactly.
+- `ICACHE_PIPE_HITS` (default `1`): `1` lets the cache accept a new request
+  every cycle while the current lookup hits; `0` keeps the original serialised
+  `S_IDLE -> S_LOOK -> response` cadence for A/B comparison.
 
 ## Geometry and storage
 
@@ -36,6 +41,8 @@ only the 1-cycle passthrough and reproduces the pre-cache baseline exactly.
 | Directory | flattened valid/tag/age arrays, FF/LUTRAM |
 | Refill beat | 32-bit, 8 beats per line |
 | Hit latency | 2 cycles |
+| Hit throughput | 1 instruction/cycle with `ICACHE_PIPE_HITS=1` |
+| In-flight requests | 2 (one response slot + one lookup) |
 | Response width | 1 instruction |
 
 The way is resolved before the RAM read: a combinational tag check on the live
@@ -68,8 +75,8 @@ adapter only has to implement the same refill contract.
 
 `flush` is asserted on every backend redirect.  The cache aborts the in-flight
 request/refill, clears its response slot, and keeps cached lines.  The IFU
-clears `reqPending`; stale responses can therefore never be delivered to the
-new PC.
+clears the metadata-queue occupancy (`metaCount`) so stale responses can never
+be delivered to the new PC; the stale entries themselves are unreachable.
 
 ## IFU handshake
 
@@ -81,29 +88,47 @@ rsp_valid / rsp_data / rsp_ready
 flush
 ```
 
-`IFU.scala` now tracks one outstanding request (`reqPending`) and latches the
-request metadata in `reqMeta`.  The fetch buffer reserves one slot for a
-pending request and one for a held response.  `PC` and the BPU only advance on
-`req_valid && req_ready`; a held response is held by the cache until
-`rsp_ready`, so there is no separate response register in the IFU.
+`IFU.scala` tracks up to two in-flight requests in a two-entry metadata queue
+(`metaVec` + `metaCount`).  The head entry pairs with the cache response, the
+tail with the request still in the cache pipeline.  On `req_fire` the IFU
+pushes `{pc, snpc, predicted_taken, predicted_pc}`; on `rsp_fire` it pops the
+head.  When both happen in the same cycle the freed slot is reused, so the
+queue stays full and the request cadence is one instruction per cycle on hits.
+The fetch buffer reserves one slot per outstanding request or held response
+(`fqCount + metaCount < depth`).
 
-With a 2-cycle hit path the sustained fetch rate is one instruction per two
-cycles.  This is the accepted first-version trade-off; the measured CoreMark
-regression is about 1.5-1.7x.  If that becomes unacceptable, the Plan B is a
-4-wide response plus a 4-entry window FIFO in front of the IFU, restoring one
-instruction per cycle.
+`PC` and the BPU only advance on `req_valid && req_ready`; a response is held
+by the cache until `rsp_ready`, so the IFU has no separate response register.
+On a miss the cache stops accepting new requests and refills the line; the
+younger request, if any, has already been accepted only when the previous
+lookup hit, so responses remain in program order without a reorder buffer.
+
+The 2-cycle hit latency means a redirect still costs one extra cycle versus
+the 1-cycle IROM passthrough, but steady-state fetch is now 1 instruction per
+cycle.  This recovers most of the cache-induced CoreMark loss without the
+4-wide window/window-FIFO/BPU changes.
 
 ## FSM
 
 ```text
 S_IDLE   : accept a request when no unconsumed response is held
-S_LOOK   : tag compare; hit -> commit response; miss -> S_REFILL
+S_LOOK   : tag compare; hit -> commit response and (PIPE_HITS=1) accept the
+           next request in the same cycle; miss -> S_REFILL
 S_REFILL : issue 8 word beats / capture responses
 S_FILL   : write data RAM + tag/valid/age
 S_RELOOK : one cycle for the synchronous data read
-S_RESP   : hold the response until rsp_ready
+S_RESP   : hold the response until rsp_ready; then commit and accept the next
+           request in the same cycle
 flush    : any state -> S_IDLE, drop response/refill state
 ```
+
+With `ICACHE_PIPE_HITS=0`, `req_ready` is asserted only in `S_IDLE`, exactly
+reproducing the earlier serialised cache.
+
+`S_RESP` is a backpressure fallback for a client that cannot accept a response
+immediately.  The buffered IFU reserves a slot for every in-flight response,
+so in the current configuration `rsp_ready` is normally already high when the
+response is valid; the pipelined accept therefore happens in `S_LOOK`.
 
 The counters `hits/misses/refills/reqs` are 64-bit outputs.  `student_top`
 pulses `stats_dump` when the core retires `EBREAK`; under `__VERILATOR__` the
@@ -111,7 +136,7 @@ cache prints them then (pure Verilog `$display`, no SystemVerilog `final`
 block):
 
 ```text
-ICACHE hits=35249046 misses=22478 refills=13871 reqs=35397652
+ICACHE hits=36483040 misses=36676 refills=13772 reqs=37483188
 ```
 
 ## Verification
@@ -121,14 +146,16 @@ ICACHE hits=35249046 misses=22478 refills=13871 reqs=35397652
 | `make pipeline-lint` | pass (warnings only) |
 | `make pipeline-smoke` | pass, `write_events=2`, `ebreak_seen=1` |
 | `make pipeline-isa` | 36/36 pass |
-| `make pipeline-coremark` | `CoreMark PASS`, CRC `e714/1fd7/8e3a/988c`, 1.376911 CoreMark/MHz |
-| `make pipeline-coremark-full` | `CoreMark PASS`, CRC match, 5.306702 CoreMark/MHz |
-| `USE_ICACHE=0` CoreMark | `cycles=43,659,057`, matches the P0 measurement on this tree |
-| `USE_ICACHE=1` CoreMark | `cycles=72,712,371` (baseline) / `18,927,949` (full) |
+| `make pipeline-coremark` (`ICACHE_PIPE_HITS=1`) | `CoreMark PASS`, CRC match, `2.233867` CoreMark/MHz |
+| `make pipeline-coremark-full` (`ICACHE_PIPE_HITS=1`) | `CoreMark PASS`, CRC match, `7.526562` CoreMark/MHz |
+| `ICACHE_PIPE_HITS=0` CoreMark | `72,712,371` cycles / `1.376911`; full `18,927,949` / `5.306702` |
+| `USE_ICACHE=0` CoreMark | `43,659,057` cycles / `2.293038`; full `12,501,880` / `8.030366` |
 
-The cache-on numbers are a structural first version, not a performance
-optimisation: IROM is already a one-cycle memory, so the only effect is the
-extra lookup pipeline stage and occasional refill.
+The pipelined hit path recovers the fetch-rate loss: baseline is within about
+2.6% of the cache-off cycles (`44,818,745` vs `43,659,057`) and full is within
+about 6.7% (`13,340,720` vs `12,501,880`).  The remaining gap is the 2-cycle
+hit latency on redirects plus refill exposure, not steady-state fetch
+bandwidth.
 
 The P0 comparison is `43,659,057` cycles, measured immediately before the
 cache/IFU change on this working tree.  The older M1 plan records
@@ -146,3 +173,7 @@ not be compared as a regression.
   per-hart cache integration is a later step.
 - No critical-word-first, hit-under-miss, MSHR, or abortable refill.  A
   redirect during a refill waits for the abort and then restarts.
+- A 4-wide response + window FIFO + prechecker was evaluated but is not
+  needed for the single-issue backend once the hit path is pipelined: fetch is
+  already 1 instruction/cycle, and the remaining gap is redirect/refill
+  latency rather than width.

@@ -6,7 +6,8 @@ module student_top#(
     parameter                           P_SEG_CNT           = 40,
     parameter                           P_KEY_CNT           = 8,
     parameter [31:0]                    DATA_OFFSET         = 32'd0,
-    parameter                           USE_ICACHE          = 1
+    parameter                           USE_ICACHE          = 1,
+    parameter                           ICACHE_PIPE_HITS    = 1
 ) (
     input                                       w_cpu_clk     ,
     input                                       w_clk_50Mhz   ,
@@ -104,7 +105,8 @@ module student_top#(
                 .LINE_BYTES (32),
                 .NR_SETS    (32),
                 .NR_WAYS    (4),
-                .BEAT_BYTES (4)
+                .BEAT_BYTES (4),
+                .PIPE_HITS  (ICACHE_PIPE_HITS)
             ) u_icache (
                 .clk               (w_cpu_clk),
                 .rst               (w_clk_rst),

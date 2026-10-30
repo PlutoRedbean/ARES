@@ -49,11 +49,13 @@ class IFU extends Module {
   val pc = Wire(UInt(PC_DATA_WIDTH.W))
   val snpc = pc + 4.U
 
-  // One cache request may be outstanding at a time.  The cache holds the
-  // response until `rsp_ready`, so the request metadata stays in `reqMeta`
-  // until the response is consumed.
-  val reqPending = RegInit(false.B)
-  val reqMeta = Reg(new FetchMeta)
+  // Up to two cache requests may be outstanding.  The cache can accept the
+  // next request in the same cycle it commits a hit response, so the IFU keeps
+  // a two-entry metadata queue: head pairs with the current response, tail
+  // with the request still in the cache pipeline.
+  val metaVec = Reg(Vec(2, new FetchMeta))
+  val metaCount = RegInit(0.U(2.W))
+  val metaHead = metaVec(0)
 
   val bpu = Module(new BPU())
   bpu.io.update_en     := io.bpu_update_en
@@ -75,8 +77,9 @@ class IFU extends Module {
 
   val fetchReqValid = Wire(Bool())
   val fetchReqFire = Wire(Bool())
-  val rspValid = io.irom.rsp_valid
+  val rspValid = io.irom.rsp_valid && (metaCount =/= 0.U)
   val rspFire = rspValid && io.irom.rsp_ready && !io.redirected
+  val metaHasSpace = (metaCount < 2.U) || rspFire
   val ifIdSourceValid = Wire(Bool())
   val ifIdSourceBits = Wire(new IF_ID_Payload)
 
@@ -125,24 +128,43 @@ class IFU extends Module {
   io.irom.flush := io.redirected
   fetchReqFire := fetchReqValid && io.irom.req_ready
 
+  val newMeta = Wire(new FetchMeta)
+  newMeta.pc := pc
+  newMeta.snpc := snpc
+  newMeta.predicted_taken := currentPredTaken
+  newMeta.predicted_pc := Mux(currentPredTaken, currentPredTarget, snpc)
+
+  // Push on request fire, pop on response fire.  When both happen in the same
+  // cycle the freed slot is reused; when metaCount==2 and a response is
+  // consumed, the new request goes into slot 1 after slot 1 shifts to slot 0.
+  val pushIdx = Mux(rspFire && (metaCount =/= 0.U),
+    metaCount - 1.U, metaCount)(0)
+  val metaCountNext = MuxCase(metaCount, Seq(
+    (fetchReqFire && !rspFire) -> (metaCount + 1.U),
+    (!fetchReqFire && rspFire) -> (metaCount - 1.U)
+  ))
+
   when (io.redirected) {
-    reqPending := false.B
-  } .elsewhen (fetchReqFire) {
-    reqPending := true.B
-    reqMeta.pc := pc
-    reqMeta.snpc := snpc
-    reqMeta.predicted_taken := currentPredTaken
-    reqMeta.predicted_pc := Mux(currentPredTaken, currentPredTarget, snpc)
-  } .elsewhen (rspFire) {
-    reqPending := false.B
+    metaCount := 0.U
+  } .otherwise {
+    when (rspFire) {
+      metaVec(0) := metaVec(1)
+    }
+    when (fetchReqFire) {
+      metaVec(pushIdx) := newMeta
+    }
+    metaCount := metaCountNext
   }
 
+  assert(!(fetchReqFire && (metaCount === 2.U) && !rspFire),
+    "IFU metadata queue overflow")
+
   val fetchRespBits = Wire(new IF_ID_Payload)
-  fetchRespBits.pc := reqMeta.pc
-  fetchRespBits.snpc := reqMeta.snpc
+  fetchRespBits.pc := metaHead.pc
+  fetchRespBits.snpc := metaHead.snpc
   fetchRespBits.inst := io.irom.rsp_data
-  fetchRespBits.predicted_taken := reqMeta.predicted_taken
-  fetchRespBits.predicted_pc := reqMeta.predicted_pc
+  fetchRespBits.predicted_taken := metaHead.predicted_taken
+  fetchRespBits.predicted_pc := metaHead.predicted_pc
 
   io.out.valid := ifIdSourceValid && !io.redirected
   io.out.bits := ifIdSourceBits
@@ -179,14 +201,13 @@ class IFU extends Module {
     val responseBypassFire = !fifoOutValid && rspValid && io.out.fire
     val fifoEnqFire = rspValid && !responseBypassFire
 
-    // A pending request and a held response each reserve one future buffer
+    // Every in-flight request or held response reserves one future buffer
     // slot.  Deliberately do not credit a same-cycle dequeue here: doing so
     // would put the backend ready path back into PC/BPU request generation.
-    val reservedCount = fqCount +& reqPending.asUInt +& rspValid.asUInt
+    val reservedCount = fqCount +& metaCount
     val fifoHasSpace = reservedCount < FrontendBufferDepth.U
 
-    fetchReqValid := !io.redirected && fifoHasSpace &&
-      (!reqPending || rspFire)
+    fetchReqValid := !io.redirected && fifoHasSpace && metaHasSpace
     io.irom.rsp_ready := !io.redirected &&
       (fqCount < FrontendBufferDepth.U)
 
@@ -221,8 +242,7 @@ class IFU extends Module {
     // No fall-through buffer: the cache response goes straight to IF/ID.
     val respSlotHolding = rspValid && !io.out.ready
 
-    fetchReqValid := !io.redirected && !respSlotHolding &&
-      (!reqPending || rspFire)
+    fetchReqValid := !io.redirected && !respSlotHolding && metaHasSpace
     io.irom.rsp_ready := !io.redirected && io.out.ready
     ifIdSourceValid := rspValid
     ifIdSourceBits := fetchRespBits

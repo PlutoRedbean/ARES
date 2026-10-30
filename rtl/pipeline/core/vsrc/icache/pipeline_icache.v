@@ -9,9 +9,9 @@
 // rtl/pipeline tree and must compile in both Verilator and the Pango PDS flow
 // without SystemVerilog types/interfaces or vendor IP.
 //
-// Geometry is fixed by the localparams below (32 sets x 4 ways x 32 B).  The
-// parameters are kept for documentation and for the SoC wrapper; changing
-// them also requires updating the word-select case statement.
+// Geometry defaults to 32 sets x 4 ways x 32 B, matching the IROM refill
+// adapter.  The word select is generate-based; the refill packing assumes
+// 32-bit instruction words.
 //=============================================================================
 module pipeline_icache #(
     parameter integer ADDR_WIDTH = 32,
@@ -19,7 +19,10 @@ module pipeline_icache #(
     parameter integer LINE_BYTES = 32,
     parameter integer NR_SETS    = 32,
     parameter integer NR_WAYS    = 4,
-    parameter integer BEAT_BYTES = 4
+    parameter integer BEAT_BYTES = 4,
+    // 1: accept a new request every cycle while the current lookup hits.
+    // 0: original serialised behaviour (accept only in S_IDLE), for A/B tests.
+    parameter integer PIPE_HITS  = 1
 ) (
     input  wire        clk,
     input  wire        rst,
@@ -173,11 +176,24 @@ module pipeline_icache #(
         end
     end
 
+    // Response slot / request handshake.  Declared before rd_index because
+    // PIPE_HITS can accept the next request in the same cycle a hit response
+    // is committed.
+    reg                  rsp_valid_r;
+    reg [DATA_WIDTH-1:0] rsp_data_r;
+
+    wire out_free      = !rsp_valid_r || rsp_ready;
+    wire pipe_hit_look = (PIPE_HITS != 0) && (state == S_LOOK) && hit;
+    wire pipe_resp     = (PIPE_HITS != 0) && (state == S_RESP);
+    wire req_ready_w   = out_free &&
+                         ((state == S_IDLE) || pipe_hit_look || pipe_resp);
+    wire req_fire      = req_valid && req_ready_w;
+
     wire [DATA_IDX_W-1:0] rd_index =
         (state == S_IDLE)   ? {pre_hit_way, req_index} :
         (state == S_RELOOK) ? {miss_way, miss_index} :
-        (state == S_RESP)   ? {hit_way, req_index_r} :
-        (state == S_LOOK)   ? {hit_way, req_index_r} :
+        ((state == S_LOOK) || (state == S_RESP)) ?
+            (req_fire ? {pre_hit_way, req_index} : {hit_way, req_index_r}) :
                               {miss_way, miss_index};
 
     wire fill_we = (state == S_FILL);
@@ -212,15 +228,8 @@ module pipeline_icache #(
     assign refill_rsp_ready = (state == S_REFILL);
 
     //-------------------------------------------------------------------------
-    // Response slot / handshake
+    // Response commit
     //-------------------------------------------------------------------------
-    reg                  rsp_valid_r;
-    reg [DATA_WIDTH-1:0] rsp_data_r;
-
-    wire out_free = !rsp_valid_r || rsp_ready;
-    wire req_ready_w = (state == S_IDLE) && out_free;
-    wire req_fire = req_valid && req_ready_w;
-
     wire commit_look = (state == S_LOOK) && hit && out_free;
     wire commit_resp = (state == S_RESP) && out_free;
     wire hit_commit  = commit_look || commit_resp;
@@ -335,7 +344,9 @@ module pipeline_icache #(
                 S_LOOK: begin
                     if (hit) begin
                         if (out_free)
-                            state <= S_IDLE;
+                            // In PIPE_HITS mode req_fire can accept the next
+                            // request in this cycle; stay in S_LOOK for it.
+                            state <= req_fire ? S_LOOK : S_IDLE;
                         else
                             state <= S_RESP;
                     end else begin
@@ -373,7 +384,7 @@ module pipeline_icache #(
 
                 S_RESP: begin
                     if (out_free)
-                        state <= S_IDLE;
+                        state <= req_fire ? S_LOOK : S_IDLE;
                 end
 
                 default: state <= S_IDLE;
