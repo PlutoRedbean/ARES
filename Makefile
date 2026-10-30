@@ -697,13 +697,16 @@ unit-frontend-modes:
 test-images:
 	@python3 $(ARES_HOME)/scripts/test_split_image.py
 
-.PHONY: pipeline-core-gen pipeline-lint pipeline-smoke pipeline-isa-sim pipeline-isa pipeline-coremark pipeline-coremark-crc pipeline-coremark-matrix pipeline-coremark-state pipeline-coremark-full pipeline-coremark-images pipeline-image pipeline-pango-lint pipeline-console pipeline-mc-images pipeline-mc-lint pipeline-mc-run pipeline-mc-test
+.PHONY: pipeline-core-gen pipeline-lint pipeline-smoke pipeline-isa-sim pipeline-isa pipeline-coremark pipeline-coremark-crc pipeline-coremark-matrix pipeline-coremark-state pipeline-coremark-full pipeline-coremark-images pipeline-coremark-mc coremark-full-mc-image pipeline-image pipeline-pango-lint pipeline-console pipeline-mc-images pipeline-mc-lint pipeline-mc-run pipeline-mc-test
 
 # Accelerated image locations (built by the existing ARES CoreMark scripts).
 PIPELINE_COREMARK_CRC_BIN    ?= $(ARES_HOME)/build/coremark_crc/coremark.bin
 PIPELINE_COREMARK_MATRIX_BIN ?= $(ARES_HOME)/build/coremark_matrix/coremark.bin
 PIPELINE_COREMARK_STATE_BIN  ?= $(ARES_HOME)/build/coremark_state/coremark.bin
 PIPELINE_COREMARK_FULL_BIN   ?= $(ARES_HOME)/build/coremark_full/coremark.bin
+PIPELINE_COREMARK_FULL_MC_OUT ?= $(ARES_HOME)/build/coremark_full_mc
+PIPELINE_COREMARK_FULL_MC_BIN ?= $(PIPELINE_COREMARK_FULL_MC_OUT)/coremark.bin
+PIPELINE_MC_LDSCRIPT          ?= $(ARES_HOME)/tests/abstract-machine/scripts/ares-linker-mc.ld
 PIPELINE_IMAGE_ELF           ?= $(ARES_HOME)/build/coremark/coremark-riscv32-ares.elf
 PIPELINE_IMAGE_OUT           ?= $(ARES_HOME)/build/pipeline
 
@@ -785,6 +788,33 @@ pipeline-coremark-full: pipeline-isa-sim
 pipeline-coremark-images:
 	@$(MAKE) coremark-crc-image coremark-matrix-image coremark-state-image coremark-full-image
 
+# Full accelerated CoreMark image linked for per-hart AMP data regions.
+# The image is still MULTITHREAD=1: each hart runs its own CoreMark instance;
+# DATA_STRIDE provides the private 32 KiB data/rodata/bss/stack window.
+coremark-full-mc-image:
+	@python3 $(ARES_HOME)/scripts/build_coremark_crc.py \
+	    --array-list --matrix-engine --state-engine \
+	    --ldscript $(PIPELINE_MC_LDSCRIPT) \
+	    --out $(PIPELINE_COREMARK_FULL_MC_OUT)
+
+# Two-hart full-accelerated CoreMark.  Phase 1 uses the private-memory AMP
+# profile: each hart instantiates the proven single-hart student_top with its
+# own IROM, perip_bridge DRAM, UART, and matrix/state engines.  DATA_OFFSET
+# moves each hart's 32 KiB data window; the TB checks per-hart EBREAK/a0 and
+# the per-hart UART reports provide CRC/score detail.
+pipeline-coremark-mc: coremark-full-mc-image
+	@mkdir -p $(ARES_HOME)/build/pipeline_coremark_mc
+	@cd $(ARES_HOME) && CCACHE_DISABLE=1 verilator --cc --exe --build --language 1800-2017 -D__VERILATOR__ -Wno-fatal \
+	    --top-module tb_pipeline_coremark_amp -GCORES=2 \
+	    -f rtl/pipeline/pipeline.f \
+	    rtl/pipeline/soc/mc/pipeline_coremark_amp_top.sv \
+	    rtl/pipeline/test/tb_pipeline_coremark_amp.sv \
+	    rtl/pipeline/test/sim_coremark_amp_main.cpp \
+	    -Mdir $(ARES_HOME)/build/pipeline_coremark_mc \
+	    -o $(ARES_HOME)/build/pipeline_coremark_mc/pipeline_coremark_mc
+	@$(ARES_HOME)/build/pipeline_coremark_mc/pipeline_coremark_mc \
+	    $(PIPELINE_COREMARK_FULL_MC_BIN) 200000000
+
 # Split the ARES ELF image into the two local Pango memories:
 #   build/pipeline/irom.hex  8192 x 32-bit  (0x8000_0000)
 #   build/pipeline/dram.hex 65536 x 32-bit  (0x8010_0000)
@@ -861,3 +891,5 @@ pipeline-mc-run:
 pipeline-mc-test: pipeline-mc-images
 	@$(MAKE) pipeline-mc-run PIPELINE_MC_CORES=2
 	@$(MAKE) pipeline-mc-run PIPELINE_MC_CORES=4
+	@$(ARES_HOME)/build/pipeline_mc_run2/pipeline_mc \
+	    $(ARES_HOME)/build/pipeline_mc/accel_read.bin 2 10000 1

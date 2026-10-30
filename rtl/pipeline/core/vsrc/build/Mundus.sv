@@ -980,7 +980,8 @@ module ISU(
   input         io_long_stall_wb,
                 io_backend_stall,
                 io_long_in_flight,
-  output        io_interlock
+  output        io_interlock,
+  input  [31:0] io_data_offset
 );
 
   wire [31:0] _isu_agu_io_base;
@@ -990,6 +991,7 @@ module ISU(
   wire [5:0]  _isu_ctrl_io_rs2_fwd_sel_iss;
   wire [4:0]  _isu_ctrl_io_agu_fwd_sel_iss;
   wire        _isu_ctrl_io_interlock;
+  wire [31:0] _addr_T = _isu_agu_io_base + io_in_bits_imm;
   isu_ctrl isu_ctrl (
     .clock                 (clock),
     .io_ex1_valid          (io_ex1_valid),
@@ -1085,7 +1087,8 @@ module ISU(
   assign io_out_bits_pc = io_in_bits_pc;
   assign io_out_bits_rd_addr = io_in_bits_rd_addr;
   assign io_out_bits_rd_wen = io_in_bits_rd_wen;
-  assign io_out_bits_addr = _isu_agu_io_base + io_in_bits_imm;
+  assign io_out_bits_addr =
+    _addr_T[31:18] == 14'h2004 ? _addr_T + io_data_offset : _addr_T;
   assign io_out_bits_L_sign = io_in_bits_L_sign;
   assign io_out_bits_mem_wen = io_in_bits_mem_wen;
   assign io_out_bits_mem_bytes = io_in_bits_mem_bytes;
@@ -2664,6 +2667,7 @@ module Mundus(
   input         io_coh_inv_valid,
   input  [31:0] io_coh_inv_addr,
   input  [7:0]  io_coh_epoch,
+  input  [31:0] io_data_offset,
   output        io_retire_valid,
   output [31:0] io_retire_pc,
                 io_retire_pc_next,
@@ -3163,7 +3167,8 @@ module Mundus(
     .io_long_stall_wb          (_WBU_io_long_stall),
     .io_backend_stall          (_EXU_io_backend_stall),
     .io_long_in_flight         (_EXU_io_long_in_flight),
-    .io_interlock              (_ISU_io_interlock)
+    .io_interlock              (_ISU_io_interlock),
+    .io_data_offset            (io_data_offset)
   );
   EXU EXU (
     .clock                          (clock),

@@ -1,7 +1,8 @@
 # Pipeline SoC: 2/4-hart coherent multi-core (M4)
 
-> Status: RTL + Verilator implementation complete for 2 and 4 harts.
-> Pango board wrapper and PDS/board signoff remain open.
+> Status: RTL + Verilator implementation complete for 2 and 4 harts; the
+> 2-hart full-accelerated CoreMark target is implemented.  Pango board wrapper
+> and PDS/board signoff remain open.
 > Baseline: pipeline-single-issue, after the M4 acceleration images.
 
 ## 1. Configuration
@@ -12,7 +13,8 @@ The number of harts is a build-time parameter, not a software switch:
 | --- | --- | --- |
 | Dual-core | `make pipeline-mc-run PIPELINE_MC_CORES=2` | `CORES=2` |
 | Quad-core | `make pipeline-mc-run PIPELINE_MC_CORES=4` | `CORES=4` |
-| Both | `make pipeline-mc-test` | runs both above |
+| Both shared-memory tests | `make pipeline-mc-test` | runs both above |
+| 2-hart full CoreMark | `make pipeline-coremark-mc` | `DATA_STRIDE=0x8000` |
 | Lint both | `make pipeline-mc-lint` | `-GCORES=2/4` |
 
 `CORES` is a parameter of `pipeline_mc_soc_top`; the same RTL elaborates in
@@ -37,8 +39,10 @@ remains the CoreMark/ISA path.
 | `rtl/pipeline/soc/mc/pipeline_hart.sv` | one Mundus core + one private 32 KiB IROM + one core port |
 | `rtl/pipeline/soc/mc/pipeline_core_port.sv` | converts 32-bit perip to 16 B L2 beats, classifies DRAM vs MMIO, one outstanding request |
 | `rtl/pipeline/soc/mc/pipeline_l2.sv` | 64 B line, 16 B beat, 4-way write-back/write-allocate shared L2 |
-| `rtl/pipeline/soc/mc/pipeline_mmio.sv` | per-hart hart id/count, cycle counter, UART, LED |
-| `rtl/pipeline/soc/mc/pipeline_mc_soc_top.sv` | `CORES` parameter, shared L2, per-hart IROM/MMIO, retire observation |
+| `rtl/pipeline/soc/mc/pipeline_mmio.sv` | per-hart hart id/count, cycle counter, UART, LED, and per-hart matrix/state accelerated MMIO |
+| `rtl/pipeline/soc/mc/pipeline_mc_soc_top.sv` | `CORES`/`DATA_STRIDE` parameters, shared L2, per-hart IROM/MMIO, retire observation |
+| `tests/abstract-machine/scripts/ares-linker-mc.ld` | one 32 KiB private DRAM region per hart; `_stack_top=0x8010_8000` |
+| `rtl/pipeline/test/tb_pipeline_coremark_mc.sv` | 2-hart full accelerated CoreMark TB with per-hart DRAM image replication |
 
 ## 3. Coherence protocol
 
@@ -72,7 +76,9 @@ array or arbitration path.
 | Address | Size | Attribute | Use |
 | --- | --- | --- | --- |
 | `0x8000_0000` | 32 KiB | IROM (per hart, replicated image) | code |
-| `0x8010_0000..0x8013_FFFF` | 256 KiB | cacheable, coherent via L2 | shared data, per-hart stacks |
+| `0x8010_0000..0x8013_FFFF` | 256 KiB | cacheable, coherent via L2 | shared data (stride 0) or per-hart AMP regions |
+| `0x8010_0000 + k*0x8000` | 32 KiB | cacheable, private via `DATA_OFFSET` | CoreMark AMP hart *k* rodata/data/bss/stack |
+| `0xA000_1000` / `0xA000_2000` | 4 KiB each | private MMIO | per-hart matrix / state engines |
 | `0xA000_0FF0` | 4 B | private MMIO | hart id |
 | `0xA000_0FF4` | 4 B | private MMIO | configured hart count |
 | `0xA000_0050/54` | 8 B | private MMIO | 64-bit cycle counter |
@@ -101,13 +107,16 @@ simulation/debug.
 - MMIO response is a fixed registered two-cycle path (S_IDLE -> S_RSP1 -> S_RSP).
 - Core port has one outstanding request; the response source/word is registered,
   so the core-facing rdata mux does not depend on the live perip address.
+- `DATA_OFFSET` is applied in the ISU/AGU path **before** the L1 lookup, so the
+  L1 tag/index and the L2 access use the same private physical address.  Only
+  the cacheable DRAM window is offset; MMIO is not.
+- Per-hart accelerators make the matrix/state MMIO private; the accelerator
+  response is consumed before the next MMIO request (S_ACCEL).
 - Core-side fixes made while integrating multi-hart:
   - LSU `ls2_valid` is now flushed on a frontend redirect (previously the
     always-false `ex1_ex2_bubble` was used);
   - the speculative load-replay path is restricted to the cacheable L1 window,
-    so a delayed MMIO load is not treated as a cache miss;
-  - the core port holds a request until the core deasserts `perip_valid`, so a
-    stalled request cannot be committed twice.
+    so a delayed MMIO load is not treated as a cache miss.
 
 ## 6. Test and evidence
 
@@ -138,10 +147,39 @@ The standalone L2 coherence checker is `rtl/pipeline/test/tb_pipeline_l2_mc.sv`
 (`CORES=2/4`): it checks read/write visibility, invalidate-to-other-harts,
 writer-not-invalidated, epoch advancement and dirty-victim writeback.
 
+### 6.1 Two-hart full-accelerated CoreMark (private-memory AMP)
+
+The first complete multi-hart full-accelerated CoreMark run uses the
+private-memory AMP profile:
+
+```bash
+make pipeline-coremark-mc
+pipeline-coremark-amp: cycles=12680988 done=1/1 a0=[00000000,00000000] PASS
+```
+
+Both harts run the same full accelerated image linked with
+`ares-linker-mc.ld` (`_stack_top=0x8010_8000`), with `DATA_OFFSET = hart_id *
+0x8000`; each hart has a private IROM, perip_bridge DRAM, UART/timer and
+matrix/state engines.  The per-hart CoreMark report is 7.916002 CoreMark/MHz
+(100 iterations, expected CRCs `e714/1fd7/8e3a/988c`), i.e. 15.832004
+aggregate for two harts.  The doubled UART text is the two independent
+reports interleaved on the simulation stdout.
+
+This profile proves the multi-hart boot/data-relocation/acceleration path.  It
+does **not** use the shared L2.  The shared-L2 CoreMark integration is still
+open: with overlapping loads, the first read of the `.rodata` seed table
+(0x8010_0568) is captured by the L1 refill path as zero / shifted by one
+response, while the L2 response data itself is correct.  That is a response
+ordering/tagging issue in the L2-core-port/LSU slow-response path, not a CRC or
+accelerator issue.  It must be fixed before the shared-L2 CoreMark score can be
+accepted.
+
 ## 7. Limits / next steps
 
 - L2 is a bring-up single-transaction cache: no per-port MSHR, banking, QoS,
   writeback queue or sectoring.  Those remain the PPA/performance step.
+- The shared-L2 CoreMark path needs a response-ordering fix; the AMP profile is
+  the current passing full-accelerated CoreMark result.
 - The 2/4-hart top is simulated; a Pango board wrapper and 128-bit shared-DRAM
   `$readmemh` image are still needed for PDS synthesis, timing and board run.
 - The shared L2 is coherent for the L1 D-cache; instruction fetch is per-hart

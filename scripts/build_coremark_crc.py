@@ -675,6 +675,9 @@ def main() -> int:
     ap.add_argument("--mt", action="store_true",
                     help="also build the 2-hart MULTITHREAD=2 single-report image "
                          "(overlay is applied by build_coremark_image.py --mt)")
+    ap.add_argument("--ldscript", type=Path, default=None,
+                    help="override the ARES linker script (for example "
+                         "tests/abstract-machine/scripts/ares-linker-mc.ld)")
     args = ap.parse_args()
 
     if args.state_engine and args.matrix_engine and args.array_list:
@@ -720,6 +723,8 @@ def main() -> int:
            "--port", str(src_port), "--out", str(out), "--jobs", str(args.jobs)]
     if args.mt:
         cmd.append("--mt")
+    if args.ldscript is not None:
+        cmd += ["--ldscript", str(args.ldscript.resolve())]
     print("+", " ".join(cmd))
     return subprocess.call(cmd)
 

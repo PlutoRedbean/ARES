@@ -4,7 +4,8 @@ module student_top#(
     parameter                           P_SW_CNT            = 64,
     parameter                           P_LED_CNT           = 32,
     parameter                           P_SEG_CNT           = 40,
-    parameter                           P_KEY_CNT           = 8
+    parameter                           P_KEY_CNT           = 8,
+    parameter [31:0]                    DATA_OFFSET         = 32'd0
 ) (
     input                                       w_cpu_clk     ,
     input                                       w_clk_50Mhz   ,
@@ -67,6 +68,7 @@ module student_top#(
         .coh_inv_valid      (1'b0),
         .coh_inv_addr       (32'd0),
         .coh_epoch          (8'd0),
+        .data_offset        (DATA_OFFSET),
         .retire_valid       (retire_valid),
         .retire_pc          (retire_pc),
         .retire_pc_next     (retire_pc_next),

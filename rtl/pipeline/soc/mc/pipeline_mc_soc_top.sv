@@ -20,6 +20,7 @@ module pipeline_mc_soc_top #(
     parameter integer L2_SETS  = 128,
     parameter integer CLK_HZ   = 100_000_000,
     parameter integer UART_BAUD = 115_200,
+    parameter integer DATA_STRIDE = 0,
     parameter         IROM_INIT_FILE = "build/pipeline/irom.hex"
 ) (
     input  wire                     clk,
@@ -92,8 +93,10 @@ module pipeline_mc_soc_top #(
     genvar g;
     generate
         for (g = 0; g < CORES; g = g + 1) begin : g_hart
+            localparam [31:0] HART_DATA_OFFSET = g * DATA_STRIDE;
             pipeline_hart #(
-                .IROM_INIT_FILE (IROM_INIT_FILE)
+                .IROM_INIT_FILE (IROM_INIT_FILE),
+                .DATA_OFFSET    (HART_DATA_OFFSET)
             ) u_hart (
                 .clk            (clk),
                 .rst            (rst | ~core_en[g]),

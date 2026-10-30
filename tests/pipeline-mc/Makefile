@@ -13,7 +13,8 @@ OBJCOPY := $(CROSS)objcopy
 ASFLAGS := -march=rv32im -mabi=ilp32 -nostdlib -nostartfiles -Wl,-Ttext=0x80000000
 
 .PHONY: all clean
-all: $(BUILD)/mc_linear2.bin $(BUILD)/mc_linear4.bin $(BUILD)/smoke.bin
+all: $(BUILD)/mc_linear2.bin $(BUILD)/mc_linear4.bin $(BUILD)/smoke.bin \
+     $(BUILD)/accel_read.bin
 
 $(BUILD)/mc_linear2.elf: $(HOME)/mc_linear.S
 	@mkdir -p $(BUILD)
@@ -47,6 +48,13 @@ $(BUILD)/smoke.elf: $(HOME)/smoke.S
 	$(CC) $(ASFLAGS) -o $@ $<
 
 $(BUILD)/smoke.bin: $(BUILD)/smoke.elf
+	$(OBJCOPY) -O binary $< $@
+
+$(BUILD)/accel_read.elf: $(HOME)/accel_read.S
+	@mkdir -p $(BUILD)
+	$(CC) $(ASFLAGS) -o $@ $<
+
+$(BUILD)/accel_read.bin: $(BUILD)/accel_read.elf
 	$(OBJCOPY) -O binary $< $@
 
 clean:

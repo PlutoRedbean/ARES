@@ -2,7 +2,7 @@
 
 > 状态：Draft v0.6（M0/M1/M2 完成，ISA 36/36 与基线 CoreMark 仿真通过；M4 加速镜像（CRC/矩阵/状态机）已完成 100-iteration 仿真；M4 双核/四核与写失效一致性 RTL 与 Verilator 验证已完成，Pango RTL 平台层已落地，PDS 综合/实现/上板待执行）
 > 日期：2026-10-30
-> v0.6 变更：完成 M4 双核/四核与一致性 RTL。新增参数化 `pipeline_mc_soc_top`（`CORES=2/4`）、共享写回 L2、每核 IROM/MMIO 适配与写失效一致性；L1 为写直达，L2 按字地址向其他核发失效，并用 8-bit epoch 抑制在途 refill 的旧行安装。新增 `make pipeline-mc-test`/`pipeline-mc-lint`、`tests/pipeline-mc` 无分支一致性测试与 L2 定向 TB。2/4 核仿真分别 PASS，单核 smoke/ISA 36/36 保持通过。详见 [pipeline_multicore.md](pipeline_multicore.md)。
+> v0.6 变更：完成 M4 双核/四核与一致性 RTL。新增参数化 `pipeline_mc_soc_top`（`CORES=2/4`）、共享写回 L2、每核 IROM/MMIO 适配与写失效一致性；L1 为写直达，L2 按字地址向其他核发失效，并用 8-bit epoch 抑制在途 refill 的旧行安装。新增 `make pipeline-mc-test`/`pipeline-mc-lint`、`tests/pipeline-mc` 无分支一致性测试与 L2 定向 TB。2/4 核仿真分别 PASS，单核 smoke/ISA 36/36 保持通过。另完成私有内存 AMP 的 2 核全加速 CoreMark：`make pipeline-coremark-mc` 两核各 7.916002、聚合 15.832004 CoreMark/MHz，`a0=0` PASS；共享 L2 的 CoreMark 仍有读响应顺序问题待修。详见 [pipeline_multicore.md](pipeline_multicore.md)。
 > v0.5 变更：完成 M4 加速镜像。pipeline core 增加两拍流水的 custom-0 CRC8 指令（EX1/EX2 各 4 个 bit step），SoC 复用 `rtl/accel/mtx9_engine.sv` / `state9_engine.sv` 并新增 `pipeline_accel.sv` 薄 MMIO 封装；新增 `pipeline-coremark-crc/matrix/state/full` 与 `pipeline-coremark-images`。100-iteration：CRC 2.6769、矩阵 4.0804、状态机 4.2895、全加速 7.9160 CoreMark/MHz，四个 CRC 全对。详见 [pipeline_accel_images.md](pipeline_accel_images.md)。
 > v0.4 变更：完成 RTL 层 Pango 适配——移除 Xilinx XPM、加入可综合并初始化的 IROM/DRAM、100/50 MHz PLL、分域复位、UART 板级顶层与 PDS 约束/流程；新增 `make pipeline-image`、`make pipeline-pango-lint` 与 `make pipeline-console`。SoC 侧 RTL 已按 Verilog-2001 兼容风格转换并由 `--language 1364-2005` 检查。综合、实现、资源/时序和上板仍归 M3，在 Pango 工具环境执行。
 > 当前分支：`pipeline-single-issue`
@@ -496,6 +496,12 @@ RTL/Verilator 子项；中断/RTOS、I-Cache/L2 的最终性能结构以及 PDS/
 - `make pipeline-mc-test` 2/4 核均 PASS（`cycles=4167`/`4221`，两核/四核
   `a0=0`）；`make pipeline-mc-lint` 两配置 0 error；单核 `pipeline-smoke`、
   `pipeline-isa` 36/36 保持通过；
+- 私有内存 AMP 的 2 核全加速 CoreMark：`make pipeline-coremark-mc` 通过，
+  两核各 7.916002、聚合 15.832004 CoreMark/MHz（`cycles=12680988`，
+  `a0=0`）；同一份 MC 链接镜像经 `DATA_OFFSET` 分到每核 32 KiB 私有窗口；
+- 共享 L2 的 CoreMark 仍待修复：首个 `.rodata` seed 表读在 L1 refill/LSU
+  slow-response 路径上被捕获为零/错位一拍，L2 响应数据本身正确；这是
+  response ordering/tagging 问题，不是 CRC 或加速器问题；
 - 架构、协议、关键路径与测试证据见 [pipeline_multicore.md](pipeline_multicore.md)。
 
 待完成：
@@ -503,6 +509,7 @@ RTL/Verilator 子项；中断/RTOS、I-Cache/L2 的最终性能结构以及 PDS/
 - 中断/RT-Thread；
 - 视资源决定最终 I-Cache/L2 结构（MSHR/bank/WBQ/QoS）；
 - 双核/四核的 Pango 板级 wrapper、128-bit DRAM 镜像与 PDS 综合/实现/上板；
+- 修复共享 L2 的 CoreMark 读响应顺序，再跑共享 L2 多核全加速 CoreMark；
 - 加速镜像与多核组合的资源/时序签核。
 
 ---

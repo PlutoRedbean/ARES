@@ -8,7 +8,8 @@
 //=============================================================================
 `timescale 1ns/1ps
 module tb_pipeline_mc #(
-    parameter integer CORES = 2
+    parameter integer CORES = 2,
+    parameter integer DATA_STRIDE = 0
 ) (
     input  logic        clk, rst,
     input  logic [CORES-1:0] core_en,
@@ -31,7 +32,7 @@ module tb_pipeline_mc #(
     logic [ 31:0] led;
 
     pipeline_mc_soc_top #(
-        .CORES(CORES), .L2_SETS(128)
+        .CORES(CORES), .L2_SETS(128), .DATA_STRIDE(DATA_STRIDE)
     ) dut (
         .clk(clk), .rst(rst), .core_en(core_en),
 

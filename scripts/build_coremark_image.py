@@ -203,7 +203,7 @@ def check_mt_overlay(stage: Path) -> None:
 
 
 def build(stage: Path, root: Path, cross_compile: str, jobs: int | None,
-          ccache: bool, log_path: Path) -> None:
+          ccache: bool, log_path: Path, ldscript: Path | None = None) -> None:
     env = {k: v for k, v in os.environ.items()
            if k not in ("AM_HOME", "MUNDUS_HOME", "NPC_HOME", "ARES_HOME", "CCACHE_DIR")}
     if not ccache:
@@ -214,7 +214,10 @@ def build(stage: Path, root: Path, cross_compile: str, jobs: int | None,
     if jobs:
         command.append(f"-j{jobs}")
     command += [f"ARES_HOME={root}", f"ARCH={ARCH}",
-                f"CROSS_COMPILE={cross_compile}", "image"]
+                f"CROSS_COMPILE={cross_compile}"]
+    if ldscript is not None:
+        command.append(f"LDSCRIPTS={ldscript}")
+    command.append("image")
     result = subprocess.run(command, capture_output=True, text=True, env=env)
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_path.write_text(result.stdout + result.stderr)
@@ -239,6 +242,9 @@ def main() -> int:
                              "scripts/coremark_mt/ onto the staged copy")
     parser.add_argument("--cross-compile", default=DEFAULT_CROSS_COMPILE,
                         help=f"toolchain prefix (default {DEFAULT_CROSS_COMPILE})")
+    parser.add_argument("--ldscript", type=Path, default=None,
+                        help="override the ARES linker script (for example "
+                             "tests/abstract-machine/scripts/ares-linker-mc.ld)")
     parser.add_argument("--base", type=lambda v: int(v, 0), default=elf_image.DEFAULT_BASE,
                         help="first address of the image")
     parser.add_argument("--limit", type=lambda v: int(v, 0), default=elf_image.DEFAULT_LIMIT,
@@ -262,6 +268,9 @@ def main() -> int:
     frozen = check_frozen(port)
     stage = out / "port"
     mt_hashes = {}
+    ldscript = args.ldscript.resolve() if args.ldscript else None
+    if ldscript is not None and not ldscript.is_file():
+        die(f"linker script not found: {ldscript}")
     if not args.no_build:
         with output_lock(out):
             stage_port(port, stage)
@@ -269,7 +278,7 @@ def main() -> int:
                 mt_hashes = apply_mt_overlay(stage, root)
                 check_mt_overlay(stage)
             build(stage, root, args.cross_compile, args.jobs, args.ccache,
-                  out / "build.log")
+                  out / "build.log", ldscript)
     if args.mt:
         frozen.update({
             "mem_method": "MEM_STACK",
@@ -324,6 +333,10 @@ def main() -> int:
         },
         "port_sources_sha256": port_hashes,
         "mt_overlay_sha256": mt_hashes,
+        "ldscript": {
+            "path": rel(ldscript, root) if ldscript else rel(root / "tests" / "abstract-machine" / "scripts" / "ares-linker.ld", root),
+            "sha256": sha256(ldscript) if ldscript else None,
+        },
         "tools": {
             "gcc": command_version([f"{args.cross_compile}gcc", "--version"]),
             "make": command_version(["make", "--version"]),
@@ -332,7 +345,9 @@ def main() -> int:
         },
         "commands": {
             "build": f"make -C {rel(stage, root)} ARES_HOME={root} ARCH={ARCH} "
-                     f"CROSS_COMPILE={args.cross_compile} image",
+                     f"CROSS_COMPILE={args.cross_compile} "
+                     + (f"LDSCRIPTS={ldscript} " if ldscript else "")
+                     + "image",
             "convert": f"python3 scripts/elf_image.py --elf {rel(kept_elf, root)} "
                        f"--bin {rel(bin_path, root)} --hex {rel(hex_path, root)} "
                        f"--base 0x{args.base:08x} --limit 0x{args.limit:08x}",

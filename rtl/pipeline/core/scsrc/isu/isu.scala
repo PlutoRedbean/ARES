@@ -60,6 +60,12 @@ class ISU extends Module {
     val backend_stall  = Input(Bool())
     val long_in_flight = Input(Bool())
     val interlock   = Output(Bool())
+
+    // Per-hart private-data relocation.  The offset is applied to the AGU
+    // address before the L1 lookup, so tag/index and the later L2 access see
+    // the same private physical address.  MMIO and IROM addresses are not
+    // offset.
+    val data_offset = Input(UInt(MEM_ADDR_WIDTH.W))
   })
 
   io.in.ready  := io.out.ready
@@ -164,6 +170,9 @@ class ISU extends Module {
   val agu_base = isu_agu.io.base
 
   val addr = agu_base + imm
+  private def cacheable(addr: UInt): Bool =
+    addr(31, 18) === "b1000_0000_0001_00".U(14.W)
+  val addr_eff = Mux(cacheable(addr), addr + io.data_offset, addr)
 
   io.interlock   := isu_ctrl.io.interlock
 
@@ -194,7 +203,7 @@ class ISU extends Module {
   io.out.bits.pc              := pc
   io.out.bits.rd_addr         := io.in.bits.rd_addr
   io.out.bits.rd_wen          := io.in.bits.rd_wen
-  io.out.bits.addr            := addr
+  io.out.bits.addr            := addr_eff
   io.out.bits.L_sign          := io.in.bits.L_sign
   io.out.bits.mem_wen         := io.in.bits.mem_wen
   io.out.bits.mem_bytes       := io.in.bits.mem_bytes

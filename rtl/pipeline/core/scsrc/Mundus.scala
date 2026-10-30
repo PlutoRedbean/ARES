@@ -31,6 +31,7 @@ class Mundus extends Module {
     val irom  = new IROM()
     val perip = new PERIP()
     val coh   = new COH()
+    val data_offset = Input(UInt(32.W))
     val retire = Output(new RetireBundle)
   })
 
@@ -189,6 +190,7 @@ class Mundus extends Module {
   ISU.io.idu_valid   := idu_valid
   ISU.io.idu_rs1     := IDU.io.rs1
   ISU.io.idu_rs2     := IDU.io.rs2
+  ISU.io.data_offset := io.data_offset
   ISU.io.rs1_val_iss := EXU.io.rs1_val_iss
   ISU.io.rs2_val_iss := EXU.io.rs2_val_iss
   ISU.io.rs1_where_ex1 := EXU.io.rs1_where_ex1

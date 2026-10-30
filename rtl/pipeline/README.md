@@ -29,8 +29,8 @@ tree; the npc checkout remains untouched.
 
 Generated core RTL:
 
-- `core/vsrc/build/Mundus.sv` (firtool 1.77.0, 3326 lines)
-- SHA-256 `54b79fdd0d2614e12518a8bdafb285fa979cee71e03da016313e147d63c70ca9`
+- `core/vsrc/build/Mundus.sv` (firtool 1.77.0, 3331 lines)
+- SHA-256 `df9f1d3dc095af49a51daed725fb42328bec73e1a8da38fb16e3030e0fe071d6`
 - Generated **inside this ARES checkout** by `rtl/pipeline/gen` with
   `make pipeline-core-gen`; the output target is
   `rtl/pipeline/core/vsrc/build/Mundus.sv`.
@@ -141,6 +141,7 @@ make pipeline-coremark-{crc,matrix,state,full}
 make pipeline-image PIPELINE_IMAGE_ELF=<elf> PIPELINE_IMAGE_OUT=<dir>
 make pipeline-mc-test                  # 2-hart + 4-hart coherent SoC
 make pipeline-mc-lint                  # both CORES options
+make pipeline-coremark-mc              # 2-hart full-accelerated CoreMark (AMP)
 ```
 
 - `pipeline-core-gen`: writes the generated core into ARES, not into npc.
@@ -193,8 +194,11 @@ The pipeline SoC now has a configurable 2/4-hart coherent build:
 | Hart | `soc/mc/pipeline_hart.sv` | Mundus core + private IROM + L2/MMIO adapter |
 | L2 | `soc/mc/pipeline_l2.sv` | 64 B line, 16 B beat, 4-way write-back shared L2; word-granular write-invalidate and an 8-bit coherence epoch |
 | Core port | `soc/mc/pipeline_core_port.sv` | 32-bit perip ↔ 128-bit L2 beat + private MMIO; one outstanding request |
-| MMIO | `soc/mc/pipeline_mmio.sv` | Per-hart hart-id/count, 64-bit cycle counter, UART, LED |
-| SoC | `soc/mc/pipeline_mc_soc_top.sv` | `CORES=2` or `CORES=4`; shared L2, per-hart IROM/MMIO |
+| MMIO | `soc/mc/pipeline_mmio.sv` | Per-hart hart-id/count, 64-bit cycle counter, UART, LED, per-hart matrix/state MMIO |
+| SoC | `soc/mc/pipeline_mc_soc_top.sv` | `CORES=2` or `CORES=4`; shared L2, per-hart IROM/MMIO; `DATA_STRIDE` |
+| AMP CoreMark | `soc/mc/pipeline_coremark_amp_top.sv` | private-memory full-accelerated CoreMark top (N × `student_top`) |
+| AMP link | `tests/abstract-machine/scripts/ares-linker-mc.ld` | 32 KiB per-hart private window, `_stack_top=0x8010_8000` |
+| AMP TB | `test/tb_pipeline_coremark_amp.sv` | 2-hart full-accelerated CoreMark TB |
 
 The L1 D-cache is write-through, so coherence is write-invalidate: an L2
 store pulses the exact word address to every other hart, and the L1 clears that
@@ -205,9 +209,19 @@ to a single tag-RAM write.  The L2 request is latched before lookup; arbitration
 is a small round-robin over hart valid bits, not a path through the data arrays.
 
 `student_top` remains the single-hart profile.  `pipeline_mc_soc_top` is the
-2/4-hart profile; `core_en` holds selected harts in reset for debug.  The
-multi-hart MMIO is private per hart, so an MMIO load always sees the two-cycle
-response the pipeline core expects; the shared resource is the L2/DRAM.
+2/4-hart coherent profile; `core_en` holds selected harts in reset for debug.
+The multi-hart MMIO is private per hart, so an MMIO load always sees the
+two-cycle response the pipeline core expects; the shared resource is L2/DRAM.
+
+`pipeline_coremark_amp_top` is the first full-accelerated CoreMark profile:
+each hart instantiates its own `student_top` (private IROM, perip_bridge DRAM,
+UART/timer and matrix/state engines).  `DATA_OFFSET` gives each hart a private
+32 KiB data window; the image uses
+`tests/abstract-machine/scripts/ares-linker-mc.ld` with
+`_stack_top=0x8010_8000`.  `make pipeline-coremark-mc` runs two harts and both
+report 7.916002 CoreMark/MHz (aggregate 15.832004); the shared-L2 CoreMark
+profile still needs the L2 response-ordering fix described in the multi-core
+doc.
 
 See [docs/pipeline_multicore.md](../../docs/pipeline_multicore.md) for the
 protocol, memory map, timing notes and test evidence.
@@ -231,6 +245,10 @@ protocol, memory map, timing notes and test evidence.
 - The 2/4-hart coherent top is verified in Verilator.  A Pango board wrapper
   and 128-bit shared-DRAM `$readmemh` image are still needed for PDS/board
   signoff; the L2 itself is BRAM-friendly and has no vendor primitives.
+- The private-memory AMP CoreMark profile passes for two harts.  The shared-L2
+  CoreMark path still has a response-ordering bug on overlapping loads (first
+  `.rodata` table read is captured zero/one-behind in the L1 refill path);
+  fix that before accepting a shared-L2 multi-hart CoreMark score.
 
 ## Regeneration
 

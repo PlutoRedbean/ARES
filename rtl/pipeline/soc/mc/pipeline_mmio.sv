@@ -58,10 +58,13 @@ module pipeline_mmio #(
     localparam [31:0] JYD_UART_TX    = 32'h8020_0060;
     localparam [31:0] JYD_UART_ST    = 32'h8020_0064;
     localparam [31:0] LED_ADDR       = 32'h8020_0040;
+    localparam [19:0] ACCEL_MTX_PAGE = 20'hA0001;
+    localparam [19:0] ACCEL_ST_PAGE  = 20'hA0002;
 
-    typedef enum logic [1:0] {
+    typedef enum logic [2:0] {
         S_IDLE,
         S_WRITE,
+        S_ACCEL,
         S_RSP1,
         S_RSP
     } state_t;
@@ -114,9 +117,33 @@ module pipeline_mmio #(
 
     assign req_ready = accept ? onehot(sel_core) : {CORES{1'b0}};
 
+    // ---- per-hart accelerator --------------------------------------------
+    // One accelerator engine pair per hart.  The full accelerated CoreMark
+    // image uses 0xA000_1000 (matrix) and 0xA000_2000 (state); keeping them
+    // private avoids cross-hart command arbitration and locks.
+    wire accel_sel = (req_addr[sel_core][31:12] == ACCEL_MTX_PAGE) ||
+                     (req_addr[sel_core][31:12] == ACCEL_ST_PAGE);
+    wire        accel_req_valid = (state_q == S_IDLE) && accept && accel_sel;
+    wire [31:0] accel_rsp_data;
+    wire        accel_rsp_valid;
+
+    pipeline_accel u_accel (
+        .clk       (clk),
+        .rst       (rst),
+        .req_valid (accel_req_valid),
+        .req_write (req_write[sel_core]),
+        .req_addr  (req_addr[sel_core]),
+        .req_wdata (req_wdata[sel_core]),
+        .req_wstrb (req_wstrb[sel_core]),
+        .rsp_data  (accel_rsp_data),
+        .rsp_valid (accel_rsp_valid)
+    );
+
     // ---- latched request --------------------------------------------------
     reg [31:0]       req_addr_q;
     reg [31:0]       req_wdata_q;
+    reg [CORE_W-1:0] req_core_q;
+    reg              accel_read_q;
 
     // ---- cycle counter / UART / LED --------------------------------------
     reg [63:0] cycle_count;
@@ -193,6 +220,8 @@ module pipeline_mmio #(
             rr_ptr      <= {CORE_W{1'b0}};
             req_addr_q  <= 32'd0;
             req_wdata_q <= 32'd0;
+            req_core_q  <= {CORE_W{1'b0}};
+            accel_read_q <= 1'b0;
             cycle_count <= 64'd0;
             led_q       <= 32'd0;
             tx_start_q  <= 1'b0;
@@ -209,9 +238,17 @@ module pipeline_mmio #(
                     if (accept) begin
                         req_addr_q  <= req_addr[sel_core];
                         req_wdata_q <= req_wdata[sel_core];
+                        req_core_q  <= sel_core;
                         rr_ptr      <= CORE_W'((sel_core + 1'b1) & CORE_MSK);
 
-                        if (sel_write) begin
+                        if (accel_sel) begin
+                            // The accelerator wrapper returns its response
+                            // one cycle after the request; keep the CPU read
+                            // response at the same two-cycle latency as the
+                            // other MMIO registers.
+                            accel_read_q <= ~sel_write;
+                            state_q      <= S_ACCEL;
+                        end else if (sel_write) begin
                             state_q <= S_WRITE;
                         end else begin
                             // The pipeline core's perip timing assumes a
@@ -241,6 +278,22 @@ module pipeline_mmio #(
                         led_q <= req_wdata_q;
                     end
                     state_q <= S_IDLE;
+                end
+
+                S_ACCEL: begin
+                    if (accel_rsp_valid) begin
+                        if (accel_read_q) begin
+                            rsp_valid_q <= 1'b1;
+                            rsp_core_q  <= req_core_q;
+                            rsp_data_q  <= accel_rsp_data;
+                            state_q     <= S_RSP;
+                        end else begin
+                            // A write has no CPU response.  Still consume the
+                            // wrapper response so it cannot be mistaken for a
+                            // later read's completion.
+                            state_q <= S_IDLE;
+                        end
+                    end
                 end
 
                 S_RSP1: begin

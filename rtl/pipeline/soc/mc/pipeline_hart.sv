@@ -9,7 +9,8 @@
 `include "autoconf.vh"
 
 module pipeline_hart #(
-    parameter IROM_INIT_FILE = "build/pipeline/irom.hex"
+    parameter IROM_INIT_FILE = "build/pipeline/irom.hex",
+    parameter [31:0] DATA_OFFSET = 32'd0
 ) (
     input  wire        clk,
     input  wire        rst,
@@ -87,6 +88,7 @@ module pipeline_hart #(
         .coh_inv_valid      (coh_inv_valid),
         .coh_inv_addr       (coh_inv_addr),
         .coh_epoch          (coh_epoch),
+        .data_offset        (DATA_OFFSET),
 
         .retire_valid       (retire_valid),
         .retire_pc          (retire_pc),
