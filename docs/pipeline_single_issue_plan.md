@@ -220,9 +220,12 @@ PG2L200H board
 
 ### 6.2 `FENCE.I`
 
-- 现状：`FENCE_I` 常量存在，但 IDU 没有译码；当前无 I-Cache，影响较小。
+- 现状：`FENCE_I` 常量存在，但 IDU 没有译码；P2 已加入 4 KiB 指令缓存
+  （见 `docs/microarch/pipeline_icache.md`），但 `FENCE.I` 仍未接 cache
+  invalidate / 取指队列 flush。当前代码位于只读 IROM，影响较小。
 - 需求：作为 NOP 或 flush 前端/取指队列；为后续 I-Cache/自修改代码留接口。
-- 第一版可以按“flush 取指队列 + 清流水线”实现，不引入 I-Cache。
+- 后续版本应实现“invalidate I-Cache + flush 取指队列 + 清流水线”，再支持
+  可写代码/自修改代码。
 
 ### 6.3 `EBREAK`
 

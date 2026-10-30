@@ -60,20 +60,30 @@ module pipeline_hart #(
     wire [31:0] pc;
     wire [`CONFIG_IROM_ADDR_WIDTH:0] inst_addr;
     wire [31:0] instruction;
+    wire [31:0] irom_rsp_data;
+
+    wire irom_req_valid;
+    wire irom_req_ready;
+    wire irom_rsp_valid;
+    wire irom_rsp_ready;
+    wire irom_flush;
 
     wire [31:0] perip_addr, perip_wdata, perip_rdata;
     wire        perip_valid, perip_ready, perip_rvalid, perip_wen;
     wire [ 1:0] perip_mask;
     wire        perip_idle;
 
-    assign inst_addr = pc[`CONFIG_IROM_ADDR_WIDTH + 2:2];
-
     myCPU u_core (
         .cpu_rst            (rst),
         .cpu_clk            (clk),
 
-        .irom_addr          (pc),
-        .irom_data          (instruction),
+        .irom_req_valid     (irom_req_valid),
+        .irom_req_addr      (pc),
+        .irom_req_ready     (irom_req_ready),
+        .irom_rsp_valid     (irom_rsp_valid),
+        .irom_rsp_data      (irom_rsp_data),
+        .irom_rsp_ready     (irom_rsp_ready),
+        .irom_flush         (irom_flush),
 
         .perip_valid        (perip_valid),
         .perip_ready        (perip_ready),
@@ -97,6 +107,25 @@ module pipeline_hart #(
         .retire_rd          (retire_rd),
         .retire_wdata       (retire_wdata),
         .retire_is_ebreak   (retire_is_ebreak)
+    );
+
+    // First-cut MC integration keeps the 1-cycle passthrough path; enabling
+    // the per-hart instruction cache is a later step.
+    pipeline_irom_passthrough #(
+        .ADDR_WIDTH           (32),
+        .IROM_WORD_ADDR_WIDTH (`CONFIG_IROM_ADDR_WIDTH + 1)
+    ) u_irom_passthrough (
+        .clk         (clk),
+        .rst         (rst),
+        .req_valid   (irom_req_valid),
+        .req_addr    (pc),
+        .req_ready   (irom_req_ready),
+        .rsp_valid   (irom_rsp_valid),
+        .rsp_data    (irom_rsp_data),
+        .rsp_ready   (irom_rsp_ready),
+        .flush       (irom_flush),
+        .irom_addr   (inst_addr),
+        .irom_data   (instruction)
     );
 
     IROM_BMEM32 #(

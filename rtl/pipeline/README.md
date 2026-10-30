@@ -14,7 +14,8 @@ the ARES custom-0 CRC8 instruction (split into two 4-bit EX1/EX2 stages), and
 the SoC instantiates the existing 9-PE matrix engine and state-machine token
 scanner behind a small 0xA000_1000 / 0xA000_2000 MMIO wrapper.  The 100-iteration
 simulation passes all known CoreMark CRCs; full acceleration reaches
-7.916002 CoreMark/MHz.  See [docs/pipeline_accel_images.md](../../docs/pipeline_accel_images.md).
+8.030366 CoreMark/MHz with the instruction cache bypassed and 5.306702 with
+it enabled.  See [docs/pipeline_accel_images.md](../../docs/pipeline_accel_images.md).
 
 ## Source provenance
 
@@ -29,8 +30,8 @@ tree; the npc checkout remains untouched.
 
 Generated core RTL:
 
-- `core/vsrc/build/Mundus.sv` (firtool 1.77.0, 3331 lines)
-- SHA-256 `df9f1d3dc095af49a51daed725fb42328bec73e1a8da38fb16e3030e0fe071d6`
+- `core/vsrc/build/Mundus.sv` (firtool 1.77.0, 3352 lines)
+- SHA-256 `8c4ff3804baf19a64e50e85fd77c69e05297fd680c23130c6c623c1e74b7dd41`
 - Generated **inside this ARES checkout** by `rtl/pipeline/gen` with
   `make pipeline-core-gen`; the output target is
   `rtl/pipeline/core/vsrc/build/Mundus.sv`.
@@ -125,6 +126,36 @@ make coremark-image     # if build/coremark does not exist yet
 make pipeline-image     # -> build/pipeline/{irom,dram}.hex + image.json
 ```
 
+## Instruction cache (P2)
+
+The single-hart pipeline front end now has a self-contained instruction cache
+between the IFU and the IROM:
+
+```text
+IFU (Mundus) -> pipeline_icache -> pipeline_irom_passthrough -> IROM_BMEM32
+```
+
+- `core/vsrc/icache/pipeline_icache.v`: 1-wide, 4 KiB, 4-way, 32 B line,
+  age-based LRU, inferred-BRAM data array.  Pure Verilog-2005 style (no
+  SystemVerilog types/interfaces); no `rtl/frontend`/`fe_pkg`/AXI dependency.
+- `soc/jyd/pipeline_irom_passthrough.v`: 1-cycle IROM adapter, also used as
+  the refill adapter and as the `USE_ICACHE=0` baseline path.
+- `core/scsrc/common/MundusPayloads.scala` / `core/scsrc/ifu/IFU.scala`:
+  the IROM bundle now has `req_valid/req_ready/rsp_valid/rsp_ready/flush`,
+  and the IFU tracks one outstanding request instead of assuming a fixed
+  one-cycle response.
+- `student_top.sv` has `USE_ICACHE` (default `1`).  `USE_ICACHE=0` instantiates
+  only the passthrough and reproduces the pre-cache CoreMark cycles exactly
+  (`make pipeline-coremark-nocache`).
+- `pipeline_hart.sv` currently keeps the passthrough path; per-hart cache
+  integration is a later step.
+
+The 2-cycle hit path costs fetch bandwidth (one instruction per two cycles),
+so this is a structural first version, not a performance win over the 1-cycle
+IROM.  See
+[docs/microarch/pipeline_icache.md](../../docs/microarch/pipeline_icache.md)
+for the FSM, interfaces, redirect/flush rules and measured numbers.
+
 ## Verification
 
 ```bash
@@ -132,7 +163,8 @@ make pipeline-core-gen   # Chisel -> rtl/pipeline/core/vsrc/build/Mundus.sv
 make pipeline-lint
 make pipeline-smoke
 make pipeline-isa         # 36/36 cpu-tests
-make pipeline-coremark    # baseline 100-iteration CoreMark
+make pipeline-coremark    # baseline 100-iteration CoreMark (cache on)
+make pipeline-coremark-nocache  # same image with USE_ICACHE=0
 make pipeline-image       # Pango IROM/DRAM readmemh split
 make pipeline-pango-lint  # board top + PLL model + Pango CDC
 make pipeline-console     # Pango-only CDC/UART/mailbox directed test
@@ -157,9 +189,15 @@ make pipeline-coremark-mc              # 2-hart full-accelerated CoreMark (AMP)
 - `pipeline-isa`: 36/36 ISA tests pass.  The harness loads each
   `tests/cpu-tests/build/*-riscv32-ares.bin` image and checks EBREAK plus a0.
 - `pipeline-coremark`: baseline `build/coremark/coremark.bin`, 100 iterations:
-  - timed cycles `43,597,126`;
-  - `2,293,729` CoreMark/MHz;
-  - CRCs `e714 / 1fd7 / 8e3a / 988c` and `CoreMark PASS`.
+  - cache off (`USE_ICACHE=0`): `cycles=43,659,057`,
+    `2.293038` CoreMark/MHz (P0 measurement on this tree; the older M1 plan
+    records `43,597,126` from an earlier tree);
+  - cache on (`USE_ICACHE=1`, default): `cycles=72,712,371`,
+    `1.376911` CoreMark/MHz;
+  - CRCs `e714 / 1fd7 / 8e3a / 988c` and `CoreMark PASS` in both modes.
+- `make pipeline-coremark-full` with the cache enabled: `cycles=18,927,949`,
+  `5.306702` CoreMark/MHz, same CRCs; cache off reproduces `12,501,880`
+  cycles (`8.030366` CoreMark/MHz).
 - `pipeline-console`: compiles the SoC without `__VERILATOR__`, so it runs the
   same CDC/UART/BRAM path as the Pango board (100 MHz CPU / 50 MHz peripheral,
   generic CDC, real UART toggle handshake, LED/SEG mailbox, inferred IROM/DRAM
@@ -181,6 +219,8 @@ The pipeline SoC reuses the OoO accelerator RTL and software variants:
 | Full | CRC + array list + matrix + state | 7.916002 |
 
 All four variants print `e714 / 1fd7 / 8e3a / 988c` and `CoreMark PASS`.
+The table is the `USE_ICACHE=0` baseline; with the default instruction cache
+enabled, the full variant measures `5.200087` CoreMark/MHz (same CRCs).
 The full image occupies 7609 / 8192 IROM words, so code-size headroom is small.
 See `docs/pipeline_accel_images.md` for the MMIO map, response timing and
 critical-path notes.
@@ -228,6 +268,11 @@ protocol, memory map, timing notes and test evidence.
 
 ## Known gaps (next milestones)
 
+- The instruction cache has no `FENCE.I` invalidate and the fetch queue is not
+  flushed on `FENCE.I`; the private IROM is read-only, so self-modifying code
+  is not supported yet.
+- `pipeline_hart.sv` still uses the 1-cycle passthrough; per-hart instruction
+  cache integration is a later multi-hart step.
 - The full accelerated CoreMark image uses 7609 / 8192 IROM words (about
   30.4 KiB of 32 KiB); further code growth needs trimming or a larger IROM.
 - Pango PDS is not installed on this Linux host.  The RTL/platform layer is

@@ -697,7 +697,7 @@ unit-frontend-modes:
 test-images:
 	@python3 $(ARES_HOME)/scripts/test_split_image.py
 
-.PHONY: pipeline-core-gen pipeline-lint pipeline-smoke pipeline-isa-sim pipeline-isa pipeline-coremark pipeline-coremark-crc pipeline-coremark-matrix pipeline-coremark-state pipeline-coremark-full pipeline-coremark-images pipeline-coremark-mc coremark-full-mc-image pipeline-image pipeline-pango-lint pipeline-console pipeline-mc-images pipeline-mc-lint pipeline-mc-run pipeline-mc-test
+.PHONY: pipeline-core-gen pipeline-lint pipeline-smoke pipeline-isa-sim pipeline-isa pipeline-coremark pipeline-coremark-nocache pipeline-coremark-crc pipeline-coremark-matrix pipeline-coremark-state pipeline-coremark-full pipeline-coremark-images pipeline-coremark-mc coremark-full-mc-image pipeline-image pipeline-pango-lint pipeline-console pipeline-mc-images pipeline-mc-lint pipeline-mc-run pipeline-mc-test
 
 # Accelerated image locations (built by the existing ARES CoreMark scripts).
 PIPELINE_COREMARK_CRC_BIN    ?= $(ARES_HOME)/build/coremark_crc/coremark.bin
@@ -728,7 +728,7 @@ pipeline-smoke:
 	@mkdir -p $(ARES_HOME)/build/pipeline_smoke
 	@cd $(ARES_HOME) && CCACHE_DISABLE=1 verilator --cc --exe --build --language 1800-2017 -D__VERILATOR__ -Wno-fatal \
 	    --top-module tb_pipeline_smoke -f rtl/pipeline/pipeline.f \
-	    rtl/pipeline/test/tb_pipeline_smoke.sv rtl/pipeline/test/sim_main.cpp \
+	    rtl/pipeline/test/tb_pipeline_smoke.sv $(ARES_HOME)/rtl/pipeline/test/sim_main.cpp \
 	    -Mdir $(ARES_HOME)/build/pipeline_smoke -o $(ARES_HOME)/build/pipeline_smoke/pipeline_smoke
 	@$(ARES_HOME)/build/pipeline_smoke/pipeline_smoke
 
@@ -736,7 +736,7 @@ pipeline-isa-sim:
 	@mkdir -p $(ARES_HOME)/build/pipeline_isa
 	@cd $(ARES_HOME) && CCACHE_DISABLE=1 verilator --cc --exe --build --language 1800-2017 -D__VERILATOR__ -Wno-fatal \
 	    --top-module tb_pipeline_isa -f rtl/pipeline/pipeline.f \
-	    rtl/pipeline/test/tb_pipeline_isa.sv rtl/pipeline/test/sim_isa_main.cpp \
+	    rtl/pipeline/test/tb_pipeline_isa.sv $(ARES_HOME)/rtl/pipeline/test/sim_isa_main.cpp \
 	    -Mdir $(ARES_HOME)/build/pipeline_isa -o $(ARES_HOME)/build/pipeline_isa/pipeline_isa
 
 pipeline-isa: pipeline-isa-sim
@@ -756,6 +756,20 @@ pipeline-coremark: pipeline-isa-sim
 	@test -f $(ARES_HOME)/build/coremark/coremark.bin || \
 	  { echo "error: build/coremark/coremark.bin missing; run 'make coremark-image'"; exit 1; }
 	@$(ARES_HOME)/build/pipeline_isa/pipeline_isa \
+	    $(ARES_HOME)/build/coremark/coremark.bin 200000000
+
+# Same CoreMark image with the instruction cache bypassed (USE_ICACHE=0).
+# Kept in a separate Mdir because the Verilator parameter changes elaboration.
+pipeline-coremark-nocache:
+	@test -f $(ARES_HOME)/build/coremark/coremark.bin || \
+	  { echo "error: build/coremark/coremark.bin missing; run 'make coremark-image'"; exit 1; }
+	@mkdir -p $(ARES_HOME)/build/pipeline_isa_nocache
+	@cd $(ARES_HOME) && CCACHE_DISABLE=1 verilator --cc --exe --build --language 1800-2017 -D__VERILATOR__ -Wno-fatal \
+	    --top-module tb_pipeline_isa -GUSE_ICACHE=0 -f rtl/pipeline/pipeline.f \
+	    $(ARES_HOME)/rtl/pipeline/test/tb_pipeline_isa.sv $(ARES_HOME)/rtl/pipeline/test/sim_isa_main.cpp \
+	    -Mdir $(ARES_HOME)/build/pipeline_isa_nocache \
+	    -o $(ARES_HOME)/build/pipeline_isa_nocache/pipeline_isa
+	@$(ARES_HOME)/build/pipeline_isa_nocache/pipeline_isa \
 	    $(ARES_HOME)/build/coremark/coremark.bin 200000000
 
 # M4 accelerated images.  The same software build flow as the OoO core is
@@ -809,7 +823,7 @@ pipeline-coremark-mc: coremark-full-mc-image
 	    -f rtl/pipeline/pipeline.f \
 	    rtl/pipeline/soc/mc/pipeline_coremark_amp_top.sv \
 	    rtl/pipeline/test/tb_pipeline_coremark_amp.sv \
-	    rtl/pipeline/test/sim_coremark_amp_main.cpp \
+	    $(ARES_HOME)/rtl/pipeline/test/sim_coremark_amp_main.cpp \
 	    -Mdir $(ARES_HOME)/build/pipeline_coremark_mc \
 	    -o $(ARES_HOME)/build/pipeline_coremark_mc/pipeline_coremark_mc
 	@$(ARES_HOME)/build/pipeline_coremark_mc/pipeline_coremark_mc \
@@ -847,7 +861,7 @@ pipeline-console:
 	    rtl/pipeline/soc/jyd/display_seg.sv \
 	    rtl/pipeline/soc/jyd/seg7.sv \
 	    rtl/pipeline/test/tb_pipeline_console.sv \
-	    rtl/pipeline/test/sim_console_main.cpp \
+	    $(ARES_HOME)/rtl/pipeline/test/sim_console_main.cpp \
 	    -Mdir $(ARES_HOME)/build/pipeline_console -o $(ARES_HOME)/build/pipeline_console/pipeline_console
 	@$(ARES_HOME)/build/pipeline_console/pipeline_console
 
@@ -882,7 +896,7 @@ pipeline-mc-run:
 	@cd $(ARES_HOME) && CCACHE_DISABLE=1 verilator --cc --exe --build --language 1800-2017 -D__VERILATOR__ -Wno-fatal \
 	    --top-module tb_pipeline_mc -GCORES=$(PIPELINE_MC_CORES) \
 	    -f rtl/pipeline/pipeline_mc.f \
-	    rtl/pipeline/test/tb_pipeline_mc.sv rtl/pipeline/test/sim_mc_main.cpp \
+	    rtl/pipeline/test/tb_pipeline_mc.sv $(ARES_HOME)/rtl/pipeline/test/sim_mc_main.cpp \
 	    -Mdir $(ARES_HOME)/build/pipeline_mc_run$(PIPELINE_MC_CORES) \
 	    -o $(ARES_HOME)/build/pipeline_mc_run$(PIPELINE_MC_CORES)/pipeline_mc
 	@$(ARES_HOME)/build/pipeline_mc_run$(PIPELINE_MC_CORES)/pipeline_mc \

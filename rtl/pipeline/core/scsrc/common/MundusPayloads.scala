@@ -6,8 +6,19 @@ import AutoConfig._
 import MundusConfig._
 
 class IROM extends Bundle {
-  val addr = Output(UInt(32.W))
-  val data = Input(UInt(32.W))
+  // Instruction-fetch handshake.  The original core assumed that data was
+  // valid exactly one cycle after the address; these signals let an
+  // instruction cache (or a 1-cycle passthrough) own the timing.
+  val req_valid = Output(Bool())
+  val req_addr  = Output(UInt(32.W))
+  val req_ready = Input(Bool())
+  val rsp_valid = Input(Bool())
+  val rsp_data  = Input(UInt(32.W))
+  val rsp_ready = Output(Bool())
+
+  // Redirect/flush pulse.  The cache must drop any in-flight request or
+  // response, but may keep its cached lines.
+  val flush = Output(Bool())
 }
 
 class RetireBundle extends Bundle {

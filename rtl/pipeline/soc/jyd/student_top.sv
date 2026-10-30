@@ -5,7 +5,8 @@ module student_top#(
     parameter                           P_LED_CNT           = 32,
     parameter                           P_SEG_CNT           = 40,
     parameter                           P_KEY_CNT           = 8,
-    parameter [31:0]                    DATA_OFFSET         = 32'd0
+    parameter [31:0]                    DATA_OFFSET         = 32'd0,
+    parameter                           USE_ICACHE          = 1
 ) (
     input                                       w_cpu_clk     ,
     input                                       w_clk_50Mhz   ,
@@ -36,6 +37,14 @@ module student_top#(
     wire [31:0] pc;
     wire [`CONFIG_IROM_ADDR_WIDTH:0] inst_addr;
     wire [31:0] instruction;
+    wire [31:0] irom_rsp_data;
+
+    // Instruction-fetch handshake (cache or 1-cycle passthrough)
+    wire irom_req_valid;
+    wire irom_req_ready;
+    wire irom_rsp_valid;
+    wire irom_rsp_ready;
+    wire irom_flush;
 
     // perip
     wire [31:0] perip_addr, perip_wdata, perip_rdata;
@@ -43,16 +52,18 @@ module student_top#(
     wire [1:0] perip_mask;
     wire perip_idle;
 
-    // 32-bit word index; CONFIG_IROM_ADDR_WIDTH is the old 64-bit-pair width.
-    assign inst_addr = pc[`CONFIG_IROM_ADDR_WIDTH + 2:2];
-
     myCPU Core_cpu (
         .cpu_rst            (w_clk_rst),
         .cpu_clk            (w_cpu_clk),
 
-        // Interface to IROM
-        .irom_addr          (pc),             
-        .irom_data          (instruction),   
+        // Interface to the instruction-fetch path
+        .irom_req_valid     (irom_req_valid),
+        .irom_req_addr      (pc),
+        .irom_req_ready     (irom_req_ready),
+        .irom_rsp_valid     (irom_rsp_valid),
+        .irom_rsp_data      (irom_rsp_data),
+        .irom_rsp_ready     (irom_rsp_ready),
+        .irom_flush         (irom_flush),
 
         // Interface to DRAM & periphera
         .perip_valid        (perip_valid),
@@ -77,6 +88,86 @@ module student_top#(
         .retire_wdata       (retire_wdata),
         .retire_is_ebreak   (retire_is_ebreak)
     );
+
+    generate
+        if (USE_ICACHE) begin : g_icache
+            wire        refill_req_valid;
+            wire [31:0] refill_req_addr;
+            wire        refill_req_ready;
+            wire        refill_rsp_valid;
+            wire [31:0] refill_rsp_data;
+            wire        refill_rsp_ready;
+
+            pipeline_icache #(
+                .ADDR_WIDTH (32),
+                .DATA_WIDTH (32),
+                .LINE_BYTES (32),
+                .NR_SETS    (32),
+                .NR_WAYS    (4),
+                .BEAT_BYTES (4)
+            ) u_icache (
+                .clk               (w_cpu_clk),
+                .rst               (w_clk_rst),
+
+                .req_valid         (irom_req_valid),
+                .req_addr          (pc),
+                .req_ready         (irom_req_ready),
+                .rsp_valid         (irom_rsp_valid),
+                .rsp_data          (irom_rsp_data),
+                .rsp_ready         (irom_rsp_ready),
+                .flush             (irom_flush),
+
+                .refill_req_valid  (refill_req_valid),
+                .refill_req_addr   (refill_req_addr),
+                .refill_req_ready  (refill_req_ready),
+                .refill_rsp_valid  (refill_rsp_valid),
+                .refill_rsp_data   (refill_rsp_data),
+                .refill_rsp_ready  (refill_rsp_ready),
+
+                .stats_dump        (retire_valid && retire_is_ebreak),
+                .hit_count         (),
+                .miss_count        (),
+                .refill_count      (),
+                .request_count     ()
+            );
+
+            // Reuse the 1-cycle passthrough as the IROM refill adapter.
+            pipeline_irom_passthrough #(
+                .ADDR_WIDTH           (32),
+                .IROM_WORD_ADDR_WIDTH (`CONFIG_IROM_ADDR_WIDTH + 1)
+            ) u_irom_refill (
+                .clk              (w_cpu_clk),
+                .rst              (w_clk_rst),
+                .req_valid        (refill_req_valid),
+                .req_addr         (refill_req_addr),
+                .req_ready        (refill_req_ready),
+                .rsp_valid        (refill_rsp_valid),
+                .rsp_data         (refill_rsp_data),
+                .rsp_ready        (refill_rsp_ready),
+                .flush            (irom_flush),
+                .irom_addr        (inst_addr),
+                .irom_data        (instruction)
+            );
+        end else begin : g_direct
+            // Baseline path: original direct-IROM timing, same handshake.
+            pipeline_irom_passthrough #(
+                .ADDR_WIDTH           (32),
+                .IROM_WORD_ADDR_WIDTH (`CONFIG_IROM_ADDR_WIDTH + 1)
+            ) u_irom_passthrough (
+                .clk              (w_cpu_clk),
+                .rst              (w_clk_rst),
+                .req_valid        (irom_req_valid),
+                .req_addr         (pc),
+                .req_ready        (irom_req_ready),
+                .rsp_valid        (irom_rsp_valid),
+                .rsp_data         (irom_rsp_data),
+                .rsp_ready        (irom_rsp_ready),
+                .flush            (irom_flush),
+                .irom_addr        (inst_addr),
+                .irom_data        (instruction)
+            );
+        end
+    endgenerate
 
     IROM_BMEM32 Mem_IROM (
         .addra            (inst_addr  ),

@@ -1,8 +1,16 @@
 module myCPU(
   input         cpu_rst     ,
   input         cpu_clk     ,
-  output [31:0] irom_addr   ,
-  input  [31:0] irom_data   ,
+
+  // Instruction-fetch request/response handshake
+  output        irom_req_valid,
+  output [31:0] irom_req_addr ,
+  input         irom_req_ready,
+  input         irom_rsp_valid,
+  input  [31:0] irom_rsp_data ,
+  output        irom_rsp_ready,
+  output        irom_flush   ,
+
   output        perip_valid ,
   input         perip_ready ,
   input         perip_rvalid,
@@ -28,8 +36,13 @@ module myCPU(
   Mundus Mundus (
     .clock                 (cpu_clk     ),
     .reset                 (cpu_rst     ),
-    .io_irom_addr          (irom_addr   ),            
-    .io_irom_data          (irom_data   ),   
+    .io_irom_req_valid     (irom_req_valid),
+    .io_irom_req_addr      (irom_req_addr ),
+    .io_irom_req_ready     (irom_req_ready),
+    .io_irom_rsp_valid     (irom_rsp_valid),
+    .io_irom_rsp_data      (irom_rsp_data ),
+    .io_irom_rsp_ready     (irom_rsp_ready),
+    .io_irom_flush         (irom_flush   ),
     .io_perip_valid        (perip_valid ),
     .io_perip_ready        (perip_ready ),
     .io_perip_rvalid       (perip_rvalid),

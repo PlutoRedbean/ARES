@@ -1,5 +1,7 @@
 // M1.5 ISA regression harness for the pipeline SoC.
-module tb_pipeline_isa(
+module tb_pipeline_isa #(
+    parameter USE_ICACHE = 1
+) (
     input  logic        clk,
     input  logic        rst,
     output logic        ebreak_seen,
@@ -19,7 +21,9 @@ module tb_pipeline_isa(
     logic [31:0] retire_wdata;
     logic        retire_is_ebreak;
 
-    student_top dut (
+    student_top #(
+        .USE_ICACHE   (USE_ICACHE)
+    ) dut (
         .w_cpu_clk    (clk),
         .w_clk_50Mhz  (clk),
         .w_clk_rst    (rst),

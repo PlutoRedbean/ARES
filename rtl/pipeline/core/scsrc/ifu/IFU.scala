@@ -49,8 +49,11 @@ class IFU extends Module {
   val pc = Wire(UInt(PC_DATA_WIDTH.W))
   val snpc = pc + 4.U
 
-  val fetchRespValid = RegInit(false.B)
-  val fetchRespMeta = Reg(new FetchMeta)
+  // One cache request may be outstanding at a time.  The cache holds the
+  // response until `rsp_ready`, so the request metadata stays in `reqMeta`
+  // until the response is consumed.
+  val reqPending = RegInit(false.B)
+  val reqMeta = Reg(new FetchMeta)
 
   val bpu = Module(new BPU())
   bpu.io.update_en     := io.bpu_update_en
@@ -70,7 +73,10 @@ class IFU extends Module {
   val currentPredTarget = Wire(UInt(PC_DATA_WIDTH.W))
   val nextPc = Mux(currentPredTaken, currentPredTarget, snpc)
 
+  val fetchReqValid = Wire(Bool())
   val fetchReqFire = Wire(Bool())
+  val rspValid = io.irom.rsp_valid
+  val rspFire = rspValid && io.irom.rsp_ready && !io.redirected
   val ifIdSourceValid = Wire(Bool())
   val ifIdSourceBits = Wire(new IF_ID_Payload)
 
@@ -112,19 +118,38 @@ class IFU extends Module {
   PC.io.wen := io.redirected || fetchReqFire
   PC.io.din := Mux(io.redirected, io.redirected_pc, nextPc)
 
+  // IROM/cache request side.  `fetchReqValid` is the intent; `fetchReqFire`
+  // is the actual handshake, and only that advances PC/BPU.
+  io.irom.req_valid := fetchReqValid
+  io.irom.req_addr := pc
+  io.irom.flush := io.redirected
+  fetchReqFire := fetchReqValid && io.irom.req_ready
+
+  when (io.redirected) {
+    reqPending := false.B
+  } .elsewhen (fetchReqFire) {
+    reqPending := true.B
+    reqMeta.pc := pc
+    reqMeta.snpc := snpc
+    reqMeta.predicted_taken := currentPredTaken
+    reqMeta.predicted_pc := Mux(currentPredTaken, currentPredTarget, snpc)
+  } .elsewhen (rspFire) {
+    reqPending := false.B
+  }
+
   val fetchRespBits = Wire(new IF_ID_Payload)
-  fetchRespBits.pc := fetchRespMeta.pc
-  fetchRespBits.snpc := fetchRespMeta.snpc
-  fetchRespBits.inst := io.irom.data
-  fetchRespBits.predicted_taken := fetchRespMeta.predicted_taken
-  fetchRespBits.predicted_pc := fetchRespMeta.predicted_pc
+  fetchRespBits.pc := reqMeta.pc
+  fetchRespBits.snpc := reqMeta.snpc
+  fetchRespBits.inst := io.irom.rsp_data
+  fetchRespBits.predicted_taken := reqMeta.predicted_taken
+  fetchRespBits.predicted_pc := reqMeta.predicted_pc
 
   io.out.valid := ifIdSourceValid && !io.redirected
   io.out.bits := ifIdSourceBits
 
   if (FrontendBufferEnabled) {
     // Asynchronous-read, fall-through instruction buffer.  When it is empty,
-    // the IROM response bypasses the storage and can enter IF/ID immediately.
+    // the cache response bypasses the storage and can enter IF/ID immediately.
     // Responses are stored only when an older buffered instruction must leave
     // first, or when the backend cannot accept the current response.
     val fqBits = Mem(FrontendBufferDepth, new FetchBufferEntry)
@@ -147,21 +172,23 @@ class IFU extends Module {
     fifoEnqBits.predicted_taken := fetchRespBits.predicted_taken
     fifoEnqBits.predicted_pc := fetchRespBits.predicted_pc
 
-    ifIdSourceValid := fifoOutValid || fetchRespValid
+    ifIdSourceValid := fifoOutValid || rspValid
     ifIdSourceBits := Mux(fifoOutValid, fifoOutBits, fetchRespBits)
 
     val fifoDeqFire = fifoOutValid && io.out.fire
-    val responseBypassFire = !fifoOutValid && fetchRespValid && io.out.fire
-    val fifoEnqFire = fetchRespValid && !responseBypassFire
+    val responseBypassFire = !fifoOutValid && rspValid && io.out.fire
+    val fifoEnqFire = rspValid && !responseBypassFire
 
-    // The synchronous IROM response already in flight reserves one buffer
+    // A pending request and a held response each reserve one future buffer
     // slot.  Deliberately do not credit a same-cycle dequeue here: doing so
     // would put the backend ready path back into PC/BPU request generation.
-    val reservedCount = fqCount +& fetchRespValid.asUInt
+    val reservedCount = fqCount +& reqPending.asUInt +& rspValid.asUInt
     val fifoHasSpace = reservedCount < FrontendBufferDepth.U
 
-    fetchReqFire := !io.redirected && fifoHasSpace
-    io.irom.addr := pc
+    fetchReqValid := !io.redirected && fifoHasSpace &&
+      (!reqPending || rspFire)
+    io.irom.rsp_ready := !io.redirected &&
+      (fqCount < FrontendBufferDepth.U)
 
     def ptrNext(ptr: UInt): UInt =
       Mux(ptr === (FrontendBufferDepth - 1).U, 0.U, ptr + 1.U)
@@ -171,7 +198,6 @@ class IFU extends Module {
         fqCount + fifoEnqFire.asUInt - fifoDeqFire.asUInt)
 
     when (io.redirected) {
-      fetchRespValid := false.B
       fqHead := 0.U
       fqTail := 0.U
       fqCount := 0.U
@@ -184,41 +210,22 @@ class IFU extends Module {
         fqHead := ptrNext(fqHead)
       }
       fqCount := fqCountNext
-      fetchRespValid := fetchReqFire
-
-      when (fetchReqFire) {
-        fetchRespMeta.pc := pc
-        fetchRespMeta.snpc := snpc
-        fetchRespMeta.predicted_taken := currentPredTaken
-        fetchRespMeta.predicted_pc := Mux(currentPredTaken, currentPredTarget, snpc)
-      }
     }
 
     assert(fqCount <= FrontendBufferDepth.U,
       "instruction buffer occupancy exceeded its depth")
-    assert(!(fetchRespValid && fifoOutValid &&
+    assert(!(rspValid && fifoOutValid &&
       fqCount === FrontendBufferDepth.U),
-      "instruction buffer received an unreserved IROM response")
+      "instruction buffer received an unreserved cache response")
   } else {
-    // valid 响应且下游未接收时，响应槽必须整体保持。
-    val respSlotHolding = fetchRespValid && !io.out.ready
+    // No fall-through buffer: the cache response goes straight to IF/ID.
+    val respSlotHolding = rspValid && !io.out.ready
 
-    fetchReqFire := !io.redirected && !respSlotHolding
-    ifIdSourceValid := fetchRespValid
+    fetchReqValid := !io.redirected && !respSlotHolding &&
+      (!reqPending || rspFire)
+    io.irom.rsp_ready := !io.redirected && io.out.ready
+    ifIdSourceValid := rspValid
     ifIdSourceBits := fetchRespBits
-
-    io.irom.addr := Mux(respSlotHolding, fetchRespMeta.pc, pc)
-
-    // 非 redirect 时，响应槽要么保持旧响应，要么接受一个新请求，
-    // 因而下一拍必然有效。
-    fetchRespValid := !io.redirected
-
-    when (fetchReqFire) {
-      fetchRespMeta.pc := pc
-      fetchRespMeta.snpc := snpc
-      fetchRespMeta.predicted_taken := currentPredTaken
-      fetchRespMeta.predicted_pc := Mux(currentPredTaken, currentPredTarget, snpc)
-    }
   }
 
   io.ready := fetchReqFire

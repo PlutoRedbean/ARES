@@ -26,6 +26,7 @@ rtl/pipeline/core/vsrc/DPIC/DCache_DPIC.v
 rtl/pipeline/core/vsrc/DPIC/WBU_DPIC.v
 rtl/pipeline/core/vsrc/DPIC/Mundus_DPIC.v
 rtl/pipeline/core/vsrc/DPIC/PipelineStats_DPIC.v
+rtl/pipeline/core/vsrc/icache/pipeline_icache.v
 
 rtl/pipeline/soc/ip/mult.v
 rtl/pipeline/soc/ip/div.v
@@ -39,6 +40,7 @@ rtl/accel/state9_engine.sv
 rtl/pipeline/soc/jyd/pipeline_accel.sv
 rtl/pipeline/soc/jyd/student_top.sv
 rtl/pipeline/soc/jyd/irom_bmem32.sv
+rtl/pipeline/soc/jyd/pipeline_irom_passthrough.v
 rtl/pipeline/soc/jyd/perip_bridge.sv
 rtl/pipeline/soc/jyd/bram_driver.sv
 rtl/pipeline/soc/jyd/counter.v
