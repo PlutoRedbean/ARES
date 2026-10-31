@@ -47,7 +47,10 @@ rtl/pipeline/soc/ip/div.v
 rtl/pipeline/soc/ip/DCacheData_BRAM.v
 rtl/pipeline/soc/ip/DCacheTag_BRAM.v
 
-# CoreMark accelerator engines + MMIO wrapper
+# CoreMark accelerator engines + MMIO wrapper.
+# The engines are kept in the Verilog-2001 subset that PDS accepts (no enum /
+# return / for-int declarations), so simulation and synthesis use the same
+# files.
 rtl/accel/mtx9_engine.sv
 rtl/accel/state9_engine.sv
 rtl/pipeline/soc/jyd/pipeline_accel.sv

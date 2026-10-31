@@ -6,7 +6,7 @@
 import "DPI-C" function void write_reg(input int data, input int addr);
 import "DPI-C" function void init_reg(input int data, input int index);
 `endif
-module RegisterFile #(ADDR_WIDTH = 4, DATA_WIDTH = 32) (
+module RegisterFile #(parameter ADDR_WIDTH = 4, parameter DATA_WIDTH = 32) (
   input                   clk   ,
   input                   wen   ,
   input  [ADDR_WIDTH-1:0] waddr ,
