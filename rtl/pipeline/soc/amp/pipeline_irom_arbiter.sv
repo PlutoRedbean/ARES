@@ -5,6 +5,10 @@
 // complete line burst (LINE_WORDS consecutive word addresses), so a cache
 // never observes a half-refilled line.  Round-robin arbitration keeps one hot
 // hart from starving the others; hits inside the caches do not touch the bus.
+//
+// The owner holds req for the whole burst.  If it drops req (the core
+// redirected and the cache flushed), the burst is aborted immediately:
+// otherwise the cache could mistake the stale grant for a new line's refill.
 //=============================================================================
 `include "autoconf.vh"
 
@@ -59,6 +63,9 @@ module pipeline_irom_arbiter #(
                 last <= sel_next;
                 cnt  <= {CNT_BITS{1'b0}};
             end
+        end else if (!req[sel]) begin
+            // The owner aborted (flush); do not keep granting a stale burst.
+            busy <= 1'b0;
         end else begin
             cnt <= cnt + 1'b1;
             if (cnt == LINE_WORDS-1) begin

@@ -61,7 +61,7 @@
 
 当前工作树中的 `Mundus.sv`：
 
-- Phase 3（IFU `irom.ready` 握手与 I$）后 3335 行，SHA-256 `1aa0e9390eb9bc769deac1db0b69492715d7e0320623874612a8ff492862a12b`；
+- Phase 3（IFU req/rsp 取指握手与 I$）后 3387 行，SHA-256 `a8728a0fc3e3e64e41721a240da38c18d13cf0a0aadc07d13620e580051b55b4`；
 - 由 `make pipeline-core-gen` 在 ARES 内生成，目标为 `rtl/pipeline/core/vsrc/build/Mundus.sv`；生成源为 `rtl/pipeline/core/scsrc` + `rtl/pipeline/gen/configs/scsrc`。
 
 ---
@@ -220,9 +220,12 @@ PG2L200H board
 
 ### 6.2 `FENCE.I`
 
-- 现状：`FENCE_I` 常量存在，但 IDU 没有译码；当前无 I-Cache，影响较小。
+- 现状：`FENCE_I` 常量存在，但 IDU 没有译码；P2 已加入 4 KiB 指令缓存
+  （见 `docs/microarch/pipeline_icache.md`），但 `FENCE.I` 仍未接 cache
+  invalidate / 取指队列 flush。当前代码位于只读 IROM，影响较小。
 - 需求：作为 NOP 或 flush 前端/取指队列；为后续 I-Cache/自修改代码留接口。
-- 第一版可以按“flush 取指队列 + 清流水线”实现，不引入 I-Cache。
+- 后续版本应实现“invalidate I-Cache + flush 取指队列 + 清流水线”，再支持
+  可写代码/自修改代码。
 
 ### 6.3 `EBREAK`
 
@@ -511,7 +514,7 @@ RTL/Verilator 子项；中断/RTOS、I-Cache/L2 的最终性能结构以及 PDS/
   窗口、私有 MMIO/加速器、共享 uncached mailbox；2/4 核 MT 结果与 Phase 1
   逐位一致（4.580135 / 9.167960 CoreMark/MHz），全加速 2 核 15.821581，
   单核 smoke/ISA/console 与 2 核 AMP 回归保持通过；
-- Phase 3：IFU 增加 `irom.ready` 握手，每 hart 16 KiB 直接映射 I$，
+- Phase 3：IFU 改为 req/rsp/flush 取指握手，每 hart 16 KiB 直接映射 I$，
   单共享 32 KiB IROM + round-robin 整行 refill 仲裁；2/4 核 MT 为
   4.579943 / 9.166984 CoreMark/MHz（与无 I$ 差异 <0.03%），整轮只取
   5,072 / 8,784 个 IROM word；full-accel 聚合（`make pipeline-coremark-full-mt

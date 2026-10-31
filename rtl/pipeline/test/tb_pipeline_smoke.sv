@@ -37,10 +37,13 @@ module tb_pipeline_smoke(
         .retire_rd(retire_rd),
         .retire_wdata(retire_wdata),
         .retire_is_ebreak(retire_is_ebreak),
-        .irom_addr(),
-        .irom_pc(),
-        .irom_data(32'd0),
-        .irom_ready(1'b1),
+        .irom_req_valid(),
+        .irom_req_addr (),
+        .irom_req_ready(1'b0),
+        .irom_rsp_valid(1'b0),
+        .irom_rsp_data (32'd0),
+        .irom_rsp_ready(),
+        .irom_flush    (),
         .shared_rdata(32'd0),
         .shared_req_valid(),
         .shared_req_write(),
@@ -60,7 +63,7 @@ module tb_pipeline_smoke(
     integer trace_cycles = 0;
     always @(posedge clk) begin
         if (!rst && trace_cycles < 40) begin
-            $display("TRACE pc=%08x inst=%08x fence=%b lsu_idle=%b perip_idle=%b idstall=%b", dut.pc, dut.instruction, dut.Core_cpu.Mundus.fence_wait, dut.Core_cpu.Mundus._EXU_io_lsu_idle, dut.perip_idle, dut.Core_cpu.Mundus.id_iss_stall);
+            $display("TRACE pc=%08x inst=%08x fence=%b lsu_idle=%b perip_idle=%b idstall=%b", dut.core_irom_req_addr, dut.core_irom_rsp_data, dut.Core_cpu.Mundus.fence_wait, dut.Core_cpu.Mundus._EXU_io_lsu_idle, dut.perip_idle, dut.Core_cpu.Mundus.id_iss_stall);
             trace_cycles = trace_cycles + 1;
         end
         if (!rst && retire_valid && retire_is_ebreak)

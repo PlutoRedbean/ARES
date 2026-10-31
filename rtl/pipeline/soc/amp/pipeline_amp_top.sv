@@ -8,7 +8,11 @@
 //     round-robin refill arbiter; every hart has a private 16 KiB direct-
 //     mapped I$ (Phase 3) whose refills come from the shared bank.
 //     USE_ICACHE=0 is the Phase 2 profile: one replicated 32 KiB bank per
-//     hart and no cache.
+//     hart, reached through the 1-cycle instruction-fetch passthrough.
+//   * Every hart uses the shared req/rsp front-end handshake
+//     (req_valid/req_ready, rsp_valid/rsp_data/rsp_ready, flush); the AMP I$
+//     is the pipeline_amp_icache variant, kept separate from the mainline
+//     single-hart pipeline_icache module.
 //   * DRAM: each hart owns a private 32 KiB window inside its local BRAM
 //     address space, selected by DATA_OFFSET = hart * DATA_STRIDE.
 //   * MMIO: UART/timer/cycle counter and the matrix/state accelerators stay
@@ -42,15 +46,14 @@ module pipeline_amp_top #(
 );
     localparam integer MEM_AW = `CONFIG_IROM_ADDR_WIDTH + 1;
 
-    // Core-facing fetch wires, one set per hart.
-    wire [CORES-1:0][31:0]                      hart_pc;
-    wire [CORES-1:0][31:0]                      hart_inst;
-    wire [CORES-1:0]                            hart_ready;
-    wire [CORES-1:0][`CONFIG_IROM_ADDR_WIDTH:0] hart_word;
-
-    // No-cache (Phase 2) profile: private bank per hart.
-    wire [CORES-1:0][`CONFIG_IROM_ADDR_WIDTH:0] bank_addr_direct;
-    wire [CORES-1:0][31:0]                      bank_data_direct;
+    // Core-facing fetch handshake, one set per hart.
+    wire [CORES-1:0][31:0]                      hart_req_addr;
+    wire [CORES-1:0]                            hart_req_valid;
+    wire [CORES-1:0]                            hart_req_ready;
+    wire [CORES-1:0]                            hart_rsp_valid;
+    wire [CORES-1:0][31:0]                      hart_rsp_data;
+    wire [CORES-1:0]                            hart_rsp_ready;
+    wire [CORES-1:0]                            hart_flush;
 
     // Cached (Phase 3) profile: one shared bank behind the refill arbiter.
     wire [CORES-1:0]                            ic_req;
@@ -58,6 +61,10 @@ module pipeline_amp_top #(
     wire [CORES-1:0]                            ic_gnt;
     wire [31:0]                                 shared_data;
     wire [`CONFIG_IROM_ADDR_WIDTH:0]            shared_addr;
+
+    // No-cache (Phase 2) profile: private bank per hart.
+    wire [CORES-1:0][`CONFIG_IROM_ADDR_WIDTH:0] bank_addr_direct;
+    wire [CORES-1:0][31:0]                      bank_data_direct;
 
     // Shared uncached mailbox port, one request port per hart.
     wire [CORES-1:0]        mbox_req_valid;
@@ -76,15 +83,21 @@ module pipeline_amp_top #(
             wire [39:0] seg_unused;
 
             if (USE_ICACHE != 0) begin : g_ic
-                pipeline_icache #(
+                pipeline_amp_icache #(
                     .LINE_BYTES (ICACHE_LINE_BYTES),
                     .LINES      (ICACHE_LINES)
                 ) u_icache (
                     .clk          (clk),
                     .rst          (rst),
-                    .cpu_addr     (hart_pc[g]),
-                    .cpu_data     (hart_inst[g]),
-                    .cpu_ready    (hart_ready[g]),
+
+                    .req_valid    (hart_req_valid[g]),
+                    .req_addr     (hart_req_addr[g]),
+                    .req_ready    (hart_req_ready[g]),
+                    .rsp_valid    (hart_rsp_valid[g]),
+                    .rsp_data     (hart_rsp_data[g]),
+                    .rsp_ready    (hart_rsp_ready[g]),
+                    .flush        (hart_flush[g]),
+
                     .mem_req      (ic_req[g]),
                     .mem_req_addr (ic_req_addr[g]),
                     .mem_gnt      (ic_gnt[g]),
@@ -95,16 +108,32 @@ module pipeline_amp_top #(
                 assign bank_addr_direct[g] = {MEM_AW{1'b0}};
                 assign bank_data_direct[g] = 32'd0;
             end else begin : g_direct
-                assign hart_inst[g]        = bank_data_direct[g];
-                assign hart_ready[g]       = 1'b1;
-                assign bank_addr_direct[g] = hart_word[g];
+                pipeline_irom_passthrough #(
+                    .ADDR_WIDTH           (32),
+                    .IROM_WORD_ADDR_WIDTH (`CONFIG_IROM_ADDR_WIDTH + 1)
+                ) u_passthrough (
+                    .clk       (clk),
+                    .rst       (rst),
+                    .req_valid (hart_req_valid[g]),
+                    .req_addr  (hart_req_addr[g]),
+                    .req_ready (hart_req_ready[g]),
+                    .rsp_valid (hart_rsp_valid[g]),
+                    .rsp_data  (hart_rsp_data[g]),
+                    .rsp_ready (hart_rsp_ready[g]),
+                    .flush     (hart_flush[g]),
+                    .irom_addr (bank_addr_direct[g]),
+                    .irom_data (bank_data_direct[g])
+                );
+                assign ic_req[g]      = 1'b0;
+                assign ic_req_addr[g] = {MEM_AW{1'b0}};
             end
 
             student_top #(
                 .DATA_OFFSET     (g * DATA_STRIDE),
                 .HART_ID         (g),
                 .HART_COUNT      (CORES),
-                .EXTERNAL_IROM   (1)
+                .EXTERNAL_IROM   (1),
+                .USE_ICACHE      (0)
             ) u_core (
                 .w_cpu_clk     (clk),
                 .w_clk_50Mhz   (clk),
@@ -129,10 +158,13 @@ module pipeline_amp_top #(
                 .retire_wdata    (retire_wdata[g]),
                 .retire_is_ebreak(retire_is_ebreak[g]),
 
-                .irom_addr       (hart_word[g]),
-                .irom_pc         (hart_pc[g]),
-                .irom_data       (hart_inst[g]),
-                .irom_ready      (hart_ready[g]),
+                .irom_req_valid  (hart_req_valid[g]),
+                .irom_req_addr   (hart_req_addr[g]),
+                .irom_req_ready  (hart_req_ready[g]),
+                .irom_rsp_valid  (hart_rsp_valid[g]),
+                .irom_rsp_data   (hart_rsp_data[g]),
+                .irom_rsp_ready  (hart_rsp_ready[g]),
+                .irom_flush      (hart_flush[g]),
 
                 .shared_rdata     (mbox_rsp_data[g]),
                 .shared_req_valid (mbox_req_valid[g]),

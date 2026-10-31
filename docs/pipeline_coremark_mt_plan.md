@@ -243,12 +243,13 @@ CoreMark 依次调用 N 次：
 
 ## 5. L1 I$（已实现）
 
-实现：`soc/amp/pipeline_icache.sv` + `soc/amp/pipeline_irom_arbiter.sv`。
+实现：`soc/amp/pipeline_amp_icache.sv` + `soc/amp/pipeline_irom_arbiter.sv`。
 
 - 每 hart 私有 L1 I$：默认 256 行 × 64 B = 16 KiB，直接映射；
   `ICACHE_LINES` 参数化（full-accel 镜像的 ~30 KiB 代码用 512 行）；
-- 命中保持原 1 拍取指；miss 通过新增的 `irom.ready` 握手停下 IFU
-  （PC 保持、不分配响应槽），refill 完成后同一 PC 重新命中；
+- 取指使用与单 hart 主线 I$ 相同的 req/rsp/flush 握手；命中时请求当拍
+  接受、下一拍返回指令；miss 时 `req_ready` 为低，IFU 保持 PC 且不分配
+  响应槽，refill 完成后同一 PC 重新命中；
 - refill 从**单端口共享 32 KiB IROM**：4 个 hart 的 refill 请求经
   round-robin 仲裁，一次授权完成整行 16 word 突发，保证不会装半行；
 - 代码只读，**不需要 I$ coherence**；`FENCE.I` 没有可失效的行
@@ -331,8 +332,8 @@ Verilator 中跑满；上表用同一份代码按比例缩小到 200 总迭代�
 
 ### Phase 3：L1 I$（已完成）
 
-- [x] 核心增加 `irom.ready` 握手（`IROM` bundle + `IFU.scala`），重新生成
-  `Mundus.sv`（3335 行）；miss 时 PC 保持、不分配响应槽；
+- [x] 核心采用 req/rsp/flush 取指握手（`IROM` bundle + `IFU.scala`），重新生成
+  `Mundus.sv`（3387 行）；miss 时 PC 保持、不分配响应槽；
 - [x] 每 hart 私有 16 KiB 直接映射 I$（256 行 × 64 B，`ICACHE_LINES`
   可配）；
 - [x] 单共享 32 KiB IROM + round-robin 整行 refill 仲裁；
@@ -400,9 +401,9 @@ Verilator 中跑满；上表用同一份代码按比例缩小到 200 总迭代�
 - `docs/coremark_multithread.md`：旧 2-hart CoreMark MT overlay 的行为和 mailbox 细节，可作为 port 改造参考；
 - `docs/pipeline_multicore.md`：共享 L2/coherence 的 2/4-hart profile，与本方案互斥；
 - `rtl/pipeline/soc/amp/pipeline_amp_top.sv`：SoC v2 参数化 top（`USE_ICACHE=1` 单共享 IROM + 每 hart I$；0 为复制 bank）；
-- `rtl/pipeline/soc/amp/pipeline_icache.sv`：每 hart 直接映射 I$（默认 16 KiB，`irom.ready` miss 停顿）；
+- `rtl/pipeline/soc/amp/pipeline_amp_icache.sv`：每 hart 直接映射 I$（默认 16 KiB，req/rsp miss 停顿）；
 - `rtl/pipeline/soc/amp/pipeline_irom_arbiter.sv`：round-robin 整行 refill 仲裁；
-- `rtl/pipeline/core/scsrc/ifu/IFU.scala` / `common/MundusPayloads.scala`：`irom.ready` 握手，重新生成 `Mundus.sv`；
+- `rtl/pipeline/core/scsrc/ifu/IFU.scala` / `common/MundusPayloads.scala`：req/rsp/flush 取指握手，重新生成 `Mundus.sv`；
 - `rtl/pipeline/soc/mc/pipeline_coremark_amp_top.sv`：旧模块名的薄封装；
 - `rtl/pipeline/soc/mc/pipeline_coremark_mbox.sv`：共享邮箱，4 槽 × 16 word；
 - `rtl/pipeline/soc/jyd/perip_bridge.sv`：`HART_ID`/`HART_COUNT` 与共享 MMIO 转发；
@@ -420,7 +421,7 @@ Verilator 中跑满；上表用同一份代码按比例缩小到 200 总迭代�
 - 使用标准 CoreMark MULTITHREAD 的 mailbox/start/stop；
 - hart id 由 `0xA000_0FF0` MMIO 提供（单发射核不实现 `mhartid`）；
 - MMIO 强序，handshake 只用编译器 barrier；紧跟设备 store 的 `fence` 暂不要求；
-- I$ 默认 16 KiB 直接映射，miss 用 `irom.ready` 停顿 IFU；共享 32 KiB IROM + refill 仲裁；
+- I$ 默认 16 KiB 直接映射，miss 用 req/rsp 握手停顿 IFU；共享 32 KiB IROM + refill 仲裁；
 - 代码只读，不做 I$ coherence / FENCE.I 失效；
 - 不做 L2、coherence、原子、完整 AMP；
 - 每 hart 私有 DRAM/加速器，shared 只读 IROM；

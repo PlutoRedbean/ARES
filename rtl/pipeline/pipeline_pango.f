@@ -39,6 +39,7 @@ rtl/pipeline/core/vsrc/modules/Reg.v
 rtl/pipeline/core/vsrc/modules/RegWithReset.v
 rtl/pipeline/core/vsrc/modules/Segment.v
 rtl/pipeline/core/vsrc/modules/Shifter.v
+rtl/pipeline/core/vsrc/icache/pipeline_icache.v
 
 # Memory wrappers that are inferred RAM in both flows
 rtl/pipeline/soc/ip/mult.v
@@ -54,6 +55,7 @@ rtl/pipeline/soc/jyd/pipeline_accel.sv
 # jyd SoC
 rtl/pipeline/soc/jyd/student_top.sv
 rtl/pipeline/soc/jyd/irom_bmem32.sv
+rtl/pipeline/soc/jyd/pipeline_irom_passthrough.v
 rtl/pipeline/soc/jyd/perip_bridge.sv
 rtl/pipeline/soc/jyd/bram_driver.sv
 rtl/pipeline/soc/jyd/counter.v
@@ -82,7 +84,7 @@ rtl/pipeline/soc/mc/pipeline_mc_soc_top.sv
 
 # Non-coherent multi-hart AMP profile (replicated IROM + shared mailbox)
 rtl/pipeline/soc/mc/pipeline_coremark_mbox.sv
-rtl/pipeline/soc/amp/pipeline_icache.sv
+rtl/pipeline/soc/amp/pipeline_amp_icache.sv
 rtl/pipeline/soc/amp/pipeline_irom_arbiter.sv
 rtl/pipeline/soc/amp/pipeline_amp_top.sv
 # Legacy module name kept as a thin wrapper over pipeline_amp_top.

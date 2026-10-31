@@ -1,11 +1,16 @@
 //=============================================================================
-// ARES pipeline SoC - per-hart instruction cache
+// ARES pipeline SoC - per-hart instruction cache for the AMP profile
 //-----------------------------------------------------------------------------
-// Direct-mapped instruction cache sitting between the core fetch port and the
-// shared read-only IROM refill bus.  The core sees the original one-cycle
-// fetch interface plus an "irom.ready" handshake: a hit asserts ready in the
-// request cycle and returns the word one cycle later; a miss deasserts ready
-// while the 64 B line is refilled through the shared IROM port.
+// Direct-mapped instruction cache sitting between the core front end and the
+// shared read-only IROM refill bus.  The core side uses the same request/
+// response handshake as the mainline core/vsrc/icache/pipeline_icache.v:
+//
+//   req_valid/req_addr/req_ready, rsp_valid/rsp_data/rsp_ready, flush
+//
+// A hit is accepted in the request cycle and returns the word one cycle
+// later; a miss keeps req_ready low while the 64 B line is refilled through
+// the shared IROM bus.  The module was renamed from pipeline_icache so it can
+// coexist with the mainline single-hart cache in one file list.
 //
 // Geometry: LINES x (LINE_BYTES/4) words.  The default 256 x 64 B = 16 KiB
 // covers the whole CoreMark text (about 13.8 KiB) with 256 distinct line
@@ -16,18 +21,21 @@
 //=============================================================================
 `include "autoconf.vh"
 
-module pipeline_icache #(
+module pipeline_amp_icache #(
     parameter integer LINE_BYTES = 64,
     parameter integer LINES      = 256
 ) (
     input  wire        clk,
     input  wire        rst,
 
-    // Core fetch port.  cpu_addr is the byte PC; cpu_data/cpu_ready follow
-    // the core's one-cycle read contract.
-    input  wire [31:0] cpu_addr,
-    output wire [31:0] cpu_data,
-    output wire        cpu_ready,
+    // Core fetch port (same contract as the mainline pipeline_icache).
+    input  wire        req_valid,
+    input  wire [31:0] req_addr,
+    output wire        req_ready,
+    output wire        rsp_valid,
+    output wire [31:0] rsp_data,
+    input  wire        rsp_ready,
+    input  wire        flush,
 
     // Shared IROM refill bus.  mem_req is held until the arbiter grants the
     // whole line; mem_gnt is level for LINE_WORDS cycles with mem_req_addr
@@ -53,21 +61,15 @@ module pipeline_icache #(
     localparam [1:0] S_FILL  = 2'd2;
     localparam [1:0] S_DRAIN = 2'd3;
 
-    wire [LINE_BITS-1:0] cpu_line = cpu_addr[LINE_BITS+WORD_BITS+1 : WORD_BITS+2];
-    wire [WORD_BITS-1:0] cpu_word = cpu_addr[WORD_BITS+1 : 2];
-    wire [TAG_BITS-1:0]  cpu_tag  = cpu_addr[31 : LINE_BITS+WORD_BITS+2];
+    wire [LINE_BITS-1:0] req_line = req_addr[LINE_BITS+WORD_BITS+1 : WORD_BITS+2];
+    wire [WORD_BITS-1:0] req_word = req_addr[WORD_BITS+1 : 2];
+    wire [TAG_BITS-1:0]  req_tag  = req_addr[31 : LINE_BITS+WORD_BITS+2];
 
     reg [31:0]          data_mem [0:DATA_WORDS-1];
     reg [TAG_BITS-1:0]  tag_mem  [0:LINES-1];
     reg [LINES-1:0]     valid_mem;
 
-    reg [31:0] data_q;
-    always @(posedge clk) begin
-        data_q <= data_mem[{cpu_line, cpu_word}];
-    end
-    assign cpu_data = data_q;
-
-    wire hit = valid_mem[cpu_line] && (tag_mem[cpu_line] == cpu_tag);
+    wire hit = valid_mem[req_line] && (tag_mem[req_line] == req_tag);
 
     reg [1:0]           state;
     reg [LINE_BITS-1:0] r_line;
@@ -80,11 +82,21 @@ module pipeline_icache #(
     reg [31:0]          refill_count;
     reg [31:0]          word_count;
 
-    assign cpu_ready     = hit && (state == S_IDLE);
-    assign mem_req       = req_r;
-    assign mem_req_addr  = r_base;
-    assign stat_refills  = refill_count;
-    assign stat_words    = word_count;
+    // Response slot.  A hit is registered here so the word is returned one
+    // cycle after the request handshake; the core holds rsp_ready low while
+    // its instruction buffer is full.
+    reg                 rsp_valid_r;
+    reg  [31:0]         rsp_data_r;
+    wire                out_free = !rsp_valid_r || rsp_ready;
+
+    assign req_ready    = (state == S_IDLE) && hit && out_free && !flush;
+    wire   req_fire     = req_valid && req_ready;
+    assign rsp_valid    = rsp_valid_r;
+    assign rsp_data     = rsp_data_r;
+    assign mem_req      = req_r;
+    assign mem_req_addr = r_base;
+    assign stat_refills = refill_count;
+    assign stat_words   = word_count;
 
     always @(posedge clk) begin
         if (rst) begin
@@ -95,14 +107,31 @@ module pipeline_icache #(
             fill_cnt      <= {(WORD_BITS+1){1'b0}};
             refill_count  <= 32'd0;
             word_count    <= 32'd0;
+            rsp_valid_r   <= 1'b0;
+            rsp_data_r    <= 32'd0;
+        end else if (flush) begin
+            // Redirect: drop the in-flight refill and the held response, but
+            // keep the lines that already completed.  The arbiter aborts the
+            // burst when mem_req drops (see pipeline_irom_arbiter).
+            state         <= S_IDLE;
+            req_r         <= 1'b0;
+            pending_valid <= 1'b0;
+            rsp_valid_r   <= 1'b0;
         end else begin
+            if (req_fire) begin
+                rsp_valid_r <= 1'b1;
+                rsp_data_r  <= data_mem[{req_line, req_word}];
+            end else if (rsp_valid_r && rsp_ready) begin
+                rsp_valid_r <= 1'b0;
+            end
+
             case (state)
                 S_IDLE: begin
-                    if (!hit) begin
+                    if (req_valid && !hit && out_free) begin
                         state         <= S_WAIT;
-                        r_line        <= cpu_line;
-                        r_tag         <= cpu_tag;
-                        r_base        <= {cpu_addr[MEM_AW+1 : WORD_BITS+2],
+                        r_line        <= req_line;
+                        r_tag         <= req_tag;
+                        r_base        <= {req_addr[MEM_AW+1 : WORD_BITS+2],
                                           {WORD_BITS{1'b0}}};
                         req_r         <= 1'b1;
                         pending_valid <= 1'b0;

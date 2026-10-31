@@ -144,10 +144,14 @@ endmodule
 module IFU(
   input         clock,
                 reset,
-  output [31:0] io_irom_addr,
-  input  [31:0] io_irom_data,
-  input         io_irom_ready,
-                io_out_ready,
+  output        io_irom_req_valid,
+  output [31:0] io_irom_req_addr,
+  input         io_irom_req_ready,
+                io_irom_rsp_valid,
+  input  [31:0] io_irom_rsp_data,
+  output        io_irom_rsp_ready,
+                io_irom_flush,
+  input         io_out_ready,
   output        io_out_valid,
   output [31:0] io_out_bits_pc,
                 io_out_bits_inst,
@@ -163,8 +167,10 @@ module IFU(
   input  [31:0] io_redirected_pc
 );
 
-  wire        fetchReqFire;
+  wire        io_irom_rsp_ready_0;
+  wire        fetchReqValid;
   wire        ifIdSourceValid;
+  wire        fetchReqFire;
   wire [31:0] currentPredTarget;
   wire        currentPredTaken;
   wire [96:0] _fqBits_ext_R0_data;
@@ -172,13 +178,19 @@ module IFU(
   wire        _bpu_io_resp_valid;
   wire        _bpu_io_predicted_taken;
   wire [31:0] _bpu_io_predicted_pc;
-  wire [31:0] _snpc_T = _PC_dout + 32'h4;
-  reg         fetchRespValid;
-  reg  [31:0] fetchRespMeta_pc;
-  reg  [31:0] fetchRespMeta_snpc;
-  reg         fetchRespMeta_predicted_taken;
-  reg  [31:0] fetchRespMeta_predicted_pc;
-  wire [31:0] nextPc = currentPredTaken ? currentPredTarget : _snpc_T;
+  wire [31:0] newMeta_snpc = _PC_dout + 32'h4;
+  reg  [31:0] metaVec_0_pc;
+  reg  [31:0] metaVec_0_snpc;
+  reg         metaVec_0_predicted_taken;
+  reg  [31:0] metaVec_0_predicted_pc;
+  reg  [31:0] metaVec_1_pc;
+  reg  [31:0] metaVec_1_snpc;
+  reg         metaVec_1_predicted_taken;
+  reg  [31:0] metaVec_1_predicted_pc;
+  reg  [1:0]  metaCount;
+  wire [31:0] nextPc = currentPredTaken ? currentPredTarget : newMeta_snpc;
+  wire        rspValid = io_irom_rsp_valid & (|metaCount);
+  wire        rspFire = rspValid & io_irom_rsp_ready_0;
   wire        bpu_io_req_valid = io_redirected | fetchReqFire;
   wire [31:0] bpu_io_current_pc = io_redirected ? io_redirected_pc : nextPc;
   reg         predHoldValid;
@@ -187,27 +199,36 @@ module IFU(
   assign currentPredTaken =
     _bpu_io_resp_valid ? _bpu_io_predicted_taken : predHoldValid & predHoldTaken;
   assign currentPredTarget = _bpu_io_resp_valid ? _bpu_io_predicted_pc : predHoldTarget;
+  assign fetchReqFire = fetchReqValid & io_irom_req_ready;
   wire        io_out_valid_0 = ifIdSourceValid & ~io_redirected;
   reg  [2:0]  fqHead;
   reg  [2:0]  fqTail;
   reg  [3:0]  fqCount;
-  assign ifIdSourceValid = (|fqCount) | fetchRespValid;
+  assign ifIdSourceValid = (|fqCount) | rspValid;
   wire        _responseBypassFire_T_2 = io_out_ready & io_out_valid_0;
   wire        fifoEnqFire =
-    fetchRespValid & ~(~(|fqCount) & fetchRespValid & _responseBypassFire_T_2);
-  assign fetchReqFire =
-    ~io_redirected & {1'h0, fqCount} + {4'h0, fetchRespValid} < 5'h8 & io_irom_ready;
+    rspValid & ~(~(|fqCount) & rspValid & _responseBypassFire_T_2);
+  assign fetchReqValid =
+    ~io_redirected & {1'h0, fqCount} + {3'h0, metaCount} < 5'h8
+    & (~(metaCount[1]) | rspFire);
+  assign io_irom_rsp_ready_0 = ~io_redirected & ~(fqCount[3]);
   `ifndef SYNTHESIS
     always @(posedge clock) begin
+      if (~reset & fetchReqFire & metaCount == 2'h2 & ~rspFire) begin
+        if (`ASSERT_VERBOSE_COND_)
+          $error("Assertion failed: IFU metadata queue overflow\n");
+        if (`STOP_COND_)
+          $fatal;
+      end
       if (~reset & fqCount > 4'h8) begin
         if (`ASSERT_VERBOSE_COND_)
           $error("Assertion failed: instruction buffer occupancy exceeded its depth\n");
         if (`STOP_COND_)
           $fatal;
       end
-      if (~reset & fetchRespValid & (|fqCount) & fqCount == 4'h8) begin
+      if (~reset & rspValid & (|fqCount) & fqCount == 4'h8) begin
         if (`ASSERT_VERBOSE_COND_)
-          $error("Assertion failed: instruction buffer received an unreserved IROM response\n");
+          $error("Assertion failed: instruction buffer received an unreserved cache response\n");
         if (`STOP_COND_)
           $fatal;
       end
@@ -215,44 +236,64 @@ module IFU(
   `endif // not def SYNTHESIS
   wire        fifoDeqFire = (|fqCount) & _responseBypassFire_T_2;
   wire        _GEN = _bpu_io_resp_valid & ~fetchReqFire;
+  wire [1:0]  _metaCountNext_T_6 = metaCount - 2'h1;
+  wire        _pushIdx_T_4 = rspFire ? _metaCountNext_T_6[0] : metaCount[0];
   always @(posedge clock) begin
-    if (reset) begin
-      fetchRespValid <= 1'h0;
-      predHoldValid <= 1'h0;
-      fqHead <= 3'h0;
-      fqTail <= 3'h0;
-      fqCount <= 4'h0;
+    if (io_redirected) begin
+    end
+    else if (fetchReqFire & ~_pushIdx_T_4) begin
+      metaVec_0_pc <= _PC_dout;
+      metaVec_0_snpc <= newMeta_snpc;
+      metaVec_0_predicted_taken <= currentPredTaken;
+      metaVec_0_predicted_pc <= nextPc;
+    end
+    else if (rspFire) begin
+      metaVec_0_pc <= metaVec_1_pc;
+      metaVec_0_snpc <= metaVec_1_snpc;
+      metaVec_0_predicted_taken <= metaVec_1_predicted_taken;
+      metaVec_0_predicted_pc <= metaVec_1_predicted_pc;
+    end
+    if (io_redirected | ~(fetchReqFire & _pushIdx_T_4)) begin
     end
     else begin
-      fetchRespValid <= ~io_redirected & fetchReqFire;
-      predHoldValid <=
-        ~io_redirected & (_GEN | ~(fetchReqFire & predHoldValid) & predHoldValid);
-      if (io_redirected) begin
-        fqHead <= 3'h0;
-        fqTail <= 3'h0;
-      end
-      else begin
-        if (fifoDeqFire)
-          fqHead <= (&fqHead) ? 3'h0 : fqHead + 3'h1;
-        if (fifoEnqFire)
-          fqTail <= (&fqTail) ? 3'h0 : fqTail + 3'h1;
-      end
-      fqCount <=
-        io_redirected ? 4'h0 : fqCount + {3'h0, fifoEnqFire} - {3'h0, fifoDeqFire};
-    end
-    if (io_redirected | ~fetchReqFire) begin
-    end
-    else begin
-      fetchRespMeta_pc <= _PC_dout;
-      fetchRespMeta_snpc <= _snpc_T;
-      fetchRespMeta_predicted_taken <= currentPredTaken;
-      fetchRespMeta_predicted_pc <= nextPc;
+      metaVec_1_pc <= _PC_dout;
+      metaVec_1_snpc <= newMeta_snpc;
+      metaVec_1_predicted_taken <= currentPredTaken;
+      metaVec_1_predicted_pc <= nextPc;
     end
     if (io_redirected | ~_GEN) begin
     end
     else begin
       predHoldTaken <= _bpu_io_predicted_taken;
       predHoldTarget <= _bpu_io_predicted_pc;
+    end
+    if (reset) begin
+      metaCount <= 2'h0;
+      predHoldValid <= 1'h0;
+      fqHead <= 3'h0;
+      fqTail <= 3'h0;
+      fqCount <= 4'h0;
+    end
+    else begin
+      if (io_redirected) begin
+        metaCount <= 2'h0;
+        fqHead <= 3'h0;
+        fqTail <= 3'h0;
+      end
+      else begin
+        if (fetchReqFire & ~rspFire)
+          metaCount <= metaCount + 2'h1;
+        else if (~fetchReqFire & rspFire)
+          metaCount <= _metaCountNext_T_6;
+        if (fifoDeqFire)
+          fqHead <= (&fqHead) ? 3'h0 : fqHead + 3'h1;
+        if (fifoEnqFire)
+          fqTail <= (&fqTail) ? 3'h0 : fqTail + 3'h1;
+      end
+      predHoldValid <=
+        ~io_redirected & (_GEN | ~(fetchReqFire & predHoldValid) & predHoldValid);
+      fqCount <=
+        io_redirected ? 4'h0 : fqCount + {3'h0, fifoEnqFire} - {3'h0, fifoDeqFire};
     end
   end // always @(posedge)
   BPU bpu (
@@ -287,19 +328,22 @@ module IFU(
     .W0_en   (~io_redirected & fifoEnqFire),
     .W0_clk  (clock),
     .W0_data
-      ({fetchRespMeta_predicted_pc,
-        fetchRespMeta_predicted_taken,
-        io_irom_data,
-        fetchRespMeta_pc})
+      ({metaVec_0_predicted_pc,
+        metaVec_0_predicted_taken,
+        io_irom_rsp_data,
+        metaVec_0_pc})
   );
-  assign io_irom_addr = _PC_dout;
+  assign io_irom_req_valid = fetchReqValid;
+  assign io_irom_req_addr = _PC_dout;
+  assign io_irom_rsp_ready = io_irom_rsp_ready_0;
+  assign io_irom_flush = io_redirected;
   assign io_out_valid = io_out_valid_0;
-  assign io_out_bits_pc = (|fqCount) ? _fqBits_ext_R0_data[31:0] : fetchRespMeta_pc;
-  assign io_out_bits_inst = (|fqCount) ? _fqBits_ext_R0_data[63:32] : io_irom_data;
+  assign io_out_bits_pc = (|fqCount) ? _fqBits_ext_R0_data[31:0] : metaVec_0_pc;
+  assign io_out_bits_inst = (|fqCount) ? _fqBits_ext_R0_data[63:32] : io_irom_rsp_data;
   assign io_out_bits_snpc =
-    (|fqCount) ? _fqBits_ext_R0_data[31:0] + 32'h4 : fetchRespMeta_snpc;
+    (|fqCount) ? _fqBits_ext_R0_data[31:0] + 32'h4 : metaVec_0_snpc;
   assign io_out_bits_predicted_pc =
-    (|fqCount) ? _fqBits_ext_R0_data[96:65] : fetchRespMeta_predicted_pc;
+    (|fqCount) ? _fqBits_ext_R0_data[96:65] : metaVec_0_predicted_pc;
 endmodule
 
 module IDU(
@@ -2655,10 +2699,14 @@ endmodule
 module Mundus(
   input         clock,
                 reset,
-  output [31:0] io_irom_addr,
-  input  [31:0] io_irom_data,
-  input         io_irom_ready,
-  output        io_perip_valid,
+  output        io_irom_req_valid,
+  output [31:0] io_irom_req_addr,
+  input         io_irom_req_ready,
+                io_irom_rsp_valid,
+  input  [31:0] io_irom_rsp_data,
+  output        io_irom_rsp_ready,
+                io_irom_flush,
+                io_perip_valid,
   input         io_perip_ready,
                 io_perip_rvalid,
                 io_perip_idle,
@@ -3014,9 +3062,13 @@ module Mundus(
   IFU IFU (
     .clock                    (clock),
     .reset                    (reset),
-    .io_irom_addr             (io_irom_addr),
-    .io_irom_data             (io_irom_data),
-    .io_irom_ready            (io_irom_ready),
+    .io_irom_req_valid        (io_irom_req_valid),
+    .io_irom_req_addr         (io_irom_req_addr),
+    .io_irom_req_ready        (io_irom_req_ready),
+    .io_irom_rsp_valid        (io_irom_rsp_valid),
+    .io_irom_rsp_data         (io_irom_rsp_data),
+    .io_irom_rsp_ready        (io_irom_rsp_ready),
+    .io_irom_flush            (io_irom_flush),
     .io_out_ready             (_IDU_io_in_ready & ~if_id_stall),
     .io_out_valid             (_IFU_io_out_valid),
     .io_out_bits_pc           (_IFU_io_out_bits_pc),

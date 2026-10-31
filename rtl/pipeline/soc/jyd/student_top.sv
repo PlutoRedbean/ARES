@@ -9,9 +9,13 @@ module student_top#(
     // Hart identity for the multi-hart CoreMark port (0xA000_0FF0/FF4).
     parameter [31:0]                    HART_ID             = 32'd0,
     parameter [31:0]                    HART_COUNT          = 32'd1,
-    // 0: internal 32 KiB IROM (single-hart profile).
-    // 1: the caller supplies the instruction memory (multi-hart AMP top).
-    parameter integer                   EXTERNAL_IROM       = 0
+    // 0: internal 32 KiB IROM and the mainline instruction cache.
+    // 1: the caller supplies the instruction-fetch path (multi-hart AMP top);
+    //    USE_ICACHE/ICACHE_PIPE_HITS are then unused inside this wrapper.
+    parameter integer                   EXTERNAL_IROM       = 0,
+    // Single-hart profile (EXTERNAL_IROM=0): 0 disables the internal cache.
+    parameter                           USE_ICACHE          = 1,
+    parameter                           ICACHE_PIPE_HITS    = 1
 ) (
     input                                       w_cpu_clk     ,
     input                                       w_clk_50Mhz   ,
@@ -37,13 +41,16 @@ module student_top#(
     output wire [31:0] retire_wdata,
     output wire        retire_is_ebreak,
 
-    // Instruction-memory port for the shared/replicated IROM top.  It is
-    // always driven; with EXTERNAL_IROM=0 the internal IROM also drives
-    // irom_data and the caller may leave these ports open.
-    output wire [`CONFIG_IROM_ADDR_WIDTH:0] irom_addr,
-    output wire [31:0] irom_pc,
-    input  wire [31:0] irom_data,
-    input  wire        irom_ready,
+    // Instruction-fetch port for the shared/replicated IROM top.  It uses
+    // the same req/rsp handshake as the internal cache and is only driven
+    // when EXTERNAL_IROM=1; the single-hart profile ties it off.
+    output wire        irom_req_valid,
+    output wire [31:0] irom_req_addr,
+    input  wire        irom_req_ready,
+    input  wire        irom_rsp_valid,
+    input  wire [31:0] irom_rsp_data,
+    output wire        irom_rsp_ready,
+    output wire        irom_flush,
 
     // Shared uncached MMIO pass-through for the multi-hart mailbox.  The
     // single-hart profile leaves it tied off in the board/top-level wrapper.
@@ -55,10 +62,17 @@ module student_top#(
     output wire [3:0]  shared_req_wstrb
 );
 
-    // IROM: one 32-bit instruction per entry (no 64-bit pair path).
-    wire [31:0] pc;
+    // Core fetch handshake and the selected instruction-memory path.
+    wire        core_irom_req_valid;
+    wire [31:0] core_irom_req_addr;
+    wire        core_irom_req_ready;
+    wire        core_irom_rsp_valid;
+    wire [31:0] core_irom_rsp_data;
+    wire        core_irom_rsp_ready;
+    wire        core_irom_flush;
+
     wire [`CONFIG_IROM_ADDR_WIDTH:0] inst_addr;
-    wire [31:0] instruction;
+    wire [31:0]                      instruction;
 
     // perip
     wire [31:0] perip_addr, perip_wdata, perip_rdata;
@@ -66,23 +80,18 @@ module student_top#(
     wire [1:0] perip_mask;
     wire perip_idle;
 
-    // 32-bit word index; CONFIG_IROM_ADDR_WIDTH is the old 64-bit-pair width.
-    assign inst_addr = pc[`CONFIG_IROM_ADDR_WIDTH + 2:2];
-    assign irom_addr = inst_addr;
-    assign irom_pc   = pc;
-
-    // Internal IROM always returns in one cycle; only the external path can
-    // insert an instruction-cache miss stall.
-    wire core_irom_ready = (EXTERNAL_IROM != 0) ? irom_ready : 1'b1;
-
     myCPU Core_cpu (
         .cpu_rst            (w_clk_rst),
         .cpu_clk            (w_cpu_clk),
 
-        // Interface to IROM
-        .irom_addr          (pc),             
-        .irom_data          (instruction),   
-        .irom_ready         (core_irom_ready),
+        // Interface to the instruction-fetch path
+        .irom_req_valid     (core_irom_req_valid),
+        .irom_req_addr      (core_irom_req_addr),
+        .irom_req_ready     (core_irom_req_ready),
+        .irom_rsp_valid     (core_irom_rsp_valid),
+        .irom_rsp_data      (core_irom_rsp_data),
+        .irom_rsp_ready     (core_irom_rsp_ready),
+        .irom_flush         (core_irom_flush),
 
         // Interface to DRAM & periphera
         .perip_valid        (perip_valid),
@@ -108,12 +117,102 @@ module student_top#(
         .retire_is_ebreak   (retire_is_ebreak)
     );
 
-    // Single-hart profile: local 32 KiB IROM.  Multi-hart AMP top: one
-    // replicated IROM bank per hart outside this wrapper.
     generate
         if (EXTERNAL_IROM != 0) begin : g_external_irom
-            assign instruction = irom_data;
+            // The AMP top owns the per-hart cache/refill path.
+            assign irom_req_valid      = core_irom_req_valid;
+            assign irom_req_addr       = core_irom_req_addr;
+            assign core_irom_req_ready = irom_req_ready;
+            assign core_irom_rsp_valid = irom_rsp_valid;
+            assign core_irom_rsp_data  = irom_rsp_data;
+            assign irom_rsp_ready      = core_irom_rsp_ready;
+            assign irom_flush          = core_irom_flush;
+            assign inst_addr           = {(`CONFIG_IROM_ADDR_WIDTH+1){1'b0}};
         end else begin : g_internal_irom
+            assign irom_req_valid = 1'b0;
+            assign irom_req_addr  = 32'd0;
+            assign irom_rsp_ready = 1'b0;
+            assign irom_flush     = 1'b0;
+
+            if (USE_ICACHE) begin : g_icache
+                wire        refill_req_valid;
+                wire [31:0] refill_req_addr;
+                wire        refill_req_ready;
+                wire        refill_rsp_valid;
+                wire [31:0] refill_rsp_data;
+                wire        refill_rsp_ready;
+
+                pipeline_icache #(
+                    .ADDR_WIDTH (32),
+                    .DATA_WIDTH (32),
+                    .LINE_BYTES (32),
+                    .NR_SETS    (32),
+                    .NR_WAYS    (4),
+                    .BEAT_BYTES (4),
+                    .PIPE_HITS  (ICACHE_PIPE_HITS)
+                ) u_icache (
+                    .clk               (w_cpu_clk),
+                    .rst               (w_clk_rst),
+
+                    .req_valid         (core_irom_req_valid),
+                    .req_addr          (core_irom_req_addr),
+                    .req_ready         (core_irom_req_ready),
+                    .rsp_valid         (core_irom_rsp_valid),
+                    .rsp_data          (core_irom_rsp_data),
+                    .rsp_ready         (core_irom_rsp_ready),
+                    .flush             (core_irom_flush),
+
+                    .refill_req_valid  (refill_req_valid),
+                    .refill_req_addr   (refill_req_addr),
+                    .refill_req_ready  (refill_req_ready),
+                    .refill_rsp_valid  (refill_rsp_valid),
+                    .refill_rsp_data   (refill_rsp_data),
+                    .refill_rsp_ready  (refill_rsp_ready),
+
+                    .stats_dump        (retire_valid && retire_is_ebreak),
+                    .hit_count         (),
+                    .miss_count        (),
+                    .refill_count      (),
+                    .request_count     ()
+                );
+
+                // Reuse the 1-cycle passthrough as the IROM refill adapter.
+                pipeline_irom_passthrough #(
+                    .ADDR_WIDTH           (32),
+                    .IROM_WORD_ADDR_WIDTH (`CONFIG_IROM_ADDR_WIDTH + 1)
+                ) u_irom_refill (
+                    .clk              (w_cpu_clk),
+                    .rst              (w_clk_rst),
+                    .req_valid        (refill_req_valid),
+                    .req_addr         (refill_req_addr),
+                    .req_ready        (refill_req_ready),
+                    .rsp_valid        (refill_rsp_valid),
+                    .rsp_data         (refill_rsp_data),
+                    .rsp_ready        (refill_rsp_ready),
+                    .flush            (core_irom_flush),
+                    .irom_addr        (inst_addr),
+                    .irom_data        (instruction)
+                );
+            end else begin : g_direct
+                // Baseline path: original direct-IROM timing, same handshake.
+                pipeline_irom_passthrough #(
+                    .ADDR_WIDTH           (32),
+                    .IROM_WORD_ADDR_WIDTH (`CONFIG_IROM_ADDR_WIDTH + 1)
+                ) u_irom_passthrough (
+                    .clk              (w_cpu_clk),
+                    .rst              (w_clk_rst),
+                    .req_valid        (core_irom_req_valid),
+                    .req_addr         (core_irom_req_addr),
+                    .req_ready        (core_irom_req_ready),
+                    .rsp_valid        (core_irom_rsp_valid),
+                    .rsp_data         (core_irom_rsp_data),
+                    .rsp_ready        (core_irom_rsp_ready),
+                    .flush            (core_irom_flush),
+                    .irom_addr        (inst_addr),
+                    .irom_data        (instruction)
+                );
+            end
+
             IROM_BMEM32 Mem_IROM (
                 .addra            (inst_addr  ),
                 .clka             (w_cpu_clk  ),
@@ -121,7 +220,7 @@ module student_top#(
             );
         end
     endgenerate
-    
+
     perip_bridge #(
         .HART_ID        (HART_ID),
         .HART_COUNT     (HART_COUNT)

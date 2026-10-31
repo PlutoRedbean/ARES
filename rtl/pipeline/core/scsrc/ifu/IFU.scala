@@ -49,8 +49,13 @@ class IFU extends Module {
   val pc = Wire(UInt(PC_DATA_WIDTH.W))
   val snpc = pc + 4.U
 
-  val fetchRespValid = RegInit(false.B)
-  val fetchRespMeta = Reg(new FetchMeta)
+  // Up to two cache requests may be outstanding.  The cache can accept the
+  // next request in the same cycle it commits a hit response, so the IFU keeps
+  // a two-entry metadata queue: head pairs with the current response, tail
+  // with the request still in the cache pipeline.
+  val metaVec = Reg(Vec(2, new FetchMeta))
+  val metaCount = RegInit(0.U(2.W))
+  val metaHead = metaVec(0)
 
   val bpu = Module(new BPU())
   bpu.io.update_en     := io.bpu_update_en
@@ -70,7 +75,11 @@ class IFU extends Module {
   val currentPredTarget = Wire(UInt(PC_DATA_WIDTH.W))
   val nextPc = Mux(currentPredTaken, currentPredTarget, snpc)
 
+  val fetchReqValid = Wire(Bool())
   val fetchReqFire = Wire(Bool())
+  val rspValid = io.irom.rsp_valid && (metaCount =/= 0.U)
+  val rspFire = rspValid && io.irom.rsp_ready && !io.redirected
+  val metaHasSpace = (metaCount < 2.U) || rspFire
   val ifIdSourceValid = Wire(Bool())
   val ifIdSourceBits = Wire(new IF_ID_Payload)
 
@@ -112,19 +121,57 @@ class IFU extends Module {
   PC.io.wen := io.redirected || fetchReqFire
   PC.io.din := Mux(io.redirected, io.redirected_pc, nextPc)
 
+  // IROM/cache request side.  `fetchReqValid` is the intent; `fetchReqFire`
+  // is the actual handshake, and only that advances PC/BPU.
+  io.irom.req_valid := fetchReqValid
+  io.irom.req_addr := pc
+  io.irom.flush := io.redirected
+  fetchReqFire := fetchReqValid && io.irom.req_ready
+
+  val newMeta = Wire(new FetchMeta)
+  newMeta.pc := pc
+  newMeta.snpc := snpc
+  newMeta.predicted_taken := currentPredTaken
+  newMeta.predicted_pc := Mux(currentPredTaken, currentPredTarget, snpc)
+
+  // Push on request fire, pop on response fire.  When both happen in the same
+  // cycle the freed slot is reused; when metaCount==2 and a response is
+  // consumed, the new request goes into slot 1 after slot 1 shifts to slot 0.
+  val pushIdx = Mux(rspFire && (metaCount =/= 0.U),
+    metaCount - 1.U, metaCount)(0)
+  val metaCountNext = MuxCase(metaCount, Seq(
+    (fetchReqFire && !rspFire) -> (metaCount + 1.U),
+    (!fetchReqFire && rspFire) -> (metaCount - 1.U)
+  ))
+
+  when (io.redirected) {
+    metaCount := 0.U
+  } .otherwise {
+    when (rspFire) {
+      metaVec(0) := metaVec(1)
+    }
+    when (fetchReqFire) {
+      metaVec(pushIdx) := newMeta
+    }
+    metaCount := metaCountNext
+  }
+
+  assert(!(fetchReqFire && (metaCount === 2.U) && !rspFire),
+    "IFU metadata queue overflow")
+
   val fetchRespBits = Wire(new IF_ID_Payload)
-  fetchRespBits.pc := fetchRespMeta.pc
-  fetchRespBits.snpc := fetchRespMeta.snpc
-  fetchRespBits.inst := io.irom.data
-  fetchRespBits.predicted_taken := fetchRespMeta.predicted_taken
-  fetchRespBits.predicted_pc := fetchRespMeta.predicted_pc
+  fetchRespBits.pc := metaHead.pc
+  fetchRespBits.snpc := metaHead.snpc
+  fetchRespBits.inst := io.irom.rsp_data
+  fetchRespBits.predicted_taken := metaHead.predicted_taken
+  fetchRespBits.predicted_pc := metaHead.predicted_pc
 
   io.out.valid := ifIdSourceValid && !io.redirected
   io.out.bits := ifIdSourceBits
 
   if (FrontendBufferEnabled) {
     // Asynchronous-read, fall-through instruction buffer.  When it is empty,
-    // the IROM response bypasses the storage and can enter IF/ID immediately.
+    // the cache response bypasses the storage and can enter IF/ID immediately.
     // Responses are stored only when an older buffered instruction must leave
     // first, or when the backend cannot accept the current response.
     val fqBits = Mem(FrontendBufferDepth, new FetchBufferEntry)
@@ -147,23 +194,22 @@ class IFU extends Module {
     fifoEnqBits.predicted_taken := fetchRespBits.predicted_taken
     fifoEnqBits.predicted_pc := fetchRespBits.predicted_pc
 
-    ifIdSourceValid := fifoOutValid || fetchRespValid
+    ifIdSourceValid := fifoOutValid || rspValid
     ifIdSourceBits := Mux(fifoOutValid, fifoOutBits, fetchRespBits)
 
     val fifoDeqFire = fifoOutValid && io.out.fire
-    val responseBypassFire = !fifoOutValid && fetchRespValid && io.out.fire
-    val fifoEnqFire = fetchRespValid && !responseBypassFire
+    val responseBypassFire = !fifoOutValid && rspValid && io.out.fire
+    val fifoEnqFire = rspValid && !responseBypassFire
 
-    // The synchronous IROM response already in flight reserves one buffer
+    // Every in-flight request or held response reserves one future buffer
     // slot.  Deliberately do not credit a same-cycle dequeue here: doing so
     // would put the backend ready path back into PC/BPU request generation.
-    val reservedCount = fqCount +& fetchRespValid.asUInt
+    val reservedCount = fqCount +& metaCount
     val fifoHasSpace = reservedCount < FrontendBufferDepth.U
 
-    // An instruction-cache miss deasserts irom.ready; hold the PC and do not
-    // allocate a response slot until the cache can return the word.
-    fetchReqFire := !io.redirected && fifoHasSpace && io.irom.ready
-    io.irom.addr := pc
+    fetchReqValid := !io.redirected && fifoHasSpace && metaHasSpace
+    io.irom.rsp_ready := !io.redirected &&
+      (fqCount < FrontendBufferDepth.U)
 
     def ptrNext(ptr: UInt): UInt =
       Mux(ptr === (FrontendBufferDepth - 1).U, 0.U, ptr + 1.U)
@@ -173,7 +219,6 @@ class IFU extends Module {
         fqCount + fifoEnqFire.asUInt - fifoDeqFire.asUInt)
 
     when (io.redirected) {
-      fetchRespValid := false.B
       fqHead := 0.U
       fqTail := 0.U
       fqCount := 0.U
@@ -186,43 +231,21 @@ class IFU extends Module {
         fqHead := ptrNext(fqHead)
       }
       fqCount := fqCountNext
-      fetchRespValid := fetchReqFire
-
-      when (fetchReqFire) {
-        fetchRespMeta.pc := pc
-        fetchRespMeta.snpc := snpc
-        fetchRespMeta.predicted_taken := currentPredTaken
-        fetchRespMeta.predicted_pc := Mux(currentPredTaken, currentPredTarget, snpc)
-      }
     }
 
     assert(fqCount <= FrontendBufferDepth.U,
       "instruction buffer occupancy exceeded its depth")
-    assert(!(fetchRespValid && fifoOutValid &&
+    assert(!(rspValid && fifoOutValid &&
       fqCount === FrontendBufferDepth.U),
-      "instruction buffer received an unreserved IROM response")
+      "instruction buffer received an unreserved cache response")
   } else {
-    // valid 响应且下游未接收时，响应槽必须整体保持。
-    val respSlotHolding = fetchRespValid && !io.out.ready
+    // No fall-through buffer: the cache response goes straight to IF/ID.
+    val respSlotHolding = rspValid && !io.out.ready
 
-    // Symmetric with the buffered path: a cache miss suppresses the request
-    // and the response slot instead of producing a stale instruction.
-    fetchReqFire := !io.redirected && !respSlotHolding && io.irom.ready
-    ifIdSourceValid := fetchRespValid
+    fetchReqValid := !io.redirected && !respSlotHolding && metaHasSpace
+    io.irom.rsp_ready := !io.redirected && io.out.ready
+    ifIdSourceValid := rspValid
     ifIdSourceBits := fetchRespBits
-
-    io.irom.addr := Mux(respSlotHolding, fetchRespMeta.pc, pc)
-
-    // 非 redirect 时，响应槽要么保持旧响应，要么接受一个新请求，
-    // 因而下一拍必然有效。
-    fetchRespValid := fetchReqFire || respSlotHolding
-
-    when (fetchReqFire) {
-      fetchRespMeta.pc := pc
-      fetchRespMeta.snpc := snpc
-      fetchRespMeta.predicted_taken := currentPredTaken
-      fetchRespMeta.predicted_pc := Mux(currentPredTaken, currentPredTarget, snpc)
-    }
   }
 
   io.ready := fetchReqFire

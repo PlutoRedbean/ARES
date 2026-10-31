@@ -14,7 +14,9 @@ the ARES custom-0 CRC8 instruction (split into two 4-bit EX1/EX2 stages), and
 the SoC instantiates the existing 9-PE matrix engine and state-machine token
 scanner behind a small 0xA000_1000 / 0xA000_2000 MMIO wrapper.  The 100-iteration
 simulation passes all known CoreMark CRCs; full acceleration reaches
-7.916002 CoreMark/MHz.  See [docs/pipeline_accel_images.md](../../docs/pipeline_accel_images.md).
+8.030366 CoreMark/MHz with the instruction cache bypassed and 7.526562 with
+the pipelined cache enabled.  See
+[docs/pipeline_accel_images.md](../../docs/pipeline_accel_images.md).
 
 ## Source provenance
 
@@ -29,8 +31,8 @@ tree; the npc checkout remains untouched.
 
 Generated core RTL:
 
-- `core/vsrc/build/Mundus.sv` (firtool 1.77.0, 3335 lines)
-- SHA-256 `1aa0e9390eb9bc769deac1db0b69492715d7e0320623874612a8ff492862a12b`
+- `core/vsrc/build/Mundus.sv` (firtool 1.77.0, 3387 lines)
+- SHA-256 `a8728a0fc3e3e64e41721a240da38c18d13cf0a0aadc07d13620e580051b55b4`
 - Generated **inside this ARES checkout** by `rtl/pipeline/gen` with
   `make pipeline-core-gen`; the output target is
   `rtl/pipeline/core/vsrc/build/Mundus.sv`.
@@ -125,6 +127,45 @@ make coremark-image     # if build/coremark does not exist yet
 make pipeline-image     # -> build/pipeline/{irom,dram}.hex + image.json
 ```
 
+## Instruction cache (P2)
+
+The single-hart pipeline front end now has a self-contained instruction cache
+between the IFU and the IROM:
+
+```text
+IFU (Mundus) -> pipeline_icache -> pipeline_irom_passthrough -> IROM_BMEM32
+```
+
+- `core/vsrc/icache/pipeline_icache.v`: 1-wide, 4 KiB, 4-way, 32 B line,
+  age-based LRU, inferred-BRAM data array.  Pure Verilog-2005 style (no
+  SystemVerilog types/interfaces); no `rtl/frontend`/`fe_pkg`/AXI dependency.
+- `soc/jyd/pipeline_irom_passthrough.v`: 1-cycle IROM adapter, also used as
+  the refill adapter and as the `USE_ICACHE=0` baseline path.
+- `core/scsrc/common/MundusPayloads.scala` / `core/scsrc/ifu/IFU.scala`:
+  the IROM bundle now has `req_valid/req_ready/rsp_valid/rsp_ready/flush`,
+  and the IFU tracks up to two in-flight requests in a two-entry metadata
+  queue instead of assuming a fixed one-cycle response.
+- `student_top.sv` has `USE_ICACHE` (default `1`).  `USE_ICACHE=0` instantiates
+  only the passthrough and reproduces the pre-cache CoreMark cycles exactly
+  (`make pipeline-coremark-nocache`).
+- `EXTERNAL_IROM=1` instead exposes the same req/rsp fetch handshake for the
+  multi-hart AMP top.  Its per-hart cache is
+  `soc/amp/pipeline_amp_icache.sv` (16 KiB, 64 B line, shared-IROM refill
+  bursts); the distinct module name avoids clashing with the single-hart
+  `pipeline_icache` in the same file list.
+- `ICACHE_PIPE_HITS` (default `1`) lets the cache accept a new request every
+  cycle while the current lookup hits.  `0` keeps the earlier serialised
+  2-cycle cadence (`make pipeline-coremark-serial` for A/B).
+- `pipeline_hart.sv` currently keeps the passthrough path; per-hart cache
+  integration is a later step.
+
+The 2-cycle hit latency remains, but the pipelined hit path sustains one
+instruction/cycle.  Baseline CoreMark is within ~2.6% of the cache-off cycles
+and full-accelerated within ~6.7%; the residual is redirect latency plus
+refill exposure.  See
+[docs/microarch/pipeline_icache.md](../../docs/microarch/pipeline_icache.md)
+for the FSM, interfaces, redirect/flush rules and measured numbers.
+
 ## Verification
 
 ```bash
@@ -132,7 +173,9 @@ make pipeline-core-gen   # Chisel -> rtl/pipeline/core/vsrc/build/Mundus.sv
 make pipeline-lint
 make pipeline-smoke
 make pipeline-isa         # 36/36 cpu-tests
-make pipeline-coremark    # baseline 100-iteration CoreMark
+make pipeline-coremark    # baseline 100-iteration CoreMark (pipelined cache)
+make pipeline-coremark-serial   # same image with ICACHE_PIPE_HITS=0
+make pipeline-coremark-nocache  # same image with USE_ICACHE=0
 make pipeline-image       # Pango IROM/DRAM readmemh split
 make pipeline-pango-lint  # board top + PLL model + Pango CDC
 make pipeline-console     # Pango-only CDC/UART/mailbox directed test
@@ -157,9 +200,17 @@ make pipeline-coremark-mc              # 2-hart full-accelerated CoreMark (AMP)
 - `pipeline-isa`: 36/36 ISA tests pass.  The harness loads each
   `tests/cpu-tests/build/*-riscv32-ares.bin` image and checks EBREAK plus a0.
 - `pipeline-coremark`: baseline `build/coremark/coremark.bin`, 100 iterations:
-  - timed cycles `43,597,126`;
-  - `2,293,729` CoreMark/MHz;
-  - CRCs `e714 / 1fd7 / 8e3a / 988c` and `CoreMark PASS`.
+  - cache off (`USE_ICACHE=0`): `cycles=43,659,057`,
+    `2.293038` CoreMark/MHz (P0 measurement on this tree; the older M1 plan
+    records `43,597,126` from an earlier tree);
+  - cache on, serial (`USE_ICACHE=1`, `ICACHE_PIPE_HITS=0`):
+    `cycles=72,712,371`, `1.376911` CoreMark/MHz;
+  - cache on, pipelined (default): `cycles=44,818,745`,
+    `2.233867` CoreMark/MHz;
+  - CRCs `e714 / 1fd7 / 8e3a / 988c` and `CoreMark PASS` in all modes.
+- `make pipeline-coremark-full` with the pipelined cache: `cycles=13,340,720`,
+  `7.526562` CoreMark/MHz, same CRCs; serial cache `18,927,949` /
+  `5.306702`; cache off `12,501,880` / `8.030366`.
 - `pipeline-console`: compiles the SoC without `__VERILATOR__`, so it runs the
   same CDC/UART/BRAM path as the Pango board (100 MHz CPU / 50 MHz peripheral,
   generic CDC, real UART toggle handshake, LED/SEG mailbox, inferred IROM/DRAM
@@ -181,6 +232,9 @@ The pipeline SoC reuses the OoO accelerator RTL and software variants:
 | Full | CRC + array list + matrix + state | 7.916002 |
 
 All four variants print `e714 / 1fd7 / 8e3a / 988c` and `CoreMark PASS`.
+The table is the `USE_ICACHE=0` baseline; with the default pipelined
+instruction cache enabled, the full variant measures `7.526562`
+CoreMark/MHz (same CRCs).
 The full image occupies 7609 / 8192 IROM words, so code-size headroom is small.
 See `docs/pipeline_accel_images.md` for the MMIO map, response timing and
 critical-path notes.
@@ -197,7 +251,7 @@ The pipeline SoC now has a configurable 2/4-hart coherent build:
 | MMIO | `soc/mc/pipeline_mmio.sv` | Per-hart hart-id/count, 64-bit cycle counter, UART, LED, per-hart matrix/state MMIO |
 | SoC | `soc/mc/pipeline_mc_soc_top.sv` | `CORES=2` or `CORES=4`; shared L2, per-hart IROM/MMIO; `DATA_STRIDE` |
 | AMP SoC v2 | `soc/amp/pipeline_amp_top.sv` | `CORES=2/4`; shared IROM + per-hart I$ or replicated banks + private DRAM window + shared mailbox |
-| I$ | `soc/amp/pipeline_icache.sv` | per-hart 16 KiB direct-mapped instruction cache, 64 B lines, `irom.ready` miss stall |
+| I$ | `soc/amp/pipeline_amp_icache.sv` | per-hart 16 KiB direct-mapped instruction cache, 64 B lines, req/rsp miss stall |
 | IROM arbiter | `soc/amp/pipeline_irom_arbiter.sv` | round-robin refill bursts over one shared 32 KiB IROM bank |
 | AMP CoreMark | `soc/mc/pipeline_coremark_amp_top.sv` | legacy-name wrapper over `pipeline_amp_top` |
 | MT mailbox | `soc/mc/pipeline_coremark_mbox.sv` | shared uncached CoreMark mailbox, 4 slots × 16 words at `0xA000_F000` |
@@ -212,12 +266,13 @@ installed.  This avoids a per-line directory and keeps the invalidate sideband
 to a single tag-RAM write.  The L2 request is latched before lookup; arbitration
 is a small round-robin over hart valid bits, not a path through the data arrays.
 
-`student_top` remains the single-hart profile.  `pipeline_amp_top` is the
+`student_top` is the single-hart profile; with `EXTERNAL_IROM=1` it also
+provides the req/rsp fetch port used by the AMP top.  `pipeline_amp_top` is the
 2/4-hart non-coherent AMP profile.  By default (`USE_ICACHE=1`) the harts share
 one 32 KiB IROM bank and each hart has a private 16 KiB direct-mapped I$
-(64 B lines, `irom.ready` miss stall) whose refills are burst-arbitrated; the
+(64 B lines, req/rsp miss stall) whose refills are burst-arbitrated; the
 `USE_ICACHE=0` profile is the Phase 2 variant with one replicated 32 KiB bank
-per hart.  Every hart also has a private 32 KiB DRAM window (`DATA_OFFSET`),
+per hart, reached through the 1-cycle passthrough.  Every hart also has a private 32 KiB DRAM window (`DATA_OFFSET`),
 private MMIO/accelerators and a shared uncached mailbox.
 `pipeline_coremark_amp_top` is kept as a legacy-name wrapper.
 `pipeline_mc_soc_top` is the 2/4-hart coherent profile;
@@ -257,8 +312,10 @@ the architecture and [docs/pipeline_coremark_full_mt_flow.md](../../docs/pipelin
 for the step-by-step IROM image build and full-accelerated MT run.
 
 Phase 3 adds the per-hart instruction cache and collapses the IROM to one
-shared bank: the IFU now waits on `irom.ready`, each hart has a 16 KiB
-direct-mapped I$, and a round-robin arbiter grants whole 64 B refill bursts.
+shared bank: the AMP I$ uses the same req/rsp fetch handshake as the mainline
+cache, each hart has a 16 KiB direct-mapped I$, and a round-robin arbiter
+grants whole 64 B refill bursts.  A redirect drops the in-flight refill, and
+the arbiter aborts the burst as soon as its owner releases `req`.
 With the 200-iteration profile the scores are 4.579943 (2 harts) and 9.166984
 (4 harts) CoreMark/MHz - within 0.03% of the no-cache/replicated-bank profile -
 while the whole run fetches only 5,072 / 8,784 words from the shared IROM
@@ -271,11 +328,18 @@ protocol, memory map, timing notes and test evidence.
 
 ## Known gaps (next milestones)
 
+- The instruction cache has no `FENCE.I` invalidate and the fetch queue is not
+  flushed on `FENCE.I`; the private IROM is read-only, so self-modifying code
+  is not supported yet.
+- `pipeline_hart.sv` still uses the 1-cycle passthrough; per-hart instruction
+  cache integration is a later multi-hart step.
 - The 2-hart full-accelerated aggregate image uses 8,108 / 8,192 IROM words
   (32,432 B of 32 KiB, 336 B spare).  The 4-hart aggregate version needs about
   33,068 B and does not link; 4-hart full acceleration currently runs as the
   AMP profile (30,436 B MULTITHREAD=1 image).  Growing the IROM to 64 KiB or
   trimming code is a Phase 4 item.
+- The full accelerated CoreMark image uses 7609 / 8192 IROM words (about
+  30.4 KiB of 32 KiB); further code growth needs trimming or a larger IROM.
 - Pango PDS is not installed on this Linux host.  The RTL/platform layer is
   ready, but PG2L200H synthesis, implementation, timing/resources and the
   on-board run still have to be executed on the Pango host; see
