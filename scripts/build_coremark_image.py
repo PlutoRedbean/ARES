@@ -133,8 +133,8 @@ def check_frozen(port: Path) -> dict:
         text = path.read_text()
         if not re.search(pattern, text):
             die(f"frozen parameter changed: {name}: {description}. "
-                f"Record the change in tests/benchmarks/coremark/NOTICE.md and "
-                f"docs/m1_closure_decisions.md before rebuilding.")
+                f"Record the change in tests/benchmarks/coremark/NOTICE.md "
+                f"before rebuilding.")
         frozen[description] = value
     # A single instance per hart, and no path that could pull in host stdio.
     return {

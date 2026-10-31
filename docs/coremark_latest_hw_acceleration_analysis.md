@@ -1,5 +1,8 @@
 # ARES 双核 CoreMark 最新指令流与硬件加速路线
 
+> 历史说明：本文中的 OoO 核 / 共享 L2 集成路径（`rtl/top/*`、`rtl/backend/*`、`rtl/l2/*`）已随老核删除；
+> 引擎本身与镜像流程仍由当前的流水线 SoC 复用，见 `README.md`。
+
 > 分析日期：2026-10-28
 > 分析对象：`ares_2core_frontend_l2_top`（2 hart AMP，私有 L1I/L1D，共享 32 KiB L2）
 > 软件基线：CRC8 自定义指令 + 符号插入（不改 `core_util.c`）、`-O3 -funroll-loops`、32 KiB ICache、speculative load probe（`fae6af9` 及之后的工作树）

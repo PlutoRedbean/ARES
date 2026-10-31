@@ -1,5 +1,8 @@
 # CoreMark MULTITHREAD=2：双核并行、单份报告
 
+> 历史说明：本文中的 OoO 核 / 共享 L2 集成路径（`rtl/top/*`、`rtl/backend/*`、`rtl/l2/*`）已随老核删除；
+> 引擎本身与镜像流程仍由当前的流水线 SoC 复用，见 `README.md`。
+
 > 状态：2026-10-29 本地仿真通过。EEMBC 源码零修改（overlay 只落在 `build/coremark_mt/port`）。
 >
 > 新的 pipeline SoC 2/4-hart 方案见

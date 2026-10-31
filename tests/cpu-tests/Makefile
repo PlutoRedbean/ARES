@@ -5,9 +5,11 @@
 # into a tiny makefile that links the program against the ARES AbstractMachine
 # subset and then runs it in the ARES Verilator simulation.
 #
-#   make ARCH=riscv32-ares run            build and run every test
-#   make ARCH=riscv32-ares ALL=add run    build and run one test
-#   make ARCH=riscv32-ares add            build and run a single test
+#   make ARCH=riscv32-ares images         build every test image (no simulator)
+#   make ARCH=riscv32-ares ALL=add images build one image
+#   make ARCH=riscv32-ares run            build + run in the ARES Verilator model
+#                                         (that model was removed with the legacy
+#                                         core; use the pipeline harness instead)
 #   make clean
 #=============================================================================
 CPU_TESTS_HOME := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
@@ -18,7 +20,7 @@ include $(ARES_HOME)/common.mk
 
 ARCH ?= riscv32-ares
 
-.PHONY: all run clean latest $(ALL)
+.PHONY: all run images clean latest $(ALL)
 
 RESULT = .result
 $(shell > $(RESULT))
@@ -29,14 +31,26 @@ COLOR_NONE  = \033[0m
 
 ALL = $(basename $(notdir $(shell find tests/. -name "*.c")))
 
+# "run" builds each test and executes it in the ARES Verilator model (removed
+# with the legacy core); "images" only builds the ELF/bin the pipeline harness
+# consumes (make pipeline-isa-images builds them from the top-level Makefile).
+ifeq ($(filter run,$(MAKECMDGOALS)),run)
+GOAL = run
+else
+GOAL = image
+endif
+
 all: $(addprefix Makefile., $(ALL))
 	@echo "test list [$(words $(ALL)) item(s)]:" $(ALL)
+
+images: $(addprefix Makefile., $(ALL))
+	@echo "built $(words $(ALL)) images under build/"
 
 $(ALL): %: Makefile.%
 
 Makefile.%: tests/%.c latest
 	@/bin/echo -e "NAME = $*\nSRCS = $<\ninclude ${ARES_HOME}/tests/abstract-machine/Makefile" > $@
-	@if make -s -f $@ ARCH=$(ARCH) $(MAKECMDGOALS); then \
+	@if make -s -f $@ ARCH=$(ARCH) $(GOAL); then \
 		printf "[%14s] $(COLOR_GREEN)PASS$(COLOR_NONE)\n" $* >> $(RESULT); \
 	else \
 		printf "[%14s] $(COLOR_RED)***FAIL***$(COLOR_NONE)\n" $* >> $(RESULT); \

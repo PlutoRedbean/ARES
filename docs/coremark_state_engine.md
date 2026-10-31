@@ -1,5 +1,8 @@
 # ARES 状态机 token scanner（CoreMark core_bench_state）
 
+> 历史说明：本文中的 OoO 核 / 共享 L2 集成路径（`rtl/top/*`、`rtl/backend/*`、`rtl/l2/*`）已随老核删除；
+> 引擎本身与镜像流程仍由当前的流水线 SoC 复用，见 `README.md`。
+
 > 状态：RTL 扫描器 + 单元测试 + 双核 CoreMark 集成已实现；4/100-iteration
 > 全加速变体（array + matrix + state）通过 9 checks + L2 shadow。
 > 100-iteration：14,263,577 cycles / 7.0109 单核 / 14.0217 双核聚合（2.488x）。

@@ -1,5 +1,8 @@
 # ARES 9-PE INT16 矩阵引擎（CoreMark matrix_test）
 
+> 历史说明：本文中的 OoO 核 / 共享 L2 集成路径（`rtl/top/*`、`rtl/backend/*`、`rtl/l2/*`）已随老核删除；
+> 引擎本身与镜像流程仍由当前的流水线 SoC 复用，见 `README.md`。
+
 > 状态：RTL 引擎 + 单元测试 + 双核 CoreMark 集成已实现；4-iteration 双核
 > CoreMark 通过 9 checks + L2 shadow。100-iteration 双核聚合
 > 4.4492 / 8.8985 CM/MHz（相对原基线 1.579x）。

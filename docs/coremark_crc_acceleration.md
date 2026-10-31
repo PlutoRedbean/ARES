@@ -1,5 +1,8 @@
 # CoreMark CRC hardware acceleration
 
+> 历史说明：本文中的 OoO 核 / 共享 L2 集成路径（`rtl/top/*`、`rtl/backend/*`、`rtl/l2/*`）已随老核删除；
+> 引擎本身与镜像流程仍由当前的流水线 SoC 复用，见 `README.md`。
+
 > Status: implemented and measured on the shared-L2 dual-hart CoreMark flow.
 > The vendored EEMBC benchmark sources, including `src/core_util.c`, are not
 > modified. The acceleration is a separate build variant plus one custom

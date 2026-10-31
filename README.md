@@ -1,148 +1,111 @@
 # ARES
 
-**ARES** (AI-accelerated RISC-V Embedded SoC) is an open-source **RISC-V AI-accelerated SoC** described in Verilog.
+**ARES** (AI-accelerated RISC-V Embedded SoC): a single-issue, 5-stage RISC-V
+pipeline SoC with CoreMark accelerators, targeting the Pangu **PG2L200H-6IFBB676**
+FPGA (PDS 2022.2 / 2025.2).
 
 ---
 
-## Shared-L2 SoC mainline
+## 主线：单发射流水线 SoC
 
-The development mainline is **ARES SoC with shared L2**, currently based on the
-two-hart AMP prototype. JYD `student_top` is retained for platform resources and
-reference regressions. The L2 wrappers still have stub MMIO/interrupt paths;
-the complete SoC, software boot and board integration remain to be implemented.
-See the [Implementation Plan](docs/implementation_plan.md) for current gates.
+| 层 | 实现 | 位置 |
+| --- | --- | --- |
+| 核 | Mundus 5-stage in-order（Chisel 生成 + 手写包装） | `rtl/pipeline/core/` |
+| SoC | JYD `student_top`：IROM/DRAM、perip_bridge、UART、timer、LED/SEG | `rtl/pipeline/soc/jyd/` |
+| 平台层 | 去 XPM 的 CDC、可综合 BRAM、PLL/复位、板级顶层 | `rtl/pipeline/soc/pango/`、`rtl/pipeline/board/` |
+| 加速器 | `mtx9_engine`（9-PE INT16 矩阵）、`state9_engine`（token 扫描）、custom-0 CRC8 | `rtl/accel/` |
+| 多核 | `pipeline_amp_top` 2/4-hart AMP：共享 IROM + 私有 I$ + 共享 mailbox | `rtl/pipeline/soc/amp/` |
+| 时钟 | 27 MHz → PLL → CPU 100 MHz / 外设 50 MHz | `rtl/pipeline/board/pipeline_pll.v` |
 
-```bash
-make lint-l2 unit-l2 unit-l2-frontend
-```
+加速器挂在 `0xA000_1000` / `0xA000_2000`，由 `pipeline_accel.sv` 做薄 MMIO 封装；
+CRC8 是核内的两拍 custom-0 指令。各变体的 MMIO 时序和分数见
+[docs/pipeline_accel_images.md](docs/pipeline_accel_images.md)。
 
-`unit-l2-frontend` runs single/dual real-frontend smoke tests; it does not replace
-full CoreMark or system validation. `make sim/run/isa` still uses the existing
-CPU/IROM/DPI bench without L2, and the current Vivado `soc`/board profiles still
-select the JYD platform. Migrating those defaults to the complete L2 SoC is a
-mainline task; selecting this direction has not changed the build defaults.
-
-## Core regression quick start
+### 快速开始
 
 ```bash
-# 1. Clone the repository
-git clone https://github.com/PlutoRedbean/ARES.git
-cd ARES
-
-# 2. Build the RTL simulator (Verilator)
-make -C sim
-
-# 3. Build and run the ISA regression (am-kernels cpu-tests)
-make -C tests/cpu-tests ARCH=riscv32-ares run
+make pipeline-core-gen      # 仅在改 Chisel 核时：重新生成 Mundus.sv
+make pipeline-lint          # Verilator lint（SoC）
+make pipeline-smoke         # 8 条指令的冒烟程序（fence/ebreak）
+make pipeline-isa-images    # 编出 tests/cpu-tests 的 *-riscv32-ares.bin
+make pipeline-isa           # ISA 回归（36 个 cpu-tests）
+make pipeline-div-test      # 除法器单元测试（iverilog）
+make pipeline-coremark      # 基线 CoreMark（100 iterations）
+make pipeline-coremark-full # 全加速（CRC + array + matrix + state）
+make pipeline-console       # Pango-only CDC/UART/mailbox 定向测试
 ```
 
-For the optional CRC-accelerated CoreMark variant (custom-0 CRC8 instruction,
-compiler/link interposition, no `core_util.c` edits), see
-[docs/coremark_crc_acceleration.md](docs/coremark_crc_acceleration.md) and
-`scripts/build_coremark_crc.py`. The default `coremark-image` flow is
-unchanged.
+多核：
 
-The optional array-shadow `core_bench_list` variant (`--array-list`) replaces
-only the function definition at link time; the EEMBC sources stay unchanged.
-Build/test with `make coremark-array-image` / `make test-coremark-array`, and
-see [docs/coremark_array_list.md](docs/coremark_array_list.md). The shortest
-end-to-end image + 4/100-iteration RTL flow is in
-[docs/coremark_fast_build.md](docs/coremark_fast_build.md).
+```bash
+make pipeline-coremark-mc CORES=2        # 2-hart 全加速 AMP
+make pipeline-coremark-mt CORES=2        # 标准 MULTITHREAD 聚合报告
+make pipeline-coremark-full-mt CORES=2   # 全加速 MULTITHREAD（200 iterations）
+make pipeline-mc-test                    # 2/4-hart 一致性实验（共享 L2）
+```
 
-For the optional 9-PE INT16 matrix engine (`--matrix-engine`, MMIO at
-`0xA000_1000`), build with `make coremark-matrix-image` or
-`make coremark-matrix-array-image`, and see
-[docs/coremark_matrix_engine.md](docs/coremark_matrix_engine.md). The engine
-implements the exact `matrix_test()` result for N=9; other N fall back to the
-reference function.
+最近一次 Verilator 结果（200 iterations 总量）：2-hart 全加速聚合
+**15.82 CoreMark/MHz**，两 hart `crclist/crcmatrix/crcstate/crcfinal` 与参考一致，
+`a0=0`，`CoreMark PASS`。
 
-For the optional state-machine token scanner (`--state-engine`, MMIO at
-`0xA000_2000`), build with `make coremark-state-image`; the combined fastest
-variant is `make coremark-full-image` (CRC + array list + matrix engine +
-state scanner). See [docs/coremark_state_engine.md](docs/coremark_state_engine.md).
-The 100-iteration full variant is 14,263,577 cycles / 7.0109 single-hart /
-14.0217 dual-hart aggregate CoreMark/MHz (2.488x over the CRC+probe baseline).
-For current 100 MHz UART scoring, follow
-[the scoring guide](docs/coremark_uart_scoring.md): explicitly set
-`SIM_HEAVY_CHECKS=0 SIM_INFO=0` on the simulation run command. For simulation
-testing/debugging, omit both overrides and keep their defaults enabled (`1`).
-The figures above are historical TB results; current scores come from the
-program's UART report.
+### 软件镜像链
 
-The same accelerated images also run on the single-issue pipeline SoC
-(`pipeline-single-issue` branch). The pipeline core adds a two-stage
-custom-0 CRC8 instruction, and the SoC reuses the matrix/state engines behind
-a thin MMIO wrapper. Build/run with `make pipeline-coremark-images` and
-`make pipeline-coremark-crc` (also `-matrix`, `-state`, `-full`). The
-100-iteration full variant reaches 7.916002 CoreMark/MHz; see
-[docs/pipeline_accel_images.md](docs/pipeline_accel_images.md). For the Pango
-bitstream, build the full image with `--small-code`, split it to
-`build/pipeline/`, then execute `fpga/pango/pipeline/flow_pipeline.tcl`; see
-[fpga/pango/pipeline/README.md](fpga/pango/pipeline/README.md). For the
-2-hart AMP full-accelerated CoreMark board flow, build the image with
-`make pipeline-amp-image` and run
-`fpga/pango/pipeline/flow_pipeline_amp.tcl`.
+```bash
+make coremark-full-image          # EEMBC + 加速 TU -> build/coremark_full/*.elf
+make pipeline-image \
+    PIPELINE_IMAGE_ELF=$PWD/build/coremark_full/coremark-riscv32-ares.elf \
+    PIPELINE_IMAGE_OUT=$PWD/build/pipeline
+# -> build/pipeline/irom.hex (8192 x 32) / dram.hex (65536 x 32) / image.json
+```
 
----
+全加速镜像必须带 `--small-code`（`make PIPELINE_COREMARK_IMAGE_FLAGS=--small-code
+coremark-full-image`），否则放不进 32 KiB IROM；拆分窗口和校验规则见
+[fpga/pango/pipeline/README.md](fpga/pango/pipeline/README.md)。
 
-## Repository layout
+### Pango PDS
+
+单核：`fpga/pango/pipeline/flow_pipeline.tcl`（`compile → synthesize -ads →
+dev_map → pnr -seed 2 → report_timing → gen_bit_stream`），约束
+`pipeline_board.fdc`（时钟/IO）+ `.pcf`（物理约束），下载用
+`fpga/pango/program.tcl`。
+
+> 2-hart AMP 的板级顶层 `pipeline_amp_board_top.v` 与其 PDS 流程目前维护在
+> PDS 工程里，尚未同步进本仓库；`make pipeline-amp-pango-lint` /
+> `pipeline-amp-board-sim` 会先检查该文件是否存在。
+
+最近一次 PnR（PG2L200H-6，100 MHz）：CLMA 34%、FF 11%、DRAM36K 38%、APM 3%，
+WNS **−1.527 ns**、TNS −3,167 ns，瓶颈在 `u_mtx9_engine` 的阵列读/写通路；
+分析与下一步见 [docs/pango_amp_floorplan.md](docs/pango_amp_floorplan.md)。
+
+## 仓库布局
 
 | Path | Contents |
 | --- | --- |
-| `rtl/` | ARES synthesizable RTL (frontend, backend, memory subsystem, miniTensor) |
-| `docs/` | microarchitecture and interface documentation |
-| `sim/` | Verilator simulation flow (test bench, DPI-C memory/device model, harness) |
-| `miniTensor/` | accelerator RTL, standalone tests, model tools and retained RT-Thread integration sources |
-| `rtthread-nano/` | imported RT-Thread Nano source snapshot and legacy MundusJyd BSP; ARES adaptation pending |
-| `fpga/vivado/` | reproducible project settings, board constraints and IP recipes |
-| `tests/abstract-machine/` | AbstractMachine subset with the ARES (riscv32-ares) bare-metal runtime |
-| `tests/cpu-tests/` | ISA regression ported from ysyx-workbench am-kernels/tests/cpu-tests |
+| `rtl/pipeline/` | 核（Chisel 源 + 生成 RTL）、SoC、平台层、板级顶层、文件表、TB |
+| `rtl/accel/` | `mtx9_engine` / `state9_engine` 及单元 TB |
+| `fpga/pango/pipeline/` | PDS 流程、FDC 约束、上板说明 |
+| `tests/benchmarks/coremark/` | vendor 的 EEMBC CoreMark + ARES port |
+| `tests/abstract-machine/` | 裸机运行时与链接脚本（`ares-linker*.ld`） |
+| `tests/cpu-tests/` | ISA 回归（也可只编镜像：`images`） |
+| `scripts/` | 镜像构建/拆分/测试工具 |
+| `docs/` | 流水线、加速器、CoreMark 与 Pango 相关文档 |
 
-## Simulation and regression
+## 文档索引
 
-The default simulation builds `ares_cpu_top`: real Frontend + `ares_core_top`
-(Backend + LSU) + the registered IROM bridge. The legacy Mundus/NPC DUT has been removed;
-no external NPC project is needed for these commands:
+- 核与 SoC：[rtl/pipeline/README.md](rtl/pipeline/README.md)
+- 指令缓存：[docs/microarch/pipeline_icache.md](docs/microarch/pipeline_icache.md)
+- 加速镜像与 MMIO：[docs/pipeline_accel_images.md](docs/pipeline_accel_images.md)
+- 多核与一致性：[docs/pipeline_multicore.md](docs/pipeline_multicore.md)、
+  [docs/pipeline_coremark_mt_plan.md](docs/pipeline_coremark_mt_plan.md)、
+  [docs/pipeline_coremark_full_mt_flow.md](docs/pipeline_coremark_full_mt_flow.md)
+- 实施计划：[docs/pipeline_single_issue_plan.md](docs/pipeline_single_issue_plan.md)
+- PDS 上板：[fpga/pango/pipeline/README.md](fpga/pango/pipeline/README.md)
 
-```bash
-make -C sim                                   # build the simulator
-make -C sim run PROGRAM=<image.bin>           # run one image
-make -C sim wave PROGRAM=<image.bin>          # same, with an FST waveform
-make -C sim lint                              # lint the RTL
+## 已知缺口
 
-cd tests/cpu-tests
-make ARCH=riscv32-ares run                    # full ISA regression
-make ARCH=riscv32-ares ALL=add run            # a single test
-```
-
-See `sim/README.md` for the memory map and DPI-C contract. This verifies the
-real ARES Frontend/Core with IROM-only instruction fetch. `make isa-stub`
-retains the independent Backend/LSU regression. `make unit-frontend unit-frontend-modes unit-soc` exercises protocol, predictor-feature switches
-and autonomous JYD SoC execution. RT-Thread adaptation remains follow-up work. The miniTensor control path is now instanced by the
-`ares_soc_top` integration top (real `mini_tensor_top` + ARES CV-X-IF host
-adapter over the `0x8020_1000` MMIO seam); the in-core XIF path and the
-shared-memory Fabric are still open. RT-Thread driver/BSP integration sources
-are retained under `miniTensor/integration/`; the RT-Thread source project is
-now imported under `rtthread-nano/`, with ARES BSP/build adaptation pending.
-Its legacy Mundus simulation script requires an explicit external
-`MUNDUS_HOME`.
-
-Generated outputs belong in the ignored build directories. FPGA generation
-and validation commands are documented in `fpga/vivado/README.md`.
-
-### miniTensor SoC control path (S09 / SPEC-M6 adaptation)
-
-`rtl/top/ares_soc_top.sv` wraps `student_top` and instantiates the real
-`mini_tensor_top`, driven by the ARES CV-X-IF host adapter
-(`rtl/soc/ares_mt_host_adapter.sv`). The accelerator 128-bit uncached DMA
-master is exported for the future Fabric. Elaborate the integrated subtree
-with:
-
-```bash
-make lint-mt
-```
-
-See [miniTensor SoC integration](docs/miniTensor_soc_integration.md) for the
-register map, sequencer rules and the remaining SPEC-M6/M7/M19 work.
-
----
+- 指令缓存没有 `FENCE.I` 失效路径，私有 IROM 只读，暂不支持自修改代码。
+- 2-hart 全加速聚合镜像占 32,432 / 32,768 B，4-hart 聚合镜像放不下；
+  4-hart 走 AMP 分档镜像。
+- 共享 L2 的 `pipeline_mc_soc_top` 的 CoreMark 仍有读响应顺序问题（实验线）。
+- AMP 板级顶层与 PDS 流程尚未入库（见上）。
+- 板级没有 UART RX 引脚，`rx` 接 1；CoreMark 只依赖 TX。

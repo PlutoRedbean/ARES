@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Convert a RISC-V ELF32 executable into the flat image the ARES L2 TBs load.
 
-The ARES L2 testbenches load a 128-bit-wide $readmemh file where line i is the
-16-byte word at BASE + 16*i (rtl/top/test/tb_ares_coremark.sv documents the
-format).  This module owns that conversion and every rule that decides whether
+The image is a flat, dense 128-bit-word layout: line i of the $readmemh output
+is the 16-byte word at BASE + 16*i.  This module owns that conversion, and
+every rule that decides whether
 an ELF is a legal input, so the image chain has one implementation instead of a
 hand-written objcopy + readmemh snippet.
 

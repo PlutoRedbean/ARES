@@ -172,6 +172,7 @@ for the FSM, interfaces, redirect/flush rules and measured numbers.
 make pipeline-core-gen   # Chisel -> rtl/pipeline/core/vsrc/build/Mundus.sv
 make pipeline-lint
 make pipeline-smoke
+make pipeline-isa-images  # build tests/cpu-tests/*-riscv32-ares.bin (no simulator)
 make pipeline-isa         # 36/36 cpu-tests
 make pipeline-coremark    # baseline 100-iteration CoreMark (pipelined cache)
 make pipeline-coremark-serial   # same image with ICACHE_PIPE_HITS=0

@@ -174,7 +174,8 @@ typedef size_t ee_size_t;
 extern ee_u32 default_num_contexts;
 void coremark_report_time(CORE_TICKS ticks, ee_u32 iterations);
 
-/* Shared two-hart mailbox (rtl/top/ares_coremark_mbox.sv), MMIO at 0xA000_3000. */
+/* Shared two-hart mailbox (rtl/pipeline/soc/mc/pipeline_coremark_mbox.sv at
+ * 0xA000_F000 in the pipeline AMP top; this legacy overlay used 0xA000_3000). */
 #define MBOX_BASE        0xa0003000u
 #define MBOX_GO          0x00u  /* hart0 -> hart1: descriptors valid        */
 #define MBOX_DONE        0x04u  /* hart1 -> hart0: result registers valid   */

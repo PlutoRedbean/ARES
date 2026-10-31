@@ -32,9 +32,13 @@ image: image-dep
 	@echo + OBJCOPY "->" $(IMAGE_REL).bin
 	@$(OBJCOPY) -S --set-section-flags .bss=alloc,contents -O binary $(IMAGE).elf $(IMAGE).bin
 
-# Hand the image to the ARES Verilator simulation.  Extra simulator arguments
-# can be passed with SIM_ARGS (for example SIM_ARGS=--itrace).
+# The legacy ARES Verilator model was removed with the old out-of-order core.
+# Images are run by the pipeline harness instead:
+#   make pipeline-isa                  (cpu-tests)
+#   make pipeline-coremark[-*]         (CoreMark)
 run: insert-arg
-	@$(MAKE) -s -C $(SIM_HOME) run PROGRAM=$(IMAGE).bin ARGS="$(SIM_ARGS)"
+	@echo "error: the legacy ARES simulator is gone; run the image with"; \
+	echo "       'build/pipeline_isa/pipeline_isa $(IMAGE).bin <max_cycles>'"; \
+	exit 1
 
 .PHONY: insert-arg

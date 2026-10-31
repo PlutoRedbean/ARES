@@ -10,6 +10,5 @@ ifndef ARES_HOME
   $(error ARES_HOME is not set. Please run: export ARES_HOME=/path/to/ARES)
 endif
 
-SIM_HOME := $(ARES_HOME)/sim
 AM_HOME  := $(ARES_HOME)/tests/abstract-machine
 TESTS    := $(ARES_HOME)/tests
