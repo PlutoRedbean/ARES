@@ -38,7 +38,17 @@ module tb_pipeline_isa(
         .retire_rd_wen(retire_rd_wen),
         .retire_rd    (retire_rd),
         .retire_wdata (retire_wdata),
-        .retire_is_ebreak(retire_is_ebreak)
+        .retire_is_ebreak(retire_is_ebreak),
+        .irom_addr(),
+        .irom_pc(),
+        .irom_data(32'd0),
+        .irom_ready(1'b1),
+        .shared_rdata(32'd0),
+        .shared_req_valid(),
+        .shared_req_write(),
+        .shared_req_addr(),
+        .shared_req_wdata(),
+        .shared_req_wstrb()
     );
 
     logic [31:0] a0_q = 32'd0;

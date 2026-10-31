@@ -6,8 +6,11 @@ import AutoConfig._
 import MundusConfig._
 
 class IROM extends Bundle {
-  val addr = Output(UInt(32.W))
-  val data = Input(UInt(32.W))
+  val addr  = Output(UInt(32.W))
+  val data  = Input(UInt(32.W))
+  // Instruction memory accepts the request this cycle; data returns next
+  // cycle.  ready=0 holds the PC and suppresses the response slot (I$ miss).
+  val ready = Input(Bool())
 }
 
 class RetireBundle extends Bundle {

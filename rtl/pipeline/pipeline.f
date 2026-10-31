@@ -46,3 +46,11 @@ rtl/pipeline/soc/jyd/uart.sv
 rtl/pipeline/soc/pango/pipeline_cdc.v
 rtl/pipeline/soc/jyd/display_seg.sv
 rtl/pipeline/soc/jyd/seg7.sv
+
+# Multi-hart private-memory AMP profile (replicated IROM + shared mailbox)
+rtl/pipeline/soc/mc/pipeline_coremark_mbox.sv
+rtl/pipeline/soc/amp/pipeline_icache.sv
+rtl/pipeline/soc/amp/pipeline_irom_arbiter.sv
+rtl/pipeline/soc/amp/pipeline_amp_top.sv
+# Legacy module name kept as a thin wrapper over pipeline_amp_top.
+rtl/pipeline/soc/mc/pipeline_coremark_amp_top.sv

@@ -91,7 +91,13 @@ module tb_pipeline_console(
         .uart_tx_data      (uart_tx_data),
         .uart_tx_start     (uart_tx_start),
         .virtual_seg_output(virtual_seg),
-        .virtual_led_output(virtual_led)
+        .virtual_led_output(virtual_led),
+        .shared_rdata      (32'd0),
+        .shared_req_valid  (),
+        .shared_req_write  (),
+        .shared_req_addr   (),
+        .shared_req_wdata  (),
+        .shared_req_wstrb  ()
     );
 
     // Synthesizable IROM/DRAM initialization path (no DPI in this build).

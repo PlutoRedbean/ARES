@@ -1,5 +1,9 @@
 # Pipeline SoC: 2/4-hart coherent multi-core (M4)
 
+> Related: the non-coherent 2/4-hart CoreMark MULTITHREAD plan is in
+> [pipeline_coremark_mt_plan.md](pipeline_coremark_mt_plan.md).  This document
+> covers the shared-L2/coherence profile only.
+>
 > Status: RTL + Verilator implementation complete for 2 and 4 harts; the
 > 2-hart full-accelerated CoreMark target is implemented.  Pango board wrapper
 > and PDS/board signoff remain open.

@@ -91,33 +91,42 @@ static void cycle(Vtb_pipeline_coremark_amp *top) {
 
 int main(int argc, char **argv) {
     if (argc < 2) {
-        fprintf(stderr, "usage: %s <coremark.bin> [max_cycles]\n", argv[0]);
+        fprintf(stderr, "usage: %s <coremark.bin> [max_cycles] [cores]\n", argv[0]);
         return 2;
     }
     if (!load_image(argv[1])) return 2;
     uint64_t max_cycles = (argc > 2) ? strtoull(argv[2], nullptr, 0) : 200000000ull;
+    unsigned cores = (argc > 3) ? static_cast<unsigned>(strtoul(argv[3], nullptr, 0)) : 2u;
+    if (cores < 1u || cores > 4u) {
+        fprintf(stderr, "error: cores must be 1..4, got %u\n", cores);
+        return 2;
+    }
 
     VerilatedContext *ctx = new VerilatedContext;
     ctx->commandArgs(argc, argv);
     Vtb_pipeline_coremark_amp *top = new Vtb_pipeline_coremark_amp{ctx};
 
-    top->core_en = 0x3;
+    top->core_en = static_cast<CData>((1u << cores) - 1u);
     top->clk = 0;
     top->rst = 1;
     for (int i = 0; i < 20; ++i) cycle(top);
     top->rst = 0;
 
     uint64_t cycles = 0;
-    while (!(top->done_0 && top->done_1) && cycles < max_cycles) {
+    while (!(top->done_0 && top->done_1 && top->done_2 && top->done_3) &&
+           cycles < max_cycles) {
         cycle(top);
         ++cycles;
     }
 
-    bool ok = top->done_0 && top->done_1 &&
-              top->a0_0 == 0 && top->a0_1 == 0;
-    printf("\npipeline-coremark-amp: cycles=%llu done=%d/%d a0=[%08x,%08x] %s\n",
-           static_cast<unsigned long long>(cycles),
-           top->done_0, top->done_1, top->a0_0, top->a0_1,
+    bool ok = top->done_0 && top->done_1 && top->done_2 && top->done_3 &&
+              top->a0_0 == 0 && top->a0_1 == 0 &&
+              top->a0_2 == 0 && top->a0_3 == 0;
+    printf("\npipeline-coremark-amp: cycles=%llu cores=%u done=%d/%d/%d/%d "
+           "a0=[%08x,%08x,%08x,%08x] %s\n",
+           static_cast<unsigned long long>(cycles), cores,
+           top->done_0, top->done_1, top->done_2, top->done_3,
+           top->a0_0, top->a0_1, top->a0_2, top->a0_3,
            ok ? "PASS" : "FAIL");
     if (!ok) fprintf(stderr, "CoreMark AMP failed or timed out\n");
 

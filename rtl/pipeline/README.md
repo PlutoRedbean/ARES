@@ -29,8 +29,8 @@ tree; the npc checkout remains untouched.
 
 Generated core RTL:
 
-- `core/vsrc/build/Mundus.sv` (firtool 1.77.0, 3331 lines)
-- SHA-256 `df9f1d3dc095af49a51daed725fb42328bec73e1a8da38fb16e3030e0fe071d6`
+- `core/vsrc/build/Mundus.sv` (firtool 1.77.0, 3335 lines)
+- SHA-256 `1aa0e9390eb9bc769deac1db0b69492715d7e0320623874612a8ff492862a12b`
 - Generated **inside this ARES checkout** by `rtl/pipeline/gen` with
   `make pipeline-core-gen`; the output target is
   `rtl/pipeline/core/vsrc/build/Mundus.sv`.
@@ -196,9 +196,13 @@ The pipeline SoC now has a configurable 2/4-hart coherent build:
 | Core port | `soc/mc/pipeline_core_port.sv` | 32-bit perip ↔ 128-bit L2 beat + private MMIO; one outstanding request |
 | MMIO | `soc/mc/pipeline_mmio.sv` | Per-hart hart-id/count, 64-bit cycle counter, UART, LED, per-hart matrix/state MMIO |
 | SoC | `soc/mc/pipeline_mc_soc_top.sv` | `CORES=2` or `CORES=4`; shared L2, per-hart IROM/MMIO; `DATA_STRIDE` |
-| AMP CoreMark | `soc/mc/pipeline_coremark_amp_top.sv` | private-memory full-accelerated CoreMark top (N × `student_top`) |
+| AMP SoC v2 | `soc/amp/pipeline_amp_top.sv` | `CORES=2/4`; shared IROM + per-hart I$ or replicated banks + private DRAM window + shared mailbox |
+| I$ | `soc/amp/pipeline_icache.sv` | per-hart 16 KiB direct-mapped instruction cache, 64 B lines, `irom.ready` miss stall |
+| IROM arbiter | `soc/amp/pipeline_irom_arbiter.sv` | round-robin refill bursts over one shared 32 KiB IROM bank |
+| AMP CoreMark | `soc/mc/pipeline_coremark_amp_top.sv` | legacy-name wrapper over `pipeline_amp_top` |
+| MT mailbox | `soc/mc/pipeline_coremark_mbox.sv` | shared uncached CoreMark mailbox, 4 slots × 16 words at `0xA000_F000` |
 | AMP link | `tests/abstract-machine/scripts/ares-linker-mc.ld` | 32 KiB per-hart private window, `_stack_top=0x8010_8000` |
-| AMP TB | `test/tb_pipeline_coremark_amp.sv` | 2-hart full-accelerated CoreMark TB |
+| AMP TB | `test/tb_pipeline_coremark_amp.sv` | 2/4-hart CoreMark TB (four completion ports) |
 
 The L1 D-cache is write-through, so coherence is write-invalidate: an L2
 store pulses the exact word address to every other hart, and the L1 clears that
@@ -208,8 +212,16 @@ installed.  This avoids a per-line directory and keeps the invalidate sideband
 to a single tag-RAM write.  The L2 request is latched before lookup; arbitration
 is a small round-robin over hart valid bits, not a path through the data arrays.
 
-`student_top` remains the single-hart profile.  `pipeline_mc_soc_top` is the
-2/4-hart coherent profile; `core_en` holds selected harts in reset for debug.
+`student_top` remains the single-hart profile.  `pipeline_amp_top` is the
+2/4-hart non-coherent AMP profile.  By default (`USE_ICACHE=1`) the harts share
+one 32 KiB IROM bank and each hart has a private 16 KiB direct-mapped I$
+(64 B lines, `irom.ready` miss stall) whose refills are burst-arbitrated; the
+`USE_ICACHE=0` profile is the Phase 2 variant with one replicated 32 KiB bank
+per hart.  Every hart also has a private 32 KiB DRAM window (`DATA_OFFSET`),
+private MMIO/accelerators and a shared uncached mailbox.
+`pipeline_coremark_amp_top` is kept as a legacy-name wrapper.
+`pipeline_mc_soc_top` is the 2/4-hart coherent profile;
+`core_en` holds selected harts in reset for debug.
 The multi-hart MMIO is private per hart, so an MMIO load always sees the
 two-cycle response the pipeline core expects; the shared resource is L2/DRAM.
 
@@ -223,13 +235,47 @@ report 7.916002 CoreMark/MHz (aggregate 15.832004); the shared-L2 CoreMark
 profile still needs the L2 response-ordering fix described in the multi-core
 doc.
 
+The standard CoreMark `MULTITHREAD` profile reuses that top with a rendezvous
+path: `pipeline_coremark_mbox` (slot h = `0xA000_F000 + h*0x40`) plus a per-hart
+id at `0xA000_0FF0` in `perip_bridge`.  `scripts/coremark_mt_pipe/` is a
+parameterized overlay (`ARES_MT_CORES`, `ARES_MT_ITERATIONS` passed as staged
+Makefile defines), so the 2- and 4-hart images are separate builds.  Since a
+full 10,000-iteration run is hours of Verilator time, `make pipeline-coremark-mt
+CORES=2|4` uses `PIPELINE_MT_SIM_TOTAL=200` (2×100 / 4×50) and prints a single
+aggregate report: 2 harts 4.580135 CoreMark/MHz, 4 harts 9.167960 CoreMark/MHz
+(200 iterations each, near-linear scaling).  Every context CRC matches the
+single-hart reference (0x988c for 100 iterations, 0x0158 for 50) and every hart
+exits with `a0=0`.  The full-accelerated single-report run is
+`make pipeline-coremark-full-mt CORES=2` (512-line I$, 200 total iterations):
+15.816722 CoreMark/MHz, CRCs 0x988c ×2, `CoreMark PASS`.  Its IROM image is
+32,432 B of the 32 KiB bank, so the **4-hart full-accelerated aggregate image
+does not fit** (linker overflow by 300 B); use `make pipeline-coremark-mc
+CORES=4` for the 4-hart full-accelerated AMP profile (one MULTITHREAD=1 report
+per hart) or grow the IROM in a later milestone.
+See [docs/pipeline_coremark_mt_plan.md](../../docs/pipeline_coremark_mt_plan.md) for
+the architecture and [docs/pipeline_coremark_full_mt_flow.md](../../docs/pipeline_coremark_full_mt_flow.md)
+for the step-by-step IROM image build and full-accelerated MT run.
+
+Phase 3 adds the per-hart instruction cache and collapses the IROM to one
+shared bank: the IFU now waits on `irom.ready`, each hart has a 16 KiB
+direct-mapped I$, and a round-robin arbiter grants whole 64 B refill bursts.
+With the 200-iteration profile the scores are 4.579943 (2 harts) and 9.166984
+(4 harts) CoreMark/MHz - within 0.03% of the no-cache/replicated-bank profile -
+while the whole run fetches only 5,072 / 8,784 words from the shared IROM
+instead of reading a bank on every fetch cycle.  The ~30 KiB full-accelerated
+images use the 512-line (32 KiB) I$ in `pipeline-coremark-mc` to avoid capacity
+misses.
+
 See [docs/pipeline_multicore.md](../../docs/pipeline_multicore.md) for the
 protocol, memory map, timing notes and test evidence.
 
 ## Known gaps (next milestones)
 
-- The full accelerated CoreMark image uses 7609 / 8192 IROM words (about
-  30.4 KiB of 32 KiB); further code growth needs trimming or a larger IROM.
+- The 2-hart full-accelerated aggregate image uses 8,108 / 8,192 IROM words
+  (32,432 B of 32 KiB, 336 B spare).  The 4-hart aggregate version needs about
+  33,068 B and does not link; 4-hart full acceleration currently runs as the
+  AMP profile (30,436 B MULTITHREAD=1 image).  Growing the IROM to 64 KiB or
+  trimming code is a Phase 4 item.
 - Pango PDS is not installed on this Linux host.  The RTL/platform layer is
   ready, but PG2L200H synthesis, implementation, timing/resources and the
   on-board run still have to be executed on the Pango host; see
@@ -249,6 +295,9 @@ protocol, memory map, timing notes and test evidence.
   CoreMark path still has a response-ordering bug on overlapping loads (first
   `.rodata` table read is captured zero/one-behind in the L1 refill path);
   fix that before accepting a shared-L2 multi-hart CoreMark score.
+- The approved non-coherent 2/4-hart CoreMark MULTITHREAD plan (shared IROM,
+  private DRAM, per-hart accelerators, no L2/coherence) is in
+  [docs/pipeline_coremark_mt_plan.md](../../docs/pipeline_coremark_mt_plan.md).
 
 ## Regeneration
 

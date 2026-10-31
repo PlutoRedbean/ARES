@@ -1,20 +1,14 @@
 //=============================================================================
-// ARES pipeline SoC - private-memory AMP CoreMark top
+// ARES pipeline SoC - legacy AMP top name (compatibility wrapper)
 //-----------------------------------------------------------------------------
-// Phase-1 multi-hart full-accelerated CoreMark: each hart instantiates the
-// proven single-hart student_top (private IROM, private perip_bridge DRAM/RAM,
-// private UART/timer and private matrix/state accelerators).  DATA_OFFSET
-// gives each hart a disjoint 32 KiB window in the shared simulation DPI memory
-// so the same image and linker script can be reused.
-//
-// This profile is intentionally NOT the coherent shared-L2 profile.  It is a
-// bring-up/benchmark top for validating that N full-accelerated CoreMark
-// instances run concurrently; the shared-L2 CoreMark integration is the next
-// step after the L2 response-ordering issue is fixed.
+// Phase 1 shipped this top as pipeline_coremark_amp_top.  Phase 2 made the
+// shared/replicated IROM explicit in soc/amp/pipeline_amp_top.sv; this wrapper
+// keeps the old module name for existing testbenches and out-of-tree users.
 //=============================================================================
 module pipeline_coremark_amp_top #(
-    parameter integer CORES = 2,
-    parameter integer DATA_STRIDE = 32'h0000_8000
+    parameter integer CORES       = 2,
+    parameter integer DATA_STRIDE = 32'h0000_8000,
+    parameter integer USE_ICACHE  = 1
 ) (
     input  wire                     clk,
     input  wire                     rst,
@@ -28,41 +22,20 @@ module pipeline_coremark_amp_top #(
     output wire [CORES-1:0][31:0]   retire_wdata,
     output wire [CORES-1:0]         retire_is_ebreak
 );
-    genvar g;
-    generate
-        for (g = 0; g < CORES; g = g + 1) begin : g_hart
-            wire [7:0]  uart_tx_data_unused;
-            wire        uart_tx_start_unused;
-            wire [31:0] led_unused;
-            wire [39:0] seg_unused;
-
-            student_top #(
-                .DATA_OFFSET (g * DATA_STRIDE)
-            ) u_core (
-                .w_cpu_clk     (clk),
-                .w_clk_50Mhz   (clk),
-                .w_clk_rst     (rst | ~core_en[g]),
-                .virtual_key   ({8{1'b0}}),
-                .virtual_sw    ({64{1'b0}}),
-                .uart_rx_data  (8'd0),
-                .uart_rx_ready (1'b0),
-                .uart_tx_busy  (1'b0),
-
-                .uart_tx_data  (uart_tx_data_unused),
-                .uart_tx_start (uart_tx_start_unused),
-
-                .virtual_led   (led_unused),
-                .virtual_seg   (seg_unused),
-
-                .retire_valid    (retire_valid[g]),
-                .retire_pc       (retire_pc[g]),
-                .retire_pc_next  (retire_pc_next[g]),
-                .retire_rd_wen   (retire_rd_wen[g]),
-                .retire_rd       (retire_rd[g]),
-                .retire_wdata    (retire_wdata[g]),
-                .retire_is_ebreak(retire_is_ebreak[g])
-            );
-        end
-    endgenerate
-
+    pipeline_amp_top #(
+        .CORES       (CORES),
+        .DATA_STRIDE (DATA_STRIDE),
+        .USE_ICACHE  (USE_ICACHE)
+    ) u_amp (
+        .clk             (clk),
+        .rst             (rst),
+        .core_en         (core_en),
+        .retire_valid    (retire_valid),
+        .retire_pc       (retire_pc),
+        .retire_pc_next  (retire_pc_next),
+        .retire_rd_wen   (retire_rd_wen),
+        .retire_rd       (retire_rd),
+        .retire_wdata    (retire_wdata),
+        .retire_is_ebreak(retire_is_ebreak)
+    );
 endmodule

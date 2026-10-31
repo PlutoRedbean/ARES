@@ -79,3 +79,11 @@ rtl/pipeline/soc/mc/pipeline_core_port.sv
 rtl/pipeline/soc/mc/pipeline_mmio.sv
 rtl/pipeline/soc/mc/pipeline_hart.sv
 rtl/pipeline/soc/mc/pipeline_mc_soc_top.sv
+
+# Non-coherent multi-hart AMP profile (replicated IROM + shared mailbox)
+rtl/pipeline/soc/mc/pipeline_coremark_mbox.sv
+rtl/pipeline/soc/amp/pipeline_icache.sv
+rtl/pipeline/soc/amp/pipeline_irom_arbiter.sv
+rtl/pipeline/soc/amp/pipeline_amp_top.sv
+# Legacy module name kept as a thin wrapper over pipeline_amp_top.
+rtl/pipeline/soc/mc/pipeline_coremark_amp_top.sv

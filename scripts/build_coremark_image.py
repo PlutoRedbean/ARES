@@ -164,14 +164,20 @@ MT_OVERLAY = {
     "core_portme.c": "src/core_portme.c",
 }
 
+MT_PIPE_OVERLAY_DIR = "coremark_mt_pipe"
+# 1 is accepted for single-context reference images only (the same overlay with
+# MULTITHREAD=1); the pipeline run targets use 2 and 4.
+MT_PIPE_CORES = (1, 2, 4)
+DEFAULT_TOTAL_ITERATIONS = 10000
 
-def apply_mt_overlay(stage: Path, root: Path) -> dict:
+
+def apply_mt_overlay(stage: Path, root: Path, overlay_dir: str = "coremark_mt") -> dict:
     """Replace the two ARES port files in the *staged* copy only.
 
     The repository copy under tests/benchmarks/coremark/ is never written, so
     the vendored CoreMark tree (and NOTICE.md's SHA table) stays byte-identical.
     """
-    overlay = root / "scripts" / "coremark_mt"
+    overlay = root / "scripts" / overlay_dir
     hashes = {}
     for name, relative in MT_OVERLAY.items():
         source = overlay / name
@@ -183,6 +189,22 @@ def apply_mt_overlay(stage: Path, root: Path) -> dict:
         shutil.copyfile(source, target)
         hashes[relative] = sha256(target)
     return hashes
+
+
+def apply_mt_pipe_config(stage: Path, core_count: int, iterations: int) -> None:
+    """Bake the 2/4-hart configuration into the staged port build.
+
+    MULTITHREAD and ITERATIONS are compile-time macros, so the 2- and 4-hart
+    images can never share one binary.  The values are appended to the staged
+    Makefile (the vendored tree is untouched) and are recorded in inputs.json.
+    """
+    with (stage / "Makefile").open("a") as handle:
+        handle.write(
+            "\n# ARES pipeline MULTITHREAD configuration (staged overlay)\n"
+            "# MULTITHREAD/ITERATIONS are compile-time macros; one image per\n"
+            "# CORES value.  Added by scripts/build_coremark_image.py --mt-pipe.\n"
+            f"CFLAGS += -DARES_MT_CORES={core_count} -DARES_MT_ITERATIONS={iterations}\n"
+        )
 
 
 def check_mt_overlay(stage: Path) -> None:
@@ -200,6 +222,36 @@ def check_mt_overlay(stage: Path) -> None:
     for hook in ("core_start_parallel", "core_stop_parallel", "MBOX_DONE"):
         if hook not in source:
             die(f"MT overlay check failed: {hook} missing from core_portme.c")
+
+
+def check_mt_pipe_overlay(stage: Path, core_count: int, iterations: int) -> None:
+    """Validate the parameterized 2/4-hart overlay before compiling it."""
+    header = (stage / "include" / "core_portme.h").read_text()
+    checks = [
+        (r"#define\s+MEM_METHOD\s+MEM_STACK\b",
+         "MEM_STACK (core_main.c rejects MEM_STATIC with MULTITHREAD>1)"),
+        (r"#define\s+MULTITHREAD\s+ARES_MT_CORES\b",
+         "MULTITHREAD = ARES_MT_CORES"),
+        (r"#define\s+ITERATIONS\s+ARES_MT_ITERATIONS\b",
+         "ITERATIONS = ARES_MT_ITERATIONS"),
+        (r"#define\s+HART_ID_ADDR\s+0xa0000ff0u\b",
+         "hart-id MMIO window 0xA000_0FF0"),
+        (r"#define\s+MBOX_BASE\s+0xa000f000u\b",
+         "shared mailbox window 0xA000_F000"),
+        (r"#define\s+PARALLEL_METHOD\s+\"", "PARALLEL_METHOD string"),
+    ]
+    for pattern, description in checks:
+        if not re.search(pattern, header):
+            die(f"MT-pipe overlay check failed: {description} missing from core_portme.h")
+    source = (stage / "src" / "core_portme.c").read_text()
+    for hook in ("core_start_parallel", "core_stop_parallel", "coremark_hart",
+                 "MBOX_DONE", "ARES_MT_CORES"):
+        if hook not in source:
+            die(f"MT-pipe overlay check failed: {hook} missing from core_portme.c")
+    makefile = (stage / "Makefile").read_text()
+    if f"-DARES_MT_CORES={core_count}" not in makefile or \
+       f"-DARES_MT_ITERATIONS={iterations}" not in makefile:
+        die("MT-pipe configuration was not appended to the staged Makefile")
 
 
 def build(stage: Path, root: Path, cross_compile: str, jobs: int | None,
@@ -240,6 +292,16 @@ def main() -> int:
     parser.add_argument("--mt", action="store_true",
                         help="overlay the 2-hart MULTITHREAD=2 port from "
                              "scripts/coremark_mt/ onto the staged copy")
+    parser.add_argument("--mt-pipe", action="store_true",
+                        help="overlay the parameterized 2/4-hart pipeline port "
+                             "from scripts/coremark_mt_pipe/ (requires --cores)")
+    parser.add_argument("--cores", type=int, default=None,
+                        help="harts / CoreMark contexts for --mt-pipe "
+                             "(1, 2 or 4; 1 builds a single-context reference image)")
+    parser.add_argument("--total-iterations", type=int, default=DEFAULT_TOTAL_ITERATIONS,
+                        help=f"total iterations across all contexts for --mt-pipe "
+                             f"(default {DEFAULT_TOTAL_ITERATIONS}; each context runs "
+                             f"total/cores)")
     parser.add_argument("--cross-compile", default=DEFAULT_CROSS_COMPILE,
                         help=f"toolchain prefix (default {DEFAULT_CROSS_COMPILE})")
     parser.add_argument("--ldscript", type=Path, default=None,
@@ -255,10 +317,26 @@ def main() -> int:
     parser.add_argument("--json", action="store_true", help="print inputs.json to stdout")
     args = parser.parse_args()
 
+    if args.mt and args.mt_pipe:
+        die("--mt and --mt-pipe are mutually exclusive")
+    if args.mt_pipe:
+        if args.cores is None:
+            die("--mt-pipe requires --cores 2|4")
+        if args.cores not in MT_PIPE_CORES:
+            die(f"--cores must be one of {MT_PIPE_CORES}, got {args.cores}")
+        if args.total_iterations <= 0 or args.total_iterations % args.cores != 0:
+            die(f"--total-iterations must be a positive multiple of --cores, "
+                f"got {args.total_iterations} for {args.cores} cores")
+        per_context = args.total_iterations // args.cores
+    else:
+        per_context = None
+
     if args.out is not None:
         out = args.out.resolve()
     elif args.mt:
         out = (root / "build/coremark_mt").resolve()
+    elif args.mt_pipe:
+        out = (root / f"build/coremark_mt{args.cores}").resolve()
     else:
         out = (root / "build/coremark").resolve()
     port = args.port.resolve()
@@ -277,6 +355,10 @@ def main() -> int:
             if args.mt:
                 mt_hashes = apply_mt_overlay(stage, root)
                 check_mt_overlay(stage)
+            elif args.mt_pipe:
+                mt_hashes = apply_mt_overlay(stage, root, MT_PIPE_OVERLAY_DIR)
+                apply_mt_pipe_config(stage, args.cores, per_context)
+                check_mt_pipe_overlay(stage, args.cores, per_context)
             build(stage, root, args.cross_compile, args.jobs, args.ccache,
                   out / "build.log", ldscript)
     if args.mt:
@@ -284,6 +366,14 @@ def main() -> int:
             "mem_method": "MEM_STACK",
             "multithread": 2,
             "parallel_method": "ares-2hart-mbox",
+        })
+    elif args.mt_pipe:
+        frozen.update({
+            "iterations": per_context,
+            "mem_method": "MEM_STACK",
+            "multithread": args.cores,
+            "total_iterations": args.total_iterations,
+            "parallel_method": "ares-mt-mbox",
         })
 
     elf = stage / "build" / ELF_NAME
@@ -343,10 +433,19 @@ def main() -> int:
             "python": sys.version.split()[0],
             "verilator": command_version(["verilator", "--version"]),
         },
+        "mt_pipe": ({
+            "cores": args.cores,
+            "total_iterations": args.total_iterations,
+            "iterations_per_context": per_context,
+            "defines": f"-DARES_MT_CORES={args.cores} "
+                       f"-DARES_MT_ITERATIONS={per_context}",
+        } if args.mt_pipe else None),
         "commands": {
             "build": f"make -C {rel(stage, root)} ARES_HOME={root} ARCH={ARCH} "
                      f"CROSS_COMPILE={args.cross_compile} "
                      + (f"LDSCRIPTS={ldscript} " if ldscript else "")
+                     + (f"CFLAGS+='-DARES_MT_CORES={args.cores} "
+                        f"-DARES_MT_ITERATIONS={per_context}' " if args.mt_pipe else "")
                      + "image",
             "convert": f"python3 scripts/elf_image.py --elf {rel(kept_elf, root)} "
                        f"--bin {rel(bin_path, root)} --hex {rel(hex_path, root)} "
@@ -366,6 +465,10 @@ def main() -> int:
         if args.mt:
             print("frozen:  ITERATIONS=100 TOTAL_DATA_SIZE=2000 seeds=0/0/0x66 "
                   "MEM_STACK MULTITHREAD=2 (staged overlay) rv32im_zicsr/ilp32")
+        elif args.mt_pipe:
+            print(f"frozen:  ITERATIONS={per_context} TOTAL_ITERATIONS={args.total_iterations} "
+                  f"TOTAL_DATA_SIZE=2000 seeds=0/0/0x66 MEM_STACK "
+                  f"MULTITHREAD={args.cores} (staged pipeline overlay) rv32im_zicsr/ilp32")
         else:
             print("frozen:  ITERATIONS=100 TOTAL_DATA_SIZE=2000 seeds=0/0/0x66 "
                   "MEM_STATIC MULTITHREAD=1 rv32im_zicsr/ilp32")

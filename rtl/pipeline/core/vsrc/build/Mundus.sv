@@ -146,7 +146,8 @@ module IFU(
                 reset,
   output [31:0] io_irom_addr,
   input  [31:0] io_irom_data,
-  input         io_out_ready,
+  input         io_irom_ready,
+                io_out_ready,
   output        io_out_valid,
   output [31:0] io_out_bits_pc,
                 io_out_bits_inst,
@@ -194,7 +195,8 @@ module IFU(
   wire        _responseBypassFire_T_2 = io_out_ready & io_out_valid_0;
   wire        fifoEnqFire =
     fetchRespValid & ~(~(|fqCount) & fetchRespValid & _responseBypassFire_T_2);
-  assign fetchReqFire = ~io_redirected & {1'h0, fqCount} + {4'h0, fetchRespValid} < 5'h8;
+  assign fetchReqFire =
+    ~io_redirected & {1'h0, fqCount} + {4'h0, fetchRespValid} < 5'h8 & io_irom_ready;
   `ifndef SYNTHESIS
     always @(posedge clock) begin
       if (~reset & fqCount > 4'h8) begin
@@ -2655,6 +2657,7 @@ module Mundus(
                 reset,
   output [31:0] io_irom_addr,
   input  [31:0] io_irom_data,
+  input         io_irom_ready,
   output        io_perip_valid,
   input         io_perip_ready,
                 io_perip_rvalid,
@@ -3013,6 +3016,7 @@ module Mundus(
     .reset                    (reset),
     .io_irom_addr             (io_irom_addr),
     .io_irom_data             (io_irom_data),
+    .io_irom_ready            (io_irom_ready),
     .io_out_ready             (_IDU_io_in_ready & ~if_id_stall),
     .io_out_valid             (_IFU_io_out_valid),
     .io_out_bits_pc           (_IFU_io_out_bits_pc),

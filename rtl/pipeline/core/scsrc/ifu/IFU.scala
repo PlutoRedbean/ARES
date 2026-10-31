@@ -160,7 +160,9 @@ class IFU extends Module {
     val reservedCount = fqCount +& fetchRespValid.asUInt
     val fifoHasSpace = reservedCount < FrontendBufferDepth.U
 
-    fetchReqFire := !io.redirected && fifoHasSpace
+    // An instruction-cache miss deasserts irom.ready; hold the PC and do not
+    // allocate a response slot until the cache can return the word.
+    fetchReqFire := !io.redirected && fifoHasSpace && io.irom.ready
     io.irom.addr := pc
 
     def ptrNext(ptr: UInt): UInt =
@@ -203,7 +205,9 @@ class IFU extends Module {
     // valid 响应且下游未接收时，响应槽必须整体保持。
     val respSlotHolding = fetchRespValid && !io.out.ready
 
-    fetchReqFire := !io.redirected && !respSlotHolding
+    // Symmetric with the buffered path: a cache miss suppresses the request
+    // and the response slot instead of producing a stale instruction.
+    fetchReqFire := !io.redirected && !respSlotHolding && io.irom.ready
     ifIdSourceValid := fetchRespValid
     ifIdSourceBits := fetchRespBits
 
@@ -211,7 +215,7 @@ class IFU extends Module {
 
     // 非 redirect 时，响应槽要么保持旧响应，要么接受一个新请求，
     // 因而下一拍必然有效。
-    fetchRespValid := !io.redirected
+    fetchRespValid := fetchReqFire || respSlotHolding
 
     when (fetchReqFire) {
       fetchRespMeta.pc := pc

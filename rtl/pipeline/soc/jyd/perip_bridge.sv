@@ -20,7 +20,12 @@
 //       Asynchronous assert / synchronous release per clock domain.
 //////////////////////////////////////////////////////////////////////////////////
 
-module perip_bridge(
+module perip_bridge #(
+    // Hart identity exposed at 0xA000_0FF0/0xA000_0FF4 for the multi-hart
+    // CoreMark port.  The single-hart profile keeps the defaults.
+    parameter [31:0] HART_ID    = 32'd0,
+    parameter [31:0] HART_COUNT = 32'd1
+) (
     input  wire         clk,
     input  wire         cnt_clk,
     input  wire         rst,
@@ -46,7 +51,19 @@ module perip_bridge(
     output wire         uart_tx_start,
 
     output wire [39:0]  virtual_seg_output,
-    output wire [31:0]  virtual_led_output
+    output wire [31:0]  virtual_led_output,
+
+    // Shared uncached MMIO window (multi-hart CoreMark mailbox).  Requests in
+    // [0xA000_F000, 0xA000_F0FF] leave the hart through this port; the mailbox
+    // drives shared_rdata combinationally in the request-accept cycle and
+    // captures the write on shared_req_valid.  The existing 2-cycle MMIO
+    // response pipeline carries the read data back to the core.
+    input  wire [31:0]  shared_rdata,
+    output wire         shared_req_valid,
+    output wire         shared_req_write,
+    output wire [31:0]  shared_req_addr,
+    output wire [31:0]  shared_req_wdata,
+    output wire [3:0]   shared_req_wstrb
 );
     localparam [31:0] DRAM_ADDR_START = 32'h8010_0000;
     localparam [31:0] DRAM_ADDR_END   = 32'h8013_FFFF;
@@ -68,6 +85,13 @@ module perip_bridge(
     localparam [31:0] BENCH_CYCLE_HI    = 32'hA000_0054;
     localparam [31:0] BENCH_UART_TX     = 32'hA000_03F8;
     localparam [31:0] BENCH_UART_STATUS = 32'hA000_03FC;
+
+    // Hart identity and the shared mailbox window.  The mailbox itself lives
+    // once in the multi-hart top; this bridge only forwards one 256-byte
+    // window and tags the response as a normal MMIO read.
+    localparam [31:0] HART_ID_ADDR     = 32'hA000_0FF0;
+    localparam [31:0] HART_COUNT_ADDR  = 32'hA000_0FF4;
+    localparam [23:0] SHARED_ADDR_TAG  = 24'hA000F0;  /* addr[31:8] */
 
     // Read-response source tag. Address decoding is completed when the
     // request enters the bridge; only this compact tag follows the two-cycle
@@ -151,6 +175,9 @@ module perip_bridge(
     wire [31:0] perip_addr_eff =
         (perip_addr == BENCH_UART_TX)     ? CONSOLE_ADDR :
         (perip_addr == BENCH_UART_STATUS) ? CONSOLE_STATUS : perip_addr;
+
+    // 0xA000_F000..0xA000_F0FF is the shared mailbox slot window.
+    wire shared_hit = perip_addr[31:8] == SHARED_ADDR_TAG;
 
     wire        store_empty;
     wire        store_full;
@@ -281,6 +308,15 @@ module perip_bridge(
     assign dram_load_accept = read_accept && dram_read_hit;
     assign mmio_write_accept = perip_valid && perip_ready && perip_wen &&
                                (~dram_write_hit);
+
+    // Shared mailbox write port.  Reads need no request: the mailbox decodes
+    // the address combinationally and the bridge samples shared_rdata in the
+    // request-accept cycle just like the other MMIO sources.
+    assign shared_req_valid = mmio_write_accept && shared_hit;
+    assign shared_req_write = perip_wen;
+    assign shared_req_addr  = perip_addr;
+    assign shared_req_wdata = perip_wdata;
+    assign shared_req_wstrb = store_byte_enable(perip_addr[17:0], perip_mask);
 
 `ifdef __VERILATOR__
     import "DPI-C" function int sim_console_getchar();
@@ -636,6 +672,9 @@ module perip_bridge(
                 response_tag_next = RESP_DRAM;
             end else if (accel_hit) begin
                 response_tag_next = RESP_ACCEL;
+            end else if (shared_hit) begin
+                response_tag_next = RESP_MMIO;
+                mmio_rdata_next   = shared_rdata;
             end else if (perip_addr == BENCH_CYCLE_LO) begin
                 response_tag_next = RESP_CNT;
                 cycle_sel_next    = 1'b1;
@@ -648,6 +687,14 @@ module perip_bridge(
                 response_tag_next = RESP_CNT;
             end else begin
                 case (perip_addr_eff)
+                    HART_ID_ADDR: begin
+                        response_tag_next = RESP_MMIO;
+                        mmio_rdata_next   = HART_ID;
+                    end
+                    HART_COUNT_ADDR: begin
+                        response_tag_next = RESP_MMIO;
+                        mmio_rdata_next   = HART_COUNT;
+                    end
                     SW0_ADDR: begin
                         response_tag_next = RESP_MMIO;
                         mmio_rdata_next   = sw_cpu[31:0];

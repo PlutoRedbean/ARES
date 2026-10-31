@@ -1,6 +1,10 @@
 # CoreMark MULTITHREAD=2：双核并行、单份报告
 
 > 状态：2026-10-29 本地仿真通过。EEMBC 源码零修改（overlay 只落在 `build/coremark_mt/port`）。
+>
+> 新的 pipeline SoC 2/4-hart 方案见
+> [pipeline_coremark_mt_plan.md](pipeline_coremark_mt_plan.md)；本文保留旧
+> 2-hart overlay 的实现细节作为参考。
 
 ## 结论
 

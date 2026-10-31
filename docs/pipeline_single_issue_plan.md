@@ -1,6 +1,6 @@
 # ARES FPGA 单发射流水线 SoC 实施计划（PG2L200H）
 
-> 状态：Draft v0.6（M0/M1/M2 完成，ISA 36/36 与基线 CoreMark 仿真通过；M4 加速镜像（CRC/矩阵/状态机）已完成 100-iteration 仿真；M4 双核/四核与写失效一致性 RTL 与 Verilator 验证已完成，Pango RTL 平台层已落地，PDS 综合/实现/上板待执行）
+> 状态：Draft v0.6（M0/M1/M2 完成，ISA 36/36 与基线 CoreMark 仿真通过；M4 加速镜像（CRC/矩阵/状态机）已完成 100-iteration 仿真；M4 双核/四核与写失效一致性 RTL 与 Verilator 验证已完成；2/4-hart 标准 CoreMark MULTITHREAD 已完成 Verilator 验收；Pango RTL 平台层已落地，PDS 综合/实现/上板待执行）
 > 日期：2026-10-30
 > v0.6 变更：完成 M4 双核/四核与一致性 RTL。新增参数化 `pipeline_mc_soc_top`（`CORES=2/4`）、共享写回 L2、每核 IROM/MMIO 适配与写失效一致性；L1 为写直达，L2 按字地址向其他核发失效，并用 8-bit epoch 抑制在途 refill 的旧行安装。新增 `make pipeline-mc-test`/`pipeline-mc-lint`、`tests/pipeline-mc` 无分支一致性测试与 L2 定向 TB。2/4 核仿真分别 PASS，单核 smoke/ISA 36/36 保持通过。另完成私有内存 AMP 的 2 核全加速 CoreMark：`make pipeline-coremark-mc` 两核各 7.916002、聚合 15.832004 CoreMark/MHz，`a0=0` PASS；共享 L2 的 CoreMark 仍有读响应顺序问题待修。详见 [pipeline_multicore.md](pipeline_multicore.md)。
 > v0.5 变更：完成 M4 加速镜像。pipeline core 增加两拍流水的 custom-0 CRC8 指令（EX1/EX2 各 4 个 bit step），SoC 复用 `rtl/accel/mtx9_engine.sv` / `state9_engine.sv` 并新增 `pipeline_accel.sv` 薄 MMIO 封装；新增 `pipeline-coremark-crc/matrix/state/full` 与 `pipeline-coremark-images`。100-iteration：CRC 2.6769、矩阵 4.0804、状态机 4.2895、全加速 7.9160 CoreMark/MHz，四个 CRC 全对。详见 [pipeline_accel_images.md](pipeline_accel_images.md)。
@@ -61,7 +61,7 @@
 
 当前工作树中的 `Mundus.sv`：
 
-- M1 后 3192 行，SHA-256 `4b50ab9388b322afdd2dc15fec6fc9724c78d637fd1365e551da63f05d71c05c`；
+- Phase 3（IFU `irom.ready` 握手与 I$）后 3335 行，SHA-256 `1aa0e9390eb9bc769deac1db0b69492715d7e0320623874612a8ff492862a12b`；
 - 由 `make pipeline-core-gen` 在 ARES 内生成，目标为 `rtl/pipeline/core/vsrc/build/Mundus.sv`；生成源为 `rtl/pipeline/core/scsrc` + `rtl/pipeline/gen/configs/scsrc`。
 
 ---
@@ -499,10 +499,30 @@ RTL/Verilator 子项；中断/RTOS、I-Cache/L2 的最终性能结构以及 PDS/
 - 私有内存 AMP 的 2 核全加速 CoreMark：`make pipeline-coremark-mc` 通过，
   两核各 7.916002、聚合 15.832004 CoreMark/MHz（`cycles=12680988`，
   `a0=0`）；同一份 MC 链接镜像经 `DATA_OFFSET` 分到每核 32 KiB 私有窗口；
+- 2/4-hart 标准 CoreMark **MULTITHREAD**（单份聚合报告）：新增共享邮箱
+  `pipeline_coremark_mbox.sv`、`perip_bridge` 的 `HART_ID` 与 `0xA000_F000`
+  共享 MMIO 转发，以及 `scripts/coremark_mt_pipe/` 参数化 overlay；
+  `make pipeline-coremark-mt CORES=2|4`（200 总迭代仿真 profile）2 核
+  4.580135、4 核 9.167960 CoreMark/MHz，`Iterations : 200`，各 context CRC
+  与单核同迭代数一致，所有 hart `a0=0`；详见
+  [pipeline_coremark_mt_plan.md](pipeline_coremark_mt_plan.md)；
+- SoC v2 参数化 AMP top `pipeline_amp_top #(CORES=2/4)`：每 hart 一份 32 KiB
+  IROM bank（物理复制，`student_top` 新增外部取指端口）、私有 32 KiB DRAM
+  窗口、私有 MMIO/加速器、共享 uncached mailbox；2/4 核 MT 结果与 Phase 1
+  逐位一致（4.580135 / 9.167960 CoreMark/MHz），全加速 2 核 15.821581，
+  单核 smoke/ISA/console 与 2 核 AMP 回归保持通过；
+- Phase 3：IFU 增加 `irom.ready` 握手，每 hart 16 KiB 直接映射 I$，
+  单共享 32 KiB IROM + round-robin 整行 refill 仲裁；2/4 核 MT 为
+  4.579943 / 9.166984 CoreMark/MHz（与无 I$ 差异 <0.03%），整轮只取
+  5,072 / 8,784 个 IROM word；full-accel 聚合（`make pipeline-coremark-full-mt
+  CORES=2`，512 行 I$）15.816722 CoreMark/MHz；4-hart 全加速聚合镜像超出
+  32 KiB IROM 约 300 B，暂以 `pipeline-coremark-mc CORES=4` AMP 变体运行；
 - 共享 L2 的 CoreMark 仍待修复：首个 `.rodata` seed 表读在 L1 refill/LSU
   slow-response 路径上被捕获为零/错位一拍，L2 响应数据本身正确；这是
   response ordering/tagging 问题，不是 CRC 或加速器问题；
-- 架构、协议、关键路径与测试证据见 [pipeline_multicore.md](pipeline_multicore.md)。
+- 架构、协议、关键路径与测试证据见 [pipeline_multicore.md](pipeline_multicore.md)；
+- 新的 2/4-hart 非一致 CoreMark MULTITHREAD 方案见
+  [pipeline_coremark_mt_plan.md](pipeline_coremark_mt_plan.md)。
 
 待完成：
 

@@ -697,7 +697,7 @@ unit-frontend-modes:
 test-images:
 	@python3 $(ARES_HOME)/scripts/test_split_image.py
 
-.PHONY: pipeline-core-gen pipeline-lint pipeline-smoke pipeline-isa-sim pipeline-isa pipeline-coremark pipeline-coremark-crc pipeline-coremark-matrix pipeline-coremark-state pipeline-coremark-full pipeline-coremark-images pipeline-coremark-mc coremark-full-mc-image pipeline-image pipeline-pango-lint pipeline-console pipeline-mc-images pipeline-mc-lint pipeline-mc-run pipeline-mc-test
+.PHONY: pipeline-core-gen pipeline-lint pipeline-smoke pipeline-isa-sim pipeline-isa pipeline-coremark pipeline-coremark-crc pipeline-coremark-matrix pipeline-coremark-state pipeline-coremark-full pipeline-coremark-images pipeline-coremark-mc pipeline-coremark-mt pipeline-coremark-mt-test pipeline-coremark-full-mt pipeline-coremark-mt-image pipeline-coremark-full-mt-image coremark-full-mc-image pipeline-image pipeline-pango-lint pipeline-console pipeline-mc-images pipeline-mc-lint pipeline-mc-run pipeline-mc-test
 
 # Accelerated image locations (built by the existing ARES CoreMark scripts).
 PIPELINE_COREMARK_CRC_BIN    ?= $(ARES_HOME)/build/coremark_crc/coremark.bin
@@ -709,6 +709,19 @@ PIPELINE_COREMARK_FULL_MC_BIN ?= $(PIPELINE_COREMARK_FULL_MC_OUT)/coremark.bin
 PIPELINE_MC_LDSCRIPT          ?= $(ARES_HOME)/tests/abstract-machine/scripts/ares-linker-mc.ld
 PIPELINE_IMAGE_ELF           ?= $(ARES_HOME)/build/coremark/coremark-riscv32-ares.elf
 PIPELINE_IMAGE_OUT           ?= $(ARES_HOME)/build/pipeline
+
+# 2/4-hart standard CoreMark MULTITHREAD images.  CORES is the build-time
+# switch and MULTITHREAD/ITERATIONS are compile-time macros, so each core
+# count needs its own image directory.  The canonical total is 10,000
+# iterations (2 -> 2x5000, 4 -> 4x2500); the Verilator target builds a
+# reduced profile because a full 10,000-iteration run is hours long.
+CORES                       ?= 2
+COREMARK_MT_TOTAL_ITERATIONS ?= 10000
+PIPELINE_MT_OUT             ?= $(ARES_HOME)/build/coremark_mt$(CORES)
+PIPELINE_MT_BIN             ?= $(PIPELINE_MT_OUT)/coremark.bin
+PIPELINE_FULL_MT_OUT        ?= $(ARES_HOME)/build/coremark_full_mt$(CORES)
+PIPELINE_MT_SIM_TOTAL       ?= 200
+PIPELINE_MT_MAX_CYCLES      ?= 400000000
 
 # Multi-hart pipeline SoC (M4).  CORES is the build-time option; the same RTL
 # elaborates as 2 or 4 harts.  Images are built by tests/pipeline-mc.
@@ -797,23 +810,90 @@ coremark-full-mc-image:
 	    --ldscript $(PIPELINE_MC_LDSCRIPT) \
 	    --out $(PIPELINE_COREMARK_FULL_MC_OUT)
 
+# Standard CoreMark MULTITHREAD image: one aggregate report over CORES harts,
+# each context running COREMARK_MT_TOTAL_ITERATIONS/CORES iterations.  The
+# image is linked with the per-hart 32 KiB AMP window and never shared
+# between 2- and 4-hart builds.  (The legacy OoO 'coremark-mt-image'
+# target keeps its own 2-hart MULTITHREAD=2 image under build/coremark_mt.)
+pipeline-coremark-mt-image:
+	@case "$(CORES)" in 2|4) ;; *) echo "error: CORES must be 2 or 4 (got '$(CORES)')"; exit 1;; esac
+	@python3 $(ARES_HOME)/scripts/build_coremark_image.py \
+	    --mt-pipe --cores $(CORES) \
+	    --total-iterations $(COREMARK_MT_TOTAL_ITERATIONS) \
+	    --ldscript $(PIPELINE_MC_LDSCRIPT) --jobs 4 \
+	    --out $(PIPELINE_MT_OUT)
+
+# Full-accelerated variant of the pipeline MULTITHREAD image (same
+# semantics, CRC8 + matrix + state engines, per-hart private windows).
+# CORES=4 does not fit: its text needs ~33,068 B versus a 32 KiB IROM; use
+# 'make pipeline-coremark-mc CORES=4' (MULTITHREAD=1 AMP image) for 4 harts.
+pipeline-coremark-full-mt-image:
+	@case "$(CORES)" in 2) ;; *) echo "error: $(CORES)-hart full-accelerated MT needs ~33 KiB and does not fit the 32 KiB IROM; use 'make pipeline-coremark-mc CORES=$(CORES)' or grow the IROM"; exit 1;; esac
+	@python3 $(ARES_HOME)/scripts/build_coremark_crc.py \
+	    --array-list --matrix-engine --state-engine \
+	    --ldscript $(PIPELINE_MC_LDSCRIPT) \
+	    --mt-pipe --cores $(CORES) \
+	    --total-iterations $(COREMARK_MT_TOTAL_ITERATIONS) --jobs 4 \
+	    --out $(PIPELINE_FULL_MT_OUT)
+
 # Two-hart full-accelerated CoreMark.  Phase 1 uses the private-memory AMP
 # profile: each hart instantiates the proven single-hart student_top with its
 # own IROM, perip_bridge DRAM, UART, and matrix/state engines.  DATA_OFFSET
 # moves each hart's 32 KiB data window; the TB checks per-hart EBREAK/a0 and
 # the per-hart UART reports provide CRC/score detail.
+# The full-accelerated image has ~30 KiB of text, so it needs the 32 KiB
+# (512-line) I$ to avoid capacity misses; the MT target keeps 16 KiB.
 pipeline-coremark-mc: coremark-full-mc-image
-	@mkdir -p $(ARES_HOME)/build/pipeline_coremark_mc
+	@mkdir -p $(ARES_HOME)/build/pipeline_coremark_mc$(CORES)
 	@cd $(ARES_HOME) && CCACHE_DISABLE=1 verilator --cc --exe --build --language 1800-2017 -D__VERILATOR__ -Wno-fatal \
-	    --top-module tb_pipeline_coremark_amp -GCORES=2 \
+	    --top-module tb_pipeline_coremark_amp -GCORES=$(CORES) -GICACHE_LINES=512 \
 	    -f rtl/pipeline/pipeline.f \
-	    rtl/pipeline/soc/mc/pipeline_coremark_amp_top.sv \
 	    rtl/pipeline/test/tb_pipeline_coremark_amp.sv \
 	    rtl/pipeline/test/sim_coremark_amp_main.cpp \
-	    -Mdir $(ARES_HOME)/build/pipeline_coremark_mc \
-	    -o $(ARES_HOME)/build/pipeline_coremark_mc/pipeline_coremark_mc
-	@$(ARES_HOME)/build/pipeline_coremark_mc/pipeline_coremark_mc \
-	    $(PIPELINE_COREMARK_FULL_MC_BIN) 200000000
+	    -Mdir $(ARES_HOME)/build/pipeline_coremark_mc$(CORES) \
+	    -o $(ARES_HOME)/build/pipeline_coremark_mc$(CORES)/pipeline_coremark_mc
+	@$(ARES_HOME)/build/pipeline_coremark_mc$(CORES)/pipeline_coremark_mc \
+	    $(PIPELINE_COREMARK_FULL_MC_BIN) 200000000 $(CORES)
+
+# 2/4-hart standard CoreMark MULTITHREAD on the private-memory AMP top.
+# The Verilator profile uses PIPELINE_MT_SIM_TOTAL total iterations (200 by
+# default: 2x100 or 4x50) so the run finishes in minutes.  The canonical
+# 10,000-iteration report image is the default of 'make coremark-mt-image';
+# run it in simulation with
+#   make pipeline-coremark-mt CORES=2 PIPELINE_MT_SIM_TOTAL=10000
+# (hours of Verilator time) if a full-size score is required.
+pipeline-coremark-mt:
+	@$(MAKE) pipeline-coremark-mt-image COREMARK_MT_TOTAL_ITERATIONS=$(PIPELINE_MT_SIM_TOTAL)
+	@mkdir -p $(ARES_HOME)/build/pipeline_coremark_mt$(CORES)
+	@cd $(ARES_HOME) && CCACHE_DISABLE=1 verilator --cc --exe --build --language 1800-2017 -D__VERILATOR__ -Wno-fatal \
+	    --top-module tb_pipeline_coremark_amp -GCORES=$(CORES) \
+	    -f rtl/pipeline/pipeline.f \
+	    rtl/pipeline/test/tb_pipeline_coremark_amp.sv \
+	    rtl/pipeline/test/sim_coremark_amp_main.cpp \
+	    -Mdir $(ARES_HOME)/build/pipeline_coremark_mt$(CORES) \
+	    -o $(ARES_HOME)/build/pipeline_coremark_mt$(CORES)/pipeline_coremark_mt
+	@$(ARES_HOME)/build/pipeline_coremark_mt$(CORES)/pipeline_coremark_mt \
+	    $(PIPELINE_MT_BIN) $(PIPELINE_MT_MAX_CYCLES) $(CORES)
+
+pipeline-coremark-mt-test:
+	@$(MAKE) pipeline-coremark-mt CORES=2
+	@$(MAKE) pipeline-coremark-mt CORES=4
+
+# Full-accelerated standard MULTITHREAD CoreMark (one aggregate report).
+# The accelerated image is ~31 KiB of text, so the simulation uses the 32 KiB
+# (512-line) instruction cache; PIPELINE_MT_SIM_TOTAL keeps the run short.
+pipeline-coremark-full-mt:
+	@$(MAKE) pipeline-coremark-full-mt-image COREMARK_MT_TOTAL_ITERATIONS=$(PIPELINE_MT_SIM_TOTAL)
+	@mkdir -p $(ARES_HOME)/build/pipeline_coremark_full_mt$(CORES)
+	@cd $(ARES_HOME) && CCACHE_DISABLE=1 verilator --cc --exe --build --language 1800-2017 -D__VERILATOR__ -Wno-fatal \
+	    --top-module tb_pipeline_coremark_amp -GCORES=$(CORES) -GICACHE_LINES=512 \
+	    -f rtl/pipeline/pipeline.f \
+	    rtl/pipeline/test/tb_pipeline_coremark_amp.sv \
+	    rtl/pipeline/test/sim_coremark_amp_main.cpp \
+	    -Mdir $(ARES_HOME)/build/pipeline_coremark_full_mt$(CORES) \
+	    -o $(ARES_HOME)/build/pipeline_coremark_full_mt$(CORES)/pipeline_coremark_full_mt
+	@$(ARES_HOME)/build/pipeline_coremark_full_mt$(CORES)/pipeline_coremark_full_mt \
+	    $(PIPELINE_FULL_MT_OUT)/coremark.bin $(PIPELINE_MT_MAX_CYCLES) $(CORES)
 
 # Split the ARES ELF image into the two local Pango memories:
 #   build/pipeline/irom.hex  8192 x 32-bit  (0x8000_0000)

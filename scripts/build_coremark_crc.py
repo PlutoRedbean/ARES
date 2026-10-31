@@ -675,6 +675,17 @@ def main() -> int:
     ap.add_argument("--mt", action="store_true",
                     help="also build the 2-hart MULTITHREAD=2 single-report image "
                          "(overlay is applied by build_coremark_image.py --mt)")
+    ap.add_argument("--mt-pipe", action="store_true",
+                    help="also build the parameterized 2/4-hart pipeline MULTITHREAD "
+                         "image (requires --cores; overlay applied by "
+                         "build_coremark_image.py --mt-pipe)")
+    ap.add_argument("--cores", type=int, default=None,
+                    help="harts / CoreMark contexts for --mt-pipe (2 or 4)")
+    # Cores=1 is accepted by build_coremark_image.py for single-context
+    # reference images only; this accelerated flow targets the 2/4-hart runs.
+    ap.add_argument("--total-iterations", type=int, default=None,
+                    help="total iterations across all contexts for --mt-pipe "
+                         "(default 10000, each context runs total/cores)")
     ap.add_argument("--ldscript", type=Path, default=None,
                     help="override the ARES linker script (for example "
                          "tests/abstract-machine/scripts/ares-linker-mc.ld)")
@@ -696,8 +707,14 @@ def main() -> int:
         default_out = ROOT / "build/coremark_array"
     else:
         default_out = ROOT / "build/coremark_crc"
+    if args.mt and args.mt_pipe:
+        raise SystemExit("error: --mt and --mt-pipe are mutually exclusive")
     if args.mt:
         default_out = default_out.with_name(default_out.name + "_mt")
+    elif args.mt_pipe:
+        if args.cores not in (2, 4):
+            raise SystemExit("error: --mt-pipe requires --cores 2 or 4")
+        default_out = default_out.with_name(default_out.name + f"_mt{args.cores}")
     out = (args.out or default_out).resolve()
     src_port = out / "src_port"
     if src_port.exists():
@@ -723,6 +740,10 @@ def main() -> int:
            "--port", str(src_port), "--out", str(out), "--jobs", str(args.jobs)]
     if args.mt:
         cmd.append("--mt")
+    elif args.mt_pipe:
+        cmd += ["--mt-pipe", "--cores", str(args.cores)]
+        if args.total_iterations is not None:
+            cmd += ["--total-iterations", str(args.total_iterations)]
     if args.ldscript is not None:
         cmd += ["--ldscript", str(args.ldscript.resolve())]
     print("+", " ".join(cmd))
