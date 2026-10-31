@@ -75,8 +75,6 @@ module state9_engine (
     localparam logic [2:0] CORE_EXPONENT   = 3'd6;
     localparam logic [2:0] CORE_SCIENTIFIC = 3'd7;
 
-    logic [7:0] mem [0:1023];
-
     logic [31:0] blksz_q;
     logic signed [15:0] seed1_q, seed2_q, step_q;
     logic [15:0] crcin_q;
@@ -93,7 +91,6 @@ module state9_engine (
     logic [11:0] corr_p;
     logic [6:0]  crc_idx;
 
-    integer host_wr_i;
     integer rst_i;
     integer start_i;
     integer track_i;
@@ -109,15 +106,49 @@ module state9_engine (
     wire [12:0] blk_lim = blksz_q[12:0];
 
     //-------------------------------------------------------------------------
+    // Data array: 1 KiB as four byte lanes
+    //   lane = byte_addr[1:0], word = byte_addr[9:2]
+    // Each lane is a 256x8 array with one write port and one asynchronous read
+    // port, which is the shape Synplify infers distributed RAM from.  The old
+    // byte-addressed array updated four different addresses per cycle (one per
+    // host byte strobe), which no RAM primitive supports, so it degenerated
+    // into 8,192 flip-flops plus a ~35k LUT mux tree and made this engine 69%
+    // of the whole SoC's LUTs.
+    //
+    // Read port: the engine owns the array while busy, the host reads it only
+    // when idle.  Host data writes were already ignored while busy, so this
+    // matches the existing ownership contract.
+    //-------------------------------------------------------------------------
+    // Both spellings are given: the Pango flow synthesises with Synplify
+    // (syn_ramstyle) while the rest of this tree uses the Vivado spelling.
+    (* ram_style = "distributed", syn_ramstyle = "distributed" *) logic [7:0] mem_l0 [0:255];
+    (* ram_style = "distributed", syn_ramstyle = "distributed" *) logic [7:0] mem_l1 [0:255];
+    (* ram_style = "distributed", syn_ramstyle = "distributed" *) logic [7:0] mem_l2 [0:255];
+    (* ram_style = "distributed", syn_ramstyle = "distributed" *) logic [7:0] mem_l3 [0:255];
+
+    wire [9:0] eng_addr = (state_q == ST_CORRUPT || state_q == ST_UNDO)
+                          ? corr_p[9:0] : p_q[9:0];
+    wire [7:0] rd_word  = busy_q ? eng_addr[9:2] : haddr[9:2];
+    wire [7:0] rd_l0    = mem_l0[rd_word];
+    wire [7:0] rd_l1    = mem_l1[rd_word];
+    wire [7:0] rd_l2    = mem_l2[rd_word];
+    wire [7:0] rd_l3    = mem_l3[rd_word];
+    wire [7:0] rd_byte  = (eng_addr[1:0] == 2'd3) ? rd_l3 :
+                          (eng_addr[1:0] == 2'd2) ? rd_l2 :
+                          (eng_addr[1:0] == 2'd1) ? rd_l1 : rd_l0;
+
+    //-------------------------------------------------------------------------
     // Host read mux
     //-------------------------------------------------------------------------
     logic [31:0] host_rdata;
 
     always_comb begin
         host_rdata = 32'h0;
-        if (data_sel) begin
-            host_rdata = {mem[haddr[9:0] + 3], mem[haddr[9:0] + 2],
-                          mem[haddr[9:0] + 1], mem[haddr[9:0]]};
+        if (data_sel && !busy_q) begin
+            // Aligned 32-bit window read.  While the engine owns the array a
+            // data read returns zero, matching the write port, which already
+            // ignores host data writes while busy.
+            host_rdata = {rd_l3, rd_l2, rd_l1, rd_l0};
         end else begin
             case (haddr)
                 CTRL:    host_rdata = {30'b0, done_q, busy_q};
@@ -186,17 +217,24 @@ module state9_engine (
     //-------------------------------------------------------------------------
     // Data-array write port: host 4 bytes/cycle, engine 1 byte/cycle
     //-------------------------------------------------------------------------
+    wire        host_wr_data = host_wr && !busy_q && data_sel;
+    wire        eng_wr       = busy_q && (state_q == ST_CORRUPT || state_q == ST_UNDO) &&
+                               ({1'b0, corr_p} < blk_lim) && (rd_byte != 8'h2C);
+    wire [7:0]  eng_xor      = (state_q == ST_CORRUPT) ? seed1_q[7:0] : seed2_q[7:0];
+    wire [7:0]  wr_byte      = rd_byte ^ eng_xor;
+    wire [7:0]  wr_addr      = host_wr_data ? haddr[9:2] : corr_p[9:2];
+
     always_ff @(posedge clk) begin
-        if (host_wr && !busy_q && data_sel) begin
-            for (host_wr_i = 0; host_wr_i < 4; host_wr_i = host_wr_i + 1)
-                if (host_wstrb[host_wr_i])
-                    mem[haddr[9:0] + host_wr_i[9:0]] <=
-                        host_wdata[8*host_wr_i +: 8];
-        end else if ((state_q == ST_CORRUPT || state_q == ST_UNDO) &&
-                     ({1'b0, corr_p} < blk_lim)) begin
-            if (mem[corr_p[9:0]] != 8'h2C)
-                mem[corr_p[9:0]] <= mem[corr_p[9:0]] ^
-                    ((state_q == ST_CORRUPT) ? seed1_q[7:0] : seed2_q[7:0]);
+        if (host_wr_data) begin
+            if (host_wstrb[0]) mem_l0[wr_addr] <= host_wdata[7:0];
+            if (host_wstrb[1]) mem_l1[wr_addr] <= host_wdata[15:8];
+            if (host_wstrb[2]) mem_l2[wr_addr] <= host_wdata[23:16];
+            if (host_wstrb[3]) mem_l3[wr_addr] <= host_wdata[31:24];
+        end else if (eng_wr) begin
+            if (corr_p[1:0] == 2'd0)      mem_l0[wr_addr] <= wr_byte;
+            else if (corr_p[1:0] == 2'd1) mem_l1[wr_addr] <= wr_byte;
+            else if (corr_p[1:0] == 2'd2) mem_l2[wr_addr] <= wr_byte;
+            else                          mem_l3[wr_addr] <= wr_byte;
         end
     end
 
@@ -210,7 +248,7 @@ module state9_engine (
     logic        to_invalid;
 
     always_comb begin
-        cur      = mem[p_q[9:0]];
+        cur      = rd_byte;
         is_digit = (cur >= 8'h30) && (cur <= 8'h39);
         is_pm    = (cur == 8'h2B) || (cur == 8'h2D);
         is_dot   = (cur == 8'h2E);
@@ -401,18 +439,18 @@ module state9_engine (
                         token_active <= 1'b0;
                         scan_done    <= 1'b1;
                     end else if (!token_active) begin
-                        if (mem[p_q[9:0]] == 8'h00) begin
+                        if (cur == 8'h00) begin
                             scan_done <= 1'b1;
                         end else begin
                             token_active <= 1'b1;
                             token_state  <= CORE_START;
                         end
                     end else begin
-                        if (mem[p_q[9:0]] == 8'h00) begin
+                        if (cur == 8'h00) begin
                             final_q[token_state] <= final_q[token_state] + 32'd1;
                             token_active <= 1'b0;
                             scan_done    <= 1'b1;
-                        end else if (mem[p_q[9:0]] == 8'h2C) begin
+                        end else if (cur == 8'h2C) begin
                             final_q[token_state] <= final_q[token_state] + 32'd1;
                             token_active <= 1'b0;
                             p_q          <= p_q + 12'd1;
