@@ -697,7 +697,7 @@ unit-frontend-modes:
 test-images:
 	@python3 $(ARES_HOME)/scripts/test_split_image.py
 
-.PHONY: pipeline-core-gen pipeline-lint pipeline-smoke pipeline-isa-sim pipeline-isa pipeline-coremark pipeline-coremark-nocache pipeline-coremark-serial pipeline-coremark-crc pipeline-coremark-matrix pipeline-coremark-state pipeline-coremark-full pipeline-coremark-images pipeline-coremark-mc pipeline-coremark-mt pipeline-coremark-mt-test pipeline-coremark-full-mt pipeline-coremark-mt-image pipeline-coremark-full-mt-image coremark-full-mc-image pipeline-image pipeline-pango-lint pipeline-console pipeline-mc-images pipeline-mc-lint pipeline-mc-run pipeline-mc-test
+.PHONY: pipeline-core-gen pipeline-lint pipeline-div-test pipeline-smoke pipeline-isa-sim pipeline-isa pipeline-coremark pipeline-coremark-nocache pipeline-coremark-serial pipeline-coremark-crc pipeline-coremark-matrix pipeline-coremark-state pipeline-coremark-full pipeline-coremark-images pipeline-coremark-mc pipeline-coremark-mt pipeline-coremark-mt-test pipeline-coremark-full-mt pipeline-coremark-mt-image pipeline-coremark-full-mt-image coremark-full-mc-image pipeline-image pipeline-pango-lint pipeline-console pipeline-mc-images pipeline-mc-lint pipeline-mc-run pipeline-mc-test
 
 # Accelerated image locations (built by the existing ARES CoreMark scripts).
 PIPELINE_COREMARK_CRC_BIN    ?= $(ARES_HOME)/build/coremark_crc/coremark.bin
@@ -736,6 +736,17 @@ pipeline-core-gen:
 pipeline-lint:
 	@cd $(ARES_HOME) && verilator --lint-only --language 1800-2017 -D__VERILATOR__ -Wall -Wno-fatal \
 	    --top-module student_top -f rtl/pipeline/pipeline.f
+
+# Unit test for the divider behind Mundus/EXU/DIV (rtl/pipeline/soc/ip/div.v):
+# directed boundaries, random pairs against a reference model, result
+# latency/hold checks and the dropped-request case at LATENCY=35 and 17.
+# Icarus only, ~2 s.
+pipeline-div-test:
+	@mkdir -p $(ARES_HOME)/build/div_test
+	@cd $(ARES_HOME) && iverilog -g2012 \
+	    -I rtl/pipeline/include -I rtl/pipeline/core/vsrc/include \
+	    -o build/div_test/tb_div rtl/pipeline/soc/ip/div.v rtl/pipeline/test/tb_div.sv
+	@cd $(ARES_HOME) && vvp build/div_test/tb_div
 
 pipeline-smoke:
 	@mkdir -p $(ARES_HOME)/build/pipeline_smoke
