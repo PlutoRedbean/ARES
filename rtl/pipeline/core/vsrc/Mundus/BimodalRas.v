@@ -1,6 +1,6 @@
 `include "autoconf.vh"
 
-module BimodalRas#(ADDR_WIDTH=32,BTB_WIDTH=4,DATA_WIDTH=32)(
+module BimodalRas#(parameter ADDR_WIDTH=32, parameter BTB_WIDTH=4, parameter DATA_WIDTH=32)(
     input                     clk,
     input                     rst,
 

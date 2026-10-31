@@ -56,24 +56,22 @@ module mtx9_engine (
     localparam logic [11:0] CRC    = 12'h710;
     localparam logic [11:0] SUM0   = 12'h720;
 
-    typedef enum logic [3:0] {
-        ST_IDLE,
-        ST_LOAD_B,
-        ST_ADD_CONST,
-        ST_MUL_CONST,
-        ST_VECT,
-        ST_SUM1,
-        ST_MATMUL,
-        ST_MATMUL_WR,
-        ST_SUM2,
-        ST_BITEXT,
-        ST_BITEXT_WR,
-        ST_SUM3,
-        ST_RESTORE,
-        ST_DONE
-    } state_t;
+    localparam logic [3:0] ST_IDLE      = 4'd0;
+    localparam logic [3:0] ST_LOAD_B    = 4'd1;
+    localparam logic [3:0] ST_ADD_CONST = 4'd2;
+    localparam logic [3:0] ST_MUL_CONST = 4'd3;
+    localparam logic [3:0] ST_VECT      = 4'd4;
+    localparam logic [3:0] ST_SUM1      = 4'd5;
+    localparam logic [3:0] ST_MATMUL    = 4'd6;
+    localparam logic [3:0] ST_MATMUL_WR = 4'd7;
+    localparam logic [3:0] ST_SUM2      = 4'd8;
+    localparam logic [3:0] ST_BITEXT    = 4'd9;
+    localparam logic [3:0] ST_BITEXT_WR = 4'd10;
+    localparam logic [3:0] ST_SUM3      = 4'd11;
+    localparam logic [3:0] ST_RESTORE   = 4'd12;
+    localparam logic [3:0] ST_DONE      = 4'd13;
 
-    state_t state_q;
+    logic [3:0] state_q;
 
     logic [3:0]  n_reg;
     logic signed [15:0] val_reg;
@@ -98,21 +96,27 @@ module mtx9_engine (
 
     wire [7:0]  a_word  = {1'b0, haddr[8:2]};
     wire [7:0]  b_word  = haddr[9:2] - 8'd128;
-    wire [6:0]  c_word  = 7'(haddr[9:2]);
+    wire [6:0]  c_word  = haddr[8:2];
 
     wire start_pulse = host_wr && (haddr == CTRL) && host_wdata[0] && !busy_q;
 
-    function automatic logic [31:0] merge_bytes(
-        input logic [31:0] old_word,
-        input logic [31:0] new_word,
-        input logic [ 3:0] be
-    );
-        logic [31:0] r;
-        r = old_word;
-        for (int i = 0; i < 4; i++)
-            if (be[i]) r[8*i +: 8] = new_word[8*i +: 8];
-        return r;
-    endfunction
+    integer sum_i;
+    integer init_i;
+
+    reg [31:0] a_merge;
+    reg [31:0] b_merge;
+    integer merge_i;
+
+    always @(*) begin
+        a_merge = abuf[a_word];
+        b_merge = abuf[8'd128 + b_word];
+        for (merge_i = 0; merge_i < 4; merge_i = merge_i + 1) begin
+            if (host_wstrb[merge_i]) begin
+                a_merge[8*merge_i +: 8] = host_wdata[8*merge_i +: 8];
+                b_merge[8*merge_i +: 8] = host_wdata[8*merge_i +: 8];
+            end
+        end
+    end
 
     //-------------------------------------------------------------------------
     // Host read mux
@@ -332,40 +336,40 @@ module mtx9_engine (
     //-------------------------------------------------------------------------
     // CRC16 recurrence (crcu16: low byte then high byte)
     //-------------------------------------------------------------------------
-    function automatic logic [15:0] crc8_step(
-        input logic [ 7:0] data,
-        input logic [15:0] crc_in
-    );
-        logic [15:0] c;
-        logic [ 7:0] d;
-        logic        x16, carry;
-        c = crc_in;
-        d = data;
-        for (int i = 0; i < 8; i++) begin
-            x16 = d[0] ^ c[0];
-            d   = d >> 1;
-            if (x16) begin
-                c     = c ^ 16'h4002;
-                carry = 1'b1;
-            end else begin
-                carry = 1'b0;
-            end
-            c = c >> 1;
-            if (carry) c[15] = 1'b1;
-            else       c[15] = 1'b0;
-        end
-        return c;
-    endfunction
+    reg [15:0] crc16_work;
+    reg [15:0] crc16_next;
+    reg [15:0] crc8_work;
+    reg [ 7:0] crc8_data;
+    reg        crc8_x16;
+    reg        crc8_carry;
+    integer crc16_i;
+    integer crc8_i;
 
-    function automatic logic [15:0] crc16_step(
-        input logic signed [15:0] val,
-        input logic [15:0]        crc_in
-    );
-        logic [15:0] c;
-        c = crc8_step(val[7:0], crc_in);
-        c = crc8_step(val[15:8], c);
-        return c;
-    endfunction
+    always @(*) begin
+        crc16_work = crc_q;
+        for (crc16_i = 0; crc16_i < 2; crc16_i = crc16_i + 1) begin
+            if (crc16_i == 0)
+                crc8_data = sum_ret_n[7:0];
+            else
+                crc8_data = sum_ret_n[15:8];
+            crc8_work = crc16_work;
+            for (crc8_i = 0; crc8_i < 8; crc8_i = crc8_i + 1) begin
+                crc8_x16 = crc8_data[0] ^ crc8_work[0];
+                crc8_data = crc8_data >> 1;
+                if (crc8_x16) begin
+                    crc8_work = crc8_work ^ 16'h4002;
+                    crc8_carry = 1'b1;
+                end else begin
+                    crc8_carry = 1'b0;
+                end
+                crc8_work = crc8_work >> 1;
+                if (crc8_carry) crc8_work[15] = 1'b1;
+                else            crc8_work[15] = 1'b0;
+            end
+            crc16_work = crc8_work;
+        end
+        crc16_next = crc16_work;
+    end
 
     //-------------------------------------------------------------------------
     // Sequencer
@@ -388,7 +392,8 @@ module mtx9_engine (
             sum_tmp  <= 32'sd0;
             sum_prev <= 32'sd0;
             sum_ret  <= 16'sd0;
-            for (int k = 0; k < 4; k++) sum_q[k] <= 16'sd0;
+            for (sum_i = 0; sum_i < 4; sum_i = sum_i + 1)
+                sum_q[sum_i] <= 16'sd0;
         end else begin
             unique case (state_q)
                 ST_IDLE: begin
@@ -409,7 +414,8 @@ module mtx9_engine (
                         sum_tmp  <= 32'sd0;
                         sum_prev <= 32'sd0;
                         sum_ret  <= 16'sd0;
-                        for (int k = 0; k < 4; k++) sum_q[k] <= 16'sd0;
+                        for (sum_i = 0; sum_i < 4; sum_i = sum_i + 1)
+                            sum_q[sum_i] <= 16'sd0;
                     end
                 end
 
@@ -447,7 +453,7 @@ module mtx9_engine (
                     sum_ret  <= sum_ret_n;
                     if (idx == 7'd80) begin
                         sum_q[0] <= sum_ret_n;
-                        crc_q    <= crc16_step(sum_ret_n, crc_q);
+                        crc_q    <= crc16_next;
                         state_q  <= ST_VECT;
                         idx      <= 7'd0;
                         vi       <= 4'd0;
@@ -483,7 +489,7 @@ module mtx9_engine (
                     sum_ret  <= sum_ret_n;
                     if (idx == 7'd80) begin
                         sum_q[1] <= sum_ret_n;
-                        crc_q    <= crc16_step(sum_ret_n, crc_q);
+                        crc_q    <= crc16_next;
                         state_q  <= ST_MATMUL;
                         idx      <= 7'd0;
                         mi       <= 4'd0;
@@ -527,7 +533,7 @@ module mtx9_engine (
                     sum_ret  <= sum_ret_n;
                     if (idx == 7'd80) begin
                         sum_q[2] <= sum_ret_n;
-                        crc_q    <= crc16_step(sum_ret_n, crc_q);
+                        crc_q    <= crc16_next;
                         state_q  <= ST_BITEXT;
                         idx      <= 7'd0;
                         mi       <= 4'd0;
@@ -571,7 +577,7 @@ module mtx9_engine (
                     sum_ret  <= sum_ret_n;
                     if (idx == 7'd80) begin
                         sum_q[3] <= sum_ret_n;
-                        crc_q    <= crc16_step(sum_ret_n, crc_q);
+                        crc_q    <= crc16_next;
                         state_q  <= ST_RESTORE;
                         idx      <= 7'd0;
                     end else begin
@@ -604,17 +610,18 @@ module mtx9_engine (
     //-------------------------------------------------------------------------
     always_ff @(posedge clk) begin
         if (rst) begin
-            for (int i = 0; i < 256; i++) abuf[i] <= 32'h0;
-            for (int i = 0; i < 81; i++)  c_mem[i] <= 32'sd0;
+            for (init_i = 0; init_i < 256; init_i = init_i + 1)
+                abuf[init_i] <= 32'h0;
+            for (init_i = 0; init_i < 81; init_i = init_i + 1)
+                c_mem[init_i] <= 32'sd0;
         end else begin
             if (host_wr && !busy_q && a_sel)
-                abuf[a_word] <= merge_bytes(abuf[a_word], host_wdata, host_wstrb);
+                abuf[a_word] <= a_merge;
             else if (a_wr_en)
                 abuf[{1'b0, a_wr_addr}] <= {{16{a_wr_data[15]}}, a_wr_data};
 
             if (host_wr && !busy_q && b_sel)
-                abuf[8'd128 + b_word] <= merge_bytes(abuf[8'd128 + b_word],
-                                                      host_wdata, host_wstrb);
+                abuf[8'd128 + b_word] <= b_merge;
 
             if (c_wr_en)
                 c_mem[c_wr_addr] <= c_wr_data;

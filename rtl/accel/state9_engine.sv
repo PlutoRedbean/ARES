@@ -55,17 +55,15 @@ module state9_engine (
     localparam logic [11:0] FINAL0 = 12'h720;
     localparam logic [11:0] TRACK0 = 12'h740;
 
-    typedef enum logic [2:0] {
-        ST_IDLE,
-        ST_SCAN1,
-        ST_CORRUPT,
-        ST_SCAN2,
-        ST_UNDO,
-        ST_CRC,
-        ST_DONE
-    } state_t;
+    localparam logic [2:0] ST_IDLE    = 3'd0;
+    localparam logic [2:0] ST_SCAN1   = 3'd1;
+    localparam logic [2:0] ST_CORRUPT = 3'd2;
+    localparam logic [2:0] ST_SCAN2   = 3'd3;
+    localparam logic [2:0] ST_UNDO    = 3'd4;
+    localparam logic [2:0] ST_CRC     = 3'd5;
+    localparam logic [2:0] ST_DONE    = 3'd6;
 
-    state_t state_q;
+    logic [2:0] state_q;
 
     // 0=START, 1=INVALID, 2=S1, 3=S2, 4=INT, 5=FLOAT, 6=EXPONENT, 7=SCIENTIFIC
     localparam logic [2:0] CORE_START      = 3'd0;
@@ -95,6 +93,11 @@ module state9_engine (
     logic [11:0] corr_p;
     logic [6:0]  crc_idx;
 
+    integer host_wr_i;
+    integer rst_i;
+    integer start_i;
+    integer track_i;
+
     //-------------------------------------------------------------------------
     // Host decode
     //-------------------------------------------------------------------------
@@ -104,18 +107,6 @@ module state9_engine (
 
     wire start_pulse = host_wr && (haddr == CTRL) && host_wdata[0] && !busy_q;
     wire [12:0] blk_lim = blksz_q[12:0];
-
-    function automatic logic [31:0] merge_bytes(
-        input logic [31:0] old_word,
-        input logic [31:0] new_word,
-        input logic [ 3:0] be
-    );
-        logic [31:0] r;
-        r = old_word;
-        for (int i = 0; i < 4; i++)
-            if (be[i]) r[8*i +: 8] = new_word[8*i +: 8];
-        return r;
-    endfunction
 
     //-------------------------------------------------------------------------
     // Host read mux
@@ -197,9 +188,10 @@ module state9_engine (
     //-------------------------------------------------------------------------
     always_ff @(posedge clk) begin
         if (host_wr && !busy_q && data_sel) begin
-            for (int i = 0; i < 4; i++)
-                if (host_wstrb[i])
-                    mem[haddr[9:0] + i[9:0]] <= host_wdata[8*i +: 8];
+            for (host_wr_i = 0; host_wr_i < 4; host_wr_i = host_wr_i + 1)
+                if (host_wstrb[host_wr_i])
+                    mem[haddr[9:0] + host_wr_i[9:0]] <=
+                        host_wdata[8*host_wr_i +: 8];
         end else if ((state_q == ST_CORRUPT || state_q == ST_UNDO) &&
                      ({1'b0, corr_p} < blk_lim)) begin
             if (mem[corr_p[9:0]] != 8'h2C)
@@ -305,26 +297,6 @@ module state9_engine (
     //-------------------------------------------------------------------------
     // CRC8 step
     //-------------------------------------------------------------------------
-    function automatic logic [15:0] crc8_step(
-        input logic [ 7:0] data,
-        input logic [15:0] crc_in
-    );
-        logic [15:0] c;
-        logic [ 7:0] d;
-        logic        x16, carry;
-        c = crc_in;
-        d = data;
-        for (int i = 0; i < 8; i++) begin
-            x16 = d[0] ^ c[0];
-            d   = d >> 1;
-            if (x16) begin c = c ^ 16'h4002; carry = 1'b1; end
-            else       carry = 1'b0;
-            c = c >> 1;
-            if (carry) c[15] = 1'b1; else c[15] = 1'b0;
-        end
-        return c;
-    endfunction
-
     //-------------------------------------------------------------------------
     // CRC pass byte selection
     //-------------------------------------------------------------------------
@@ -348,6 +320,32 @@ module state9_engine (
         crc_byte = crc_count[8*crc_byte_sel +: 8];
     end
 
+    reg [15:0] crc8_work;
+    reg [15:0] crc8_next;
+    reg [ 7:0] crc8_data;
+    reg        crc8_x16;
+    reg        crc8_carry;
+    integer crc8_i;
+
+    always @(*) begin
+        crc8_work = crco_q;
+        crc8_data = crc_byte;
+        for (crc8_i = 0; crc8_i < 8; crc8_i = crc8_i + 1) begin
+            crc8_x16 = crc8_data[0] ^ crc8_work[0];
+            crc8_data = crc8_data >> 1;
+            if (crc8_x16) begin
+                crc8_work = crc8_work ^ 16'h4002;
+                crc8_carry = 1'b1;
+            end else begin
+                crc8_carry = 1'b0;
+            end
+            crc8_work = crc8_work >> 1;
+            if (crc8_carry) crc8_work[15] = 1'b1;
+            else            crc8_work[15] = 1'b0;
+        end
+        crc8_next = crc8_work;
+    end
+
     //-------------------------------------------------------------------------
     // Sequencer
     //-------------------------------------------------------------------------
@@ -363,9 +361,9 @@ module state9_engine (
             scan_done    <= 1'b0;
             corr_p       <= 12'h0;
             crc_idx      <= 7'h0;
-            for (int i = 0; i < 8; i++) begin
-                final_q[i] <= 32'h0;
-                track_q[i] <= 32'h0;
+            for (rst_i = 0; rst_i < 8; rst_i = rst_i + 1) begin
+                final_q[rst_i] <= 32'h0;
+                track_q[rst_i] <= 32'h0;
             end
         end else begin
             unique case (state_q)
@@ -381,9 +379,9 @@ module state9_engine (
                         scan_done    <= 1'b0;
                         corr_p       <= 12'h0;
                         crc_idx      <= 7'h0;
-                        for (int i = 0; i < 8; i++) begin
-                            final_q[i] <= 32'h0;
-                            track_q[i] <= 32'h0;
+                        for (start_i = 0; start_i < 8; start_i = start_i + 1) begin
+                            final_q[start_i] <= 32'h0;
+                            track_q[start_i] <= 32'h0;
                         end
                     end
                 end
@@ -420,8 +418,9 @@ module state9_engine (
                             p_q          <= p_q + 12'd1;
                         end else begin
                             p_q <= p_q + 12'd1;
-                            for (int i = 0; i < 8; i++)
-                                track_q[i] <= track_q[i] + {31'b0, track_inc[i]};
+                            for (track_i = 0; track_i < 8; track_i = track_i + 1)
+                                track_q[track_i] <= track_q[track_i] +
+                                    {31'b0, track_inc[track_i]};
                             token_state <= next_state;
                             if (to_invalid) begin
                                 final_q[CORE_INVALID] <= final_q[CORE_INVALID] + 32'd1;
@@ -450,7 +449,7 @@ module state9_engine (
                 end
 
                 ST_CRC: begin
-                    crco_q <= crc8_step(crc_byte, crco_q);
+                    crco_q <= crc8_next;
                     if (crc_idx == 7'd63) begin
                         state_q <= ST_DONE;
                     end else begin
