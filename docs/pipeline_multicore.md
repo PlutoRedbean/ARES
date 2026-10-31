@@ -5,8 +5,10 @@
 > covers the shared-L2/coherence profile only.
 >
 > Status: RTL + Verilator implementation complete for 2 and 4 harts; the
-> 2-hart full-accelerated CoreMark target is implemented.  Pango board wrapper
-> and PDS/board signoff remain open.
+> 2-hart full-accelerated CoreMark target is implemented.  The 2-hart AMP
+> Pango board wrapper (`pipeline_amp_board_top` + `flow_pipeline_amp.tcl`) is
+> added; PDS synthesis/timing/board signoff is pending.  The shared-L2 board
+> wrapper and 128-bit BRAM image remain open.
 > Baseline: pipeline-single-issue, after the M4 acceleration images.
 
 ## 1. Configuration
@@ -184,8 +186,12 @@ accepted.
   writeback queue or sectoring.  Those remain the PPA/performance step.
 - The shared-L2 CoreMark path needs a response-ordering fix; the AMP profile is
   the current passing full-accelerated CoreMark result.
-- The 2/4-hart top is simulated; a Pango board wrapper and 128-bit shared-DRAM
-  `$readmemh` image are still needed for PDS synthesis, timing and board run.
+- The 2-hart AMP profile has a Pango board wrapper (`pipeline_amp_board_top`,
+  `flow_pipeline_amp.tcl`) and per-hart 32 KiB DRAM replication
+  (`pipeline_image.py --replicate-dram-words 8192`); PDS synthesis, timing and
+  board run are the next gates.
+- The 2/4-hart shared-L2 top is simulated; a Pango board wrapper and 128-bit
+  shared-DRAM `$readmemh` image are still needed for its PDS/board run.
 - The shared L2 is coherent for the L1 D-cache; instruction fetch is per-hart
   IROM replication, so code is coherent by construction.  Dynamic code loading
   and FENCE.I/ICache maintenance remain a separate task.

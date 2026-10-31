@@ -309,7 +309,10 @@ def emitted_symbols(cfg):
         suffix = ch.selected
         if ch.name and ch.selected.startswith(ch.name + "_"):
             suffix = ch.selected[len(ch.name) + 1:]
-        out[ch.name] = int(suffix) if suffix.isdigit() else 1
+        # Only numeric choice names (X_<n>) carry a CONFIG_X value; a choice
+        # whose members are ordinary flags just emits the selected member.
+        if suffix.isdigit():
+            out[ch.name] = int(suffix)
         out[ch.selected] = 1
     for name, sym in cfg.symbols.items():
         if sym.choice is not None:

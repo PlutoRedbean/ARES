@@ -142,7 +142,15 @@ module perip_bridge #(
     reg         console_rx_valid;
     wire        console_tx_ready;
 
-`ifndef __VERILATOR__
+`ifdef __VERILATOR__
+  `ifdef ARES_SIM_REAL_UART
+    `define ARES_UART_USE_REAL
+  `endif
+`else
+  `define ARES_UART_USE_REAL
+`endif
+
+`ifdef ARES_UART_USE_REAL
     // The console uses one-entry toggle handshakes in each direction.  The
     // character data stays stable until the corresponding acknowledgement
     // returns, making the data bus a safe bundled-data CDC path.
@@ -318,45 +326,7 @@ module perip_bridge #(
     assign shared_req_wdata = perip_wdata;
     assign shared_req_wstrb = store_byte_enable(perip_addr[17:0], perip_mask);
 
-`ifdef __VERILATOR__
-    import "DPI-C" function int sim_console_getchar();
-    import "DPI-C" function void sim_led_write(input int value);
-
-    // Simulation-only character sink used by the RT-Thread console driver.
-    always @(posedge clk) begin
-        if (!rst && mmio_write_accept && perip_addr_eff == CONSOLE_ADDR) begin
-            $write("%c", perip_wdata[7:0]);
-        end
-        if (!rst && mmio_write_accept && perip_addr == LED_ADDR) begin
-            sim_led_write(perip_wdata);
-        end
-    end
-
-    // One-byte simulation RX register. The DPI side supplies scripted input
-    // first and then polls the host terminal without blocking RTL execution.
-    always @(posedge clk) begin : sim_console_rx
-        integer next_char;
-
-        if (rst) begin
-            console_rx_data  <= 8'd0;
-            console_rx_valid <= 1'b0;
-        end else if (console_rx_valid) begin
-            if (read_accept && perip_addr_eff == CONSOLE_RX) begin
-                console_rx_valid <= 1'b0;
-            end
-        end else begin
-            next_char = sim_console_getchar();
-            if (next_char >= 0) begin
-                console_rx_data  <= next_char[7:0];
-                console_rx_valid <= 1'b1;
-            end
-        end
-    end
-
-    assign console_tx_ready = 1'b1;
-    assign uart_tx_data     = 8'd0;
-    assign uart_tx_start    = 1'b0;
-`else
+`ifdef ARES_UART_USE_REAL
     // CPU -> UART transmit path.  The CPU holds the byte and toggles a request
     // only when the previous request has been accepted by the UART domain.
     assign console_tx_ready =
@@ -453,8 +423,44 @@ module perip_bridge #(
     end
 
     assign uart_tx_data  = uart_tx_data_r;
-    assign uart_tx_start = uart_tx_start_r;
-`endif
+    assign uart_tx_start = uart_tx_start_r;`else
+    import "DPI-C" function int sim_console_getchar();
+    import "DPI-C" function void sim_led_write(input int value);
+
+    // Simulation-only character sink used by the RT-Thread console driver.
+    always @(posedge clk) begin
+        if (!rst && mmio_write_accept && perip_addr_eff == CONSOLE_ADDR) begin
+            $write("%c", perip_wdata[7:0]);
+        end
+        if (!rst && mmio_write_accept && perip_addr == LED_ADDR) begin
+            sim_led_write(perip_wdata);
+        end
+    end
+
+    // One-byte simulation RX register. The DPI side supplies scripted input
+    // first and then polls the host terminal without blocking RTL execution.
+    always @(posedge clk) begin : sim_console_rx
+        integer next_char;
+
+        if (rst) begin
+            console_rx_data  <= 8'd0;
+            console_rx_valid <= 1'b0;
+        end else if (console_rx_valid) begin
+            if (read_accept && perip_addr_eff == CONSOLE_RX) begin
+                console_rx_valid <= 1'b0;
+            end
+        end else begin
+            next_char = sim_console_getchar();
+            if (next_char >= 0) begin
+                console_rx_data  <= next_char[7:0];
+                console_rx_valid <= 1'b1;
+            end
+        end
+    end
+
+    assign console_tx_ready = 1'b1;
+    assign uart_tx_data     = 8'd0;
+    assign uart_tx_start    = 1'b0;`endif
     assign staged_forward_mask =
         dram_load_request && bram_write_valid_q &&
         (bram_cmd_addr_q[17:2] == perip_addr[17:2])

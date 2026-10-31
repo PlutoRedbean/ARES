@@ -659,6 +659,24 @@ $(DST_DIR)/src/core_state.o: CFLAGS += -Dcore_bench_state=core_bench_state_orig
 CFLAGS += -O3 -funroll-loops
 '''
 
+MAKEFILE_APPEND_SMALL_CODE = r'''
+#------------------------------------------------------------------------------
+# Smaller cold objects for the 32 KiB pipeline/AMP IROM (added by
+# scripts/build_coremark_crc.py --small-code).  The hot benchmark TUs keep the
+# global -O3 -funroll-loops; only startup, reporting and unused reference
+# helpers are shrunk.
+#------------------------------------------------------------------------------
+$(DST_DIR)/src/core_util.o: CFLAGS += -Os -fno-unroll-loops
+$(DST_DIR)/src/core_portme.o: CFLAGS += -Os -fno-unroll-loops
+$(DST_DIR)/src/core_main.o: CFLAGS += -O2 -fno-unroll-loops
+# The matrix/state engines replace these TUs at run time; the originals are
+# only kept as fallbacks for non-standard shapes and are never executed by
+# CoreMark.  Shrinking them recovers ~5 KiB of IROM without touching the
+# accelerated hot path.
+$(DST_DIR)/src/core_matrix.o: CFLAGS += -Os -fno-unroll-loops -fno-tree-vectorize
+$(DST_DIR)/src/core_state.o: CFLAGS += -Os -fno-unroll-loops -fno-tree-vectorize
+'''
+
 
 def main() -> int:
     ap = argparse.ArgumentParser()
@@ -672,6 +690,9 @@ def main() -> int:
                     help="also replace core_bench_matrix with the mtx9 engine driver")
     ap.add_argument("--state-engine", action="store_true",
                     help="also replace core_bench_state with the state9 scanner driver")
+    ap.add_argument("--small-code", action="store_true",
+                    help="shrink cold objects so the accelerated image fits the "
+                         "pipeline 32 KiB IROM")
     ap.add_argument("--mt", action="store_true",
                     help="also build the 2-hart MULTITHREAD=2 single-report image "
                          "(overlay is applied by build_coremark_image.py --mt)")
@@ -733,6 +754,8 @@ def main() -> int:
     if args.state_engine:
         (src_port / "src/state_hw.c").write_text(STATE_HW_C)
         makefile_append += MAKEFILE_APPEND_STATE
+    if args.small_code:
+        makefile_append += MAKEFILE_APPEND_SMALL_CODE
     with (src_port / "Makefile").open("a") as f:
         f.write(makefile_append)
 
