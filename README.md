@@ -75,7 +75,13 @@ custom-0 CRC8 instruction, and the SoC reuses the matrix/state engines behind
 a thin MMIO wrapper. Build/run with `make pipeline-coremark-images` and
 `make pipeline-coremark-crc` (also `-matrix`, `-state`, `-full`). The
 100-iteration full variant reaches 7.916002 CoreMark/MHz; see
-[docs/pipeline_accel_images.md](docs/pipeline_accel_images.md).
+[docs/pipeline_accel_images.md](docs/pipeline_accel_images.md). For the Pango
+bitstream, build the full image with `--small-code`, split it to
+`build/pipeline/`, then execute `fpga/pango/pipeline/flow_pipeline.tcl`; see
+[fpga/pango/pipeline/README.md](fpga/pango/pipeline/README.md). For the
+2-hart AMP full-accelerated CoreMark board flow, build the image with
+`make pipeline-amp-image` and run
+`fpga/pango/pipeline/flow_pipeline_amp.tcl`.
 
 ---
 

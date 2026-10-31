@@ -91,10 +91,9 @@ perip_bridge 只把 response tag 从 2 bit 扩到 3 bit，并增加一个 2:1 �
 
     # Pango IROM/DRAM 拆分（默认基线镜像）
     make pipeline-image
-    # 加速镜像示例
+    # 全加速镜像：flow_pipeline.tcl 固定读 build/pipeline/，所以直接用默认输出
     make pipeline-image \
-        PIPELINE_IMAGE_ELF=$PWD/build/coremark_full/coremark-riscv32-ares.elf \
-        PIPELINE_IMAGE_OUT=$PWD/build/pipeline_full
+        PIPELINE_IMAGE_ELF=$PWD/build/coremark_full/coremark-riscv32-ares.elf
 
     # 板级同路径检查
     make pipeline-pango-lint
@@ -128,6 +127,10 @@ CoreMark 计时区间（Total ticks），不是仿真尾部总周期。
 
 说明 CRC 指令、矩阵引擎和状态机扫描器的结果都与参考软件逐位一致。
 
+> 上表是 I-cache 尚未接入时的历史结果。当前 `USE_ICACHE=1` 的全加速镜像为
+> `13,286,278` ticks / `7.526562` CoreMark/MHz；I-cache 增加命中延迟和
+> refill，IPC/CM-MHz 下降属于预期，CRC 仍全对。
+
 ## 5. 验证记录
 
 | 检查 | 结果 |
@@ -135,14 +138,18 @@ CoreMark 计时区间（Total ticks），不是仿真尾部总周期。
 | make pipeline-isa | 36/36 PASS |
 | make pipeline-lint | 0 errors（保留导入代码既有 warning） |
 | make pipeline-console | CONSOLE PASS errors=0 |
-| make pipeline-pango-lint | elaborates pipeline_board_top |
+| make pipeline-pango-lint | elaborates pipeline_board_top，0 errors |
+| PDS compile | `compile -system_verilog` PASS（含 I-cache，2026-10-31） |
+| PDS synthesize | PASS（14m25s）；49,361 LUT（30.89%）/ 24,767 FF（7.75%）/ 79.5 DRM（19.16%）/ 8 APM |
+| PDS dev_map/PnR/上板 | 未执行 |
 | 四个加速镜像 100-iteration | 全部 CoreMark PASS，CRC 全对 |
+| 全加速镜像 100-iteration | 含 I-cache：ticks 13,286,278，7.526562 CoreMark/MHz；无 I-cache 参考 12,452,732 / 8.030366，CRC 全对 |
 | pipeline_image.py 拆分 | CRC/矩阵/状态机/全加速镜像均可拆分 |
-| 全加速镜像 IROM 占用 | 7609 / 8192 words（约 30.4 KiB / 32 KiB） |
+| 全加速镜像 IROM 占用 | 7984 / 8192 words（约 31.2 KiB / 32 KiB） |
 
-全加速镜像 IROM 余量只有约 2.3 KiB。后续继续增加软件或展开循环时需要先检查
-pipeline-image 的 nonzero words，必要时裁剪代码或扩大 IROM，不能默认它能
-继续放下。
+全加速镜像 IROM 余量只有约 208 words（832 B）。后续继续增加软件或展开循环时
+需要先检查 pipeline-image 的 nonzero words，必要时裁剪代码或扩大 IROM，不能
+默认它能继续放下。
 
 ## 6. 关键路径与流水化说明
 
@@ -161,9 +168,11 @@ pipeline-image 的 nonzero words，必要时裁剪代码或扩大 IROM，不能�
 - 本文只覆盖 M4 的加速镜像；双核/四核与写失效一致性已在
   [pipeline_multicore.md](pipeline_multicore.md) 单独实现和验证，中断/RT-Thread
   仍未包含。
-- 未执行 Pango PDS compile -> synthesize -> dev_map -> pnr，也没有板级资源/
-  时序/上板分数；现有结果只证明 RTL 功能和相对性能。复用引擎使用
-  SystemVerilog，首次 PDS compile 仍需确认其语法/推断结果。
+- 已执行 Pango PDS 2022.2-SP6.4 `compile -system_verilog` 和
+  `synthesize -ads`（约 14m25s，`USE_ICACHE=1`）并通过；资源为
+  49,361 LUT / 24,767 FF / 79.5 DRM / 8 APM。`dev_map -> pnr ->
+  gen_bit_stream`、时序和上板分数尚未执行。两个加速器已改成 PDS 可接受的
+  组合逻辑（无 SV enum/return/function），仿真与综合使用同一份 `.sv`。
 - 矩阵引擎只对 N == 9 精确；状态机只对文档列出的参数范围精确，其它输入
   由软件回退到原函数。
 - 加速镜像仍是 CoreMark accelerated variant，不能与官方 EEMBC 分数直接比较。

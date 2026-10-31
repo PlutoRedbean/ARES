@@ -49,7 +49,7 @@ close $fp
 set inc_pipeline [file join $root "rtl" "pipeline" "include"]
 set inc_core     [file join $root "rtl" "pipeline" "core" "vsrc" "include"]
 
-compile -top_module {pipeline_board_top} -verilog_standard {SystemVerilog} \
+compile -top_module {pipeline_board_top} -system_verilog \
     -include_path [list $inc_pipeline $inc_core]
 
 synthesize -ads

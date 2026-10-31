@@ -67,6 +67,9 @@ dependency.
 
 Choice naming convention: a choice named `X` with members `X_<n>` emits both
 `CONFIG_X=<n>` and `CONFIG_X_<n>=1`, so the RTL can use `CONFIG_X` directly.
+A choice whose members are ordinary flags (for example `FE_DIRECTION` with
+`FE_TAGE` / `FE_TOURNAMENT` / `FE_BIMODAL`) emits only the selected member;
+there is no `CONFIG_X` value.
 
 ## UI notes
 

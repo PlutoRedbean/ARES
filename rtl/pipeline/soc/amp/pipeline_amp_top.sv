@@ -42,7 +42,12 @@ module pipeline_amp_top #(
     output wire [CORES-1:0]         retire_rd_wen,
     output wire [CORES-1:0][ 4:0]   retire_rd,
     output wire [CORES-1:0][31:0]   retire_wdata,
-    output wire [CORES-1:0]         retire_is_ebreak
+    output wire [CORES-1:0]         retire_is_ebreak,
+
+    // Board console/debug.  Only hart 0 is brought out; the other harts'
+    // UART streams are private to the simulation/debug environment.
+    output wire                     uart_tx,
+    output wire [31:0]              led
 );
     localparam integer MEM_AW = `CONFIG_IROM_ADDR_WIDTH + 1;
 
@@ -66,6 +71,13 @@ module pipeline_amp_top #(
     wire [CORES-1:0][`CONFIG_IROM_ADDR_WIDTH:0] bank_addr_direct;
     wire [CORES-1:0][31:0]                      bank_data_direct;
 
+    // Per-hart UART/LED wires.  Hart 0's UART drives the board pin.
+    wire [CORES-1:0][7:0]   hart_uart_tx_data;
+    wire [CORES-1:0]        hart_uart_tx_start;
+    wire [CORES-1:0]        hart_uart_tx_busy;
+    wire [CORES-1:0][31:0]  hart_led;
+    wire [CORES-1:0][39:0]  hart_seg;
+
     // Shared uncached mailbox port, one request port per hart.
     wire [CORES-1:0]        mbox_req_valid;
     wire [CORES-1:0]        mbox_req_write;
@@ -77,11 +89,6 @@ module pipeline_amp_top #(
     genvar g;
     generate
         for (g = 0; g < CORES; g = g + 1) begin : g_hart
-            wire [7:0]  uart_tx_data_unused;
-            wire        uart_tx_start_unused;
-            wire [31:0] led_unused;
-            wire [39:0] seg_unused;
-
             if (USE_ICACHE != 0) begin : g_ic
                 pipeline_amp_icache #(
                     .LINE_BYTES (ICACHE_LINE_BYTES),
@@ -142,13 +149,13 @@ module pipeline_amp_top #(
                 .virtual_sw    ({64{1'b0}}),
                 .uart_rx_data  (8'd0),
                 .uart_rx_ready (1'b0),
-                .uart_tx_busy  (1'b0),
+                .uart_tx_busy  (hart_uart_tx_busy[g]),
 
-                .uart_tx_data  (uart_tx_data_unused),
-                .uart_tx_start (uart_tx_start_unused),
+                .uart_tx_data  (hart_uart_tx_data[g]),
+                .uart_tx_start (hart_uart_tx_start[g]),
 
-                .virtual_led   (led_unused),
-                .virtual_seg   (seg_unused),
+                .virtual_led   (hart_led[g]),
+                .virtual_seg   (hart_seg[g]),
 
                 .retire_valid    (retire_valid[g]),
                 .retire_pc       (retire_pc[g]),
@@ -219,4 +226,40 @@ module pipeline_amp_top #(
         .req_wstrb (mbox_req_wstrb),
         .rsp_data  (mbox_rsp_data)
     );
+
+    // ------------------------------------------------------------------
+    // Board UART: hart 0 only.  The pipeline board uses a 100 MHz core
+    // clock for both the core and the console; CoreMark's time base is
+    // frozen at 100 MHz.  RX is tied idle because the board profile does
+    // not define a UART RX pin.
+    // ------------------------------------------------------------------
+    wire [7:0] uart_rx_data_unused;
+    wire       uart_rx_ready_unused;
+    wire       uart_tx_busy;
+
+    assign hart_uart_tx_busy[0] = uart_tx_busy;
+
+    genvar gu;
+    generate
+        for (gu = 1; gu < CORES; gu = gu + 1) begin : g_uart_unused
+            assign hart_uart_tx_busy[gu] = 1'b0;
+        end
+    endgenerate
+
+    uart #(
+        .CLK_FREQ  (100_000_000),
+        .BAUD_RATE (115_200)
+    ) u_uart (
+        .clk      (clk),
+        .rst_n    (~rst),
+        .rx       (1'b1),
+        .rx_data  (uart_rx_data_unused),
+        .rx_ready (uart_rx_ready_unused),
+        .tx       (uart_tx),
+        .tx_data  (hart_uart_tx_data[0]),
+        .tx_start (hart_uart_tx_start[0]),
+        .tx_busy  (uart_tx_busy)
+    );
+
+    assign led = hart_led[0];
 endmodule

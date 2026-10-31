@@ -88,55 +88,29 @@
 
 ### 3.0 总体架构
 
-BPU采用一个Composer+多个子预测器的流水线结构。由于每一级的预测器的延迟是固定的，因此Composer可以在每个周期内收集所有预测器的结果，并覆盖前一级的预测结果。
-借助快速预测器+精准预测器的组合，实现更高的预测吞吐量和更高的预测准确率。
+BPU 是"快速一周期预测 + 两周期精确修正"的两级结构（`rtl/frontend/bpu/bpu.sv`）：
+
+| 阶段 | 内容 | 延迟 |
+| --- | --- | --- |
+| **S0（issue）** | `fetch_pc` 同时送：uBTB 读（目标）、loop predictor 读、RAS 栈顶、bimodal/tournament PHT；TAGE 只算表索引/标签的 hash | 组合 |
+| **S1（快路径，`w_fire`）** | 组合 uBTB 目标 + RAS 覆盖 + loop 覆盖 + 快速方向 → 每 slot 的 `pred_cfi/pred_taken/pred_target`；写 FTQ；推进推测 GHR | 1 周期出结果 |
+| **S2（精确修正）** | TAGE（条件方向）与 mBTB（目标）的响应合并：目标优先级 `RAS > mBTB > uBTB`，方向 `TAGE（loop 覆盖优先）> S1 fast`。若与 S1 已发 fetch 的结果不同，`corr_fire` 从 `merged_npc` 重启取指；否则回填 TAGE metadata | 距 issue 2 周期 |
 
 ```text
-                    ┌──────────────────────┐
-                    │        pc_gen        │
-                    └──────────┬───────────┘
-                               │
-                           fetch_pc
-                               │
-                               ▼
-                     ┌─────────────────┐
-                     │ BPU F1          │
-                     │ uBTB + Bimodal  │
-                     └───────┬─────────┘
-                             │
-                             │ fast_pred_pc
-                             ▼
-                          pc_gen
-                             │
-                             │
-                             │ 同时向后流水
-                             ▼
-                     ┌─────────────────┐
-                     │ BPU F2          │
-                     │ TAGE + SC+mBTB  │
-                     └───────┬─────────┘
-                             │
-                             ▼
-                     ┌─────────────────┐
-                     │ BPU F3          │
-                     │ RAS + Loop      │
-                     └───────┬─────────┘
-                             │
-                             │ final prediction
-                             ▼
-                           FTQ
-                             │
-                             ▼
-                            IFU
-
-
-       后续发现预测错误
-                │
-                ▼
-          redirect_pc
-                │
-                └──────────────────────► pc_gen
+        fetch_pc (S0)
+           │  ├─ uBTB / loop / RAS / fast-dir   （异步读，S1 可用）
+           │  └─ TAGE hash / mBTB set          （打拍）
+           ▼
+        S1 fast path ──► FTQ write (w_fire)
+           │
+           ▼
+        S2: TAGE(BRAM 1R1W) + mBTB(BRAM 1R1W) 响应
+           │
+           ├─ 与 S1 相同 ──► 回填 TAGE meta（shadow1 backfill）
+           └─ 不同 ────────► corr_fire，重启取指（redirect 到 merged_npc）
 ```
+
+S1 的快路径保证每周期都能产生一个 fetch block（不空泡）；S2 的修正只在两者不一致时打断，代价是一次重定向。`shadow0/shadow1` 保存 S0/S1 的预测快照，用来把 S2 的 TAGE/mBTB 响应和它描述的 block 对齐（`mbtb_pred_pc == shadow1_start_pc`、`tage_resp_pc == shadow1_start_pc`）。
 
 ### 3.1 设计思路
 
@@ -191,14 +165,20 @@ endinterface
 
 #### uBTB / mBTB
 
-uBTB / mBTB 负责预测分支指令的目标地址，uBTB为快速预测器，mBTB为精确预测器。
+uBTB / mBTB 负责预测分支指令的目标地址：uBTB 是 S0 一周期可用的快速目标预测器，mBTB 是两周期可用的精确目标预测器（S2 修正）。
 
-uBTB采用fully associative，通过寄存器实现，mBTB采用set-associative，通过SRAM实现。
-
-| parameter | Value | description |
+| 参数 | 当前值 | 说明 |
 | --- | --- | --- |
-| UBTB_ENTRIES | 16 | uBTB entry数 |
-| MBTB_ENTRIES | 1024(待测试) | mBTB entry数 |
+| `UBTB_BANKS × UBTB_WAYS` | 16 × 8（`CONFIG_FE_UBTB_WIDTH=7`） | S0 异步读，**LUTRAM**（一周期必须） |
+| `MBTB_SET_NUM × MBTB_WAYS` | 512 × 4（`CONFIG_FE_MBTB_WIDTH=9`）× 4 way | S2 响应，**BRAM** |
+| `MBTB_REGION_BYTES` | 16 | 每个 mBTB 项覆盖 16 B 区域，读 lo/hi 两个区域 |
+
+存储实现（这是 Pango/LUT 面积的关键）：
+
+- **mBTB** 每个读端口一份整字副本，共三份：`mbtb_lo_mem` / `mbtb_hi_mem`（预测 lo/hi 区）、`mbtb_up_mem`（更新读）。每份是 `[SET]` 的整字（`MBTB_WAYS × $bits(mbtb_entry_t)`），**1R1W**，写时按 RMW 后广播到三份。
+  单模块实测：**LUT 26,005 → 1,505，FF 1,564 → 1,062，DRM 0 → 9**。
+- 之前版本把 `mbtb_mem[set][way]` 直接异步读（3 读 1 写），ADS 只能铺成 LUTRAM，是前端 205k LUT 的主要来源之一。
+- mBTB 的表项不再做逐项复位（那会给每个表项一个写端口），改用 `initial` 零初始化。
 
 ##### btb entry设计说明
 
@@ -570,23 +550,26 @@ module ftq #(
 
 ```systemverilog
 typedef struct packed {
-    // Entry identity
-    logic [SEQ_W-1:0]        seq; // TODO: It may be not necessary
-
     // Fetch Block
-    logic [PC_WIDTH-1:0]     start_pc;
+    logic [ADDR_WIDTH-1:0] start_pc;
 
-    // Prediction result
-    logic                         pred_taken;
-    logic [PC_WIDTH - 1:0]        pred_target;
-    cfi_type_t                    pred_type;
-    logic [$clog2(FETCH_WIDTH):0] pred_pos;
-
-    // BPU metadata
-    pred_meta_t              pred_meta;
-
+    // Per-slot prediction (one entry per instruction slot of the block)
+    logic [FETCH_WIDTH-1:0]       pred_cfi_valid;  // BTB knows a CFI here
+    cfi_type_t [FETCH_WIDTH-1:0]  pred_cfi_type;
+    pred_meta_t [FETCH_WIDTH-1:0] pred_meta;       // 每个 slot 一份完整预测元数据
 } ftq_entry_t;
 ```
+
+**面积实测**：
+
+| 版本 | LUT | FF | DRAM |
+| --- | --- | --- | --- |
+| FTQ=24、未压缩 meta | 44,517 | 27,819 | 0 |
+| **FTQ=16、pred_meta 压缩后** | **13,432** | **8,179** | 0 |
+
+压缩实现（已合入）：`tage_meta_t` 把每张表的 `idx[8]/tag[8]/hit/alt/useful_bits/base_idx/pred_taken` 移到按 fetch block 的旁路环表 `tage_block_meta_t block_meta_mem[128]`（单调 `wptr` + 8-bit 代际），slot 里只留 `block_ptr(7b)+block_seq(8b)`，每 slot **204 → ~42 bit**。提交训练时按 `block_ptr` 读旁表、`block_seq` 校验（环回绕才失配）。
+
+准确率回归：100 iterations 下 **96.13% → 95.76%**（差异全部来自 FTQ 24→16，pred_meta 压缩本身与压缩前逐项一致：48,644,476 cycle / 95.76% / branch 95.44% / jump 98.70%）。
 
 ### 5.3 冲刷机制
 
@@ -909,3 +892,76 @@ GHR 的提交沿更新、独立恢复和预测表 FIFO 训练是三条分离路�
 恢复的提交状态也在接受沿按 lane 顺序推进。原始预测 metadata 经 Predecode/BE
 保持不变；只有独立 `pred_npc` 可被本地修正。本文开头的三级深预测器、TAGE/SC/mBTB
 及 1 prediction/cycle 属目标架构；本轮没有实现这些性能项目，也没有板级 PPA 签核。
+
+## 10. 当前实现现状与实测（2026-10-28）
+
+### 10.1 配置（已写入 Kconfig 默认值）
+
+`configs/frontend/Kconfig` 的默认值已与当前实测配置对齐，`rm configs/build/.config && make config-gen`
+即可复现：
+
+| 选项 | 默认值 | 说明 |
+| --- | --- | --- |
+| `FE_FETCH_WIDTH` | 4 | |
+| `FE_DECODE_WIDTH` | 2 | |
+| `FE_FTQ_NUM_ENTRIES` | **16** | 24→16 的 PPA 取舍（准确率 −0.37pp） |
+| `FE_BASE_PREDICTOR` | `FE_BIMODAL` | S1 基础方向（TAGE 开启时不参与快路径） |
+| `FE_TAGE` / `FE_TAGE_NUM_TABLES` | y / 8 | 方向主力，减到 4 表要掉 1.2pp |
+| `FE_MBTB` | y | **不可关**（关掉准确率 −17.7pp） |
+| `FE_RAS` / `FE_RAS_ENTRIES` | y / **8** | 32→8 零损失 |
+| `FE_LOOP_PRED` | **n** | CoreMark 上关掉准确率 +0.02pp，直接删除 |
+| `FE_LOOP_ENTRIES` / `FE_LOOP_ITER_WIDTH` | 16 / 8 | 模块已不例化，仅保留选项 |
+
+消融依据（1-iteration，base 526,361 cycle / 93.52%）：
+
+| 配置 | cycles | Overall acc |
+| --- | --- | --- |
+| base | 526,361 | 93.52% |
+| loop off | 526,276 | **93.54%** |
+| loop off + RAS 8 | 526,364 | **93.52%** |
+| + TAGE 4 表 | 541,472 | 92.32% |
+| MBTB off | 535,738 | 75.87% |
+| TAGE off | 567,648 | 89.14% |
+| RAS off | 528,386 | 93.20% |
+
+### 10.2 单模块面积（PDS `synthesize -ads`，PG2L200H）
+
+| 模块 | LUT | FF | DRM | 备注 |
+| --- | --- | --- | --- | --- |
+| `ftq` | **13,432** | **8,179** | 0 | FTQ=16 + pred_meta 压缩后 |
+| `mbtb` | **1,505** | 1,062 | **9** | 三副本整字 BRAM（改造后） |
+| `loop_predictor` | **5,322** | **1,457** | 0 | 配置缩减后（16 项 / 8-bit iter） |
+| `iq` | 12,365 | 3,782 | 0 | |
+| `ras` | **4,889** | **2,066** | 0 | 配置缩减后（32 项 / SNAP=2） |
+| `icache` | 9,569 | 1,104 | 24 | |
+| `tage` | 7,290 | 2,893 | 16 | 2 副本整字 BRAM |
+| `frontend` 整体 | 205,349（128.5%） | 90,581 | 40 | **当前器件装不下** |
+
+### 10.3 准确率基线（branch difftest）
+
+`make unit-coremark BRDIFF=1`（详细见 `docs/bpu_branch_difftest.md`）：
+
+```
+Direction Tournament-Loop-Tage / Target ubtb-ras-mbtb
+Branch 5,787,723 events, 95.89%    Jump 616,853 events, 98.42%
+Overall 6,404,576 events, 247,623 misses, 96.13%
+CoreMark: 48,639,576 cycles, IPC 0.6455, CoreMark/MHz 2.0559
+```
+
+### 10.4 待办
+
+1. ~~mBTB BRAM 改造后的功能回归~~ —— 已完成：修复"整字 RMW 基准字未随流水打拍"的 bug 后，
+   CoreMark 与 baseline **逐指标一致**（48,639,576 cycle / IPC 0.645481 / 96.13%）。
+2. `pred_meta` 压缩（block_ptr/block_seq 旁表）+ FTQ 项数下调。
+3. `loop_predictor` / `ras` / `ftq` 的逻辑优化，目标把 `frontend` 压回 159.8k LUT 以内。
+
+### 10.5 mBTB BRAM 改造记录
+
+- 结构：`mbtb_lo_mem` / `mbtb_hi_mem` / `mbtb_up_mem` 三份整字存储
+  （`SET_W = MBTB_WAYS × $bits(mbtb_entry_t)`，每份 1R1W），写按整字 RMW 后广播。
+- 时序不变：读地址本来就是寄存器，输出仍在 S2 与 TAGE/shadow1 对齐，`bpu.sv` 未改。
+- 关键 bug（已修）：更新流水 U0 读出的整字必须随 U1→U2 打拍
+  （`up_word_u1`/`up_word_u2`），否则 U3 写回时基准字已被下一次更新覆盖，
+  会覆盖同 set 其它 way —— 表现为目标误预测翻倍（190k → 464k）、
+  CoreMark 从 48.6M 涨到 65.0M cycle。
+- 回归：accuracy 96.13%、cycles 48,639,576、IPC 0.645481，与改造前完全一致。

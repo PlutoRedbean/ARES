@@ -131,6 +131,10 @@ def main(argv: list[str] | None = None) -> int:
                         help="DRAM readmemh output (default build/pipeline/dram.hex)")
     parser.add_argument("--json", type=Path,
                         help="optional build-info JSON output")
+    parser.add_argument("--replicate-dram-words", type=int, default=0,
+                        help="replicate the first N 32-bit words of DRAM at "
+                             "every N-word boundary (per-hart AMP private "
+                             "windows; 8192 = 32 KiB)")
     args = parser.parse_args(argv)
 
     if not args.elf.is_file():
@@ -143,6 +147,17 @@ def main(argv: list[str] | None = None) -> int:
     try:
         data = args.elf.read_bytes()
         irom_data, dram_data, entry = split_image(data, irom, dram)
+        if args.replicate_dram_words:
+            chunk_bytes = args.replicate_dram_words * 4
+            if chunk_bytes <= 0 or chunk_bytes > len(dram_data):
+                raise ElfImageError(
+                    "--replicate-dram-words is outside the DRAM region")
+            chunk = dram_data[:chunk_bytes]
+            replicated = bytearray(dram_data)
+            for offset in range(chunk_bytes, len(replicated), chunk_bytes):
+                take = min(chunk_bytes, len(replicated) - offset)
+                replicated[offset:offset + take] = chunk[:take]
+            dram_data = bytes(replicated)
         irom_hex = to_word_hex(irom_data)
         dram_hex = to_word_hex(dram_data)
     except (ElfImageError, OSError) as exc:
@@ -174,6 +189,7 @@ def main(argv: list[str] | None = None) -> int:
             "nonzero_words": sum(
                 1 for i in range(0, len(dram_data), 4)
                 if dram_data[i:i + 4] != b"\x00\x00\x00\x00"),
+            "replicate_words": args.replicate_dram_words,
             "sha256": _sha256(dram_hex.encode()),
         },
     }
