@@ -80,9 +80,44 @@ module mtx9_engine (
     logic [15:0] crc_q;
     logic signed [15:0] sum_q [0:3];
 
-    // A at abuf[0..80], B at abuf[128..208].
-    logic [31:0] abuf [0:255];
-    logic signed [31:0] c_mem [0:80];
+    //-------------------------------------------------------------------------
+    // Data arrays
+    //   A: 81 x 16 used (window 0x000..0x143, one int16 per 32-bit word)
+    //   B: 81 x 16 used (window 0x200..0x343)
+    //   C: 81 x 32      (window 0x400..0x543)
+    //
+    // Each array is four 128x8 byte lanes; every lane has one write port and
+    // one asynchronous read port, which is the shape Synplify infers
+    // distributed RAM from.  The previous form (a 256x32 and an 81x32 register
+    // array with three asynchronous read ports) could not be a RAM: PDS built
+    // the reads as 81:1 LUT mux trees with a 321-fanout select line and kept
+    // the data in flip-flops, which owned the slowest path of the whole SoC
+    // (9.5 ns available, 11.0 ns needed at 100 MHz) and 52% of its LUTs.
+    //
+    // Read port: the engine owns the arrays while busy, the host reads them
+    // only when idle.  Host data writes were already ignored while busy, so
+    // this matches the existing ownership contract; a host data read while
+    // busy now returns zero instead of the engine's data.
+    //
+    // The arrays are deliberately not reset: distributed RAM has no reset
+    // port, and adding one would stop the inference and bring the mux trees
+    // back.  C is fully written by the engine before the matrix_sum loops read
+    // it, and the host writes A/B before START.
+    //-------------------------------------------------------------------------
+    // Both spellings are given: the Pango flow synthesises with Synplify
+    // (syn_ramstyle) while the rest of this tree uses the Vivado spelling.
+    (* ram_style = "distributed", syn_ramstyle = "distributed" *) logic [7:0] a_l0 [0:127];
+    (* ram_style = "distributed", syn_ramstyle = "distributed" *) logic [7:0] a_l1 [0:127];
+    (* ram_style = "distributed", syn_ramstyle = "distributed" *) logic [7:0] a_l2 [0:127];
+    (* ram_style = "distributed", syn_ramstyle = "distributed" *) logic [7:0] a_l3 [0:127];
+    (* ram_style = "distributed", syn_ramstyle = "distributed" *) logic [7:0] b_l0 [0:127];
+    (* ram_style = "distributed", syn_ramstyle = "distributed" *) logic [7:0] b_l1 [0:127];
+    (* ram_style = "distributed", syn_ramstyle = "distributed" *) logic [7:0] b_l2 [0:127];
+    (* ram_style = "distributed", syn_ramstyle = "distributed" *) logic [7:0] b_l3 [0:127];
+    (* ram_style = "distributed", syn_ramstyle = "distributed" *) logic [7:0] c_l0 [0:127];
+    (* ram_style = "distributed", syn_ramstyle = "distributed" *) logic [7:0] c_l1 [0:127];
+    (* ram_style = "distributed", syn_ramstyle = "distributed" *) logic [7:0] c_l2 [0:127];
+    (* ram_style = "distributed", syn_ramstyle = "distributed" *) logic [7:0] c_l3 [0:127];
 
     //-------------------------------------------------------------------------
     // Host decode
@@ -94,29 +129,37 @@ module mtx9_engine (
     wire        b_sel = (haddr >= 12'h200) && (haddr < 12'h344);
     wire        c_sel = (haddr >= 12'h400) && (haddr < 12'h544);
 
-    wire [7:0]  a_word  = {1'b0, haddr[8:2]};
-    wire [7:0]  b_word  = haddr[9:2] - 8'd128;
+    // Word indices into the 128-entry byte lanes (A/B/C each occupy 0..80).
+    // The three windows are 0x000 / 0x200 / 0x400 based, so the word index is
+    // haddr[8:2] in every case (b_sel implies haddr[9], i.e. word 128 + n).
+    wire [6:0]  a_word  = haddr[8:2];
+    wire [6:0]  b_word  = haddr[8:2];
     wire [6:0]  c_word  = haddr[8:2];
 
     wire start_pulse = host_wr && (haddr == CTRL) && host_wdata[0] && !busy_q;
 
     integer sum_i;
-    integer init_i;
 
-    reg [31:0] a_merge;
-    reg [31:0] b_merge;
-    integer merge_i;
+    //-------------------------------------------------------------------------
+    // Array read ports
+    //   One asynchronous read port per array.  The engine drives the addresses
+    //   below and owns the ports while it runs; the host reads only when idle,
+    //   mirroring the write-port ownership.
+    //-------------------------------------------------------------------------
+    logic [6:0] a_rd_addr, b_rd_addr, c_rd_addr;
 
-    always @(*) begin
-        a_merge = abuf[a_word];
-        b_merge = abuf[8'd128 + b_word];
-        for (merge_i = 0; merge_i < 4; merge_i = merge_i + 1) begin
-            if (host_wstrb[merge_i]) begin
-                a_merge[8*merge_i +: 8] = host_wdata[8*merge_i +: 8];
-                b_merge[8*merge_i +: 8] = host_wdata[8*merge_i +: 8];
-            end
-        end
-    end
+    wire [6:0] a_rd_idx = busy_q ? a_rd_addr : a_word;
+    wire [6:0] b_rd_idx = busy_q ? b_rd_addr : b_word;
+    wire [6:0] c_rd_idx = busy_q ? c_rd_addr : c_word;
+
+    wire [31:0] a_rd_word = {a_l3[a_rd_idx], a_l2[a_rd_idx], a_l1[a_rd_idx], a_l0[a_rd_idx]};
+    wire [31:0] b_rd_word = {b_l3[b_rd_idx], b_l2[b_rd_idx], b_l1[b_rd_idx], b_l0[b_rd_idx]};
+    wire [31:0] c_rd_word = {c_l3[c_rd_idx], c_l2[c_rd_idx], c_l1[c_rd_idx], c_l0[c_rd_idx]};
+
+    // The engine only ever consumes the low int16 of A and B.
+    wire signed [15:0] a_rd_data = a_rd_word[15:0];
+    wire signed [15:0] b_rd_data = b_rd_word[15:0];
+    wire signed [31:0] c_rd_data = c_rd_word;
 
     //-------------------------------------------------------------------------
     // Host read mux
@@ -125,12 +168,14 @@ module mtx9_engine (
 
     always_comb begin
         host_rdata = 32'h0;
+        // A data read only returns data while the engine is idle: the arrays
+        // have a single read port and the engine owns it while busy.
         if (a_sel)
-            host_rdata = abuf[a_word];
+            host_rdata = busy_q ? 32'h0 : a_rd_word;
         else if (b_sel)
-            host_rdata = abuf[8'd128 + b_word];
+            host_rdata = busy_q ? 32'h0 : b_rd_word;
         else if (c_sel)
-            host_rdata = c_mem[c_word];
+            host_rdata = busy_q ? 32'h0 : c_rd_word;
         else begin
             case (haddr)
                 CTRL:    host_rdata = {30'b0, done_q, busy_q};
@@ -184,7 +229,6 @@ module mtx9_engine (
     logic [3:0] vi, vj;
     logic [3:0] wj;
 
-    logic [6:0] a_rd_addr, b_rd_addr, c_rd_addr;
     logic        a_wr_en;
     logic [6:0]  a_wr_addr;
     logic signed [15:0] a_wr_data;
@@ -206,10 +250,6 @@ module mtx9_engine (
 
     logic signed [31:0] v_acc, v_acc_n, v_prod;
     logic signed [31:0] mul_cur;
-
-    wire signed [15:0] a_rd_data = abuf[{1'b0, a_rd_addr}][15:0];
-    wire signed [15:0] b_rd_data = abuf[8'd128 + {1'b0, b_rd_addr}][15:0];
-    wire signed [31:0] c_rd_data = c_mem[c_rd_addr];
 
     //-------------------------------------------------------------------------
     // Address generation
@@ -244,7 +284,8 @@ module mtx9_engine (
 
             ST_VECT: begin
                 a_rd_addr = ({3'b000, vi} * 7'd9) + {3'b000, vj};
-                b_rd_addr = {3'b000, vj};
+                // B[vj] comes from the bcol cache, so the B array is only read
+                // by ST_LOAD_B.
                 if (vj == 4'd8) begin
                     c_wr_en   = 1'b1;
                     c_wr_addr = {3'b000, vi};
@@ -311,7 +352,12 @@ module mtx9_engine (
     //-------------------------------------------------------------------------
     always_comb begin
         mul_cur = $signed(a_rd_data) * $signed(val_reg);
-        v_prod  = $signed(a_rd_data) * $signed(b_rd_data);
+        // ST_VECT multiplies A[vi][vj] by B[vj], and B[j] is exactly
+        // bcol[j][0]: ST_LOAD_B already cached the whole B block there, and
+        // the host cannot write B while the engine runs.  Reading the cache
+        // instead of the B array keeps the vector path off the array's 81:1
+        // read mux and leaves B with a single read port.
+        v_prod  = $signed(a_rd_data) * $signed(bcol[vj][0]);
         v_acc_n = v_acc + v_prod;
 
         clipval_s16 = 16'hF000 | val_reg;
@@ -606,27 +652,53 @@ module mtx9_engine (
     end
 
     //-------------------------------------------------------------------------
-    // Single write block for the data arrays
+    // Array write ports
+    //   A: host byte-strobed word write, or the engine's 16-bit sign-extended
+    //      write (ST_ADD_CONST / ST_RESTORE)
+    //   B: host byte-strobed word write only; the engine reads it into bcol
+    //   C: engine word write, or host word write
+    // A host data write is ignored while busy, so the engine and the host
+    // never drive a port in the same cycle.
     //-------------------------------------------------------------------------
+    wire       a_host_wr = host_wr && !busy_q && a_sel;
+    wire       b_host_wr = host_wr && !busy_q && b_sel;
+    wire       c_host_wr = host_wr && !busy_q && c_sel;
+    wire [6:0] a_wr_idx  = a_host_wr ? a_word : a_wr_addr;
+
     always_ff @(posedge clk) begin
-        if (rst) begin
-            for (init_i = 0; init_i < 256; init_i = init_i + 1)
-                abuf[init_i] <= 32'h0;
-            for (init_i = 0; init_i < 81; init_i = init_i + 1)
-                c_mem[init_i] <= 32'sd0;
-        end else begin
-            if (host_wr && !busy_q && a_sel)
-                abuf[a_word] <= a_merge;
-            else if (a_wr_en)
-                abuf[{1'b0, a_wr_addr}] <= {{16{a_wr_data[15]}}, a_wr_data};
+        if (a_host_wr) begin
+            if (host_wstrb[0]) a_l0[a_wr_idx] <= host_wdata[7:0];
+            if (host_wstrb[1]) a_l1[a_wr_idx] <= host_wdata[15:8];
+            if (host_wstrb[2]) a_l2[a_wr_idx] <= host_wdata[23:16];
+            if (host_wstrb[3]) a_l3[a_wr_idx] <= host_wdata[31:24];
+        end else if (a_wr_en) begin
+            a_l0[a_wr_idx] <= a_wr_data[7:0];
+            a_l1[a_wr_idx] <= a_wr_data[15:8];
+            a_l2[a_wr_idx] <= {{8{a_wr_data[15]}}};
+            a_l3[a_wr_idx] <= {{8{a_wr_data[15]}}};
+        end
+    end
 
-            if (host_wr && !busy_q && b_sel)
-                abuf[8'd128 + b_word] <= b_merge;
+    always_ff @(posedge clk) begin
+        if (b_host_wr) begin
+            if (host_wstrb[0]) b_l0[b_word] <= host_wdata[7:0];
+            if (host_wstrb[1]) b_l1[b_word] <= host_wdata[15:8];
+            if (host_wstrb[2]) b_l2[b_word] <= host_wdata[23:16];
+            if (host_wstrb[3]) b_l3[b_word] <= host_wdata[31:24];
+        end
+    end
 
-            if (c_wr_en)
-                c_mem[c_wr_addr] <= c_wr_data;
-            else if (host_wr && !busy_q && c_sel)
-                c_mem[c_word] <= $signed(host_wdata);
+    always_ff @(posedge clk) begin
+        if (c_wr_en) begin
+            c_l0[c_wr_addr] <= c_wr_data[7:0];
+            c_l1[c_wr_addr] <= c_wr_data[15:8];
+            c_l2[c_wr_addr] <= c_wr_data[23:16];
+            c_l3[c_wr_addr] <= c_wr_data[31:24];
+        end else if (c_host_wr) begin
+            c_l0[c_word] <= host_wdata[7:0];
+            c_l1[c_word] <= host_wdata[15:8];
+            c_l2[c_word] <= host_wdata[23:16];
+            c_l3[c_word] <= host_wdata[31:24];
         end
     end
 
