@@ -130,7 +130,7 @@ unit-state9:
         coremark-matrix-array-image coremark-state-image coremark-full-image \
         test-coremark-image test-coremark-array test-images \
         lint-mtx9 lint-state9 unit-mtx9 unit-state9 clean \
-        pipeline-core-gen pipeline-lint pipeline-div-test pipeline-smoke pipeline-isa-images pipeline-isa-sim pipeline-isa pipeline-coremark pipeline-coremark-nocache pipeline-coremark-serial pipeline-coremark-crc pipeline-coremark-matrix pipeline-coremark-state pipeline-coremark-full pipeline-coremark-images pipeline-coremark-mc pipeline-coremark-mt pipeline-coremark-mt-test pipeline-coremark-full-mt pipeline-coremark-mt-image pipeline-coremark-full-mt-image coremark-full-mc-image pipeline-image pipeline-amp-image pipeline-pango-lint pipeline-amp-pango-lint pipeline-amp-board-sim pipeline-console pipeline-mc-images pipeline-mc-lint pipeline-mc-run pipeline-mc-test
+        pipeline-core-gen pipeline-lint pipeline-div-test pipeline-smoke pipeline-isa-images pipeline-isa-sim pipeline-isa pipeline-coremark pipeline-coremark-nocache pipeline-coremark-serial pipeline-coremark-crc pipeline-coremark-matrix pipeline-coremark-state pipeline-coremark-full pipeline-coremark-images pipeline-coremark-mc pipeline-coremark-mt pipeline-coremark-mt-test pipeline-coremark-full-mt pipeline-coremark-mt-image pipeline-coremark-full-mt-image coremark-full-mc-image pipeline-image pipeline-board-image pipeline-amp-image pipeline-amp-image-mt pipeline-pango-lint pipeline-amp-pango-lint pipeline-amp-board-sim pipeline-console pipeline-mc-images pipeline-mc-lint pipeline-mc-run pipeline-mc-test
 # Accelerated image locations (built by the existing ARES CoreMark scripts).
 PIPELINE_COREMARK_CRC_BIN    ?= $(ARES_HOME)/build/coremark_crc/coremark.bin
 PIPELINE_COREMARK_MATRIX_BIN ?= $(ARES_HOME)/build/coremark_matrix/coremark.bin
@@ -143,7 +143,9 @@ PIPELINE_IMAGE_ELF           ?= $(ARES_HOME)/build/coremark/coremark-riscv32-are
 PIPELINE_IMAGE_OUT           ?= $(ARES_HOME)/build/pipeline
 PIPELINE_AMP_ELF             ?= $(PIPELINE_COREMARK_FULL_MC_OUT)/coremark-riscv32-ares.elf
 PIPELINE_AMP_IMAGE_OUT       ?= $(ARES_HOME)/build/pipeline
-PIPELINE_AMP_BOARD_BIN       ?= $(ARES_HOME)/build/coremark_full_mt2/coremark.bin
+PIPELINE_BOARD_ELF          ?= $(PIPELINE_AMP_ELF)
+PIPELINE_AMP_BOARD_IROM      ?= $(PIPELINE_AMP_IMAGE_OUT)/irom.hex
+PIPELINE_AMP_BOARD_DRAM      ?= $(PIPELINE_AMP_IMAGE_OUT)/dram.hex
 PIPELINE_AMP_BOARD_MAX_NS    ?= 200000000
 # Applied by pipeline-coremark-images so the accelerated images fit the
 # pipeline's 32 KiB IROM.  Normal coremark-*-image targets keep the default
@@ -162,6 +164,25 @@ PIPELINE_MT_BIN             ?= $(PIPELINE_MT_OUT)/coremark.bin
 PIPELINE_FULL_MT_OUT        ?= $(ARES_HOME)/build/coremark_full_mt$(CORES)
 PIPELINE_MT_SIM_TOTAL       ?= 200
 PIPELINE_MT_MAX_CYCLES      ?= 400000000
+
+# Board image profile: which program build/pipeline/*.hex holds, i.e. what the
+# board-level simulation loads and what the PDS bitstream initializes the
+# BRAMs from.  Both profiles go through the same splitter
+# (scripts/pipeline_image.py --replicate-dram-words 8192), so the simulated
+# image is the on-board image; only the software differs.
+#   amp  per-hart full-accelerated CoreMark (hart 0 prints its own report)
+#   mt   MULTITHREAD aggregate report over CORES harts (200 iterations in
+#        simulation, COREMARK_MT_TOTAL_ITERATIONS for the bitstream build)
+PIPELINE_BOARD_PROFILE      ?= amp
+ifeq ($(PIPELINE_BOARD_PROFILE),amp)
+PIPELINE_BOARD_IMAGE_TARGET := pipeline-amp-image
+PIPELINE_BOARD_IMAGE_ARGS   :=
+else ifeq ($(PIPELINE_BOARD_PROFILE),mt)
+PIPELINE_BOARD_IMAGE_TARGET := pipeline-amp-image-mt
+PIPELINE_BOARD_IMAGE_ARGS   := COREMARK_MT_TOTAL_ITERATIONS=$(PIPELINE_MT_SIM_TOTAL)
+else
+$(error PIPELINE_BOARD_PROFILE must be 'amp' or 'mt', got '$(PIPELINE_BOARD_PROFILE)')
+endif
 
 # Multi-hart pipeline SoC (M4).  CORES is the build-time option; the same RTL
 # elaborates as 2 or 4 harts.  Images are built by tests/pipeline-mc.
@@ -340,16 +361,36 @@ pipeline-coremark-mc: coremark-full-mc-image
 	@$(ARES_HOME)/build/pipeline_coremark_mc$(CORES)/pipeline_coremark_mc \
 	    $(PIPELINE_COREMARK_FULL_MC_BIN) 200000000 $(CORES)
 
-# Build the AMP full-CoreMark ELF and split it into the two Pango memories.
-# The 32 KiB data region is replicated at every 32 KiB boundary so each hart's
-# private BRAM sees its copy at DATA_OFFSET = hart * 0x8000.
-pipeline-amp-image: coremark-full-mc-image
+# Split one board ELF into the two Pango memories.  Every board profile goes
+# through here, so the layout/replication policy lives in
+# scripts/pipeline_image.py only.  The 32 KiB data region is replicated at
+# every 32 KiB boundary so each hart's private BRAM sees its copy at
+# DATA_OFFSET = hart * 0x8000.
+PIPELINE_BOARD_REPLICATE_WORDS ?= 8192
+pipeline-board-image:
 	@python3 $(ARES_HOME)/scripts/pipeline_image.py \
-	    --elf  $(PIPELINE_AMP_ELF) \
+	    --elf  $(PIPELINE_BOARD_ELF) \
 	    --irom $(PIPELINE_AMP_IMAGE_OUT)/irom.hex \
 	    --dram $(PIPELINE_AMP_IMAGE_OUT)/dram.hex \
 	    --json $(PIPELINE_AMP_IMAGE_OUT)/image.json \
-	    --replicate-dram-words 8192
+	    --replicate-dram-words $(PIPELINE_BOARD_REPLICATE_WORDS)
+
+# AMP profile: each hart runs its own full-accelerated CoreMark (ITERATIONS=100,
+# MULTITHREAD=1) and prints its own report.
+pipeline-amp-image: coremark-full-mc-image
+	@$(MAKE) pipeline-board-image PIPELINE_BOARD_ELF=$(PIPELINE_AMP_ELF)
+
+# MULTITHREAD profile: one aggregate report over CORES harts (mt2 / mt4).
+# The canonical bitstream image uses COREMARK_MT_TOTAL_ITERATIONS (10000);
+# pipeline-amp-board-sim overrides it with PIPELINE_MT_SIM_TOTAL so the
+# Verilator run finishes in minutes.
+pipeline-amp-image-mt:
+	@test "$(CORES)" = "2" || \
+	  { echo "error: pipeline_amp_board_top instantiates CORES=2; a 4-hart"; \
+	    echo "       board top is needed before an mt4 image can run on it"; exit 1; }
+	@$(MAKE) pipeline-coremark-full-mt-image
+	@$(MAKE) pipeline-board-image \
+	    PIPELINE_BOARD_ELF=$(PIPELINE_FULL_MT_OUT)/coremark-riscv32-ares.elf
 
 # 2/4-hart standard CoreMark MULTITHREAD on the private-memory AMP top.
 # The Verilator profile uses PIPELINE_MT_SIM_TOTAL total iterations (200 by
@@ -449,13 +490,11 @@ pipeline-amp-pango-lint:
 
 # Full board-level simulation: 27 MHz input -> PLL/reset -> pipeline_amp_top
 # -> physical UART TX.  The TB decodes 115200 8N1 and stops after CoreMark
-# prints PASS.  The default image is the 2-core MT aggregate build.
+# prints PASS.  The loader reads the same build/pipeline/*.hex files the PDS
+# flow initializes the BRAMs from, so the simulated image is the on-board
+# image (regenerate them with pipeline-amp-image; no separate sim image).
 pipeline-amp-board-sim:
-	@test -f $(ARES_HOME)/rtl/pipeline/board/pipeline_amp_board_top.v || \
-	  { echo "error: rtl/pipeline/board/pipeline_amp_board_top.v missing"; \
-	    echo "       copy it (and the AMP flow) from the PDS project first"; exit 1; }
-	@test -f $(PIPELINE_AMP_BOARD_BIN) || \
-	  { echo "error: $(PIPELINE_AMP_BOARD_BIN) missing; build the 2-core MT image first"; exit 1; }
+	@$(MAKE) $(PIPELINE_BOARD_IMAGE_TARGET) $(PIPELINE_BOARD_IMAGE_ARGS)
 	@mkdir -p $(ARES_HOME)/build/pipeline_amp_board_sim
 	@cd $(ARES_HOME) && CCACHE_DISABLE=1 verilator --cc --exe --build --timing --language 1800-2017 -D__VERILATOR__ -DARES_SIM_REAL_UART -Wno-fatal \
 	    --top-module tb_pipeline_amp_board -Irtl/pipeline/include -Irtl/pipeline/core/vsrc/include \
@@ -468,7 +507,8 @@ pipeline-amp-board-sim:
 	    -Mdir $(ARES_HOME)/build/pipeline_amp_board_sim \
 	    -o $(ARES_HOME)/build/pipeline_amp_board_sim/pipeline_amp_board_sim
 	@$(ARES_HOME)/build/pipeline_amp_board_sim/pipeline_amp_board_sim \
-	    $(PIPELINE_AMP_BOARD_BIN) $(PIPELINE_AMP_BOARD_MAX_NS)
+	    $(PIPELINE_AMP_BOARD_IROM) $(PIPELINE_AMP_BOARD_DRAM) \
+	    $(PIPELINE_AMP_BOARD_MAX_NS)
 
 # Build the 2/4-hart coherence test images (branch-free linear program).
 pipeline-mc-images:
