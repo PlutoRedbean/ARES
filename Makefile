@@ -439,12 +439,7 @@ pipeline-pango-lint:
 	    rtl/pipeline/board/pipeline_board_top.v
 
 # Elaborate the 2-hart AMP full-CoreMark board top with the behavioural PLL.
-# NOTE: pipeline_amp_board_top.v is not in this repository yet; it lives in the
-# PDS project.  Copy it (and flow_pipeline_amp.tcl) in before using this target.
 pipeline-amp-pango-lint:
-	@test -f $(ARES_HOME)/rtl/pipeline/board/pipeline_amp_board_top.v || \
-	  { echo "error: rtl/pipeline/board/pipeline_amp_board_top.v missing"; \
-	    echo "       copy it from the PDS project first"; exit 1; }
 	@cd $(ARES_HOME) && verilator --lint-only --timing --language 1800-2017 -D__VERILATOR__ -Wall -Wno-fatal \
 	    --top-module pipeline_amp_board_top -Irtl/pipeline/include -Irtl/pipeline/core/vsrc/include \
 	    -f rtl/pipeline/pipeline.f \
