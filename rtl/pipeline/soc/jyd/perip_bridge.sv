@@ -24,7 +24,12 @@ module perip_bridge #(
     // Hart identity exposed at 0xA000_0FF0/0xA000_0FF4 for the multi-hart
     // CoreMark port.  The single-hart profile keeps the defaults.
     parameter [31:0] HART_ID    = 32'd0,
-    parameter [31:0] HART_COUNT = 32'd1
+    parameter [31:0] HART_COUNT = 32'd1,
+    // Per-hart private DRAM geometry, forwarded to bram_driver.  The AMP
+    // profile narrows it to the 32 KiB window each hart actually owns; see
+    // soc/pango/pipeline_bram.v for why the address slice is enough.
+    parameter integer DRAM_AW        = 16,
+    parameter         DRAM_INIT_FILE = "build/pipeline/dram.hex"
 ) (
     input  wire         clk,
     input  wire         cnt_clk,
@@ -822,7 +827,10 @@ module perip_bridge #(
     // -------------------------------------------------------------------------
     // BRAM access remains in CPU clock domain.
     // -------------------------------------------------------------------------
-    bram_driver bram_driver_inst (
+    bram_driver #(
+        .DRAM_AW        (DRAM_AW),
+        .DRAM_INIT_FILE (DRAM_INIT_FILE)
+    ) bram_driver_inst (
         .clk         (clk),
         .read_addr   (perip_addr[17:0]),
         .write_valid (bram_write_valid_q),

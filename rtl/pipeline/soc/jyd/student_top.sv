@@ -15,7 +15,10 @@ module student_top#(
     parameter integer                   EXTERNAL_IROM       = 0,
     // Single-hart profile (EXTERNAL_IROM=0): 0 disables the internal cache.
     parameter                           USE_ICACHE          = 1,
-    parameter                           ICACHE_PIPE_HITS    = 1
+    parameter                           ICACHE_PIPE_HITS    = 1,
+    // Per-hart private DRAM geometry (forwarded to perip_bridge/bram_driver).
+    parameter integer                   DRAM_AW             = 16,
+    parameter                           DRAM_INIT_FILE      = "build/pipeline/dram.hex"
 ) (
     input                                       w_cpu_clk     ,
     input                                       w_clk_50Mhz   ,
@@ -223,7 +226,9 @@ module student_top#(
 
     perip_bridge #(
         .HART_ID        (HART_ID),
-        .HART_COUNT     (HART_COUNT)
+        .HART_COUNT     (HART_COUNT),
+        .DRAM_AW        (DRAM_AW),
+        .DRAM_INIT_FILE (DRAM_INIT_FILE)
     ) bridge_inst (
         .clk				(w_cpu_clk),
         .cnt_clk            (w_clk_50Mhz),

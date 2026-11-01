@@ -30,7 +30,13 @@ module pipeline_amp_top #(
     parameter integer DATA_STRIDE       = 32'h0000_8000,
     parameter integer USE_ICACHE        = 1,
     parameter integer ICACHE_LINES      = 256,
-    parameter integer ICACHE_LINE_BYTES = 64
+    parameter integer ICACHE_LINE_BYTES = 64,
+    // Per-hart private DRAM geometry.  Every hart owns one DATA_STRIDE window
+    // (0x8000 = 32 KiB => 13 word-address bits) inside its own BRAM, so the
+    // AMP build only needs 2**DRAM_AW words per hart instead of the
+    // single-hart 256 KiB.  Keep DRAM_AW = log2(DATA_STRIDE/4).
+    parameter integer DRAM_AW           = 13,
+    parameter         DRAM_INIT_FILE    = "build/pipeline/dram_amp.hex"
 ) (
     input  wire                     clk,
     input  wire                     rst,
@@ -50,6 +56,17 @@ module pipeline_amp_top #(
     output wire [31:0]              led
 );
     localparam integer MEM_AW = `CONFIG_IROM_ADDR_WIDTH + 1;
+
+    // Elaboration-time guard: a hart's BRAM must cover its whole DATA_STRIDE
+    // window, otherwise the address slice in pipeline_bram.v would alias two
+    // different words onto the same entry and only the benchmark CRC would
+    // notice.  DRAM_AW larger than needed is merely wasteful, so only the
+    // undersized case is an error.
+    generate
+        if ((1 << DRAM_AW) * 4 < DATA_STRIDE) begin : g_dram_geometry_error
+            DRAM_AW_is_smaller_than_the_hart_window u_geometry_error ();
+        end
+    endgenerate
 
     // Core-facing fetch handshake, one set per hart.
     wire [CORES-1:0][31:0]                      hart_req_addr;
@@ -145,7 +162,9 @@ module pipeline_amp_top #(
                 .HART_ID         (g),
                 .HART_COUNT      (CORES),
                 .EXTERNAL_IROM   (1),
-                .USE_ICACHE      (0)
+                .USE_ICACHE      (0),
+                .DRAM_AW         (DRAM_AW),
+                .DRAM_INIT_FILE  (DRAM_INIT_FILE)
             ) u_core (
                 .w_cpu_clk     (clk),
                 .w_clk_50Mhz   (clk),

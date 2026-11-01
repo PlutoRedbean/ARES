@@ -386,12 +386,20 @@ pipeline-coremark-mc: coremark-full-mc-image
 # scripts/pipeline_image.py only.  The 32 KiB data region is replicated at
 # every 32 KiB boundary so each hart's private BRAM sees its copy at
 # DATA_OFFSET = hart * 0x8000.
+#
+# Two DRAM images come out of it:
+#   dram.hex      65536 x 32-bit  the 8-replica 256 KiB array (simulation model
+#                                 and the single-hart profile)
+#   dram_amp.hex   8192 x 32-bit  one 32 KiB window, which is all a hart's
+#                                 private BRAM holds in the AMP board build
+#                                 (DRAM_AW = 13, see pipeline_bram.v)
 PIPELINE_BOARD_REPLICATE_WORDS ?= 8192
 pipeline-board-image:
 	@python3 $(ARES_HOME)/scripts/pipeline_image.py \
 	    --elf  $(PIPELINE_BOARD_ELF) \
 	    --irom $(PIPELINE_AMP_IMAGE_OUT)/irom.hex \
 	    --dram $(PIPELINE_AMP_IMAGE_OUT)/dram.hex \
+	    --dram-window $(PIPELINE_AMP_IMAGE_OUT)/dram_amp.hex \
 	    --json $(PIPELINE_AMP_IMAGE_OUT)/image.json \
 	    --replicate-dram-words $(PIPELINE_BOARD_REPLICATE_WORDS)
 

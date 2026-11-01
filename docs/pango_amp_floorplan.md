@@ -234,6 +234,39 @@ mbox 的 `(addr[31:8]==TAG) ? slot[addr[7:2]] : 0` 组合读。
 top200。如果 4:1 那一段仍显眼，可以把它也寄存（读延迟 3 拍）；如果 16:1 的
 select 扇出成为新瓶颈，就把 `slot` 换成同步读 RAM。
 
+## 7.3 进展（DRAM 几何：4 hart × 256 KiB → 4 hart × 32 KiB）
+
+2026-11-01 17:44 的 `pipeline_amp_board_top(1).rtr`（4-hart、200 MHz 约束、
+WNS −5.449）暴露了新的一手数据：**每 hart 实例化的私有 DRAM 仍是 256 KiB
+（64 个 DRAM36K）**，而链接脚本只给每个 hart 32 KiB
+（`ares-linker-mc.ld`：`dram LENGTH = 32K`，`DATA_OFFSET = hart*0x8000`）。
+4 个 hart 共 256 个 DRAM36K，占 415 的 62%；全设计 DRM 329/415 = **80%**。
+
+后果在报告里可以直接读出来：
+
+- 51 条 slow-corner setup 路径里，133 根网线 ≥1 ns，平均每条路径 2.6 根、
+  合计 4.1 ns（占数据通路 43%）；
+- 最差路径的第一跳是 `DRM_622_1470/CLKB → CLMA_423_990`，单根 **2.72 ns**
+  （fanout=1），因为 64 个 BRAM 被纵向级联、横向撒开；
+- 每个 hart 的 64 个 BRAM 横跨 200 列（hart0 x=40~226、hart3 x=550~694），
+  而它的 CPU/加速器在 x≈180~440。
+
+已做（S0 spike）：
+
+- `soc/pango/pipeline_bram.v`：`DRAM_AW`/`DRAM_INIT_FILE` 参数化，
+  `mem[addrb[DRAM_AW-1:0]]` 丢掉 hart 偏移位 `addr[16:15]`；
+- `bram_driver` → `perip_bridge` → `student_top` → `pipeline_amp_top` →
+  `pipeline_amp_board_top` 全链路透传，板级默认 `DRAM_AW = 13`
+  （8192×32-bit），`CORES` 也提成了板级参数（默认 2，可传 4）；
+- `scripts/pipeline_image.py --dram-window` 产出 `dram_amp.hex`（8192 字），
+  `make pipeline-board-image` 已接上；`dram.hex` 仍是 256 KiB 给仿真模型；
+- `pipeline_amp_top` 加了 elaboration 期检查：`DRAM_AW` 小于窗口会直接编译
+  失败，避免悄悄别名。
+
+预期（下一轮 PDS 验收）：DRM 329 → ~105；WNS −5.449 → −3.5 左右；最差路径
+第一跳从 2.7 ns 降到 1 ns 以内。若这条不成立，说明 2.7 ns 不是容量问题而是
+引脚/时钟区域问题，floorplan 的优先级要重排。
+
 ## 8. 还缺的一个输入
 
 器件网格：PCE device view 的 X/Y 范围（或任一条 `CLMA_x_y` 的最大值）。有了它，

@@ -1,5 +1,5 @@
 //=============================================================================
-// ARES pipeline SoC - 2-hart AMP full-accelerated CoreMark board top
+// ARES pipeline SoC - 2/4-hart AMP full-accelerated CoreMark board top
 //-----------------------------------------------------------------------------
 // Board: Pangu 200Pro+ / PG2L200H-6IFBB676
 //   clk_27m  D18   27 MHz input
@@ -20,7 +20,18 @@
 //=============================================================================
 `timescale 1ns / 1ps
 
-module pipeline_amp_board_top (
+module pipeline_amp_board_top #(
+    // Harts in the AMP SoC (2 or 4).  Only hart 0's UART reaches the pin.
+    parameter integer CORES          = 2,
+    // Per-hart private DRAM geometry.  The AMP linker gives every hart one
+    // 32 KiB window (DATA_STRIDE 0x8000), so the board build defaults to
+    // 8192 x 32-bit per hart instead of the single-hart 256 KiB:
+    // 4 harts x 8 DRAM36K = 32 of 415 on the device instead of 256.
+    // Set DRAM_AW = 16 (and DRAM_INIT_FILE = "build/pipeline/dram.hex") to
+    // build the old 256 KiB per-hart geometry for an A/B comparison.
+    parameter integer DRAM_AW        = 13,
+    parameter         DRAM_INIT_FILE = "build/pipeline/dram_amp.hex"
+) (
     input  wire       clk_27m,
     input  wire       rst_n,
     output wire       uart_tx,
@@ -45,15 +56,17 @@ module pipeline_amp_board_top (
     wire [31:0] soc_led;
 
     pipeline_amp_top #(
-        .CORES             (2),
+        .CORES             (CORES),
         .DATA_STRIDE       (32'h0000_8000),
         .USE_ICACHE        (1),
         .ICACHE_LINES      (512),
-        .ICACHE_LINE_BYTES (64)
+        .ICACHE_LINE_BYTES (64),
+        .DRAM_AW           (DRAM_AW),
+        .DRAM_INIT_FILE    (DRAM_INIT_FILE)
     ) u_soc (
         .clk             (cpu_clk),
         .rst             (cpu_rst),
-        .core_en         (2'b11),
+        .core_en         ({CORES{1'b1}}),
 
         .retire_valid    (),
         .retire_pc       (),

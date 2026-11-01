@@ -107,6 +107,53 @@ PERIPH = VCO / RATIO1(20.0) =  50 MHz
 引脚。本板现有 profile 没有 UART RX 引脚，所以 `rx` 仍接 1；CoreMark 只依赖
 TX，若后续需要接收，补 `uart_rx` 引脚并去掉 tie。
 
+## 3.1 每 hart 私有 DRAM 的几何（S0 spike）
+
+AMP 链接脚本给每个 hart 一个 **32 KiB** 窗口
+（[ares-linker-mc.ld](../../../tests/abstract-machine/scripts/ares-linker-mc.ld)，
+`DATA_OFFSET = hart * 0x8000`），镜像脚本再把这块数据区复制 8 份填满
+256 KiB。也就是说每 hart 的 BRAM 只有 32 KiB 是"活"的。
+
+2026-11-01 的 4-hart 200 MHz 报告里，每 hart 实例化的仍是 **64 个 DRAM36K
+（256 KiB）**，4 个 hart 共 256 个，占 415 的 62%；全设计 DRM 329/415 = 80%。
+BRAM 被撒满整片器件，最差路径的第一跳（BRAM → 桥）就有 **2.72 ns**。
+
+现在几何是参数化的：
+
+| 参数 | 位置 | 取值 |
+| --- | --- | --- |
+| `DRAM_AW` | `pipeline_amp_board_top` → ... → `bram_driver` → `pipeline_bram` | AMP 板级默认 **13**（8192×32-bit = 32 KiB）；单 hart profile 16 |
+| `DRAM_INIT_FILE` | 同上 | AMP 默认 `build/pipeline/dram_amp.hex`；单 hart `dram.hex` |
+| `CORES` | `pipeline_amp_board_top` | 默认 2；4 核构建把它改成 4（PDS 的 `compile` 没有参数覆盖入口，改默认值是唯一的单行开关） |
+
+地址切片在 `soc/pango/pipeline_bram.v`：`mem[addrb[DRAM_AW-1:0]]`。
+`addr[16:15]` 是 hart 编号，选的是**另一块物理 BRAM**，必须丢掉；窗口内
+的 `addr[14:2]` 正好是 8192 个字的索引。
+
+镜像侧 `pipeline-board-image` 现在出两份：
+
+| 文件 | 尺寸 | 用途 |
+| --- | --- | --- |
+| `build/pipeline/dram.hex` | 65536 字 | 仿真 DPI 模型的 256 KiB 共享数组；单 hart profile |
+| `build/pipeline/dram_amp.hex` | 8192 字 | AMP 板级每 hart 私有 BRAM 的初始化 |
+
+两份内容的一致性由脚本保证（`dram_amp.hex` = 8 份复制的第 1 份）。
+
+**A/B 对照**：把 `pipeline_amp_board_top` 的 `DRAM_AW` 改回 16、`DRAM_INIT_FILE`
+改回 `"build/pipeline/dram.hex"`，其余不动，即可重复 2026-11-01 那份
+（DRM 329、WNS −5.449）的几何。
+
+**这一轮 PDS 要看三个数**：
+
+1. `DRM` 使用量：4-hart 应从 329 掉到 ~105（每 hart 8 个 DRAM 而不是 64）；
+2. `WNS`：约束保持 200 MHz，预期从 −5.449 收到 −3.5 左右；
+3. 最差路径的第一跳：不再出现 `..._1470/CLKB → CLMA_..._990` 这种跨 500 行
+   的 2.7 ns 网线，BRAM→逻辑应降到 1 ns 以内。
+
+> 功能验证的顺序：`make pipeline-amp-pango-lint` →
+> `make pipeline-amp-board-sim`（板级 CoreMark，镜像就是上板镜像）→
+> PDS 综合/布线 → 上板看 CoreMark 分数与 CRC。
+
 ## 4. 上板验收
 
 软件里的 `COREMARK_CLOCK_HZ` 冻结为 100 MHz，所以 CPU 必须是 100 MHz；

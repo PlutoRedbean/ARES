@@ -1,4 +1,19 @@
-module BRAM(
+//-----------------------------------------------------------------------------
+// Simulation model (DPI backed).  The AMP board synthesises
+// soc/pango/pipeline_bram.v instead; both modules share the name, the port
+// list and the DRAM geometry parameters.
+//
+// The model keeps ONE flat 256 KiB array addressed by the full byte address,
+// so hart N's window (0x8010_0000 + N*0x8000) lands in its own slice.  The
+// hardware gives every hart a private BRAM and drops addr[16:15] (DRAM_AW=13);
+// the two agree because the image replicates the 32 KiB region at every
+// window and the linker never lets a hart leave its own 32 KiB window.
+// DRAM_AW / DRAM_INIT_FILE are therefore accepted and ignored here.
+//-----------------------------------------------------------------------------
+module BRAM #(
+    parameter integer DRAM_AW        = 16,
+    parameter         DRAM_INIT_FILE = "build/pipeline/dram.hex"
+)(
     input         clka  ,
     input  [15:0] addra ,
     input  [ 3:0] wea   ,

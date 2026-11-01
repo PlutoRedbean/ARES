@@ -20,7 +20,15 @@
 //////////////////////////////////////////////////////////////////////////////////
 
 
-module bram_driver(
+module bram_driver #(
+    // Per-hart DRAM geometry.  DRAM_AW is the word-address width of the
+    // inferred BRAM (16 = 256 KiB single-hart, 13 = 32 KiB per-hart AMP
+    // window); DRAM_INIT_FILE is the matching $readmemh image.  The address
+    // slicing lives in soc/pango/pipeline_bram.v, so nothing below has to
+    // change when the window shrinks.
+    parameter integer DRAM_AW        = 16,
+    parameter         DRAM_INIT_FILE = "build/pipeline/dram.hex"
+)(
     input  wire         clk,
     input  wire [17:0]  read_addr,
     input  wire         write_valid,
@@ -31,7 +39,10 @@ module bram_driver(
 );
     wire [31:0] bram_rdata_raw;
 
-    BRAM Mem_BRAM (
+    BRAM #(
+        .DRAM_AW        (DRAM_AW),
+        .DRAM_INIT_FILE (DRAM_INIT_FILE)
+    ) Mem_BRAM (
         .clka       (clk),
         .addra      (write_addr[17:2]),
         .wea        (write_valid ? write_wea : 4'b0000),

@@ -135,6 +135,11 @@ def main(argv: list[str] | None = None) -> int:
                         help="replicate the first N 32-bit words of DRAM at "
                              "every N-word boundary (per-hart AMP private "
                              "windows; 8192 = 32 KiB)")
+    parser.add_argument("--dram-window", type=Path,
+                        help="optional readmemh output holding only the first "
+                             "--replicate-dram-words words, i.e. the image one "
+                             "AMP hart's 32 KiB private BRAM needs "
+                             "(build/pipeline/dram_amp.hex)")
     args = parser.parse_args(argv)
 
     if not args.elf.is_file():
@@ -158,6 +163,11 @@ def main(argv: list[str] | None = None) -> int:
                 take = min(chunk_bytes, len(replicated) - offset)
                 replicated[offset:offset + take] = chunk[:take]
             dram_data = bytes(replicated)
+        if args.dram_window:
+            if not args.replicate_dram_words:
+                raise ElfImageError(
+                    "--dram-window requires --replicate-dram-words")
+            dram_window_hex = to_word_hex(dram_data[:chunk_bytes])
         irom_hex = to_word_hex(irom_data)
         dram_hex = to_word_hex(dram_data)
     except (ElfImageError, OSError) as exc:
@@ -166,6 +176,8 @@ def main(argv: list[str] | None = None) -> int:
 
     atomic_write(args.irom, irom_hex.encode())
     atomic_write(args.dram, dram_hex.encode())
+    if args.dram_window:
+        atomic_write(args.dram_window, dram_window_hex.encode())
 
     info = {
         "elf": str(args.elf),
@@ -193,6 +205,12 @@ def main(argv: list[str] | None = None) -> int:
             "sha256": _sha256(dram_hex.encode()),
         },
     }
+    if args.dram_window:
+        info["dram_window"] = {
+            "path": str(args.dram_window),
+            "words": args.replicate_dram_words,
+            "sha256": _sha256(dram_window_hex.encode()),
+        }
     if args.json is not None:
         atomic_write(args.json, (json.dumps(info, indent=2) + "\n").encode())
 
