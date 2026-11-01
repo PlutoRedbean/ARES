@@ -236,10 +236,13 @@ module mtx9_engine (
     logic [6:0]  c_wr_addr;
     logic signed [31:0] c_wr_data;
 
-    logic signed [15:0] bcol [0:8][0:8];
+    (* syn_ramstyle = "distributed" *)
+    logic signed [15:0] bcol [0:127];
     logic signed [31:0] pe_acc [0:8];
-    logic signed [31:0] pe_prod [0:8];
-    logic signed [31:0] pe_add [0:8];
+    logic signed [31:0] pe_prod_0, pe_prod_1, pe_prod_2, pe_prod_3, pe_prod_4,
+                         pe_prod_5, pe_prod_6, pe_prod_7, pe_prod_8;
+    logic signed [31:0] pe_add_0, pe_add_1, pe_add_2, pe_add_3, pe_add_4,
+                         pe_add_5, pe_add_6, pe_add_7, pe_add_8;
 
     logic signed [31:0] sum_tmp, sum_prev;
     logic signed [15:0] sum_ret;
@@ -250,6 +253,17 @@ module mtx9_engine (
 
     logic signed [31:0] v_acc, v_acc_n, v_prod;
     logic signed [31:0] mul_cur;
+
+    // Keep the B-column index at the RAM address width.  Using a 32-bit
+    // expression here makes PDS round the 81-entry array to a 128-entry RAM
+    // and emit Sdm-2015 for the unused high address bits.
+    function [6:0] bcol_index;
+        input [3:0] row;
+        input [3:0] col;
+        begin
+            bcol_index = row * 9 + col;
+        end
+    endfunction
 
     //-------------------------------------------------------------------------
     // Address generation
@@ -320,33 +334,99 @@ module mtx9_engine (
     //-------------------------------------------------------------------------
     // 9 PEs
     //-------------------------------------------------------------------------
-    genvar gj;
-    generate
-        for (gj = 0; gj < 9; gj++) begin : g_pe
-            always_comb begin
-                pe_prod[gj] = $signed(a_rd_data) * $signed(bcol[gj][mk]);
-                if (state_q == ST_BITEXT) begin
-                    pe_add[gj] = (($signed(pe_prod[gj]) >>> 2) & 32'sh0000_000F)
-                               * (($signed(pe_prod[gj]) >>> 5) & 32'sh0000_007F);
-                end else begin
-                    pe_add[gj] = pe_prod[gj];
-                end
-            end
+    always_comb begin
+        pe_prod_0 = $signed(a_rd_data) * $signed(bcol[bcol_index(4'd0, mk)]);
+        pe_prod_1 = $signed(a_rd_data) * $signed(bcol[bcol_index(4'd1, mk)]);
+        pe_prod_2 = $signed(a_rd_data) * $signed(bcol[bcol_index(4'd2, mk)]);
+        pe_prod_3 = $signed(a_rd_data) * $signed(bcol[bcol_index(4'd3, mk)]);
+        pe_prod_4 = $signed(a_rd_data) * $signed(bcol[bcol_index(4'd4, mk)]);
+        pe_prod_5 = $signed(a_rd_data) * $signed(bcol[bcol_index(4'd5, mk)]);
+        pe_prod_6 = $signed(a_rd_data) * $signed(bcol[bcol_index(4'd6, mk)]);
+        pe_prod_7 = $signed(a_rd_data) * $signed(bcol[bcol_index(4'd7, mk)]);
+        pe_prod_8 = $signed(a_rd_data) * $signed(bcol[bcol_index(4'd8, mk)]);
+        if (state_q == ST_BITEXT)
+            pe_add_0 = (($signed(pe_prod_0) >>> 2) & 32'sh0000_000F)
+                       * (($signed(pe_prod_0) >>> 5) & 32'sh0000_007F);
+        else
+            pe_add_0 = pe_prod_0;
+        if (state_q == ST_BITEXT)
+            pe_add_1 = (($signed(pe_prod_1) >>> 2) & 32'sh0000_000F)
+                       * (($signed(pe_prod_1) >>> 5) & 32'sh0000_007F);
+        else
+            pe_add_1 = pe_prod_1;
+        if (state_q == ST_BITEXT)
+            pe_add_2 = (($signed(pe_prod_2) >>> 2) & 32'sh0000_000F)
+                       * (($signed(pe_prod_2) >>> 5) & 32'sh0000_007F);
+        else
+            pe_add_2 = pe_prod_2;
+        if (state_q == ST_BITEXT)
+            pe_add_3 = (($signed(pe_prod_3) >>> 2) & 32'sh0000_000F)
+                       * (($signed(pe_prod_3) >>> 5) & 32'sh0000_007F);
+        else
+            pe_add_3 = pe_prod_3;
+        if (state_q == ST_BITEXT)
+            pe_add_4 = (($signed(pe_prod_4) >>> 2) & 32'sh0000_000F)
+                       * (($signed(pe_prod_4) >>> 5) & 32'sh0000_007F);
+        else
+            pe_add_4 = pe_prod_4;
+        if (state_q == ST_BITEXT)
+            pe_add_5 = (($signed(pe_prod_5) >>> 2) & 32'sh0000_000F)
+                       * (($signed(pe_prod_5) >>> 5) & 32'sh0000_007F);
+        else
+            pe_add_5 = pe_prod_5;
+        if (state_q == ST_BITEXT)
+            pe_add_6 = (($signed(pe_prod_6) >>> 2) & 32'sh0000_000F)
+                       * (($signed(pe_prod_6) >>> 5) & 32'sh0000_007F);
+        else
+            pe_add_6 = pe_prod_6;
+        if (state_q == ST_BITEXT)
+            pe_add_7 = (($signed(pe_prod_7) >>> 2) & 32'sh0000_000F)
+                       * (($signed(pe_prod_7) >>> 5) & 32'sh0000_007F);
+        else
+            pe_add_7 = pe_prod_7;
+        if (state_q == ST_BITEXT)
+            pe_add_8 = (($signed(pe_prod_8) >>> 2) & 32'sh0000_000F)
+                       * (($signed(pe_prod_8) >>> 5) & 32'sh0000_007F);
+        else
+            pe_add_8 = pe_prod_8;
+    end
 
-            always_ff @(posedge clk) begin
-                // No reset: ST_IDLE clears every accumulator each cycle, so the
-                // 9x32 reset loads would be pure duplication on the reset net
-                // (the design's second-largest net after the clock).
-                if (state_q == ST_IDLE)
-                    pe_acc[gj] <= 32'sd0;
-                else if (state_q == ST_MATMUL || state_q == ST_BITEXT)
-                    pe_acc[gj] <= pe_acc[gj] + pe_add[gj];
-                else if ((state_q == ST_MATMUL_WR || state_q == ST_BITEXT_WR)
-                         && (wj == 4'd8))
-                    pe_acc[gj] <= 32'sd0;
-            end
+    always_ff @(posedge clk) begin
+        // No reset: ST_IDLE clears every accumulator each cycle, so the
+        // 9x32 reset loads would be pure duplication on the reset net.
+        if (state_q == ST_IDLE) begin
+            pe_acc[0] <= 32'sd0;
+            pe_acc[1] <= 32'sd0;
+            pe_acc[2] <= 32'sd0;
+            pe_acc[3] <= 32'sd0;
+            pe_acc[4] <= 32'sd0;
+            pe_acc[5] <= 32'sd0;
+            pe_acc[6] <= 32'sd0;
+            pe_acc[7] <= 32'sd0;
+            pe_acc[8] <= 32'sd0;
+        end else if (state_q == ST_MATMUL || state_q == ST_BITEXT) begin
+            pe_acc[0] <= pe_acc[0] + pe_add_0;
+            pe_acc[1] <= pe_acc[1] + pe_add_1;
+            pe_acc[2] <= pe_acc[2] + pe_add_2;
+            pe_acc[3] <= pe_acc[3] + pe_add_3;
+            pe_acc[4] <= pe_acc[4] + pe_add_4;
+            pe_acc[5] <= pe_acc[5] + pe_add_5;
+            pe_acc[6] <= pe_acc[6] + pe_add_6;
+            pe_acc[7] <= pe_acc[7] + pe_add_7;
+            pe_acc[8] <= pe_acc[8] + pe_add_8;
+        end else if ((state_q == ST_MATMUL_WR || state_q == ST_BITEXT_WR)
+                     && (wj == 4'd8)) begin
+            pe_acc[0] <= 32'sd0;
+            pe_acc[1] <= 32'sd0;
+            pe_acc[2] <= 32'sd0;
+            pe_acc[3] <= 32'sd0;
+            pe_acc[4] <= 32'sd0;
+            pe_acc[5] <= 32'sd0;
+            pe_acc[6] <= 32'sd0;
+            pe_acc[7] <= 32'sd0;
+            pe_acc[8] <= 32'sd0;
         end
-    endgenerate
+    end
 
     //-------------------------------------------------------------------------
     // Shared multipliers and matrix_sum recurrence
@@ -358,7 +438,7 @@ module mtx9_engine (
         // the host cannot write B while the engine runs.  Reading the cache
         // instead of the B array keeps the vector path off the array's 81:1
         // read mux and leaves B with a single read port.
-        v_prod  = $signed(a_rd_data) * $signed(bcol[vj][0]);
+        v_prod  = $signed(a_rd_data) * $signed(bcol[bcol_index(vj, 4'd0)]);
         v_acc_n = v_acc + v_prod;
 
         clipval_s16 = 16'hF000 | val_reg;
@@ -467,7 +547,7 @@ module mtx9_engine (
                 end
 
                 ST_LOAD_B: begin
-                    bcol[ld_j][ld_k] <= b_rd_data;
+                    bcol[bcol_index(ld_j, ld_k)] <= b_rd_data;
                     if (ld_j == 4'd8) begin
                         ld_j <= 4'd0;
                         if (ld_k == 4'd8) begin
