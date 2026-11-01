@@ -146,7 +146,8 @@ module mtx9_engine (
     //   below and owns the ports while it runs; the host reads only when idle,
     //   mirroring the write-port ownership.
     //-------------------------------------------------------------------------
-    logic [6:0] a_rd_addr, b_rd_addr, c_rd_addr;
+    logic [6:0] a_rd_addr;            // registered, see the PE operand pipeline
+    logic [6:0] b_rd_addr, c_rd_addr;
 
     wire [6:0] a_rd_idx = busy_q ? a_rd_addr : a_word;
     wire [6:0] b_rd_idx = busy_q ? b_rd_addr : b_word;
@@ -262,16 +263,15 @@ module mtx9_engine (
     //-------------------------------------------------------------------------
     // Address generation
     //
-    // While the engine owns the arrays, every RAM read address is a
-    // flip-flop output.  LOAD_B / VECT / MATMUL / BITEXT walk A and B linearly
-    // from 0 to 80, so idx doubles as the read index and no arithmetic sits
-    // between the counters and the RAM address pins.  The previous form
-    // computed (mi*9 + mk) / (ld_k*9 + ld_j) in two LUT levels and drove them
-    // through fanout-45/23/16 nets: that one segment was 5.4 ns (42%) of the
-    // 13.0 ns cpu_clk critical path in the Pango report.
+    // Every engine RAM read address is a flip-flop output.  B and C follow
+    // idx directly; A has its own register (a_rd_addr) because the operand
+    // pipeline runs one element ahead - see "PE operand pipeline" below.
+    //
+    // The previous form computed (mi*9 + mk) / (ld_k*9 + ld_j) in two LUT
+    // levels and drove them through fanout-45/23/16 nets: that one segment was
+    // 5.4 ns (42%) of the 13.0 ns cpu_clk critical path in the Pango report.
     //-------------------------------------------------------------------------
     always_comb begin
-        a_rd_addr = idx;
         b_rd_addr = idx;
         c_rd_addr = idx;
         a_wr_en   = 1'b0;
@@ -325,18 +325,84 @@ module mtx9_engine (
     end
 
     //-------------------------------------------------------------------------
+    // PE operand pipeline
+    //
+    // Both multiplier operands come from registers, so neither the A read nor
+    // the bcol read shares a cycle with the 16x16 multiply, the bit-extract
+    // multiply and the 32-bit accumulate.  The read port runs one element
+    // ahead - element k+1 is fetched while k is accumulated, and the write-back
+    // state fetches element 0 of the next row - so a row still costs 9 cycles
+    // and the engine's cycle count is unchanged.
+    //
+    // Timeline for row i (idx = element index, a_rd_addr = read address):
+    //   MATMUL  k=0..8 : a_rd_addr = idx+1 .. idx+9, bcol column = k+1
+    //   MATMUL_WR      : a_rd_addr held at (i+1)*9, bcol column 0
+    //   last WR cycle  : both advance, so row i+1 sees a[(i+1)*9] x bcol[0]
+    // The linear scan states (ADD_CONST / MUL_CONST / VECT / RESTORE) read and
+    // write the same index in one cycle, so there a_rd_addr simply mirrors idx.
+    //-------------------------------------------------------------------------
+    logic [3:0]         pe_k;                 // bcol column being prefetched
+    logic signed [15:0] pe_a_q;               // A operand
+    logic signed [15:0] pe_b_q [0:8];         // one B column per PE
+
+    always_ff @(posedge clk) begin
+        // No reset: ST_IDLE holds both counters at 0 every cycle.
+        unique case (state_q)
+            ST_ADD_CONST, ST_MUL_CONST, ST_VECT, ST_RESTORE:
+                a_rd_addr <= (idx == 7'd80) ? 7'd0 : (a_rd_addr + 7'd1);
+            ST_MATMUL, ST_BITEXT:
+                // Hold at the row end: this address is (i+1)*9 and has to
+                // survive the write-back state as the next row's element 0.
+                if (mk != 4'd8) a_rd_addr <= a_rd_addr + 7'd1;
+            ST_MATMUL_WR, ST_BITEXT_WR:
+                if (wj == 4'd8) a_rd_addr <= a_rd_addr + 7'd1;
+            ST_SUM1, ST_SUM2:
+                a_rd_addr <= (idx == 7'd80) ? 7'd1 : 7'd0;
+            default:
+                a_rd_addr <= 7'd0;
+        endcase
+    end
+
+    always_ff @(posedge clk) begin
+        unique case (state_q)
+            ST_MATMUL, ST_BITEXT:
+                pe_k <= (mk == 4'd8) ? 4'd0 : (pe_k + 4'd1);
+            ST_MATMUL_WR, ST_BITEXT_WR:
+                pe_k <= (wj == 4'd8) ? 4'd1 : 4'd0;
+            ST_SUM1, ST_SUM2:
+                pe_k <= (idx == 7'd80) ? 4'd1 : 4'd0;
+            default:
+                pe_k <= 4'd0;
+        endcase
+    end
+
+    always_ff @(posedge clk) begin
+        // No reset: pure payload, rewritten before the first accumulate.
+        pe_a_q    <= a_rd_data;
+        pe_b_q[0] <= bcol[{4'd0, pe_k}];
+        pe_b_q[1] <= bcol[{4'd1, pe_k}];
+        pe_b_q[2] <= bcol[{4'd2, pe_k}];
+        pe_b_q[3] <= bcol[{4'd3, pe_k}];
+        pe_b_q[4] <= bcol[{4'd4, pe_k}];
+        pe_b_q[5] <= bcol[{4'd5, pe_k}];
+        pe_b_q[6] <= bcol[{4'd6, pe_k}];
+        pe_b_q[7] <= bcol[{4'd7, pe_k}];
+        pe_b_q[8] <= bcol[{4'd8, pe_k}];
+    end
+
+    //-------------------------------------------------------------------------
     // 9 PEs
     //-------------------------------------------------------------------------
     always_comb begin
-        pe_prod_0 = $signed(a_rd_data) * $signed(bcol[{4'd0, mk}]);
-        pe_prod_1 = $signed(a_rd_data) * $signed(bcol[{4'd1, mk}]);
-        pe_prod_2 = $signed(a_rd_data) * $signed(bcol[{4'd2, mk}]);
-        pe_prod_3 = $signed(a_rd_data) * $signed(bcol[{4'd3, mk}]);
-        pe_prod_4 = $signed(a_rd_data) * $signed(bcol[{4'd4, mk}]);
-        pe_prod_5 = $signed(a_rd_data) * $signed(bcol[{4'd5, mk}]);
-        pe_prod_6 = $signed(a_rd_data) * $signed(bcol[{4'd6, mk}]);
-        pe_prod_7 = $signed(a_rd_data) * $signed(bcol[{4'd7, mk}]);
-        pe_prod_8 = $signed(a_rd_data) * $signed(bcol[{4'd8, mk}]);
+        pe_prod_0 = $signed(pe_a_q) * $signed(pe_b_q[0]);
+        pe_prod_1 = $signed(pe_a_q) * $signed(pe_b_q[1]);
+        pe_prod_2 = $signed(pe_a_q) * $signed(pe_b_q[2]);
+        pe_prod_3 = $signed(pe_a_q) * $signed(pe_b_q[3]);
+        pe_prod_4 = $signed(pe_a_q) * $signed(pe_b_q[4]);
+        pe_prod_5 = $signed(pe_a_q) * $signed(pe_b_q[5]);
+        pe_prod_6 = $signed(pe_a_q) * $signed(pe_b_q[6]);
+        pe_prod_7 = $signed(pe_a_q) * $signed(pe_b_q[7]);
+        pe_prod_8 = $signed(pe_a_q) * $signed(pe_b_q[8]);
         if (state_q == ST_BITEXT)
             pe_add_0 = (($signed(pe_prod_0) >>> 2) & 32'sh0000_000F)
                        * (($signed(pe_prod_0) >>> 5) & 32'sh0000_007F);
