@@ -896,7 +896,13 @@ module perip_bridge #(
         (load_forward_data_r2 & load_forward_bit_mask);
 
     // All read sources are aligned to the BRAM array read plus output-register
-    // latency: two cycles from request acceptance.
+    // latency: two cycles from request acceptance.  This is a hard contract
+    // with the core's LSU: it samples the response in its Ls3 stage, exactly
+    // two cycles after issuing the request, and a later response is only
+    // queued for a following load (see slow_response_hold in lsu.scala).
+    // Adding a register here deadlocks a cache-miss load, so the fix for the
+    // BRAM -> LSU -> RF -> MUL path has to come from shorter routing (the
+    // 32 KiB per-hart DRAM) or from the core side, not from this pipeline.
     assign perip_rvalid = response_tag_r2 != RESP_NONE;
 
     // Conservative fence target: no queued/staged store and no read/write
