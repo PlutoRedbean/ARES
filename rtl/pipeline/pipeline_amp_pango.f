@@ -40,6 +40,7 @@ rtl/pipeline/soc/ip/mult.v
 rtl/pipeline/soc/ip/div.v
 rtl/pipeline/soc/ip/DCacheData_BRAM.v
 rtl/pipeline/soc/ip/DCacheTag_BRAM.v
+rtl/pipeline/soc/ip/DCacheLru_BRAM.v
 
 # CoreMark accelerator engines + MMIO wrapper (PDS-compatible Verilog-2001 subset)
 rtl/accel/mtx9_engine.sv

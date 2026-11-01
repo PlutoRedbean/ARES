@@ -92,6 +92,12 @@ class LSU extends Module {
   dcache.io.req_bytes := ls1_mem_bytes
   dcache.io.resp_fire := io.out.fire
 
+  // The D-cache decides the eviction candidate of a request when its lookup
+  // completes; carry it down the pipeline so the refill installs the word in
+  // that Way without a second replacement-RAM read on the write path.
+  val ls2_cache_way = RegEnable(dcache.io.req_way, io.in.ready)
+  val ls3_cache_way = RegEnable(ls2_cache_way, io.out.ready)
+
   io.out.valid := ls2_valid
 
   // Bridge backpressure holds the unaccepted Ls1 request, while an older
@@ -165,9 +171,14 @@ class LSU extends Module {
     slow_rdata_raw, ls3_addr, ls3_mem_bytes, ls3_L_sign)
 
   val slow_fire = ls3_valid && io.slow_ready
-  val younger_store_same_word = ls2_valid && ls2_mem_wen &&
+  // A younger store to the same word may already have been written through the
+  // peripheral port, so installing the older read would leave a line with a
+  // valid tag and stale data.  Ls2 is the store one stage behind Ls3, Ls1 the
+  // one behind that; both drop the fill.
+  val younger_store_same_word = (ls2_valid && ls2_mem_wen &&
     ls2_mem_bytes =/= MEM_NONE &&
-    ls2_addr(31, 2) === ls3_addr(31, 2)
+    ls2_addr(31, 2) === ls3_addr(31, 2)) ||
+    (ls1_mem_valid && ls1_mem_wen && ls1_addr(31, 2) === ls3_addr(31, 2))
   val refill_valid = slow_fire && !ls3_mem_wen &&
     ls3_mem_bytes =/= MEM_NONE && ls3_cacheable &&
     !ls3_cache_hit && !younger_store_same_word
@@ -175,6 +186,7 @@ class LSU extends Module {
   dcache.io.refill_valid := refill_valid
   dcache.io.refill_addr := ls3_addr
   dcache.io.refill_data := slow_rdata_raw
+  dcache.io.refill_way := ls3_cache_way
   dcache.io.refill_epoch := ls3_epoch
   dcache.io.coh := io.coh
 

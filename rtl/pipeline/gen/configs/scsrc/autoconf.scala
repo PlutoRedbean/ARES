@@ -53,6 +53,10 @@ object AutoConfig {
   val CONFIG_DCACHE_SIZE_32KB: Boolean = false
   val CONFIG_DCACHE_SIZE_64KB: Boolean = false
   val CONFIG_DCACHE_SIZE_KB: Int = 8
+  // Set associativity of the L1 D-cache.  Keep in sync with
+  // CONFIG_DCACHE_WAYS in rtl/pipeline/include/pipeline_autoconf.vh, which
+  // sizes the per-way BRAM wrappers.
+  val CONFIG_DCACHE_WAYS: Int = 2
   val CONFIG_STORE_BUFFER_DEPTH_1: Boolean = false
   val CONFIG_STORE_BUFFER_DEPTH_2: Boolean = false
   val CONFIG_STORE_BUFFER_DEPTH_4: Boolean = true

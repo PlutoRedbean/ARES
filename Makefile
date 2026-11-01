@@ -17,6 +17,7 @@
 #   make pipeline-isa-images        build the ISA test binaries (no simulator)
 #   make pipeline-isa               ISA regression (36 cpu-tests)
 #   make pipeline-div-test          divider unit test (Icarus)
+#   make pipeline-dcache-test       2-way D-cache unit test (Verilator)
 #   make pipeline-coremark          baseline CoreMark
 #   make pipeline-coremark-{crc,matrix,state,full}
 #   make pipeline-coremark-mt       2/4-hart MULTITHREAD CoreMark
@@ -208,6 +209,25 @@ pipeline-div-test:
 	    -I rtl/pipeline/include -I rtl/pipeline/core/vsrc/include \
 	    -o build/div_test/tb_div rtl/pipeline/soc/ip/div.v rtl/pipeline/test/tb_div.sv
 	@cd $(ARES_HOME) && vvp build/div_test/tb_div
+
+# Directed + random unit test of the 2-way set-associative L1 D-cache
+# (rtl/pipeline/test/tb_dcache.sv).  Checks what the ISA regression cannot see:
+# two aliases resident in one Set, LRU Victim choice, per-Way store update,
+# byte/half merging, invalidate of both Ways, stale-epoch refill drop, the held
+# Ls1 lookup, the refill/lookup collision and a 4000-request random stream.
+# Verilator needs --timing for the bench; the DCache is the top module, so only
+# it and the three RAM wrappers are elaborated.
+pipeline-dcache-test:
+	@mkdir -p $(ARES_HOME)/build/dcache_test
+	@cd $(ARES_HOME) && CCACHE_DISABLE=1 verilator --binary --timing --language 1800-2017 -Wno-fatal \
+	    -Irtl/pipeline/include --top-module tb_dcache \
+	    --Mdir $(ARES_HOME)/build/dcache_test -o dcache_test \
+	    rtl/pipeline/core/vsrc/build/Mundus.sv \
+	    rtl/pipeline/soc/ip/DCacheData_BRAM.v \
+	    rtl/pipeline/soc/ip/DCacheTag_BRAM.v \
+	    rtl/pipeline/soc/ip/DCacheLru_BRAM.v \
+	    rtl/pipeline/test/tb_dcache.sv
+	@$(ARES_HOME)/build/dcache_test/dcache_test
 
 pipeline-smoke:
 	@mkdir -p $(ARES_HOME)/build/pipeline_smoke

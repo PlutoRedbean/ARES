@@ -11,6 +11,7 @@ FPGA (PDS 2022.2 / 2025.2).
 | 层 | 实现 | 位置 |
 | --- | --- | --- |
 | 核 | Mundus 5-stage in-order（Chisel 生成 + 手写包装） | `rtl/pipeline/core/` |
+| 存储层次 | 4 KiB 4 路 I$ + **8 KiB 2 路组相联 D$**（写直达 + 写失效一致性） | `rtl/pipeline/core/`、`rtl/pipeline/soc/ip/DCache*_BRAM.v` |
 | SoC | JYD `student_top`：IROM/DRAM、perip_bridge、UART、timer、LED/SEG | `rtl/pipeline/soc/jyd/` |
 | 平台层 | 去 XPM 的 CDC、可综合 BRAM、PLL/复位、板级顶层 | `rtl/pipeline/soc/pango/`、`rtl/pipeline/board/` |
 | 加速器 | `mtx9_engine`（9-PE INT16 矩阵）、`state9_engine`（token 扫描）、custom-0 CRC8 | `rtl/accel/` |
@@ -30,6 +31,7 @@ make pipeline-smoke         # 8 条指令的冒烟程序（fence/ebreak）
 make pipeline-isa-images    # 编出 tests/cpu-tests 的 *-riscv32-ares.bin
 make pipeline-isa           # ISA 回归（36 个 cpu-tests）
 make pipeline-div-test      # 除法器单元测试（iverilog）
+make pipeline-dcache-test    # 2 路组相联 D$ 定向 + 随机单元测试（Verilator）
 make pipeline-coremark      # 基线 CoreMark（100 iterations）
 make pipeline-coremark-full # 全加速（CRC + array + matrix + state）
 make pipeline-console       # Pango-only CDC/UART/mailbox 定向测试
@@ -97,6 +99,7 @@ WNS **−1.527 ns**、TNS −3,167 ns，瓶颈在 `u_mtx9_engine` 的阵列读/�
 
 - 核与 SoC：[rtl/pipeline/README.md](rtl/pipeline/README.md)
 - 指令缓存：[docs/microarch/pipeline_icache.md](docs/microarch/pipeline_icache.md)
+- 数据缓存（2 路组相联）：[docs/microarch/pipeline_dcache.md](docs/microarch/pipeline_dcache.md)
 - 加速镜像与 MMIO：[docs/pipeline_accel_images.md](docs/pipeline_accel_images.md)
 - 多核与一致性：[docs/pipeline_multicore.md](docs/pipeline_multicore.md)、
   [docs/pipeline_coremark_mt_plan.md](docs/pipeline_coremark_mt_plan.md)、

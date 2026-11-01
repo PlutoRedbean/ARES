@@ -1,7 +1,10 @@
 `include "autoconf.vh"
 
+// One way of the set-associative L1 D-cache data array.
+// The DCache keeps CONFIG_DCACHE_WAYS independent copies of this RAM, so the
+// depth is the number of *sets* (DCACHE_SIZE_KB*256/DCACHE_WAYS).
 module DCacheData_BRAM #(
-  parameter integer ENTRY_COUNT = `CONFIG_DCACHE_SIZE_KB * 256,
+  parameter integer ENTRY_COUNT = `CONFIG_DCACHE_SIZE_KB * 256 / `CONFIG_DCACHE_WAYS,
   parameter integer INDEX_WIDTH = $clog2(ENTRY_COUNT)
 ) (
   input         clka,

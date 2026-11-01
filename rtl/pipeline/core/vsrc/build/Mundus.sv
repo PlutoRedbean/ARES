@@ -1772,6 +1772,8 @@ endmodule
 
 // external module DCacheTag_BRAM
 
+// external module DCacheLru_BRAM
+
 module DCache(
   input         clock,
                 reset,
@@ -1783,28 +1785,63 @@ module DCache(
   input         io_req_write,
   input  [31:0] io_req_wdata,
   input  [1:0]  io_req_bytes,
+  output        io_req_way,
   input         io_resp_fire,
   output        io_resp_hit,
   output [31:0] io_resp_data,
   input         io_refill_valid,
   input  [31:0] io_refill_addr,
                 io_refill_data,
-  input         io_coh_inv_valid,
+  input         io_refill_way,
+                io_coh_inv_valid,
   input  [31:0] io_coh_inv_addr,
   input  [7:0]  io_coh_epoch,
                 io_refill_epoch
 );
 
-  wire [5:0]       _tags_doutb;
-  wire [31:0]      _data_doutb;
+  wire             refill_write;
+  wire             _lruRam_doutb;
+  wire [6:0]       _tagRam_1_doutb;
+  wire [6:0]       _tagRam_0_doutb;
+  wire [31:0]      _dataRam_1_doutb;
+  wire [31:0]      _dataRam_0_doutb;
   reg              tag_init_busy;
-  reg  [10:0]      tag_init_index;
+  reg  [9:0]       tag_init_index;
   reg              tag_ready;
   reg              refill_read_collision_q;
+  reg              refill_read_way_q;
   reg              refill_read_same_word_q;
   reg  [31:0]      refill_read_data_q;
+  wire             refill_take_0 = refill_write & ~io_refill_way;
+  wire             refill_take_1 = refill_write & io_refill_way;
+  reg              store_clash_0;
+  reg              store_clash_1;
+  wire             collision_way_0 = refill_read_collision_q & ~refill_read_way_q;
+  wire             collision_way_1 = refill_read_collision_q & refill_read_way_q;
+  wire             raw_hit_vec_0 =
+    collision_way_0
+      ? refill_read_same_word_q
+      : tag_ready & _tagRam_0_doutb[6] & _tagRam_0_doutb[5:0] == io_req_addr[17:12];
+  wire             raw_hit_vec_1 =
+    collision_way_1
+      ? refill_read_same_word_q
+      : tag_ready & _tagRam_1_doutb[6] & _tagRam_1_doutb[5:0] == io_req_addr[17:12];
+  wire             victim_way =
+    (|{~(_tagRam_1_doutb[6]), ~(_tagRam_0_doutb[6])})
+      ? _tagRam_0_doutb[6]
+      : ~_lruRam_doutb & _lruRam_doutb - 1'h1;
+  reg              held_req_valid;
+  reg              held_req_hit_vec_0;
+  reg              held_req_hit_vec_1;
+  reg  [31:0]      held_req_data;
+  reg              held_req_victim;
+  wire             req_hit_vec_0 = held_req_valid ? held_req_hit_vec_0 : raw_hit_vec_0;
+  wire             req_hit_vec_1 = held_req_valid ? held_req_hit_vec_1 : raw_hit_vec_1;
+  wire [1:0]       _hit_way_T = {req_hit_vec_1, req_hit_vec_0};
   reg              resp_valid;
   reg              resp_hit;
+  reg              resp_hit_vec_0;
+  reg              resp_hit_vec_1;
   reg  [31:0]      resp_addr;
   reg              resp_write;
   reg  [31:0]      resp_wdata;
@@ -1837,95 +1874,139 @@ module DCache(
   wire [31:0]      merged_store_data =
     resp_data & ~store_mask | _GEN_1[resp_bytes] & store_mask;
   wire             store_write = resp_valid & io_resp_fire & resp_write & resp_hit;
-  reg              held_req_valid;
-  reg              held_req_hit;
-  reg  [31:0]      held_req_data;
   wire             inv_write = tag_ready & io_coh_inv_valid;
-  wire             refill_write =
-    tag_ready & io_refill_valid & ~store_write & io_refill_epoch == io_coh_epoch;
+  assign refill_write =
+    tag_ready & io_refill_valid & ~store_write & ~inv_write
+    & io_refill_epoch == io_coh_epoch;
+  wire [9:0]       tag_waddr =
+    tag_init_busy
+      ? tag_init_index
+      : inv_write ? io_coh_inv_addr[11:2] : io_refill_addr[11:2];
+  wire             _tagRam_1_io_wea_T = tag_init_busy | inv_write;
+  wire [6:0]       tag_wdata = _tagRam_1_io_wea_T ? 7'h0 : {1'h1, io_refill_addr[17:12]};
+  wire [9:0]       data_waddr = store_write ? resp_addr[11:2] : io_refill_addr[11:2];
+  wire [31:0]      data_wdata = store_write ? merged_store_data : io_refill_data;
+  wire             _GEN_2 = io_refill_addr[11:2] == resp_addr[11:2];
   wire             refill_read_collision =
-    refill_write & io_lookup_valid & io_lookup_addr[12:2] == io_refill_addr[12:2];
-  wire             raw_req_hit =
-    refill_read_collision_q
-      ? refill_read_same_word_q
-      : tag_ready & _tags_doutb[5] & _tags_doutb[4:0] == io_req_addr[17:13];
-  wire             current_store_fwd = store_write & resp_addr[31:2] == io_req_addr[31:2];
-  wire [31:0]      lookup_req_data =
-    refill_read_collision_q & refill_read_same_word_q
-      ? refill_read_data_q
+    refill_write & io_lookup_valid & io_lookup_addr[11:2] == io_refill_addr[11:2];
+  wire [31:0]      raw_req_data =
+    store_write & resp_addr[31:2] == io_req_addr[31:2]
+      ? merged_store_data
       : write_fwd_valid & write_fwd_addr[31:2] == io_req_addr[31:2]
           ? write_fwd_data
-          : _data_doutb;
-  wire             _GEN_2 = ~io_req_present | io_req_valid;
+          : req_hit_vec_0
+              ? (collision_way_0 ? refill_read_data_q : _dataRam_0_doutb)
+              : collision_way_1 ? refill_read_data_q : _dataRam_1_doutb;
+  wire             _GEN_3 = ~io_req_present | io_req_valid;
   always @(posedge clock) begin
     if (reset) begin
       tag_init_busy <= 1'h1;
-      tag_init_index <= 11'h0;
+      tag_init_index <= 10'h0;
       tag_ready <= 1'h0;
       refill_read_collision_q <= 1'h0;
+      store_clash_0 <= 1'h0;
+      store_clash_1 <= 1'h0;
+      held_req_valid <= 1'h0;
       resp_valid <= 1'h0;
       write_fwd_valid <= 1'h0;
-      held_req_valid <= 1'h0;
     end
     else begin
       tag_init_busy <= ~(tag_init_busy & (&tag_init_index)) & tag_init_busy;
       if (~tag_init_busy | (&tag_init_index)) begin
       end
       else
-        tag_init_index <= tag_init_index + 11'h1;
+        tag_init_index <= tag_init_index + 10'h1;
       tag_ready <= ~tag_init_busy;
       refill_read_collision_q <= refill_read_collision;
+      store_clash_0 <=
+        io_req_valid
+          ? refill_take_0 & io_refill_addr[11:2] == io_req_addr[11:2]
+          : resp_valid & refill_take_0 & _GEN_2 | store_clash_0;
+      store_clash_1 <=
+        io_req_valid
+          ? refill_take_1 & io_refill_addr[11:2] == io_req_addr[11:2]
+          : resp_valid & refill_take_1 & _GEN_2 | store_clash_1;
+      held_req_valid <= ~_GEN_3;
       resp_valid <= io_req_valid | ~io_resp_fire & resp_valid;
       write_fwd_valid <= store_write;
-      held_req_valid <= ~_GEN_2;
     end
-    if (refill_read_collision)
-      refill_read_same_word_q <= io_lookup_addr[17:13] == io_refill_addr[17:13];
-    if (refill_write)
+    if (refill_read_collision) begin
+      refill_read_way_q <= io_refill_way;
+      refill_read_same_word_q <= io_lookup_addr[17:12] == io_refill_addr[17:12];
       refill_read_data_q <= io_refill_data;
+    end
+    if (_GEN_3 | held_req_valid) begin
+    end
+    else begin
+      held_req_hit_vec_0 <= raw_hit_vec_0;
+      held_req_hit_vec_1 <= raw_hit_vec_1;
+      held_req_data <= raw_req_data;
+      held_req_victim <= victim_way;
+    end
     if (io_req_valid) begin
-      resp_hit <= held_req_valid ? held_req_hit : raw_req_hit;
+      resp_hit <= |_hit_way_T;
+      resp_hit_vec_0 <= req_hit_vec_0;
+      resp_hit_vec_1 <= req_hit_vec_1;
       resp_addr <= io_req_addr;
       resp_write <= io_req_write;
       resp_wdata <= io_req_wdata;
       resp_bytes <= io_req_bytes;
-      resp_data <=
-        current_store_fwd
-          ? merged_store_data
-          : held_req_valid ? held_req_data : lookup_req_data;
+      resp_data <= held_req_valid ? held_req_data : raw_req_data;
     end
     if (store_write) begin
       write_fwd_addr <= resp_addr;
       write_fwd_data <= merged_store_data;
     end
-    if (_GEN_2 | held_req_valid) begin
-    end
-    else begin
-      held_req_hit <= raw_req_hit;
-      held_req_data <= current_store_fwd ? merged_store_data : lookup_req_data;
-    end
   end // always @(posedge)
-  DCacheData_BRAM data (
+  DCacheData_BRAM dataRam_0 (
     .clka  (clock),
-    .wea   (store_write | refill_write),
-    .addra (store_write ? resp_addr[12:2] : io_refill_addr[12:2]),
-    .dina  (store_write ? merged_store_data : io_refill_data),
+    .wea   (store_write & resp_hit_vec_0 & ~store_clash_0 | refill_take_0),
+    .addra (data_waddr),
+    .dina  (data_wdata),
     .clkb  (clock),
-    .addrb (io_lookup_addr[12:2]),
-    .doutb (_data_doutb)
+    .addrb (io_lookup_addr[11:2]),
+    .doutb (_dataRam_0_doutb)
   );
-  DCacheTag_BRAM tags (
+  DCacheData_BRAM dataRam_1 (
     .clka  (clock),
-    .wea   (tag_init_busy | inv_write | refill_write),
+    .wea   (store_write & resp_hit_vec_1 & ~store_clash_1 | refill_take_1),
+    .addra (data_waddr),
+    .dina  (data_wdata),
+    .clkb  (clock),
+    .addrb (io_lookup_addr[11:2]),
+    .doutb (_dataRam_1_doutb)
+  );
+  DCacheTag_BRAM tagRam_0 (
+    .clka  (clock),
+    .wea   (_tagRam_1_io_wea_T | refill_take_0),
+    .addra (tag_waddr),
+    .dina  (tag_wdata),
+    .clkb  (clock),
+    .addrb (io_lookup_addr[11:2]),
+    .doutb (_tagRam_0_doutb)
+  );
+  DCacheTag_BRAM tagRam_1 (
+    .clka  (clock),
+    .wea   (_tagRam_1_io_wea_T | refill_take_1),
+    .addra (tag_waddr),
+    .dina  (tag_wdata),
+    .clkb  (clock),
+    .addrb (io_lookup_addr[11:2]),
+    .doutb (_tagRam_1_doutb)
+  );
+  DCacheLru_BRAM lruRam (
+    .clka  (clock),
+    .wea   (tag_init_busy | refill_write | io_req_valid & (|_hit_way_T)),
     .addra
       (tag_init_busy
          ? tag_init_index
-         : inv_write ? io_coh_inv_addr[12:2] : io_refill_addr[12:2]),
-    .dina  (tag_init_busy | inv_write ? 6'h0 : {1'h1, io_refill_addr[17:13]}),
+         : refill_write ? io_refill_addr[11:2] : io_req_addr[11:2]),
+    .dina  (~tag_init_busy & (refill_write ? io_refill_way : ~req_hit_vec_0)),
     .clkb  (clock),
-    .addrb (io_lookup_addr[12:2]),
-    .doutb (_tags_doutb)
+    .addrb (io_lookup_addr[11:2]),
+    .doutb (_lruRam_doutb)
   );
+  assign io_req_way = held_req_valid ? held_req_victim : victim_way;
   assign io_resp_hit = resp_valid & resp_hit;
   assign io_resp_data = resp_data;
 endmodule
@@ -1962,6 +2043,7 @@ module LSU(
   output        io_idle
 );
 
+  wire             _dcache_io_req_way;
   wire             _dcache_io_resp_hit;
   wire [31:0]      _dcache_io_resp_data;
   wire             _io_idle_T = io_in_bits_mem_bytes != 2'h3;
@@ -1982,6 +2064,8 @@ module LSU(
   reg  [1:0]       ls3_mem_bytes;
   reg  [7:0]       ls3_epoch;
   wire             ls1_cacheable = io_in_bits_addr[31:18] == 14'h2004;
+  reg              ls2_cache_way;
+  reg              ls3_cache_way;
   wire             ls2_cacheable = ls2_addr[31:18] == 14'h2004;
   wire             _younger_store_same_word_T_1 = ls2_mem_bytes != 2'h3;
   wire             ls2_cache_hit =
@@ -2032,6 +2116,7 @@ module LSU(
       ls2_mem_wen <= io_in_bits_mem_wen;
       ls2_mem_bytes <= io_in_bits_mem_bytes;
       ls2_epoch <= io_coh_epoch;
+      ls2_cache_way <= _dcache_io_req_way;
     end
     if (io_out_ready) begin
       ls3_valid <= ls2_valid;
@@ -2040,6 +2125,7 @@ module LSU(
       ls3_mem_wen <= ls2_mem_wen;
       ls3_mem_bytes <= ls2_mem_bytes;
       ls3_epoch <= ls2_epoch;
+      ls3_cache_way <= ls2_cache_way;
       ls3_cacheable <= ls2_cacheable;
       ls3_cache_hit <= ls2_cache_hit;
     end
@@ -2074,6 +2160,7 @@ module LSU(
     .io_req_write     (io_in_bits_mem_wen),
     .io_req_wdata     (io_in_bits_mem_wdata),
     .io_req_bytes     (io_in_bits_mem_bytes),
+    .io_req_way       (_dcache_io_req_way),
     .io_resp_fire     (io_out_ready & ls2_valid),
     .io_resp_hit      (_dcache_io_resp_hit),
     .io_resp_data     (_dcache_io_resp_data),
@@ -2081,9 +2168,11 @@ module LSU(
       (ls3_valid & io_slow_ready & ~ls3_mem_wen & _refill_valid_T_2 & ls3_cacheable
        & ~ls3_cache_hit
        & ~(ls2_valid & ls2_mem_wen & _younger_store_same_word_T_1
-           & ls2_addr[31:2] == ls3_addr[31:2])),
+           & ls2_addr[31:2] == ls3_addr[31:2] | ls1_mem_valid & io_in_bits_mem_wen
+           & io_in_bits_addr[31:2] == ls3_addr[31:2])),
     .io_refill_addr   (ls3_addr),
     .io_refill_data   (slow_rdata_raw),
+    .io_refill_way    (ls3_cache_way),
     .io_coh_inv_valid (io_coh_inv_valid),
     .io_coh_inv_addr  (io_coh_inv_addr),
     .io_coh_epoch     (io_coh_epoch),

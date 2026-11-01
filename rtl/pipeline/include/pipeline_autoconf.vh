@@ -34,6 +34,12 @@
 /* D-Cache / store buffer */
 `define CONFIG_DCACHE_SIZE_8KB 1
 `define CONFIG_DCACHE_SIZE_KB 8
+/* Set associativity of the write-through L1 D-cache.  The total capacity stays
+ * CONFIG_DCACHE_SIZE_KB, so the number of sets is DCACHE_SIZE_KB*256/WAYS.
+ * The per-way BRAM wrappers (rtl/pipeline/soc/ip/DCache*_BRAM.v) derive their
+ * entry count from this value; keep it in sync with CONFIG_DCACHE_WAYS in
+ * rtl/pipeline/gen/configs/scsrc/autoconf.scala. */
+`define CONFIG_DCACHE_WAYS 2
 `define CONFIG_STORE_BUFFER_DEPTH_4 1
 `define CONFIG_STORE_BUFFER_DEPTH 4
 

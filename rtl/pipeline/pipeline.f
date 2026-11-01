@@ -32,6 +32,7 @@ rtl/pipeline/soc/ip/mult.v
 rtl/pipeline/soc/ip/div.v
 rtl/pipeline/soc/ip/DCacheData_BRAM.v
 rtl/pipeline/soc/ip/DCacheTag_BRAM.v
+rtl/pipeline/soc/ip/DCacheLru_BRAM.v
 rtl/pipeline/soc/ip/BRAM.v
 rtl/pipeline/soc/ip/StoreBuffer_DPIC.v
 
