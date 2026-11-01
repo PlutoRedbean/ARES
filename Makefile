@@ -131,7 +131,7 @@ unit-state9:
         coremark-matrix-array-image coremark-state-image coremark-full-image \
         test-coremark-image test-coremark-array test-images \
         lint-mtx9 lint-state9 unit-mtx9 unit-state9 clean \
-        pipeline-core-gen pipeline-lint pipeline-div-test pipeline-smoke pipeline-isa-images pipeline-isa-sim pipeline-isa pipeline-coremark pipeline-coremark-nocache pipeline-coremark-serial pipeline-coremark-crc pipeline-coremark-matrix pipeline-coremark-state pipeline-coremark-full pipeline-coremark-images pipeline-coremark-mc pipeline-coremark-mt pipeline-coremark-mt-test pipeline-coremark-full-mt pipeline-coremark-mt-image pipeline-coremark-full-mt-image coremark-full-mc-image pipeline-image pipeline-board-image pipeline-amp-image pipeline-amp-image-mt pipeline-pango-lint pipeline-amp-pango-lint pipeline-amp-board-sim pipeline-console pipeline-mc-images pipeline-mc-lint pipeline-mc-run pipeline-mc-test
+        pipeline-core-gen pipeline-lint pipeline-div-test pipeline-mult-test pipeline-smoke pipeline-isa-images pipeline-isa-sim pipeline-isa pipeline-coremark pipeline-coremark-nocache pipeline-coremark-serial pipeline-coremark-crc pipeline-coremark-matrix pipeline-coremark-state pipeline-coremark-full pipeline-coremark-images pipeline-coremark-mc pipeline-coremark-mt pipeline-coremark-mt-test pipeline-coremark-full-mt pipeline-coremark-mt-image pipeline-coremark-full-mt-image coremark-full-mc-image pipeline-image pipeline-board-image pipeline-amp-image pipeline-amp-image-mt pipeline-pango-lint pipeline-amp-pango-lint pipeline-amp-board-sim pipeline-console pipeline-mc-images pipeline-mc-lint pipeline-mc-run pipeline-mc-test
 # Accelerated image locations (built by the existing ARES CoreMark scripts).
 PIPELINE_COREMARK_CRC_BIN    ?= $(ARES_HOME)/build/coremark_crc/coremark.bin
 PIPELINE_COREMARK_MATRIX_BIN ?= $(ARES_HOME)/build/coremark_matrix/coremark.bin
@@ -209,6 +209,18 @@ pipeline-div-test:
 	    -I rtl/pipeline/include -I rtl/pipeline/core/vsrc/include \
 	    -o build/div_test/tb_div rtl/pipeline/soc/ip/div.v rtl/pipeline/test/tb_div.sv
 	@cd $(ARES_HOME) && vvp build/div_test/tb_div
+
+# Directed + random unit test of the 4-stage partial-product multiplier
+# (rtl/pipeline/soc/ip/mult.v, rtl/pipeline/test/tb_mult.sv).  Checks every
+# product on the cycle it is due, both sides of the 17/16-bit split, all sign
+# combinations, CE hold, and the PIPELINE_STAGES=5 tail branch.  Icarus only,
+# ~4 s.
+pipeline-mult-test:
+	@mkdir -p $(ARES_HOME)/build/mult_test
+	@cd $(ARES_HOME) && iverilog -g2012 \
+	    -I rtl/pipeline/include -I rtl/pipeline/core/vsrc/include \
+	    -o build/mult_test/tb_mult rtl/pipeline/soc/ip/mult.v rtl/pipeline/test/tb_mult.sv
+	@cd $(ARES_HOME) && vvp build/mult_test/tb_mult
 
 # Directed + random unit test of the 2-way set-associative L1 D-cache
 # (rtl/pipeline/test/tb_dcache.sv).  Checks what the ISA regression cannot see:
