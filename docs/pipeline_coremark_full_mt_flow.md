@@ -78,10 +78,11 @@ riscv64-unknown-elf-size -A build/coremark_full_mt2/coremark-riscv32-ares.elf
 | `.bss` | 4,172 B | 每 hart DRAM |
 | DRAM 合计 | 6,204 B / 32 KiB | `0x8010_0000 + h*0x8000` |
 
-> **4-hart 全加速聚合镜像不可链接**：需要约 33,068 B，超出 32 KiB IROM 300 B。
-> `pipeline-coremark-full-mt-image CORES=4` 现在会直接报错。4-hart 全加速请用
-> AMP 变体（见 §6），或把 IROM 扩到 64 KiB（Phase 4）。基础（非加速）4-hart MT
-> 只有 13,800 B，不受影响。
+> **4-hart 全加速聚合镜像现在可以链接**：`--list-engine` 把软件数组影子的
+> 热点换成了 list9_engine，text 从约 33 KiB 压到 30 KiB 以内；
+> `make pipeline-coremark-full-mt CORES=4` 已能生成单份 `MULTITHREAD=4`
+> 报告（200 iterations，57.242704 CoreMark/MHz，4 份 CRC 全对）。
+> 如果以后再加加速器导致 text 回涨，仍可把 IROM 扩到 64 KiB（Phase 4）。
 
 ## 4. 运行仿真
 
@@ -201,6 +202,6 @@ AMP 与 MT 的区别见 [pipeline_coremark_mt_plan.md](pipeline_coremark_mt_plan
 | 2-hart 基础 MT（16 KiB I$） | 200 | 43,746,087 | 4.579943 | 0x988c ×2 | PASS |
 | 4-hart 基础 MT（16 KiB I$） | 200 | 21,938,513 | 9.166984 | 0x0158 ×4 | PASS |
 | 4-hart 全加速 AMP（512 行 I$） | 4×100 | 12,694,279 | 每 hart 约 7.9 | 0x988c ×4 | PASS |
-| 4-hart 全加速 MT | — | — | — | — | 不可链接（IROM 溢出 300 B） |
+| **4-hart 全加速 MT（list engine）** | **200** | **3,630,085** | **57.242704** | 0x0158 ×4 | PASS |
 
 以上是 RTL 仿真值（100 MHz 计数），不是板级实测。

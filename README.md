@@ -14,11 +14,11 @@ FPGA (PDS 2022.2 / 2025.2).
 | 存储层次 | 4 KiB 4 路 I$ + **8 KiB 2 路组相联 D$**（写直达 + 写失效一致性） | `rtl/pipeline/core/`、`rtl/pipeline/soc/ip/DCache*_BRAM.v` |
 | SoC | JYD `student_top`：IROM/DRAM、perip_bridge、UART、timer、LED/SEG | `rtl/pipeline/soc/jyd/` |
 | 平台层 | 去 XPM 的 CDC、可综合 BRAM、PLL/复位、板级顶层 | `rtl/pipeline/soc/pango/`、`rtl/pipeline/board/` |
-| 加速器 | `mtx9_engine`（9-PE INT16 矩阵）、`state9_engine`（token 扫描）、custom-0 CRC8 | `rtl/accel/` |
+| 加速器 | `mtx9_engine`（9-PE INT16 矩阵）、`state9_engine`（token 扫描）、`list9_engine`（链表 find/reverse/MTF）、custom-0 CRC8 | `rtl/accel/` |
 | 多核 | `pipeline_amp_top` 2/4-hart AMP：共享 IROM + 私有 I$ + 共享 mailbox | `rtl/pipeline/soc/amp/` |
 | 时钟 | 27 MHz → PLL → CPU 100 MHz / 外设 50 MHz | `rtl/pipeline/board/pipeline_pll.v` |
 
-加速器挂在 `0xA000_1000` / `0xA000_2000`，由 `pipeline_accel.sv` 做薄 MMIO 封装；
+加速器挂在 `0xA000_1000` / `0xA000_2000` / `0xA000_3000`，由 `pipeline_accel.sv` 做薄 MMIO 封装；
 CRC8 是核内的两拍 custom-0 指令。各变体的 MMIO 时序和分数见
 [docs/pipeline_accel_images.md](docs/pipeline_accel_images.md)。
 
@@ -33,7 +33,7 @@ make pipeline-isa           # ISA 回归（36 个 cpu-tests）
 make pipeline-div-test      # 除法器单元测试（iverilog）
 make pipeline-dcache-test    # 2 路组相联 D$ 定向 + 随机单元测试（Verilator）
 make pipeline-coremark      # 基线 CoreMark（100 iterations）
-make pipeline-coremark-full # 全加速（CRC + array + matrix + state）
+make pipeline-coremark-full # 全加速（CRC + list + matrix + state）
 make pipeline-console       # Pango-only CDC/UART/mailbox 定向测试
 ```
 
@@ -43,12 +43,15 @@ make pipeline-console       # Pango-only CDC/UART/mailbox 定向测试
 make pipeline-coremark-mc CORES=2        # 2-hart 全加速 AMP
 make pipeline-coremark-mt CORES=2        # 标准 MULTITHREAD 聚合报告
 make pipeline-coremark-full-mt CORES=2   # 全加速 MULTITHREAD（200 iterations）
+make pipeline-coremark-full-mt CORES=4   # 4-hart 单份 MULTITHREAD=4 报告
 make pipeline-mc-test                    # 2/4-hart 一致性实验（共享 L2）
 ```
 
-最近一次 Verilator 结果（200 iterations 总量）：2-hart 全加速聚合
-**15.82 CoreMark/MHz**，两 hart `crclist/crcmatrix/crcstate/crcfinal` 与参考一致，
-`a0=0`，`CoreMark PASS`。
+最近一次 Verilator 结果：单核全加速 **13.381925 CoreMark/MHz**
+（100 iterations，7,525,556 cycles）；4-hart 全加速 `MULTITHREAD=4`
+**57.242704 CoreMark/MHz**（200 iterations，3,630,085 cycles），4 份
+`crclist/crcmatrix/crcstate` 全对，`a0=0`，`CoreMark PASS`。链表引擎见
+[docs/coremark_list_engine.md](docs/coremark_list_engine.md)。
 
 ### 软件镜像链
 
@@ -101,6 +104,8 @@ WNS **−1.527 ns**、TNS −3,167 ns，瓶颈在 `u_mtx9_engine` 的阵列读/�
 - 指令缓存：[docs/microarch/pipeline_icache.md](docs/microarch/pipeline_icache.md)
 - 数据缓存（2 路组相联）：[docs/microarch/pipeline_dcache.md](docs/microarch/pipeline_dcache.md)
 - 加速镜像与 MMIO：[docs/pipeline_accel_images.md](docs/pipeline_accel_images.md)
+- 链表引擎：[docs/coremark_list_engine.md](docs/coremark_list_engine.md)；
+  软件数组影子：[docs/coremark_array_list.md](docs/coremark_array_list.md)
 - 多核与一致性：[docs/pipeline_multicore.md](docs/pipeline_multicore.md)、
   [docs/pipeline_coremark_mt_plan.md](docs/pipeline_coremark_mt_plan.md)、
   [docs/pipeline_coremark_full_mt_flow.md](docs/pipeline_coremark_full_mt_flow.md)
@@ -110,8 +115,8 @@ WNS **−1.527 ns**、TNS −3,167 ns，瓶颈在 `u_mtx9_engine` 的阵列读/�
 ## 已知缺口
 
 - 指令缓存没有 `FENCE.I` 失效路径，私有 IROM 只读，暂不支持自修改代码。
-- 2-hart 全加速聚合镜像占 32,432 / 32,768 B，4-hart 聚合镜像放不下；
-  4-hart 走 AMP 分档镜像。
+- 4-hart 全加速 `MULTITHREAD=4` 聚合镜像现在可以链接进 32 KiB IROM
+  （list engine 把 text 压到约 30 KiB）；AMP 板级仍走每 hart 分档镜像。
 - 共享 L2 的 `pipeline_mc_soc_top` 的 CoreMark 仍有读响应顺序问题（实验线）。
 - AMP 板级顶层与 PDS 流程尚未入库（见上）。
 - 板级没有 UART RX 引脚，`rx` 接 1；CoreMark 只依赖 TX。

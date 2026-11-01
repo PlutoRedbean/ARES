@@ -2,6 +2,19 @@
 
 > 状态：已实现；主机等价 200/200，4-iteration 与 100-iteration RTL CoreMark 均通过 9 checks + L2 shadow。
 > 约束：只改构建脚本/新增 TU；`tests/benchmarks/coremark/src/*.c` 一个字节不改。
+>
+> 状态（v2，2026-11-01）：默认软件路径已改为**索引链表**——数组保存
+> `{node, info, idx, data16}`，另用 `next/prev` + 方向位维护逻辑顺序，
+> reverse 和 move-to-front 都是 O(1)；find 仍是每节点一次依赖 load。
+> 关键修正：尾部的 sort/remove 只重排数组、不重排链表，因此**每次进入
+> `core_bench_list` 都要从数组重建链表**（`ares_sync_values`），否则下一次
+> 调用会沿旧链表走，严重时成环。
+>
+> 实测（100 iterations，全加速）：v2 软件 **14,179,708 cycles / 7.0824
+> CoreMark/MHz**，相对 v1 的 14,263,577 / 7.0109 只有 **1.010×**——依赖 load
+> 链抵消了 MTF 的收益。真正的大头是硬件 [list9_engine](coremark_list_engine.md)
+> （7,525,556 / **13.3819**，**1.909×**）。本文保留 v1 数组影子的设计与历史
+> 数据，v2 的代码在 `scripts/coremark_array_list.c`。
 
 ## 1. 做什么
 

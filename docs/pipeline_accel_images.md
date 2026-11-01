@@ -130,6 +130,11 @@ CoreMark 计时区间（Total ticks），不是仿真尾部总周期。
 > 上表是 I-cache 尚未接入时的历史结果。当前 `USE_ICACHE=1` 的全加速镜像为
 > `13,286,278` ticks / `7.526562` CoreMark/MHz；I-cache 增加命中延迟和
 > refill，IPC/CM-MHz 下降属于预期，CRC 仍全对。
+>
+> 2026-11-01 起 `coremark-full-image` 默认带 `--list-engine`（链表 hot loop
+> 走 `list9_engine`，见 [coremark_list_engine.md](coremark_list_engine.md)）：
+> 全加速 100 iterations 为 **7,525,556 ticks / 13.381925 CoreMark/MHz**，
+> 相对 7.526562 为 **1.78x**，`CoreMark PASS`。
 
 ## 5. 验证记录
 
