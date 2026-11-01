@@ -56,22 +56,30 @@ module mtx9_engine (
     localparam logic [11:0] CRC    = 12'h710;
     localparam logic [11:0] SUM0   = 12'h720;
 
-    localparam logic [3:0] ST_IDLE      = 4'd0;
-    localparam logic [3:0] ST_LOAD_B    = 4'd1;
-    localparam logic [3:0] ST_ADD_CONST = 4'd2;
-    localparam logic [3:0] ST_MUL_CONST = 4'd3;
-    localparam logic [3:0] ST_VECT      = 4'd4;
-    localparam logic [3:0] ST_SUM1      = 4'd5;
-    localparam logic [3:0] ST_MATMUL    = 4'd6;
-    localparam logic [3:0] ST_MATMUL_WR = 4'd7;
-    localparam logic [3:0] ST_SUM2      = 4'd8;
-    localparam logic [3:0] ST_BITEXT    = 4'd9;
-    localparam logic [3:0] ST_BITEXT_WR = 4'd10;
-    localparam logic [3:0] ST_SUM3      = 4'd11;
-    localparam logic [3:0] ST_RESTORE   = 4'd12;
-    localparam logic [3:0] ST_DONE      = 4'd13;
+    localparam logic [4:0] ST_IDLE      = 5'd0;
+    localparam logic [4:0] ST_LOAD_B    = 5'd1;
+    localparam logic [4:0] ST_ADD_CONST = 5'd2;
+    localparam logic [4:0] ST_MUL_CONST = 5'd3;
+    localparam logic [4:0] ST_VECT      = 5'd4;
+    localparam logic [4:0] ST_SUM1      = 5'd5;
+    localparam logic [4:0] ST_MATMUL    = 5'd6;
+    localparam logic [4:0] ST_MATMUL_WR = 5'd7;
+    localparam logic [4:0] ST_SUM2      = 5'd8;
+    localparam logic [4:0] ST_BITEXT    = 5'd9;
+    localparam logic [4:0] ST_BITEXT_WR = 5'd10;
+    localparam logic [4:0] ST_SUM3      = 5'd11;
+    localparam logic [4:0] ST_RESTORE   = 5'd12;
+    localparam logic [4:0] ST_DONE      = 5'd13;
+    // One drain cycle after the last element of a row: the MAC is pipelined
+    // (product register + accumulate), so the ninth product reaches pe_acc one
+    // cycle after the ninth multiply.
+    localparam logic [4:0] ST_MATMUL_DR  = 5'd14;
+    localparam logic [4:0] ST_BITEXT_DR  = 5'd15;
+    // Two CRC cycles at the end of a pass (low byte, high byte).
+    localparam logic [4:0] ST_CRC1       = 5'd16;
+    localparam logic [4:0] ST_CRC2       = 5'd17;
 
-    logic [3:0] state_q;
+    logic [4:0] state_q;
 
     logic [3:0]  n_reg;
     logic signed [15:0] val_reg;
@@ -249,6 +257,15 @@ module mtx9_engine (
                          pe_prod_5, pe_prod_6, pe_prod_7, pe_prod_8;
     logic signed [31:0] pe_add_0, pe_add_1, pe_add_2, pe_add_3, pe_add_4,
                          pe_add_5, pe_add_6, pe_add_7, pe_add_8;
+    // MAC stage 1: registered 16x16 products (see "9 PEs" below).
+    logic signed [31:0] pe_prod_q [0:8];
+    // Stage 2 qualifier: a product registered in the previous cycle belongs to
+    // a real element (and not to the write-back state's held operands).
+    logic               mac_valid_q;
+    // C write-port stage (see "Array write ports").
+    logic               c_wr_en_q;
+    logic [6:0]         c_wr_addr_q;
+    logic signed [31:0] c_wr_data_q;
 
     logic signed [31:0] sum_tmp, sum_prev;
     logic signed [15:0] sum_ret;
@@ -352,12 +369,17 @@ module mtx9_engine (
                 a_rd_addr <= (idx == 7'd80) ? 7'd0 : (a_rd_addr + 7'd1);
             ST_MATMUL, ST_BITEXT:
                 // Hold at the row end: this address is (i+1)*9 and has to
-                // survive the write-back state as the next row's element 0.
+                // survive the drain and write-back states as the next row's
+                // element 0.
                 if (mk != 4'd8) a_rd_addr <= a_rd_addr + 7'd1;
+            ST_MATMUL_DR, ST_BITEXT_DR:
+                ;                       // hold, like the first write-back cycle
             ST_MATMUL_WR, ST_BITEXT_WR:
                 if (wj == 4'd8) a_rd_addr <= a_rd_addr + 7'd1;
             ST_SUM1, ST_SUM2:
                 a_rd_addr <= (idx == 7'd80) ? 7'd1 : 7'd0;
+            ST_CRC1, ST_CRC2:
+                ;                       // hold: the next pass starts on this
             default:
                 a_rd_addr <= 7'd0;
         endcase
@@ -367,10 +389,14 @@ module mtx9_engine (
         unique case (state_q)
             ST_MATMUL, ST_BITEXT:
                 pe_k <= (mk == 4'd8) ? 4'd0 : (pe_k + 4'd1);
+            ST_MATMUL_DR, ST_BITEXT_DR:
+                pe_k <= 4'd0;           // same column the first write-back cycle holds
             ST_MATMUL_WR, ST_BITEXT_WR:
                 pe_k <= (wj == 4'd8) ? 4'd1 : 4'd0;
             ST_SUM1, ST_SUM2:
                 pe_k <= (idx == 7'd80) ? 4'd1 : 4'd0;
+            ST_CRC1, ST_CRC2:
+                ;                       // hold, same reason as a_rd_addr
             default:
                 pe_k <= 4'd0;
         endcase
@@ -378,76 +404,112 @@ module mtx9_engine (
 
     always_ff @(posedge clk) begin
         // No reset: pure payload, rewritten before the first accumulate.
-        pe_a_q    <= a_rd_data;
-        pe_b_q[0] <= bcol[{4'd0, pe_k}];
-        pe_b_q[1] <= bcol[{4'd1, pe_k}];
-        pe_b_q[2] <= bcol[{4'd2, pe_k}];
-        pe_b_q[3] <= bcol[{4'd3, pe_k}];
-        pe_b_q[4] <= bcol[{4'd4, pe_k}];
-        pe_b_q[5] <= bcol[{4'd5, pe_k}];
-        pe_b_q[6] <= bcol[{4'd6, pe_k}];
-        pe_b_q[7] <= bcol[{4'd7, pe_k}];
-        pe_b_q[8] <= bcol[{4'd8, pe_k}];
+        //
+        // Held across the two CRC cycles at the end of a pass: by then the
+        // address pipeline has already moved to the next pass's element 1, so
+        // loading again would overwrite the element 0 that the first MAC of
+        // that pass consumes.
+        if (state_q != ST_CRC1 && state_q != ST_CRC2) begin
+            pe_a_q    <= a_rd_data;
+            pe_b_q[0] <= bcol[{4'd0, pe_k}];
+            pe_b_q[1] <= bcol[{4'd1, pe_k}];
+            pe_b_q[2] <= bcol[{4'd2, pe_k}];
+            pe_b_q[3] <= bcol[{4'd3, pe_k}];
+            pe_b_q[4] <= bcol[{4'd4, pe_k}];
+            pe_b_q[5] <= bcol[{4'd5, pe_k}];
+            pe_b_q[6] <= bcol[{4'd6, pe_k}];
+            pe_b_q[7] <= bcol[{4'd7, pe_k}];
+            pe_b_q[8] <= bcol[{4'd8, pe_k}];
+        end
     end
 
     //-------------------------------------------------------------------------
     // 9 PEs
     //-------------------------------------------------------------------------
+    // Stage 1: register the nine 16x16 products.  The MAC used to be one
+    // combinational cone (bcol BRAM output -> 16x16 APM -> bit-extract APM ->
+    // 32-bit accumulate, ~6.3 ns of logic at 200 MHz and the only structure
+    // left in the fast-corner report), so the product is registered here and
+    // the accumulate runs one cycle behind it, qualified by mac_valid_q.
+    always_ff @(posedge clk) begin
+        // No reset: pure payload, rewritten before the first accumulate.
+        pe_prod_q[0] <= $signed(pe_a_q) * $signed(pe_b_q[0]);
+        pe_prod_q[1] <= $signed(pe_a_q) * $signed(pe_b_q[1]);
+        pe_prod_q[2] <= $signed(pe_a_q) * $signed(pe_b_q[2]);
+        pe_prod_q[3] <= $signed(pe_a_q) * $signed(pe_b_q[3]);
+        pe_prod_q[4] <= $signed(pe_a_q) * $signed(pe_b_q[4]);
+        pe_prod_q[5] <= $signed(pe_a_q) * $signed(pe_b_q[5]);
+        pe_prod_q[6] <= $signed(pe_a_q) * $signed(pe_b_q[6]);
+        pe_prod_q[7] <= $signed(pe_a_q) * $signed(pe_b_q[7]);
+        pe_prod_q[8] <= $signed(pe_a_q) * $signed(pe_b_q[8]);
+    end
+
+    // Stage 2 input: bit-extract the registered product in ST_BITEXT (and in
+    // its drain cycle), otherwise pass it through.
     always_comb begin
-        pe_prod_0 = $signed(pe_a_q) * $signed(pe_b_q[0]);
-        pe_prod_1 = $signed(pe_a_q) * $signed(pe_b_q[1]);
-        pe_prod_2 = $signed(pe_a_q) * $signed(pe_b_q[2]);
-        pe_prod_3 = $signed(pe_a_q) * $signed(pe_b_q[3]);
-        pe_prod_4 = $signed(pe_a_q) * $signed(pe_b_q[4]);
-        pe_prod_5 = $signed(pe_a_q) * $signed(pe_b_q[5]);
-        pe_prod_6 = $signed(pe_a_q) * $signed(pe_b_q[6]);
-        pe_prod_7 = $signed(pe_a_q) * $signed(pe_b_q[7]);
-        pe_prod_8 = $signed(pe_a_q) * $signed(pe_b_q[8]);
-        if (state_q == ST_BITEXT)
+        pe_prod_0 = pe_prod_q[0];
+        pe_prod_1 = pe_prod_q[1];
+        pe_prod_2 = pe_prod_q[2];
+        pe_prod_3 = pe_prod_q[3];
+        pe_prod_4 = pe_prod_q[4];
+        pe_prod_5 = pe_prod_q[5];
+        pe_prod_6 = pe_prod_q[6];
+        pe_prod_7 = pe_prod_q[7];
+        pe_prod_8 = pe_prod_q[8];
+        if (state_q == ST_BITEXT || state_q == ST_BITEXT_DR)
             pe_add_0 = (($signed(pe_prod_0) >>> 2) & 32'sh0000_000F)
                        * (($signed(pe_prod_0) >>> 5) & 32'sh0000_007F);
         else
             pe_add_0 = pe_prod_0;
-        if (state_q == ST_BITEXT)
+        if (state_q == ST_BITEXT || state_q == ST_BITEXT_DR)
             pe_add_1 = (($signed(pe_prod_1) >>> 2) & 32'sh0000_000F)
                        * (($signed(pe_prod_1) >>> 5) & 32'sh0000_007F);
         else
             pe_add_1 = pe_prod_1;
-        if (state_q == ST_BITEXT)
+        if (state_q == ST_BITEXT || state_q == ST_BITEXT_DR)
             pe_add_2 = (($signed(pe_prod_2) >>> 2) & 32'sh0000_000F)
                        * (($signed(pe_prod_2) >>> 5) & 32'sh0000_007F);
         else
             pe_add_2 = pe_prod_2;
-        if (state_q == ST_BITEXT)
+        if (state_q == ST_BITEXT || state_q == ST_BITEXT_DR)
             pe_add_3 = (($signed(pe_prod_3) >>> 2) & 32'sh0000_000F)
                        * (($signed(pe_prod_3) >>> 5) & 32'sh0000_007F);
         else
             pe_add_3 = pe_prod_3;
-        if (state_q == ST_BITEXT)
+        if (state_q == ST_BITEXT || state_q == ST_BITEXT_DR)
             pe_add_4 = (($signed(pe_prod_4) >>> 2) & 32'sh0000_000F)
                        * (($signed(pe_prod_4) >>> 5) & 32'sh0000_007F);
         else
             pe_add_4 = pe_prod_4;
-        if (state_q == ST_BITEXT)
+        if (state_q == ST_BITEXT || state_q == ST_BITEXT_DR)
             pe_add_5 = (($signed(pe_prod_5) >>> 2) & 32'sh0000_000F)
                        * (($signed(pe_prod_5) >>> 5) & 32'sh0000_007F);
         else
             pe_add_5 = pe_prod_5;
-        if (state_q == ST_BITEXT)
+        if (state_q == ST_BITEXT || state_q == ST_BITEXT_DR)
             pe_add_6 = (($signed(pe_prod_6) >>> 2) & 32'sh0000_000F)
                        * (($signed(pe_prod_6) >>> 5) & 32'sh0000_007F);
         else
             pe_add_6 = pe_prod_6;
-        if (state_q == ST_BITEXT)
+        if (state_q == ST_BITEXT || state_q == ST_BITEXT_DR)
             pe_add_7 = (($signed(pe_prod_7) >>> 2) & 32'sh0000_000F)
                        * (($signed(pe_prod_7) >>> 5) & 32'sh0000_007F);
         else
             pe_add_7 = pe_prod_7;
-        if (state_q == ST_BITEXT)
+        if (state_q == ST_BITEXT || state_q == ST_BITEXT_DR)
             pe_add_8 = (($signed(pe_prod_8) >>> 2) & 32'sh0000_000F)
                        * (($signed(pe_prod_8) >>> 5) & 32'sh0000_007F);
         else
             pe_add_8 = pe_prod_8;
+    end
+
+    // Stage 2: accumulate the product registered in the previous cycle.  The
+    // qualifier is registered from the multiply state, so the first accumulate
+    // of a row lands one cycle after the first multiply and the ninth one in
+    // the drain state - the write-back then reads final values.
+    always_ff @(posedge clk) begin
+        if (rst) mac_valid_q <= 1'b0;
+        else     mac_valid_q <= (state_q == ST_MATMUL) || (state_q == ST_BITEXT);
     end
 
     always_ff @(posedge clk) begin
@@ -463,7 +525,7 @@ module mtx9_engine (
             pe_acc[6] <= 32'sd0;
             pe_acc[7] <= 32'sd0;
             pe_acc[8] <= 32'sd0;
-        end else if (state_q == ST_MATMUL || state_q == ST_BITEXT) begin
+        end else if (mac_valid_q) begin
             pe_acc[0] <= pe_acc[0] + pe_add_0;
             pe_acc[1] <= pe_acc[1] + pe_add_1;
             pe_acc[2] <= pe_acc[2] + pe_add_2;
@@ -521,41 +583,37 @@ module mtx9_engine (
 
     //-------------------------------------------------------------------------
     // CRC16 recurrence (crcu16: low byte then high byte)
+    //
+    // The update is one byte per cycle in ST_CRC1/ST_CRC2 instead of a single
+    // cone that ran the 32-bit sum, the clipping compare and sixteen CRC
+    // rounds in the same cycle (12 logic levels, ~4.5 ns at 200 MHz).  The CRC
+    // only changes at the end of a pass, so the extra cycles are four per
+    // matrix_test and the sum path keeps only add + compare.
     //-------------------------------------------------------------------------
-    reg [15:0] crc16_work;
-    reg [15:0] crc16_next;
-    reg [15:0] crc8_work;
-    reg [ 7:0] crc8_data;
-    reg        crc8_x16;
-    reg        crc8_carry;
-    integer crc16_i;
-    integer crc8_i;
+    reg [15:0] crc_in_q;
+    logic [4:0] crc_next_state_q;
 
-    always @(*) begin
-        crc16_work = crc_q;
-        for (crc16_i = 0; crc16_i < 2; crc16_i = crc16_i + 1) begin
-            if (crc16_i == 0)
-                crc8_data = sum_ret_n[7:0];
-            else
-                crc8_data = sum_ret_n[15:8];
-            crc8_work = crc16_work;
-            for (crc8_i = 0; crc8_i < 8; crc8_i = crc8_i + 1) begin
-                crc8_x16 = crc8_data[0] ^ crc8_work[0];
-                crc8_data = crc8_data >> 1;
-                if (crc8_x16) begin
-                    crc8_work = crc8_work ^ 16'h4002;
-                    crc8_carry = 1'b1;
-                end else begin
-                    crc8_carry = 1'b0;
-                end
-                crc8_work = crc8_work >> 1;
-                if (crc8_carry) crc8_work[15] = 1'b1;
-                else            crc8_work[15] = 1'b0;
+    function automatic logic [15:0] crc8_step(
+        input logic [15:0] crc_in,
+        input logic [ 7:0] data_in
+    );
+        logic [15:0] w;
+        logic [ 7:0] d;
+        logic        x;
+        integer      i;
+        begin
+            w = crc_in;
+            d = data_in;
+            for (i = 0; i < 8; i = i + 1) begin
+                x = d[0] ^ w[0];
+                d = d >> 1;
+                if (x) w = w ^ 16'h4002;
+                w    = w >> 1;
+                w[15] = x;
             end
-            crc16_work = crc8_work;
+            crc8_step = w;
         end
-        crc16_next = crc16_work;
-    end
+    endfunction
 
     //-------------------------------------------------------------------------
     // Sequencer
@@ -641,9 +699,10 @@ module mtx9_engine (
                     sum_prev <= sum_prev_n;
                     sum_ret  <= sum_ret_n;
                     if (idx == 7'd80) begin
-                        sum_q[0] <= sum_ret_n;
-                        crc_q    <= crc16_next;
-                        state_q  <= ST_VECT;
+                        sum_q[0]         <= sum_ret_n;
+                        crc_in_q         <= sum_ret_n;
+                        crc_next_state_q <= ST_VECT;
+                        state_q          <= ST_CRC1;
                         idx      <= 7'd0;
                         vi       <= 4'd0;
                         vj       <= 4'd0;
@@ -678,9 +737,10 @@ module mtx9_engine (
                     sum_prev <= sum_prev_n;
                     sum_ret  <= sum_ret_n;
                     if (idx == 7'd80) begin
-                        sum_q[1] <= sum_ret_n;
-                        crc_q    <= crc16_next;
-                        state_q  <= ST_MATMUL;
+                        sum_q[1]         <= sum_ret_n;
+                        crc_in_q         <= sum_ret_n;
+                        crc_next_state_q <= ST_MATMUL;
+                        state_q          <= ST_CRC1;
                         idx      <= 7'd0;
                         mi       <= 4'd0;
                         mk       <= 4'd0;
@@ -694,12 +754,19 @@ module mtx9_engine (
                     // so idx walks 0..80 across the whole pass.
                     idx <= idx + 7'd1;
                     if (mk == 4'd8) begin
-                        state_q <= ST_MATMUL_WR;
+                        state_q <= ST_MATMUL_DR;
                         mk      <= 4'd0;
                         wj      <= 4'd0;
                     end else begin
                         mk <= mk + 4'd1;
                     end
+                end
+
+                ST_MATMUL_DR: begin
+                    // Drain: the ninth product lands in pe_acc here.  The
+                    // operand pipeline is held exactly like the first
+                    // write-back cycle, so row i+1 starts on element 0.
+                    state_q <= ST_MATMUL_WR;
                 end
 
                 ST_MATMUL_WR: begin
@@ -725,9 +792,10 @@ module mtx9_engine (
                     sum_prev <= sum_prev_n;
                     sum_ret  <= sum_ret_n;
                     if (idx == 7'd80) begin
-                        sum_q[2] <= sum_ret_n;
-                        crc_q    <= crc16_next;
-                        state_q  <= ST_BITEXT;
+                        sum_q[2]         <= sum_ret_n;
+                        crc_in_q         <= sum_ret_n;
+                        crc_next_state_q <= ST_BITEXT;
+                        state_q          <= ST_CRC1;
                         idx      <= 7'd0;
                         mi       <= 4'd0;
                         mk       <= 4'd0;
@@ -739,12 +807,16 @@ module mtx9_engine (
                 ST_BITEXT: begin
                     idx <= idx + 7'd1;
                     if (mk == 4'd8) begin
-                        state_q <= ST_BITEXT_WR;
+                        state_q <= ST_BITEXT_DR;
                         mk      <= 4'd0;
                         wj      <= 4'd0;
                     end else begin
                         mk <= mk + 4'd1;
                     end
+                end
+
+                ST_BITEXT_DR: begin
+                    state_q <= ST_BITEXT_WR;
                 end
 
                 ST_BITEXT_WR: begin
@@ -770,9 +842,10 @@ module mtx9_engine (
                     sum_prev <= sum_prev_n;
                     sum_ret  <= sum_ret_n;
                     if (idx == 7'd80) begin
-                        sum_q[3] <= sum_ret_n;
-                        crc_q    <= crc16_next;
-                        state_q  <= ST_RESTORE;
+                        sum_q[3]         <= sum_ret_n;
+                        crc_in_q         <= sum_ret_n;
+                        crc_next_state_q <= ST_RESTORE;
+                        state_q          <= ST_CRC1;
                         idx      <= 7'd0;
                     end else begin
                         idx <= idx + 7'd1;
@@ -786,6 +859,16 @@ module mtx9_engine (
                     end else begin
                         idx <= idx + 7'd1;
                     end
+                end
+
+                ST_CRC1: begin
+                    crc_q <= crc8_step(crc_q, crc_in_q[7:0]);
+                    state_q <= ST_CRC2;
+                end
+
+                ST_CRC2: begin
+                    crc_q   <= crc8_step(crc_q, crc_in_q[15:8]);
+                    state_q <= crc_next_state_q;
                 end
 
                 ST_DONE: begin
@@ -836,12 +919,25 @@ module mtx9_engine (
         end
     end
 
+    // Engine C write stage.  The write data is a MAC result (the accumulator
+    // in the write-back states, the VECT product sum in ST_VECT), so it is
+    // registered here before it reaches the array's write port: that keeps the
+    // 32-bit adder and the multiplier out of the RAM write path.  It costs one
+    // cycle of write latency and no extra cycles - the port still takes one
+    // word per cycle, and the engine never reads C until a later state.
     always_ff @(posedge clk) begin
-        if (c_wr_en) begin
-            c_l0[c_wr_addr] <= c_wr_data[7:0];
-            c_l1[c_wr_addr] <= c_wr_data[15:8];
-            c_l2[c_wr_addr] <= c_wr_data[23:16];
-            c_l3[c_wr_addr] <= c_wr_data[31:24];
+        if (rst) c_wr_en_q <= 1'b0;
+        else     c_wr_en_q <= c_wr_en;
+        c_wr_addr_q <= c_wr_addr;
+        c_wr_data_q <= c_wr_data;
+    end
+
+    always_ff @(posedge clk) begin
+        if (c_wr_en_q) begin
+            c_l0[c_wr_addr_q] <= c_wr_data_q[7:0];
+            c_l1[c_wr_addr_q] <= c_wr_data_q[15:8];
+            c_l2[c_wr_addr_q] <= c_wr_data_q[23:16];
+            c_l3[c_wr_addr_q] <= c_wr_data_q[31:24];
         end else if (c_host_wr) begin
             c_l0[c_word] <= host_wdata[7:0];
             c_l1[c_word] <= host_wdata[15:8];
