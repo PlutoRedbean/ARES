@@ -73,7 +73,7 @@ coremark-state-image:
 # CRC + array-shadow list + matrix engine + state scanner.
 coremark-full-image:
 	@python3 "$(ARES_HOME)/scripts/build_coremark_crc.py" --state-engine \
-	    --matrix-engine --array-list --out "$(ARES_HOME)/build/coremark_full" --jobs 4 \
+	    --matrix-engine --list-engine --out "$(ARES_HOME)/build/coremark_full" --jobs 4 \
 	    $(PIPELINE_COREMARK_IMAGE_FLAGS)
 
 # Image-chain tests (ELF32 -> bin -> Pango readmemh), no RTL.
@@ -124,13 +124,32 @@ unit-state9:
 	    rtl/accel/state9_engine.sv rtl/accel/test/unit/tb_state9_engine.sv
 	@$(ARES_HOME)/build/unit/tb_state9_engine/tb_state9_engine
 
+lint-list9:
+	@echo "[lint] list9_engine"
+	@verilator $(ACCEL_LINT_FLAGS) --top-module list9_engine rtl/accel/list9_engine.sv
+
+unit-list9:
+	@mkdir -p $(ARES_HOME)/build/unit/tb_list9_engine
+	@python3 $(ARES_HOME)/scripts/gen_list9_vectors.py \
+	    --out $(ARES_HOME)/build/unit/list9_vectors.hex
+	@CCACHE_DISABLE=1 verilator --binary --timing -sv --assert -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+	    -Wno-SIDEEFFECT -Wno-BLKSEQ -Wno-INITIALDLY -Wno-WIDTHTRUNC \
+	    -Wno-WIDTHEXPAND -Wno-UNUSEDSIGNAL -Wno-CASEINCOMPLETE -Wno-IMPLICIT -Wno-UNSIGNED \
+	    -DCONFIG_SIMULATION \
+	    --top-module tb_list9_engine \
+	    --Mdir $(ARES_HOME)/build/unit/tb_list9_engine \
+	    -o $(ARES_HOME)/build/unit/tb_list9_engine/tb_list9_engine \
+	    rtl/accel/list9_engine.sv rtl/accel/test/unit/tb_list9_engine.sv
+	@$(ARES_HOME)/build/unit/tb_list9_engine/tb_list9_engine \
+	    +VECTORS=$(ARES_HOME)/build/unit/list9_vectors.hex
+
 #-----------------------------------------------------------------------------
 # Pipeline SoC (Verilator + Pango)
 #-----------------------------------------------------------------------------
 .PHONY: coremark-image coremark-crc-image coremark-array-image coremark-matrix-image \
         coremark-matrix-array-image coremark-state-image coremark-full-image \
         test-coremark-image test-coremark-array test-images \
-        lint-mtx9 lint-state9 unit-mtx9 unit-state9 clean \
+        lint-mtx9 lint-state9 lint-list9 unit-mtx9 unit-state9 unit-list9 clean \
         pipeline-core-gen pipeline-lint pipeline-div-test pipeline-mult-test pipeline-smoke pipeline-isa-images pipeline-isa-sim pipeline-isa pipeline-coremark pipeline-coremark-nocache pipeline-coremark-serial pipeline-coremark-crc pipeline-coremark-matrix pipeline-coremark-state pipeline-coremark-full pipeline-coremark-images pipeline-coremark-mc pipeline-coremark-mt pipeline-coremark-mt-test pipeline-coremark-full-mt pipeline-coremark-mt-image pipeline-coremark-full-mt-image coremark-full-mc-image pipeline-image pipeline-board-image pipeline-amp-image pipeline-amp-image-mt pipeline-pango-lint pipeline-amp-pango-lint pipeline-amp-board-sim pipeline-console pipeline-mc-images pipeline-mc-lint pipeline-mc-run pipeline-mc-test
 # Accelerated image locations (built by the existing ARES CoreMark scripts).
 PIPELINE_COREMARK_CRC_BIN    ?= $(ARES_HOME)/build/coremark_crc/coremark.bin
@@ -343,7 +362,7 @@ pipeline-coremark-images:
 # DATA_STRIDE provides the private 32 KiB data/rodata/bss/stack window.
 coremark-full-mc-image:
 	@python3 $(ARES_HOME)/scripts/build_coremark_crc.py \
-	    --array-list --matrix-engine --state-engine --small-code \
+	    --list-engine --matrix-engine --state-engine --small-code \
 	    --ldscript $(PIPELINE_MC_LDSCRIPT) \
 	    --out $(PIPELINE_COREMARK_FULL_MC_OUT)
 
@@ -366,7 +385,7 @@ pipeline-coremark-mt-image:
 pipeline-coremark-full-mt-image:
 	@case "$(CORES)" in 2|4) ;; *) echo "error: CORES must be 2 or 4 (got '$(CORES)')"; exit 1;; esac
 	@python3 $(ARES_HOME)/scripts/build_coremark_crc.py \
-	    --array-list --matrix-engine --state-engine --small-code \
+	    --list-engine --matrix-engine --state-engine --small-code \
 	    --ldscript $(PIPELINE_MC_LDSCRIPT) \
 	    --mt-pipe --cores $(CORES) \
 	    --total-iterations $(COREMARK_MT_TOTAL_ITERATIONS) --jobs 4 \
@@ -495,6 +514,7 @@ pipeline-console:
 	    rtl/pipeline/soc/pango/pipeline_bram.v \
 	    rtl/accel/mtx9_engine.sv \
 	    rtl/accel/state9_engine.sv \
+	    rtl/accel/list9_engine.sv \
 	    rtl/pipeline/soc/jyd/pipeline_accel.sv \
 	    rtl/pipeline/soc/jyd/perip_bridge.sv \
 	    rtl/pipeline/soc/jyd/irom_bmem32.sv \

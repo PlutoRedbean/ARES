@@ -54,6 +54,7 @@ rtl/pipeline/soc/ip/DCacheLru_BRAM.v
 # files.
 rtl/accel/mtx9_engine.sv
 rtl/accel/state9_engine.sv
+rtl/accel/list9_engine.sv
 rtl/pipeline/soc/jyd/pipeline_accel.sv
 
 # jyd SoC

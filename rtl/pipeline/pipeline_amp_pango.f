@@ -45,6 +45,7 @@ rtl/pipeline/soc/ip/DCacheLru_BRAM.v
 # CoreMark accelerator engines + MMIO wrapper (PDS-compatible Verilog-2001 subset)
 rtl/accel/mtx9_engine.sv
 rtl/accel/state9_engine.sv
+rtl/accel/list9_engine.sv
 rtl/pipeline/soc/jyd/pipeline_accel.sv
 
 # jyd SoC / per-hart private memory and MMIO

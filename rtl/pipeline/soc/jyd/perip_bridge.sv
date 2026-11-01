@@ -262,11 +262,13 @@ module perip_bridge #(
     // already accepted it (perip_ready), keeping the 2-cycle response tag and
     // the accelerator response aligned.
     // -------------------------------------------------------------------------
-    localparam [19:0] ACCEL_MTX_PAGE = 20'hA0001;
-    localparam [19:0] ACCEL_ST_PAGE  = 20'hA0002;
+    localparam [19:0] ACCEL_MTX_PAGE  = 20'hA0001;
+    localparam [19:0] ACCEL_ST_PAGE   = 20'hA0002;
+    localparam [19:0] ACCEL_LIST_PAGE = 20'hA0003;
 
     wire accel_hit = (perip_addr[31:12] == ACCEL_MTX_PAGE) ||
-                     (perip_addr[31:12] == ACCEL_ST_PAGE);
+                     (perip_addr[31:12] == ACCEL_ST_PAGE) ||
+                     (perip_addr[31:12] == ACCEL_LIST_PAGE);
     wire [3:0] accel_wstrb = store_byte_enable(perip_addr[17:0], perip_mask);
     wire accel_req_valid = perip_valid && perip_ready && accel_hit;
     wire [31:0] accel_rsp_data;

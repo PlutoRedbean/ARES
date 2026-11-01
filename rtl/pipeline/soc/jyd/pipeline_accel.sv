@@ -5,6 +5,7 @@
 // datapaths:
 //   * mtx9_engine   at 0xA000_1000 (9-PE INT16 matrix engine)
 //   * state9_engine at 0xA000_2000 (token scanner)
+//   * list9_engine  at 0xA000_3000 (core_bench_list find/reverse/MTF loop)
 //
 // The wrapper only performs a simple 4 KiB page decode and one response
 // register stage.  The engines are independently pipelined/multi-cycle, so
@@ -31,19 +32,25 @@ module pipeline_accel (
 
     localparam [19:0] MTX_PAGE = 20'hA0001;
     localparam [19:0] ST_PAGE  = 20'hA0002;
+    localparam [19:0] LS_PAGE  = 20'hA0003;
 
     wire mtx_sel = (req_addr[31:12] == MTX_PAGE);
     wire st_sel  = (req_addr[31:12] == ST_PAGE);
+    wire ls_sel  = (req_addr[31:12] == LS_PAGE);
 
     wire        mtx_req_valid = req_valid && mtx_sel;
     wire        st_req_valid  = req_valid && st_sel;
+    wire        ls_req_valid  = req_valid && ls_sel;
 
     wire        mtx_req_ready;
     wire        st_req_ready;
+    wire        ls_req_ready;
     wire        mtx_rsp_valid;
     wire        st_rsp_valid;
+    wire        ls_rsp_valid;
     wire [31:0] mtx_rsp_data;
     wire [31:0] st_rsp_data;
+    wire [31:0] ls_rsp_data;
 
     mtx9_engine u_mtx9_engine (
         .clk            (clk),
@@ -71,9 +78,22 @@ module pipeline_accel (
         .host_rsp_data  (st_rsp_data)
     );
 
-    // Both engines accept every request, so the unused ready outputs are
+    list9_engine u_list9_engine (
+        .clk            (clk),
+        .rst            (rst),
+        .host_req_valid (ls_req_valid),
+        .host_req_ready (ls_req_ready),
+        .host_write     (req_write),
+        .host_addr      (req_addr),
+        .host_wdata     (req_wdata),
+        .host_wstrb     (req_wstrb),
+        .host_rsp_valid (ls_rsp_valid),
+        .host_rsp_data  (ls_rsp_data)
+    );
+
+    // All engines accept every request, so the unused ready outputs are
     // intentionally left as wires for lint/elaboration visibility.
-    wire unused_req_ready = mtx_req_ready & st_req_ready;
+    wire unused_req_ready = mtx_req_ready & st_req_ready & ls_req_ready;
 
     // One extra register stage: engine response (T+1) -> bridge response (T+2).
     reg        rsp_valid_q;
@@ -85,8 +105,9 @@ module pipeline_accel (
         if (rst)
             rsp_valid_q <= 1'b0;
         else
-            rsp_valid_q <= mtx_rsp_valid | st_rsp_valid;
-        rsp_data_q <= mtx_rsp_valid ? mtx_rsp_data : st_rsp_data;
+            rsp_valid_q <= mtx_rsp_valid | st_rsp_valid | ls_rsp_valid;
+        rsp_data_q <= mtx_rsp_valid ? mtx_rsp_data :
+                      st_rsp_valid  ? st_rsp_data  : ls_rsp_data;
     end
 
     assign rsp_valid = rsp_valid_q;
