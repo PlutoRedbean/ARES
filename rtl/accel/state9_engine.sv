@@ -91,7 +91,6 @@ module state9_engine (
     logic [11:0] corr_p;
     logic [6:0]  crc_idx;
 
-    integer rst_i;
     integer start_i;
     integer track_i;
 
@@ -399,10 +398,11 @@ module state9_engine (
             scan_done    <= 1'b0;
             corr_p       <= 12'h0;
             crc_idx      <= 7'h0;
-            for (rst_i = 0; rst_i < 8; rst_i = rst_i + 1) begin
-                final_q[rst_i] <= 32'h0;
-                track_q[rst_i] <= 32'h0;
-            end
+            // final_q/track_q are deliberately not reset: start_pulse clears
+            // them below before the scan that produces them, and they are only
+            // read back by the CRC pass afterwards.  Keeping 512 reset loads
+            // out of this block matters -- it is the densest congestion source
+            // in the PnR report, and the reset net is the second-largest net.
         end else begin
             unique case (state_q)
                 ST_IDLE: begin

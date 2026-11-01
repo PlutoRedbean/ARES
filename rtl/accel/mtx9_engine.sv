@@ -334,9 +334,10 @@ module mtx9_engine (
             end
 
             always_ff @(posedge clk) begin
-                if (rst)
-                    pe_acc[gj] <= 32'sd0;
-                else if (state_q == ST_IDLE)
+                // No reset: ST_IDLE clears every accumulator each cycle, so the
+                // 9x32 reset loads would be pure duplication on the reset net
+                // (the design's second-largest net after the clock).
+                if (state_q == ST_IDLE)
                     pe_acc[gj] <= 32'sd0;
                 else if (state_q == ST_MATMUL || state_q == ST_BITEXT)
                     pe_acc[gj] <= pe_acc[gj] + pe_add[gj];
