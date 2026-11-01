@@ -14,8 +14,11 @@
 //   0x20..0x2C    CRCLIST/CRCMATRIX/CRCSTATE/CRCFINAL
 //   0x30          ERR
 //
-// Reads are combinational (the bridge samples them in the request-accept
-// cycle); writes are captured on req_valid && req_write with byte strobes.
+// Reads are registered: the slot index is captured on the request clock, the
+// flat 64:1 mux is split into 16:1 bank partials registered one cycle later
+// plus a final 4:1, and perip_bridge takes rsp_data (RESP_SHARED) in the
+// second response cycle.  Writes are captured on req_valid && req_write with
+// byte strobes in the accept cycle.
 // The port is uncached in the SoC (it bypasses the L1 D$) and every access is
 // a single commit-head MMIO operation, so no atomics or coherence are needed.
 // Four slots are decoded regardless of CORES so the address index is always
@@ -55,12 +58,42 @@ module pipeline_coremark_mbox #(
 
     assign init_done = ~init_busy;
 
+    // Read pipeline.  The flat 64:1 read mux was the design-wide setup
+    // critical path (16~17 levels, 67~72% route), so it is split into two
+    // registered stages that both stay inside this module:
+    //
+    //   cycle T     CPU request accepted, address stable
+    //   edge T+1    rd_idx_q  <= req_addr[7:2]
+    //   cycle T+1   16:1 mux per bank, selected by rd_idx_q[3:0]
+    //   edge T+2    rd_bank_q <= the four partial words
+    //               rd_sel_q  <= rd_idx_q[5:4]
+    //   cycle T+2   4:1 mux -> rsp_data, taken by the bridge at r2
+    //
+    // The MMIO read latency is still two cycles; only the amount of mux that
+    // has to settle inside one cycle changed.  All registers here are pure
+    // payload (written on every clock) and stay off the reset net.
+    localparam integer BANK_COUNT = 4;
+    localparam integer BANK_SEL_W = 2;
+    localparam integer BANK_WORDS = WORDS / BANK_COUNT;
+    localparam integer WORD_SEL_W = WORD_IDX_W - BANK_SEL_W;
+
+    reg [WORD_IDX_W-1:0] rd_idx_q  [0:CORES-1];
+    reg [BANK_SEL_W-1:0] rd_sel_q  [0:CORES-1];
+    reg [31:0]           rd_bank_q [0:CORES*BANK_COUNT-1];
+
     genvar g;
     generate
         for (g = 0; g < CORES; g = g + 1) begin : g_read
-            assign rsp_data[g] = (req_addr[g][31:8] == MBOX_ADDR_TAG)
-                                 ? slot[req_addr[g][7:2]]
-                                 : 32'd0;
+            integer b;
+            always @(posedge clk) begin
+                rd_idx_q[g] <= req_addr[g][7:2];
+                rd_sel_q[g] <= rd_idx_q[g][WORD_IDX_W-1:WORD_SEL_W];
+                for (b = 0; b < BANK_COUNT; b = b + 1) begin
+                    rd_bank_q[g*BANK_COUNT + b] <=
+                        slot[b*BANK_WORDS + rd_idx_q[g][WORD_SEL_W-1:0]];
+                end
+            end
+            assign rsp_data[g] = rd_bank_q[g*BANK_COUNT + rd_sel_q[g]];
         end
     endgenerate
 

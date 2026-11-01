@@ -55,9 +55,9 @@ module perip_bridge #(
 
     // Shared uncached MMIO window (multi-hart CoreMark mailbox).  Requests in
     // [0xA000_F000, 0xA000_F0FF] leave the hart through this port; the mailbox
-    // drives shared_rdata combinationally in the request-accept cycle and
-    // captures the write on shared_req_valid.  The existing 2-cycle MMIO
-    // response pipeline carries the read data back to the core.
+    // captures writes on shared_req_valid and registers its read data one
+    // cycle after the address, so a shared read is tagged RESP_SHARED and
+    // sampled from shared_rdata in the second (r2) response cycle.
     input  wire [31:0]  shared_rdata,
     output wire         shared_req_valid,
     output wire         shared_req_write,
@@ -101,6 +101,7 @@ module perip_bridge #(
     localparam [2:0] RESP_DRAM  = 3'd2;
     localparam [2:0] RESP_CNT   = 3'd3;
     localparam [2:0] RESP_ACCEL = 3'd4;
+    localparam [2:0] RESP_SHARED = 3'd5;
 
     localparam integer STORE_QUEUE_DEPTH = `CONFIG_STORE_BUFFER_DEPTH;
     localparam integer STORE_QUEUE_PTR_WIDTH =
@@ -320,9 +321,10 @@ module perip_bridge #(
     assign mmio_write_accept = perip_valid && perip_ready && perip_wen &&
                                (~dram_write_hit);
 
-    // Shared mailbox write port.  Reads need no request: the mailbox decodes
-    // the address combinationally and the bridge samples shared_rdata in the
-    // request-accept cycle just like the other MMIO sources.
+    // Shared mailbox write port.  Reads need no request: the mailbox captures
+    // the slot index in the accept cycle and registers the mux output one
+    // cycle later, so the read data is taken from shared_rdata in the r2
+    // response cycle instead of in the accept cycle.
     assign shared_req_valid = mmio_write_accept && shared_hit;
     assign shared_req_write = perip_wen;
     assign shared_req_addr  = perip_addr;
@@ -679,8 +681,9 @@ module perip_bridge #(
             end else if (accel_hit) begin
                 response_tag_next = RESP_ACCEL;
             end else if (shared_hit) begin
-                response_tag_next = RESP_MMIO;
-                mmio_rdata_next   = shared_rdata;
+                // The mailbox registers the read data one cycle after the
+                // address; it is selected from shared_rdata at r2 below.
+                response_tag_next = RESP_SHARED;
             end else if (perip_addr == BENCH_CYCLE_LO) begin
                 response_tag_next = RESP_CNT;
                 cycle_sel_next    = 1'b1;
@@ -897,13 +900,14 @@ module perip_bridge #(
 
     always @(*) begin
         case (response_tag_r2)
-            RESP_MMIO: perip_rdata = mmio_rdata_r;
-            RESP_DRAM: perip_rdata = dram_rdata_forwarded;
-            RESP_CNT:  perip_rdata = cycle_sel_r2
+            RESP_MMIO:   perip_rdata = mmio_rdata_r;
+            RESP_DRAM:   perip_rdata = dram_rdata_forwarded;
+            RESP_CNT:    perip_rdata = cycle_sel_r2
                 ? (cycle_hi_r2 ? cycle_count[63:32] : cycle_count[31:0])
                 : cnt_rdata_r2;
-            RESP_ACCEL: perip_rdata = accel_rsp_data;
-            default:   perip_rdata = 32'd0;
+            RESP_ACCEL:  perip_rdata = accel_rsp_data;
+            RESP_SHARED: perip_rdata = shared_rdata;
+            default:     perip_rdata = 32'd0;
         endcase
     end
 endmodule

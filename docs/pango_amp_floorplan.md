@@ -203,7 +203,36 @@ constraint -design_instance {u_soc/g_hart[1].u_core} -region hart1
   （state9/mtx9 的重复清理、mbox 改 64 拍 INIT 扫描、D$/I$ 的有效位与负载寄存器），
   CoreMark timed ticks 逐拍不变、ISA 36/36。下一次 PDS 报告重点看 `.rtr` 里 `cpu_rst`
   的 fanout（基线 17,585）与 Recovery/Removal。
-- 仍待处理：`u_mbox`（4,405 LUT / 2,048 FF）与 Stage A/B 的区域约束。
+- 仍待处理：`u_mbox` 的写入阵列（2,048 FF）与 Stage A/B 的区域约束。
+
+## 7.2 进展（mbox 读口打拍）
+
+`top200_timing.rtr`（4-hart、70 MHz、WNS +0.618、13.6677 ns）里 **200/200 条最差
+setup 路径全部落在 `u_soc/u_mbox`**：16~17 级逻辑、Route 占 67%~72%、单根
+fanout-64 线 2.4~2.5 ns。路径是 CPU `ls2_addr[26]` → `perip_bridge` 译码 →
+mbox 的 `(addr[31:8]==TAG) ? slot[addr[7:2]] : 0` 组合读。
+
+已改为读流水：
+
+- `pipeline_coremark_mbox`：读口拆成两拍——`rd_idx_q <= req_addr[7:2]`，
+  下一拍把 64:1 拆成 4 个 bank 的 16:1 结果打进 `rd_bank_q`、bank 选择打进
+  `rd_sel_q`，最后 4:1 组合出 `rsp_data`。窗口比较（`addr[31:8]==TAG`）彻底
+  移出读数据路径（桥在请求拍已经译码过地址）。
+- `perip_bridge`：新增 `RESP_SHARED` 标签，在 r2 拍从 `shared_rdata` 取数；
+  MMIO 读延迟仍是 2 拍，其它源（DRAM/CNT/ACCEL/MMIO）不受影响。
+
+读路径从"16~17 级 / 13.6677 ns"变成两段：`rd_idx_q` → 16:1（约 3 级）→
+`rd_bank_q`，以及 `rd_bank_q/rd_sel_q` → 4:1 → 响应 mux。代价是每 hart
+4×32=128 个额外 FF（4-hart 共 512 个，FF 利用率 11% 量级，可忽略）。
+
+验证：4-hart 与 2-hart 全加速 CoreMark MULTITHREAD 全部 `CoreMark PASS`
+（`crclist/crcmatrix/crcstate` 全对），2-hart 逐拍数与改动前完全一致
+（12,693,533 cycles）；4-hart 6,458,332 cycles 与改动前一致；board-level
+`pipeline-amp-board-sim` PASS；ISA 36/36。
+
+下一次 PDS 报告要确认：mbox 最差路径还剩多少、100 MHz 下是否还有别的模块进入
+top200。如果 4:1 那一段仍显眼，可以把它也寄存（读延迟 3 拍）；如果 16:1 的
+select 扇出成为新瓶颈，就把 `slot` 换成同步读 RAM。
 
 ## 8. 还缺的一个输入
 
