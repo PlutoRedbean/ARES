@@ -71,6 +71,11 @@ module pipeline_amp_top #(
     wire [CORES-1:0][`CONFIG_IROM_ADDR_WIDTH:0] bank_addr_direct;
     wire [CORES-1:0][31:0]                      bank_data_direct;
 
+    // Boot flag from the shared mailbox: it clears its 64-word window one word
+    // per cycle through its own write port (no reset on the 2,048-bit array).
+    // Every hart is held in reset until that walk completes.
+    wire                    mbox_init_done;
+
     // Per-hart UART/LED wires.  Hart 0's UART drives the board pin.
     wire [CORES-1:0][7:0]   hart_uart_tx_data;
     wire [CORES-1:0]        hart_uart_tx_start;
@@ -144,7 +149,7 @@ module pipeline_amp_top #(
             ) u_core (
                 .w_cpu_clk     (clk),
                 .w_clk_50Mhz   (clk),
-                .w_clk_rst     (rst | ~core_en[g]),
+                .w_clk_rst     (rst | ~core_en[g] | ~mbox_init_done),
                 .virtual_key   ({8{1'b0}}),
                 .virtual_sw    ({64{1'b0}}),
                 .uart_rx_data  (8'd0),
@@ -224,7 +229,8 @@ module pipeline_amp_top #(
         .req_addr  (mbox_req_addr),
         .req_wdata (mbox_req_wdata),
         .req_wstrb (mbox_req_wstrb),
-        .rsp_data  (mbox_rsp_data)
+        .rsp_data  (mbox_rsp_data),
+        .init_done (mbox_init_done)
     );
 
     // ------------------------------------------------------------------

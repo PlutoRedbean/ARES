@@ -33,13 +33,27 @@ module pipeline_coremark_mbox #(
     input  wire [CORES-1:0][31:0] req_wdata,
     input  wire [CORES-1:0][ 3:0] req_wstrb,
 
-    output wire [CORES-1:0][31:0] rsp_data
+    output wire [CORES-1:0][31:0] rsp_data,
+    // Goes high once the boot-time clear has walked the whole window.  The AMP
+    // top holds every hart in reset until then, so no hart can observe (or
+    // race) a partially cleared mailbox.
+    output wire                   init_done
 );
     localparam [23:0]  MBOX_ADDR_TAG = 24'hA000F0;  /* addr[31:8] */
     localparam integer SLOT_WORDS    = 16;
     localparam integer WORDS         = 4 * SLOT_WORDS;
+    localparam integer WORD_IDX_W    = $clog2(WORDS);
+    localparam integer INIT_W        = WORD_IDX_W + 1;
 
     reg [31:0] slot [0:WORDS-1];
+    reg [INIT_W-1:0] init_cnt;
+
+    // One word per cycle, through the array's own write port: the 2,048-bit
+    // slot array never touches the global reset net.  init_cnt[WORD_IDX_W] is
+    // the done flag, so a reset drops the mailbox straight back into INIT.
+    wire init_busy = ~init_cnt[WORD_IDX_W];
+
+    assign init_done = ~init_busy;
 
     genvar g;
     generate
@@ -51,12 +65,12 @@ module pipeline_coremark_mbox #(
     endgenerate
 
     integer h;
-    integer w;
     always @(posedge clk) begin
         if (rst) begin
-            for (w = 0; w < WORDS; w = w + 1) begin
-                slot[w] <= 32'd0;
-            end
+            init_cnt <= {INIT_W{1'b0}};
+        end else if (init_busy) begin
+            slot[init_cnt[WORD_IDX_W-1:0]] <= 32'd0;
+            init_cnt <= init_cnt + 1'b1;
         end else begin
             for (h = 0; h < CORES; h = h + 1) begin
                 if (req_valid[h] && req_write[h] &&
