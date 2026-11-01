@@ -69,9 +69,12 @@ dev_map → pnr -seed 2 → report_timing → gen_bit_stream`），约束
 `pipeline_board.fdc`（时钟/IO）+ `.pcf`（物理约束），下载用
 `fpga/pango/program.tcl`。
 
-> 2-hart AMP 的板级顶层 `pipeline_amp_board_top.v` 与其 PDS 流程目前维护在
-> PDS 工程里，尚未同步进本仓库；`make pipeline-amp-pango-lint` /
-> `pipeline-amp-board-sim` 会先检查该文件是否存在。
+> 2-hart AMP 的板级顶层 `rtl/pipeline/board/pipeline_amp_board_top.v` 和板级
+> 仿真 TB 已在本仓库（`make pipeline-amp-pango-lint` /
+> `pipeline-amp-board-sim`），源文件表是 `rtl/pipeline/pipeline_amp_pango.f`；
+> PDS 工程侧的 `flow_pipeline_amp.tcl` 仍维护在 PDS 工程里。
+> `pipeline-amp-board-sim` 装载的就是 PDS `$readmemh` 用的
+> `build/pipeline/*.hex`，不上板也能确认板级镜像。
 
 最近一次 PnR（PG2L200H-6，100 MHz）：CLMA 34%、FF 11%、DRAM36K 38%、APM 3%，
 WNS **−1.527 ns**、TNS −3,167 ns，瓶颈在 `u_mtx9_engine` 的阵列读/写通路；

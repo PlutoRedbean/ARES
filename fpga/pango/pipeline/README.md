@@ -157,28 +157,36 @@ CoreMark，**hart0 的 UART 已经接到板级 `uart_tx`（C24）**；hart1 的�
 make pipeline-amp-board-sim
 ```
 
-实测输出：
+实测输出（hart0 的独立报告；hart1 的串口只进仿真）：
 
 ```text
-Iterations      : 200
-CoreMark/MHz    : 16.150655
-Parallel ares-mt-mbox : 2
+[amp-board] image: irom 5582/8192, dram 2952/65536 nonzero words
+[amp-board] reset held for 200 us
+Running CoreMark for 100 iterations
+Iterations      : 100
+CoreMark/MHz    : 7.940888
 [0]crclist      : 0xe714
-[1]crclist      : 0xe714
 ...
 CoreMark PASS
-[amp-board] CoreMark PASS seen: 563 chars, led=01
-[amp-board] uart_done=1 led=01 time=178183754 ns PASS
+[amp-board] CoreMark PASS seen: 431 chars, led=01
+[amp-board] uart_done=1 led=01 time=168621774 ns PASS
 ```
 
-`pipeline-amp-board-sim` 默认用 2 核 MT 镜像
-（`build/coremark_full_mt2/coremark.bin`），并加 `-DARES_SIM_REAL_UART`，
-让 `perip_bridge` 走真实 UART 握手；普通
+**仿真的镜像就是上板的镜像**：仿真装载的 `build/pipeline/irom.hex` /
+`dram.hex` 正是 PDS 里 `IROM_BMEM32` / `BRAM` 的 `$readmemh` 初始化的那两个
+文件，`make pipeline-amp-board-sim` 依赖 `pipeline-amp-image` 重新生成，所以
+不存在"仿真跑的是一个镜像、烧进板子的是另一个"的可能。`dram.hex` 里已经
+包含每 hart 一份的 32 KiB 复制（`--replicate-dram-words 8192`），所以仿真侧
+不再自己做复制；装载字数会打印在 `[amp-board] image:` 那一行，与
+`build/pipeline/image.json` 的 `nonzero_words` 对应。
+
+另有 `-DARES_SIM_REAL_UART`，让 `perip_bridge` 走真实 UART 握手；普通
 `make pipeline-coremark-full-mt` 仍然走原来的 `$write` 路径。
 
 ```bash
 # 生成 coremark_full_mc ELF，并把 32 KiB 数据区按 0x8000 复制到每个 hart
-# 的私有 DRAM 窗口（0x0000/0x8000/0x10000/0x18000）
+# 的私有 DRAM 窗口（0x0000/0x8000/0x10000/0x18000）。
+# pipeline-amp-board-sim 会自己先跑这一步，手工执行只为在烧板前查镜像。
 make pipeline-amp-image
 make pipeline-amp-pango-lint
 
@@ -207,10 +215,91 @@ generate_bitstream\pipeline_amp_board_top.sbit
 - `dram.hex` 必须是 **每个 hart 一份 32 KiB 复制**。`pipeline_image.py
   --replicate-dram-words 8192` 就是做这个；不要直接用单核 `pipeline-image`
   生成的 `dram.hex`，否则 hart1 的私有窗口是空的。
-- 板级只引 hart0 UART。用 AMP 镜像（`build/coremark_full_mc`）时，hart0 打印
-  自己的独立报告；用 MT 镜像（`build/coremark_full_mt2`）时，hart0 打印两核
-  聚合报告。hart1 的串口只用于仿真，要看它需要在 board top 里再加 UART/引脚。
+- 板级只引 hart0 UART，所以 `CoreMark/MHz` 是 hart0 自己的单核分数（约
+  7.94）；两核聚合的 15.8 来自 MT 镜像（`build/coremark_full_mt2`）在
+  `make pipeline-coremark-full-mt` / `pipeline-coremark-mt` 里的报告，不要拿
+  两个数字直接比。hart1 的串口只用于仿真，要看它需要在 board top 里再加
+  UART/引脚。
+- 想上板看 MT 聚合报告，见 4.2。
 - 板级仿真已经验证 TX 链路（C24、115200 8N1、`CoreMark PASS`）；RX 仍未接。
+
+## 4.2 用 MT 聚合镜像上板（mt2）
+
+默认镜像槽 `build/pipeline/` 放的是 AMP 镜像（每个 hart 一份独立报告）。
+要让板上打印 `MULTITHREAD=2` 的聚合报告，把这个槽换成 MT 镜像即可，**PDS
+流程不用改**——`pipeline_bram.v` / `irom_bmem32.sv` 读的就是这两个文件：
+
+```bash
+# 2 核聚合镜像，每 context 5000 iterations（共 10000）-> build/pipeline/
+make pipeline-amp-image-mt CORES=2
+
+# 烧板前确认槽里放的是哪份镜像
+cat build/pipeline/image.json   # elf 指向 build/coremark_full_mt2/...
+```
+
+仿真侧用同一个 profile 名就能提前验证同一份布局（为了跑得快，仿真版用
+`PIPELINE_MT_SIM_TOTAL`=200 iterations，纯软件差异，布局/复制策略完全一样）：
+
+```bash
+make pipeline-amp-board-sim PIPELINE_BOARD_PROFILE=mt
+# [amp-board] image: irom 5984/8192, dram 3016/65536 nonzero words
+# Iterations      : 200
+# CoreMark/MHz    : 15.863735
+# Parallel ares-mt-mbox : 2
+# [amp-board] uart_done=1 led=01 time=180427434 ns PASS
+```
+
+两个 profile 的差别只在这三点：
+
+| | amp（默认） | mt |
+|---|---|---|
+| 镜像 ELF | `build/coremark_full_mc`（ITERATIONS=100、MULTITHREAD=1） | `build/coremark_full_mt2`（MULTITHREAD=2） |
+| hart0 串口输出 | 自己的独立报告，约 7.94 CoreMark/MHz | 两核聚合报告，约 15.86 CoreMark/MHz |
+| IROM 占用 | 5582/8192 words | 5984/8192 words |
+
+⚠️ `build/pipeline/` 是**唯一的板级镜像槽**：仿真也会重写它。跑完 `mt` 仿真
+后、生成位流之前要重新执行 `make pipeline-amp-image-mt` 把 10000 iterations
+的镜像写回槽里（回到 AMP 就执行 `make pipeline-amp-image`）。
+`make pipeline-amp-board-sim PIPELINE_BOARD_PROFILE=mt` 用的是 200 iterations
+的镜像，**只用于仿真**。
+
+mt4 还上不了板：`pipeline_amp_board_top` 里 `CORES` 固定为 2、只引出 hart0
+的 UART，所以 `make pipeline-amp-image-mt CORES=4` 会直接报错。要做 4 核得先
+加一个 `CORES=4` 的板级顶层，并重新过时序/布局（当前 2 核在 100 MHz 下 WNS
+已是 −1.527 ns，见 [docs/pango_amp_floorplan.md](../../../docs/pango_amp_floorplan.md)）。
+
+## 4.3 镜像一致性与可复现校验
+
+`build/pipeline/` 里的 `irom.hex` / `dram.hex` 是唯一来源，三个消费方都
+只认这两个文件：
+
+| 消费方 | 怎么读 |
+| --- | --- |
+| 板级仿真 | `pipeline_amp_board_sim <irom.hex> <dram.hex>`，原样装进 DPI 存储模型 |
+| PDS 综合 | `irom_bmem32.sv` / `pipeline_bram.v` 的 `$readmemh` 默认值 |
+| 构建清单 | `build/pipeline/image.json` 记录 `elf_sha256` 与两个 hex 的 sha256 |
+
+构建是确定性的：同一 ELF 重复构建，ELF 与两个 hex 的 SHA-256 都不变
+（ELF 里没有 debug 段，只有 `.comment`，所以 hex 不受构建路径影响）。
+
+```bash
+make pipeline-amp-image        # 或 make pipeline-amp-image-mt CORES=2
+sha256sum build/pipeline/irom.hex build/pipeline/dram.hex
+python3 -c "import json; d=json.load(open('build/pipeline/image.json')); \
+print(d['irom']['sha256'], d['dram']['sha256'])"
+```
+
+拆分规则的独立校验（拿 objcopy 的稠密镜像对照，不依赖拆分脚本自证）：
+
+| 输出 | 期望内容 |
+| --- | --- |
+| IROM（32 KiB） | `coremark.bin[0x000000:0x008000]` |
+| DRAM（256 KiB） | `coremark.bin[0x100000:]` 零填充到 32 KiB，再重复 8 份 |
+| `0x008000..0x0fffff` | 全零（非零字节会被脚本拒绝） |
+
+仿真和上板剩下的差别都是"仿真替代不了"的部分：`pipeline_pll_sim` 给的是
+理想 PLL/时钟树，CDC/复位是行为级模型，IO 电气和真实时序（当前 WNS
+−1.527 ns）不在仿真里；存储器容量、初始化内容和 2 拍读延迟两侧一致。
 
 ## 5. 首次 PDS 构建要重点确认
 
