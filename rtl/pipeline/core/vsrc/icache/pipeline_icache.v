@@ -198,11 +198,10 @@ module pipeline_icache #(
 
     wire fill_we = (state == S_FILL);
 
+    // Read data is committed only in S_LOOK/S_RESP through rsp_valid_r, and it
+    // is re-read on the cycle the request is accepted, so it carries no reset.
     always @(posedge clk) begin
-        if (rst)
-            data_r <= {LINE_BITS{1'b0}};
-        else
-            data_r <= data_mem[rd_index];
+        data_r <= data_mem[rd_index];
     end
 
     always @(posedge clk) begin
@@ -255,30 +254,29 @@ module pipeline_icache #(
     // Main sequential FSM
     //-------------------------------------------------------------------------
     integer age_i;
-    integer rst_i;
 
+    // Only the control state is reset.  Everything else here is either state-
+    // qualified payload (req_*/miss_*/beat_*/rsp_data_r) or array content:
+    //
+    //   * valid_mem is deliberately not reset.  Code memory is a read-only
+    //     IROM, so a line left valid across a reset still returns the correct
+    //     word for its tag; the only cost is a missing cold miss.
+    //   * age_mem must keep its reset: the replacement policy relies on every
+    //     set holding a permutation of 0..NR_WAYS-1.  Without it all ages power
+    //     up equal and the victim selection degenerates to way 0 forever.
+    //   * The 64-bit hit/miss/refill/request counters are simulation-only
+    //     (their ports are left open in student_top), so a reset here costs
+    //     nothing after pruning -- keep it for deterministic $display output.
     always @(posedge clk) begin
         if (rst) begin
             state          <= S_IDLE;
             rsp_valid_r    <= 1'b0;
-            rsp_data_r     <= {DATA_WIDTH{1'b0}};
-            req_pc_r       <= {ADDR_WIDTH{1'b0}};
-            req_tag_r      <= {TAG_WIDTH{1'b0}};
-            req_index_r    <= {INDEX_WIDTH{1'b0}};
-            req_word_off_r <= {WORD_OFF_W{1'b0}};
-            miss_line_base <= {ADDR_WIDTH{1'b0}};
-            miss_tag       <= {TAG_WIDTH{1'b0}};
-            miss_index     <= {INDEX_WIDTH{1'b0}};
-            miss_way       <= {WAY_IDX_W{1'b0}};
-            beat_issue     <= {BEAT_CNT_W{1'b0}};
-            beat_rsp       <= {BEAT_CNT_W{1'b0}};
-            valid_mem      <= {NR_SETS*NR_WAYS{1'b0}};
             hit_count_r    <= 64'd0;
             miss_count_r   <= 64'd0;
             refill_count_r <= 64'd0;
             request_count_r<= 64'd0;
-            for (rst_i = 0; rst_i < NR_SETS*NR_WAYS; rst_i = rst_i + 1)
-                age_mem[rst_i] <= rst_i[AGE_W-1:0];
+            for (age_i = 0; age_i < NR_SETS*NR_WAYS; age_i = age_i + 1)
+                age_mem[age_i] <= age_i[AGE_W-1:0];
         end else if (flush) begin
             // Drop any in-flight request/response; keep cached lines.
             state       <= S_IDLE;

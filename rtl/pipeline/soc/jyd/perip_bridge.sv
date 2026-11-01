@@ -284,7 +284,10 @@ module perip_bridge #(
     assign store_empty = store_count_q == 0;
     assign store_full = store_count_q == STORE_QUEUE_DEPTH;
     assign dram_load_request = perip_valid && !perip_wen && dram_read_hit;
-    assign store_dequeue = (~rst) && (~store_empty);
+    // No reset term: during reset the core cannot present perip_valid and the
+    // queue count is 0, so the gate was redundant -- and it put the global
+    // reset net inside this combinational cone.
+    assign store_dequeue = ~store_empty;
 
     always @(*) begin
         perip_ready = 1'b1;
@@ -570,25 +573,22 @@ module perip_bridge #(
     // their original direct, two-cycle path. A staged write is consumed while
     // the next store is captured, preserving one store per cycle throughput.
     always @(posedge clk) begin
-        if (rst) begin
+        if (rst)
             bram_write_valid_q <= 1'b0;
-            bram_cmd_addr_q  <= 18'd0;
-            bram_cmd_wdata_q <= 32'd0;
-            bram_cmd_wea_q   <= 4'd0;
-        end else begin
+        else
             bram_write_valid_q <= store_dequeue;
 
-            if (store_dequeue) begin
-                bram_cmd_addr_q  <= store_addr_q[store_head_q];
-                bram_cmd_wdata_q <= store_word_data(
-                    store_wdata_q[store_head_q],
-                    store_mask_q[store_head_q]);
-                bram_cmd_wea_q <= store_byte_enable(
-                    store_addr_q[store_head_q],
-                    store_mask_q[store_head_q]);
-            end else begin
-                bram_cmd_wea_q <= 4'd0;
-            end
+        // Command payload: qualified by bram_write_valid_q, no reset needed.
+        if (store_dequeue) begin
+            bram_cmd_addr_q  <= store_addr_q[store_head_q];
+            bram_cmd_wdata_q <= store_word_data(
+                store_wdata_q[store_head_q],
+                store_mask_q[store_head_q]);
+            bram_cmd_wea_q <= store_byte_enable(
+                store_addr_q[store_head_q],
+                store_mask_q[store_head_q]);
+        end else begin
+            bram_cmd_wea_q <= 4'd0;
         end
     end
 
@@ -738,13 +738,10 @@ module perip_bridge #(
         end
     end
 
-    // First response-data pipeline stage for MMIO reads.
+    // First response-data pipeline stage for MMIO reads.  Pure payload: it is
+    // only selected while response_tag_r/r2 == RESP_MMIO.
     always @(posedge clk) begin
-        if (rst) begin
-            mmio_rdata <= 32'd0;
-        end else begin
-            mmio_rdata <= mmio_rdata_next;
-        end
+        mmio_rdata <= mmio_rdata_next;
     end
 
     // -------------------------------------------------------------------------
@@ -752,7 +749,9 @@ module perip_bridge #(
     // A send event is generated only for LED/SEG writes. Data uses *_next so
     // the transferred snapshot contains the new value written in this cycle.
     // -------------------------------------------------------------------------
-    assign ledseg_src_valid = (~rst) && mmio_write_accept &&
+    // mmio_write_accept is already 0 while reset is asserted, so the extra
+    // reset term only widened the reset net's logic fanout.
+    assign ledseg_src_valid = mmio_write_accept &&
                               ((perip_addr == LED_ADDR) || (perip_addr == SEG_ADDR));
     assign ledseg_src_data  = {seg_wdata_next, LED_next};
 
@@ -830,10 +829,11 @@ module perip_bridge #(
         .perip_rdata (dram_rdata)
     );
 
-    // Free-running 64-bit CPU cycle counter for the CoreMark window.
+    // Free-running 64-bit CPU cycle counter for the CoreMark window.  Software
+    // only consumes deltas, so the counter keeps running across a reset instead
+    // of spending 64 reset loads on an arbitrary starting point.
     always @(posedge clk) begin
-        if (rst) cycle_count <= 64'd0;
-        else     cycle_count <= cycle_count + 64'd1;
+        cycle_count <= cycle_count + 64'd1;
     end
 
     // Counter performs its own CDC internally.
@@ -846,37 +846,32 @@ module perip_bridge #(
         .timer_irq      (timer_irq)
     );
 
+    // Only the two validity carriers (response tag, forwarding byte mask) are
+    // reset; every other register in this pipeline is payload that is written
+    // whenever its qualifier is live, so it stays off the reset net.
     always @(posedge clk) begin
         if (rst) begin
             response_tag_r  <= RESP_NONE;
             response_tag_r2 <= RESP_NONE;
-            cycle_sel_r     <= 1'b0;
-            cycle_sel_r2    <= 1'b0;
-            cycle_hi_r      <= 1'b0;
-            cycle_hi_r2     <= 1'b0;
-            mmio_rdata_r     <= 32'd0;
-            cnt_rdata_r      <= 32'd0;
-            cnt_rdata_r2     <= 32'd0;
             load_forward_mask_r  <= 4'd0;
             load_forward_mask_r2 <= 4'd0;
-            load_forward_data_r  <= 32'd0;
-            load_forward_data_r2 <= 32'd0;
         end else begin
             response_tag_r  <= response_tag_next;
             response_tag_r2 <= response_tag_r;
-            cycle_sel_r     <= cycle_sel_next;
-            cycle_sel_r2    <= cycle_sel_r;
-            cycle_hi_r      <= cycle_hi_next;
-            cycle_hi_r2     <= cycle_hi_r;
-            mmio_rdata_r     <= mmio_rdata;
-            cnt_rdata_r      <= cnt_rdata;
-            cnt_rdata_r2     <= cnt_rdata_r;
             load_forward_mask_r <=
                 dram_load_accept ? load_forward_mask_next : 4'd0;
             load_forward_mask_r2 <= load_forward_mask_r;
-            load_forward_data_r <= load_forward_data_next;
-            load_forward_data_r2 <= load_forward_data_r;
         end
+
+        cycle_sel_r <= cycle_sel_next;
+        cycle_sel_r2 <= cycle_sel_r;
+        cycle_hi_r  <= cycle_hi_next;
+        cycle_hi_r2 <= cycle_hi_r;
+        mmio_rdata_r  <= mmio_rdata;
+        cnt_rdata_r   <= cnt_rdata;
+        cnt_rdata_r2  <= cnt_rdata_r;
+        load_forward_data_r  <= load_forward_data_next;
+        load_forward_data_r2 <= load_forward_data_r;
     end
 
     assign load_forward_bit_mask = {

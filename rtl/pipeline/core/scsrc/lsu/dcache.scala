@@ -83,13 +83,21 @@ class DCache extends Module {
   val refill_read_collision = refill_write && io.lookup_valid &&
                               lookup_index === refill_index
   val refill_read_collision_q = RegNext(refill_read_collision, false.B)
-  val refill_read_same_word_q = RegEnable(
-    tag(io.lookup_addr) === tag(io.refill_addr), false.B,
-    refill_read_collision)
-  // Capture every refill.  The registered collision bit still determines
-  // whether this data is consumed on the following cycle.
-  val refill_read_data_q = RegEnable(
-    io.refill_data, 0.U(MEM_DATA_WIDTH.W), refill_write)
+  // Payload registers: they are only consumed while refill_read_collision_q
+  // (or write_fwd_valid / resp_valid) qualifies them, so they carry no reset.
+  // The reset net is the second-largest net in the PnR report; every endpoint
+  // it drives is paid for on the routing fabric.  refill_read_same_word_q is
+  // written in the same cycle that sets refill_read_collision_q, and
+  // refill_read_data_q is written by every refill, so both are always defined
+  // before they can be selected.
+  val refill_read_same_word_q = Reg(Bool())
+  when(refill_read_collision) {
+    refill_read_same_word_q := tag(io.lookup_addr) === tag(io.refill_addr)
+  }
+  val refill_read_data_q = Reg(UInt(MEM_DATA_WIDTH.W))
+  when(refill_write) {
+    refill_read_data_q := io.refill_data
+  }
 
   val req_tag = tag(io.req_addr)
   val tag_req_hit = tag_ready && tags.io.doutb(TagWidth) &&
@@ -97,12 +105,14 @@ class DCache extends Module {
   val raw_req_hit = Mux(
     refill_read_collision_q, refill_read_same_word_q, tag_req_hit)
 
+  // resp_valid is the only control bit here; the rest is payload that is
+  // rewritten whenever io.req_valid fires, so it needs no reset.
   val resp_valid = RegInit(false.B)
-  val resp_hit = RegInit(false.B)
-  val resp_addr = RegInit(0.U(MEM_ADDR_WIDTH.W))
-  val resp_write = RegInit(false.B)
-  val resp_wdata = RegInit(0.U(MEM_DATA_WIDTH.W))
-  val resp_bytes = RegInit(MEM_NONE)
+  val resp_hit = Reg(Bool())
+  val resp_addr = Reg(UInt(MEM_ADDR_WIDTH.W))
+  val resp_write = Reg(Bool())
+  val resp_wdata = Reg(UInt(MEM_DATA_WIDTH.W))
+  val resp_bytes = Reg(UInt(2.W))
 
   // A cache write and the next synchronous read may target the same word.
   // Forward the complete merged word so the inferred RAM's read-during-write
@@ -110,7 +120,7 @@ class DCache extends Module {
   val write_fwd_valid = RegInit(false.B)
   val write_fwd_addr = Reg(UInt(MEM_ADDR_WIDTH.W))
   val write_fwd_data = Reg(UInt(MEM_DATA_WIDTH.W))
-  val resp_data = RegInit(0.U(MEM_DATA_WIDTH.W))
+  val resp_data = Reg(UInt(MEM_DATA_WIDTH.W))
 
   val byte_mask = MuxLookup(resp_addr(1, 0), "h000000ff".U)(Seq(
     0.U -> "h000000ff".U,
@@ -155,8 +165,8 @@ class DCache extends Module {
   // lookup has already completed.  Preserve that lookup result while Ls1 is
   // held; the BRAM address itself continues to follow Iss unconditionally.
   val held_req_valid = RegInit(false.B)
-  val held_req_hit = RegInit(false.B)
-  val held_req_data = RegInit(0.U(MEM_DATA_WIDTH.W))
+  val held_req_hit = Reg(Bool())
+  val held_req_data = Reg(UInt(MEM_DATA_WIDTH.W))
   val req_hit = Mux(held_req_valid, held_req_hit, raw_req_hit)
   // A store completing when the stall is released is newer than the saved
   // BRAM word and therefore retains forwarding priority.

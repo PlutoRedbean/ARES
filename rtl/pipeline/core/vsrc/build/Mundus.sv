@@ -1863,19 +1863,9 @@ module DCache(
       tag_init_index <= 11'h0;
       tag_ready <= 1'h0;
       refill_read_collision_q <= 1'h0;
-      refill_read_same_word_q <= 1'h0;
-      refill_read_data_q <= 32'h0;
       resp_valid <= 1'h0;
-      resp_hit <= 1'h0;
-      resp_addr <= 32'h0;
-      resp_write <= 1'h0;
-      resp_wdata <= 32'h0;
-      resp_bytes <= 2'h3;
       write_fwd_valid <= 1'h0;
-      resp_data <= 32'h0;
       held_req_valid <= 1'h0;
-      held_req_hit <= 1'h0;
-      held_req_data <= 32'h0;
     end
     else begin
       tag_init_busy <= ~(tag_init_busy & (&tag_init_index)) & tag_init_busy;
@@ -1885,34 +1875,34 @@ module DCache(
         tag_init_index <= tag_init_index + 11'h1;
       tag_ready <= ~tag_init_busy;
       refill_read_collision_q <= refill_read_collision;
-      if (refill_read_collision)
-        refill_read_same_word_q <= io_lookup_addr[17:13] == io_refill_addr[17:13];
-      if (refill_write)
-        refill_read_data_q <= io_refill_data;
       resp_valid <= io_req_valid | ~io_resp_fire & resp_valid;
-      if (io_req_valid) begin
-        resp_hit <= held_req_valid ? held_req_hit : raw_req_hit;
-        resp_addr <= io_req_addr;
-        resp_write <= io_req_write;
-        resp_wdata <= io_req_wdata;
-        resp_bytes <= io_req_bytes;
-        resp_data <=
-          current_store_fwd
-            ? merged_store_data
-            : held_req_valid ? held_req_data : lookup_req_data;
-      end
       write_fwd_valid <= store_write;
       held_req_valid <= ~_GEN_2;
-      if (_GEN_2 | held_req_valid) begin
-      end
-      else begin
-        held_req_hit <= raw_req_hit;
-        held_req_data <= current_store_fwd ? merged_store_data : lookup_req_data;
-      end
+    end
+    if (refill_read_collision)
+      refill_read_same_word_q <= io_lookup_addr[17:13] == io_refill_addr[17:13];
+    if (refill_write)
+      refill_read_data_q <= io_refill_data;
+    if (io_req_valid) begin
+      resp_hit <= held_req_valid ? held_req_hit : raw_req_hit;
+      resp_addr <= io_req_addr;
+      resp_write <= io_req_write;
+      resp_wdata <= io_req_wdata;
+      resp_bytes <= io_req_bytes;
+      resp_data <=
+        current_store_fwd
+          ? merged_store_data
+          : held_req_valid ? held_req_data : lookup_req_data;
     end
     if (store_write) begin
       write_fwd_addr <= resp_addr;
       write_fwd_data <= merged_store_data;
+    end
+    if (_GEN_2 | held_req_valid) begin
+    end
+    else begin
+      held_req_hit <= raw_req_hit;
+      held_req_data <= current_store_fwd ? merged_store_data : lookup_req_data;
     end
   end // always @(posedge)
   DCacheData_BRAM data (

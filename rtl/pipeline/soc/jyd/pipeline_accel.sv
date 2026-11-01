@@ -79,14 +79,14 @@ module pipeline_accel (
     reg        rsp_valid_q;
     reg [31:0] rsp_data_q;
 
+    // Only the valid bit needs a reset; the data register is pure payload and
+    // is rewritten whenever the valid bit is set.
     always @(posedge clk) begin
-        if (rst) begin
+        if (rst)
             rsp_valid_q <= 1'b0;
-            rsp_data_q  <= 32'd0;
-        end else begin
+        else
             rsp_valid_q <= mtx_rsp_valid | st_rsp_valid;
-            rsp_data_q  <= mtx_rsp_valid ? mtx_rsp_data : st_rsp_data;
-        end
+        rsp_data_q <= mtx_rsp_valid ? mtx_rsp_data : st_rsp_data;
     end
 
     assign rsp_valid = rsp_valid_q;

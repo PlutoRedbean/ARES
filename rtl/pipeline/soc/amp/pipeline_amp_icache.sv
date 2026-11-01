@@ -101,14 +101,17 @@ module pipeline_amp_icache #(
     always @(posedge clk) begin
         if (rst) begin
             state         <= S_IDLE;
-            valid_mem     <= {LINES{1'b0}};
             req_r         <= 1'b0;
             pending_valid <= 1'b0;
             fill_cnt      <= {(WORD_BITS+1){1'b0}};
             refill_count  <= 32'd0;
             word_count    <= 32'd0;
             rsp_valid_r   <= 1'b0;
-            rsp_data_r    <= 32'd0;
+            // valid_mem has no reset on purpose.  Code memory is a read-only
+            // IROM, so a valid line left over from before a reset still holds
+            // the correct word for its tag; the only cost is a missing cold
+            // miss.  Dropping it removes LINES reset loads (256 here) from the
+            // design's second-largest net.
         end else if (flush) begin
             // Redirect: drop the in-flight refill and the held response, but
             // keep the lines that already completed.  The arbiter aborts the
@@ -118,12 +121,14 @@ module pipeline_amp_icache #(
             pending_valid <= 1'b0;
             rsp_valid_r   <= 1'b0;
         end else begin
-            if (req_fire) begin
+            // rsp_data_r is payload qualified by rsp_valid_r; no reset.
+            if (req_fire)
                 rsp_valid_r <= 1'b1;
-                rsp_data_r  <= data_mem[{req_line, req_word}];
-            end else if (rsp_valid_r && rsp_ready) begin
+            else if (rsp_valid_r && rsp_ready)
                 rsp_valid_r <= 1'b0;
-            end
+
+            if (req_fire)
+                rsp_data_r <= data_mem[{req_line, req_word}];
 
             case (state)
                 S_IDLE: begin
