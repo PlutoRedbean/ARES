@@ -236,8 +236,13 @@ module mtx9_engine (
     logic [6:0]  c_wr_addr;
     logic signed [31:0] c_wr_data;
 
+    // B column cache, one 16-entry row per output column.  The stride is 16 so
+    // a PE reads bcol[{row, mk}] - a plain bit concatenation with no adder
+    // between the k counter and the RAM address pins.  With the old stride-9
+    // layout every PE needed (row*9 + mk) in front of the read port, which put
+    // two LUT levels and a fanout-45 counter onto the critical path.
     (* syn_ramstyle = "distributed" *)
-    logic signed [15:0] bcol [0:127];
+    logic signed [15:0] bcol [0:143];
     logic signed [31:0] pe_acc [0:8];
     logic signed [31:0] pe_prod_0, pe_prod_1, pe_prod_2, pe_prod_3, pe_prod_4,
                          pe_prod_5, pe_prod_6, pe_prod_7, pe_prod_8;
@@ -254,19 +259,16 @@ module mtx9_engine (
     logic signed [31:0] v_acc, v_acc_n, v_prod;
     logic signed [31:0] mul_cur;
 
-    // Keep the B-column index at the RAM address width.  Using a 32-bit
-    // expression here makes PDS round the 81-entry array to a 128-entry RAM
-    // and emit Sdm-2015 for the unused high address bits.
-    function [6:0] bcol_index;
-        input [3:0] row;
-        input [3:0] col;
-        begin
-            bcol_index = row * 9 + col;
-        end
-    endfunction
-
     //-------------------------------------------------------------------------
     // Address generation
+    //
+    // While the engine owns the arrays, every RAM read address is a
+    // flip-flop output.  LOAD_B / VECT / MATMUL / BITEXT walk A and B linearly
+    // from 0 to 80, so idx doubles as the read index and no arithmetic sits
+    // between the counters and the RAM address pins.  The previous form
+    // computed (mi*9 + mk) / (ld_k*9 + ld_j) in two LUT levels and drove them
+    // through fanout-45/23/16 nets: that one segment was 5.4 ns (42%) of the
+    // 13.0 ns cpu_clk critical path in the Pango report.
     //-------------------------------------------------------------------------
     always_comb begin
         a_rd_addr = idx;
@@ -280,10 +282,6 @@ module mtx9_engine (
         c_wr_data = 32'sd0;
 
         unique case (state_q)
-            ST_LOAD_B: begin
-                b_rd_addr = ({3'b000, ld_k} * 7'd9) + {3'b000, ld_j};
-            end
-
             ST_ADD_CONST: begin
                 a_wr_en   = 1'b1;
                 a_wr_addr = idx;
@@ -297,7 +295,6 @@ module mtx9_engine (
             end
 
             ST_VECT: begin
-                a_rd_addr = ({3'b000, vi} * 7'd9) + {3'b000, vj};
                 // B[vj] comes from the bcol cache, so the B array is only read
                 // by ST_LOAD_B.
                 if (vj == 4'd8) begin
@@ -309,10 +306,6 @@ module mtx9_engine (
 
             ST_SUM1, ST_SUM2, ST_SUM3: begin
                 c_rd_addr = idx;
-            end
-
-            ST_MATMUL, ST_BITEXT: begin
-                a_rd_addr = ({3'b000, mi} * 7'd9) + {3'b000, mk};
             end
 
             ST_MATMUL_WR, ST_BITEXT_WR: begin
@@ -335,15 +328,15 @@ module mtx9_engine (
     // 9 PEs
     //-------------------------------------------------------------------------
     always_comb begin
-        pe_prod_0 = $signed(a_rd_data) * $signed(bcol[bcol_index(4'd0, mk)]);
-        pe_prod_1 = $signed(a_rd_data) * $signed(bcol[bcol_index(4'd1, mk)]);
-        pe_prod_2 = $signed(a_rd_data) * $signed(bcol[bcol_index(4'd2, mk)]);
-        pe_prod_3 = $signed(a_rd_data) * $signed(bcol[bcol_index(4'd3, mk)]);
-        pe_prod_4 = $signed(a_rd_data) * $signed(bcol[bcol_index(4'd4, mk)]);
-        pe_prod_5 = $signed(a_rd_data) * $signed(bcol[bcol_index(4'd5, mk)]);
-        pe_prod_6 = $signed(a_rd_data) * $signed(bcol[bcol_index(4'd6, mk)]);
-        pe_prod_7 = $signed(a_rd_data) * $signed(bcol[bcol_index(4'd7, mk)]);
-        pe_prod_8 = $signed(a_rd_data) * $signed(bcol[bcol_index(4'd8, mk)]);
+        pe_prod_0 = $signed(a_rd_data) * $signed(bcol[{4'd0, mk}]);
+        pe_prod_1 = $signed(a_rd_data) * $signed(bcol[{4'd1, mk}]);
+        pe_prod_2 = $signed(a_rd_data) * $signed(bcol[{4'd2, mk}]);
+        pe_prod_3 = $signed(a_rd_data) * $signed(bcol[{4'd3, mk}]);
+        pe_prod_4 = $signed(a_rd_data) * $signed(bcol[{4'd4, mk}]);
+        pe_prod_5 = $signed(a_rd_data) * $signed(bcol[{4'd5, mk}]);
+        pe_prod_6 = $signed(a_rd_data) * $signed(bcol[{4'd6, mk}]);
+        pe_prod_7 = $signed(a_rd_data) * $signed(bcol[{4'd7, mk}]);
+        pe_prod_8 = $signed(a_rd_data) * $signed(bcol[{4'd8, mk}]);
         if (state_q == ST_BITEXT)
             pe_add_0 = (($signed(pe_prod_0) >>> 2) & 32'sh0000_000F)
                        * (($signed(pe_prod_0) >>> 5) & 32'sh0000_007F);
@@ -438,7 +431,7 @@ module mtx9_engine (
         // the host cannot write B while the engine runs.  Reading the cache
         // instead of the B array keeps the vector path off the array's 81:1
         // read mux and leaves B with a single read port.
-        v_prod  = $signed(a_rd_data) * $signed(bcol[bcol_index(vj, 4'd0)]);
+        v_prod  = $signed(a_rd_data) * $signed(bcol[{vj, 4'd0}]);
         v_acc_n = v_acc + v_prod;
 
         clipval_s16 = 16'hF000 | val_reg;
@@ -547,7 +540,10 @@ module mtx9_engine (
                 end
 
                 ST_LOAD_B: begin
-                    bcol[bcol_index(ld_j, ld_k)] <= b_rd_data;
+                    bcol[{ld_j, ld_k}] <= b_rd_data;
+                    // idx is the B read address; the terminal beat below
+                    // overrides the increment and restarts it at 0.
+                    idx <= idx + 7'd1;
                     if (ld_j == 4'd8) begin
                         ld_j <= 4'd0;
                         if (ld_k == 4'd8) begin
@@ -592,6 +588,7 @@ module mtx9_engine (
                 end
 
                 ST_VECT: begin
+                    idx <= idx + 7'd1;
                     if (vj == 4'd8) begin
                         vj    <= 4'd0;
                         v_acc <= 32'sd0;
@@ -627,6 +624,9 @@ module mtx9_engine (
                 end
 
                 ST_MATMUL: begin
+                    // Rows are contiguous (row i+1 starts where row i ended),
+                    // so idx walks 0..80 across the whole pass.
+                    idx <= idx + 7'd1;
                     if (mk == 4'd8) begin
                         state_q <= ST_MATMUL_WR;
                         mk      <= 4'd0;
@@ -671,6 +671,7 @@ module mtx9_engine (
                 end
 
                 ST_BITEXT: begin
+                    idx <= idx + 7'd1;
                     if (mk == 4'd8) begin
                         state_q <= ST_BITEXT_WR;
                         mk      <= 4'd0;
