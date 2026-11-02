@@ -605,6 +605,7 @@ BTB 采用直接映射结构，表项数量由参数 BTB\_WIDTH 决定，在本�
 \subsection{软件系统介绍}
 \subsubsection{软件整体介绍}
 软件分为运行在目标处理器上的裸机测试程序，以及运行在主机上的 Verilator 仿真与 C++ 参考模型。
+演示应用还包括运行在主机浏览器中的 Web 控制器，它通过串口接收板端手势识别结果，驱动 HTML 演示页面完成场景切换与视觉反馈。
 目标端的链接脚本和入口代码为程序建立基本运行环境；主机端装载程序、驱动复位与时钟，采集退出状态和性能数据。
 现有验证环境使用 Ubuntu 24.04、Verilator v5.046、GTKWave v3.3.116、g++ 13.3.0 和 RISC-V GCC 14.2.0。
 \begin{figure}[htbp]
@@ -628,6 +629,7 @@ BTB 采用直接映射结构，表项数量由参数 BTB\_WIDTH 决定，在本�
 CoreMark & 编译参数、测试数据 & 校验结果、退出码、运行统计 \\
 BPU 参考模型 & PC、预测方向和目标、真实分支结果 & 方向及目标匹配结果 \\
 仿真控制 & 程序镜像、复位与时钟 & 波形、周期数、guest 指令数 \\
+手势识别与网页控制 & 摄像头图像、串口指令 & 手势类别、页面状态、视觉效果 \\
 \bottomrule
 \end{tabularx}
 \end{normaltable}
@@ -665,6 +667,28 @@ process/.style={draw=black,rounded corners=1pt,align=center,text width=10cm,inne
 官方 src0、src1、src2 程序分别提供指令和数据初始化内容。
 将对应镜像写入存储初始化文件后，使用 Vivado 2023.2 完成综合、实现与比特流生成，并通过 Hardware Manager 或数字孪生平台加载。
 平台 LED 的通过标志及左侧数码管的指令通过数用于功能判断，右侧数码管显示运行时间。
+
+\paragraph{手势识别与网页演示控制模块}
+
+该模块把摄像头前的手势转换为网页演示控制指令，形成从手势识别、串口传输到网页状态机与视觉反馈的闭环。硬件端在 FPGA 上完成图像采集、固定取景区裁剪和 $32\times32$ 灰度归一化，由 miniTensor 上的轻量 INT8 卷积网络输出手势类别与置信度；固件通过连续多帧一致性和置信度门限抑制抖动，再把确认后的手势转换为一行 ASCII 指令，经 115200 8N1 串口发送给上位机。手势与指令的对应关系为：张开手掌对应 \code{START}，握拳对应 \code{FIST}，食指对应 \code{POINT}，V 字对应 \code{MODE}，竖拇指对应 \code{CONFIRM}，特殊手势对应 \code{ULTIMATE}，复位对应 \code{RESET}。硬件端从图像采集到串口发送的通路如图~\ref{fig:gesture-hardware-path}所示。
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth,height=0.42\textheight,keepaspectratio]{figures/gesture_web_hardware_path.pdf}
+  \caption{手势识别与网页控制的硬件通路}
+  \label{fig:gesture-hardware-path}
+\end{figure}
+
+上位机 Web 控制器基于 Web Serial API 和 Three.js 实现。串口字节流先经过行解析和指令解析，再由冷却/去重逻辑过滤重复手势，进入“基础状态 + 瞬时叠加层”的状态机；状态机只负责逻辑转移，效果层根据状态事件驱动粒子 Logo、全息球、激光扫描、能量波和 HUD 信息层等视觉元素。该分层使协议、状态逻辑和渲染相互独立，便于单元测试和现场调试；无硬件时可用键盘、调试面板或自动演示模式模拟指令。软件端从串口接入到全屏展示的通路如图~\ref{fig:gesture-software-path}所示。
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.92\linewidth,height=0.50\textheight,keepaspectratio]{figures/gesture_web_software_path.pdf}
+  \caption{手势识别与网页控制的软件通路}
+  \label{fig:gesture-software-path}
+\end{figure}
+
+模块通过 33 个单元测试、TypeScript 类型检查和生产构建验证，并已用于板端手势识别与网页串口联调，可完成答辩演示中的场景切换、确认和特效触发。
 
 \clearpage
 \section{完成情况及性能参数}
