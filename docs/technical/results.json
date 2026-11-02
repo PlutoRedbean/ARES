@@ -1,0 +1,497 @@
+{
+  "schema": 1,
+  "measured_on": "2026-11-03",
+  "git_head": "bbdc41ccee5d794bbf490073403e82edd7e68ca8",
+  "rtl_sha256": {
+    "rtl/pipeline/core/vsrc/build/Mundus.sv": "2a71b86a9f91797577e3bca1035f7738e48215932981d353edb1fda3572e52f0",
+    "rtl/pipeline/soc/amp/pipeline_amp_top.sv": "c46886c1a06965275fb8505a3d0abff4edbd52fdf68a39e5c326d7bdb58978d9",
+    "rtl/pipeline/core/vsrc/icache/pipeline_icache.v": "95e9653e79b1a6ba8a39946500925a037207a699d8b6a35e93f7de5f7b74e133"
+  },
+  "clock_hz": 100000000,
+  "total_data_size": 2000,
+  "seeds": [
+    0,
+    0,
+    102
+  ],
+  "performance": {
+    "baseline": {
+      "command": "make pipeline-coremark",
+      "cores": 1,
+      "total_iterations": 100,
+      "timed_ticks": 44742474,
+      "simulation_cycles": 44798214,
+      "coremark_per_mhz": "2.235012",
+      "crc": [
+        "[0]crclist       : 0xe714",
+        "[0]crcmatrix     : 0x1fd7",
+        "[0]crcstate      : 0x8e3a",
+        "[0]crcfinal      : 0x988c"
+      ],
+      "binary": "build/coremark/coremark.bin",
+      "binary_sha256": "73f755bb42623a9a8f0f3cbde2b6a697754a9af96b05ece62ddb6d9ffd2652f4",
+      "elf_sha256": "b368ea597246ac111957f8a73ace3c791510137b17125b07050ad87b7ba5ff11",
+      "irom_bytes": 12132,
+      "frozen": {
+        "iterations": 100,
+        "total_data_size": 2000,
+        "run_type": "PERFORMANCE_RUN",
+        "seeds": [
+          "0x0",
+          "0x0",
+          "0x66"
+        ],
+        "mem_method": "MEM_STATIC",
+        "multithread": 1,
+        "march": "rv32im_zicsr",
+        "mabi": "ilp32",
+        "clock_hz": 100000000,
+        "timer": "rtl_cycle_counter",
+        "console": "rtl_uart_115200_8n1"
+      },
+      "log": "build/docs-review/baseline.log",
+      "log_sha256": "9412229e01a4ff30572c2fd95748933390301fdbec3b3805391ff4b681a933a0"
+    },
+    "crc": {
+      "command": "make pipeline-coremark-crc",
+      "cores": 1,
+      "total_iterations": 100,
+      "timed_ticks": 38350135,
+      "simulation_cycles": 38404960,
+      "coremark_per_mhz": "2.607552",
+      "crc": [
+        "[0]crclist       : 0xe714",
+        "[0]crcmatrix     : 0x1fd7",
+        "[0]crcstate      : 0x8e3a",
+        "[0]crcfinal      : 0x988c"
+      ],
+      "binary": "build/coremark_crc/coremark.bin",
+      "binary_sha256": "a30b3312e93b8dea5ab8ba5c243699d3fc18bf943a3e949d3835ecbdaebde78e",
+      "elf_sha256": "43bf15023312ec7d13e529432e40fa1a2a684b0cd158e770640b5c30630b3abe",
+      "irom_bytes": 11716,
+      "frozen": {
+        "iterations": 100,
+        "total_data_size": 2000,
+        "run_type": "PERFORMANCE_RUN",
+        "seeds": [
+          "0x0",
+          "0x0",
+          "0x66"
+        ],
+        "mem_method": "MEM_STATIC",
+        "multithread": 1,
+        "march": "rv32im_zicsr",
+        "mabi": "ilp32",
+        "clock_hz": 100000000,
+        "timer": "rtl_cycle_counter",
+        "console": "rtl_uart_115200_8n1"
+      },
+      "log": "build/docs-review/crc.log",
+      "log_sha256": "03b44382a394447055d81f8c5c8e9a072d3b33dbc1acca9d0f996950d1d104e1"
+    },
+    "matrix": {
+      "command": "make pipeline-coremark-matrix",
+      "cores": 1,
+      "total_iterations": 100,
+      "timed_ticks": 25363720,
+      "simulation_cycles": 25416064,
+      "coremark_per_mhz": "3.942639",
+      "crc": [
+        "[0]crclist       : 0xe714",
+        "[0]crcmatrix     : 0x1fd7",
+        "[0]crcstate      : 0x8e3a",
+        "[0]crcfinal      : 0x988c"
+      ],
+      "binary": "build/coremark_matrix/coremark.bin",
+      "binary_sha256": "ee5337995abd568733d1471154e25ed6fa185ea101ca4389a0a025db72914983",
+      "elf_sha256": "a9a379c4cd9e199b4b9a0ed0d9ad4ee4df7624a56d1b11b1180daaf05dc03b72",
+      "irom_bytes": 20144,
+      "frozen": {
+        "iterations": 100,
+        "total_data_size": 2000,
+        "run_type": "PERFORMANCE_RUN",
+        "seeds": [
+          "0x0",
+          "0x0",
+          "0x66"
+        ],
+        "mem_method": "MEM_STATIC",
+        "multithread": 1,
+        "march": "rv32im_zicsr",
+        "mabi": "ilp32",
+        "clock_hz": 100000000,
+        "timer": "rtl_cycle_counter",
+        "console": "rtl_uart_115200_8n1"
+      },
+      "log": "build/docs-review/matrix.log",
+      "log_sha256": "b8c32714500c6c9ba31f0e3d04705260abdbbfa55d10114f85a918c3bc7bbb42"
+    },
+    "state": {
+      "command": "make pipeline-coremark-state",
+      "cores": 1,
+      "total_iterations": 100,
+      "timed_ticks": 24117405,
+      "simulation_cycles": 24169678,
+      "coremark_per_mhz": "4.146383",
+      "crc": [
+        "[0]crclist       : 0xe714",
+        "[0]crcmatrix     : 0x1fd7",
+        "[0]crcstate      : 0x8e3a",
+        "[0]crcfinal      : 0x988c"
+      ],
+      "binary": "build/coremark_state/coremark.bin",
+      "binary_sha256": "ce6b59e323ee19079e88b102c20047c9ab265ed4ce132f40d930a54a479d6520",
+      "elf_sha256": "0c52196e3b6ba45649fcab3cb45d7125933c1bd7de741d3a862c52cdac822dc2",
+      "irom_bytes": 20568,
+      "frozen": {
+        "iterations": 100,
+        "total_data_size": 2000,
+        "run_type": "PERFORMANCE_RUN",
+        "seeds": [
+          "0x0",
+          "0x0",
+          "0x66"
+        ],
+        "mem_method": "MEM_STATIC",
+        "multithread": 1,
+        "march": "rv32im_zicsr",
+        "mabi": "ilp32",
+        "clock_hz": 100000000,
+        "timer": "rtl_cycle_counter",
+        "console": "rtl_uart_115200_8n1"
+      },
+      "log": "build/docs-review/state.log",
+      "log_sha256": "fe9f8a5ad76e1b9d2274300b1b1c77d9ae66351bdac01dcd438312a3a64fd7b2"
+    },
+    "full": {
+      "command": "make pipeline-coremark-full",
+      "cores": 1,
+      "total_iterations": 100,
+      "timed_ticks": 7471566,
+      "simulation_cycles": 7524378,
+      "coremark_per_mhz": "13.384075",
+      "crc": [
+        "[0]crclist       : 0xe714",
+        "[0]crcmatrix     : 0x1fd7",
+        "[0]crcstate      : 0x8e3a",
+        "[0]crcfinal      : 0x988c"
+      ],
+      "binary": "build/coremark_full/coremark.bin",
+      "binary_sha256": "4cee9a9cdb8568a838e668183e4dbfa0f2f1b492465fb8a32eb0c6b15fedd0e2",
+      "elf_sha256": "cf1363ed9c235701329e5e95b0e44bcb3d66ccb6492cf855b5830cc6ed2fa06b",
+      "irom_bytes": 28188,
+      "frozen": {
+        "iterations": 100,
+        "total_data_size": 2000,
+        "run_type": "PERFORMANCE_RUN",
+        "seeds": [
+          "0x0",
+          "0x0",
+          "0x66"
+        ],
+        "mem_method": "MEM_STATIC",
+        "multithread": 1,
+        "march": "rv32im_zicsr",
+        "mabi": "ilp32",
+        "clock_hz": 100000000,
+        "timer": "rtl_cycle_counter",
+        "console": "rtl_uart_115200_8n1"
+      },
+      "log": "build/docs-review/full.log",
+      "log_sha256": "63a9249d382450ec8ea22b6b06982e3b2e94c66cb0e17a1eb4c8e25f457e6dd7"
+    },
+    "full-mt2": {
+      "command": "make pipeline-coremark-full-mt CORES=2",
+      "cores": 2,
+      "total_iterations": 200,
+      "timed_ticks": 7100450,
+      "simulation_cycles": 7188608,
+      "coremark_per_mhz": "28.167228",
+      "crc": [
+        "[0]crclist       : 0xe714",
+        "[1]crclist       : 0xe714",
+        "[0]crcmatrix     : 0x1fd7",
+        "[1]crcmatrix     : 0x1fd7",
+        "[0]crcstate      : 0x8e3a",
+        "[1]crcstate      : 0x8e3a",
+        "[0]crcfinal      : 0x988c",
+        "[1]crcfinal      : 0x988c"
+      ],
+      "binary": "build/coremark_full_mt2/coremark.bin",
+      "binary_sha256": "749589c87f6765c95b4b80833cf776e12832d411e7060825cc885ca56721dace",
+      "elf_sha256": "992b5e374328676004368b7bff971be2d04c5d10a32e3ce68a24e2f491bb063f",
+      "irom_bytes": 21688,
+      "frozen": {
+        "iterations": 100,
+        "total_data_size": 2000,
+        "run_type": "PERFORMANCE_RUN",
+        "seeds": [
+          "0x0",
+          "0x0",
+          "0x66"
+        ],
+        "mem_method": "MEM_STACK",
+        "multithread": 2,
+        "march": "rv32im_zicsr",
+        "mabi": "ilp32",
+        "clock_hz": 100000000,
+        "timer": "rtl_cycle_counter",
+        "console": "rtl_uart_115200_8n1",
+        "total_iterations": 200,
+        "parallel_method": "ares-mt-mbox"
+      },
+      "log": "build/docs-review/full-mt2.log",
+      "log_sha256": "7df9a738f914887392dfa2df89c3459ca9e9f5093a16f2c7f20affce6876e485"
+    },
+    "full-mt4": {
+      "command": "make pipeline-coremark-full-mt CORES=4",
+      "cores": 4,
+      "total_iterations": 200,
+      "timed_ticks": 3569562,
+      "simulation_cycles": 3709479,
+      "coremark_per_mhz": "56.029283",
+      "crc": [
+        "[0]crclist       : 0xe714",
+        "[1]crclist       : 0xe714",
+        "[2]crclist       : 0xe714",
+        "[3]crclist       : 0xe714",
+        "[0]crcmatrix     : 0x1fd7",
+        "[1]crcmatrix     : 0x1fd7",
+        "[2]crcmatrix     : 0x1fd7",
+        "[3]crcmatrix     : 0x1fd7",
+        "[0]crcstate      : 0x8e3a",
+        "[1]crcstate      : 0x8e3a",
+        "[2]crcstate      : 0x8e3a",
+        "[3]crcstate      : 0x8e3a",
+        "[0]crcfinal      : 0x0158",
+        "[1]crcfinal      : 0x0158",
+        "[2]crcfinal      : 0x0158",
+        "[3]crcfinal      : 0x0158"
+      ],
+      "binary": "build/coremark_full_mt4/coremark.bin",
+      "binary_sha256": "d37f5e076c60bc39b8dc0aa8a828977af97ea4b2c4bc93eae234b151c8702c09",
+      "elf_sha256": "7f829c5c9ea162ed04c19b664b77553429d4a5d22bb32ce7bcb543321951b1ae",
+      "irom_bytes": 21740,
+      "frozen": {
+        "iterations": 50,
+        "total_data_size": 2000,
+        "run_type": "PERFORMANCE_RUN",
+        "seeds": [
+          "0x0",
+          "0x0",
+          "0x66"
+        ],
+        "mem_method": "MEM_STACK",
+        "multithread": 4,
+        "march": "rv32im_zicsr",
+        "mabi": "ilp32",
+        "clock_hz": 100000000,
+        "timer": "rtl_cycle_counter",
+        "console": "rtl_uart_115200_8n1",
+        "total_iterations": 200,
+        "parallel_method": "ares-mt-mbox"
+      },
+      "log": "build/docs-review/full-mt4.log",
+      "log_sha256": "2e17930618c580b6c44dfc56607cb46eb0c9ead804143a36f629e8229c261cb0"
+    }
+  },
+  "verification": {
+    "smoke": {
+      "command": "make pipeline-smoke",
+      "result": "PASS",
+      "marker": "write_events=2 dram[0]=55 dram[4]=66 ebreak_seen=1",
+      "log": "build/docs-review/smoke.log",
+      "log_sha256": "54f21fc57e73c26edcc14eac113157486290b79d0083ab7f837693666f95a1be"
+    },
+    "isa": {
+      "command": "make pipeline-isa",
+      "result": "PASS",
+      "marker": "ISA pass=36 fail=0",
+      "log": "build/docs-review/isa.log",
+      "log_sha256": "96dbb6f1bf688448cd2f1b74add3be1a1614a56170d8c743c6764cbfafc6d15f"
+    },
+    "dcache": {
+      "command": "make pipeline-dcache-test",
+      "result": "PASS",
+      "marker": "DCACHE UNIT TEST PASS (1520 checks)",
+      "log": "build/docs-review/dcache.log",
+      "log_sha256": "97f9c646ee16d32d82abc157a22d242c24f44e1a1b2487228e4df7c58562cc6d"
+    },
+    "divider": {
+      "command": "make pipeline-div-test",
+      "result": "PASS",
+      "marker": "ALL TESTS PASSED: div LATENCY=35 and LATENCY=17, 2347 checked operations",
+      "log": "build/docs-review/divider.log",
+      "log_sha256": "ff25ca450d7d4667008fe34e965e4a56d408e3fbc2177f1adab100ec07da2dcc"
+    },
+    "multiplier": {
+      "command": "make pipeline-mult-test",
+      "result": "PASS",
+      "marker": "ALL TESTS PASSED: mult PIPELINE_STAGES=4 and 5, 21771 checked cycles",
+      "log": "build/docs-review/multiplier.log",
+      "log_sha256": "cd5c3fe9b7d079555f1ebe974b6f80af387a48a85081af89378eff30427c7a3a"
+    },
+    "list9": {
+      "command": "make unit-list9",
+      "result": "PASS",
+      "marker": "ALL 232 LIST9 VECTORS PASSED",
+      "log": "build/docs-review/list9.log",
+      "log_sha256": "1cda27e4247d3f24918abd773b1aabd2bd6208300363300db81f97189ef10dd2"
+    },
+    "matrix-unit": {
+      "command": "make unit-mtx9",
+      "result": "PASS",
+      "marker": "ALL TESTS PASSED: 3507 checks - mtx9_engine",
+      "log": "build/docs-review/matrix-unit.log",
+      "log_sha256": "f25009ae45fa94b89d20e068927c85a8746ae967c8e08c437c93e60361ba2476"
+    },
+    "state-unit": {
+      "command": "make unit-state9",
+      "result": "PASS",
+      "marker": "ALL TESTS PASSED: 10928 checks - state9_engine",
+      "log": "build/docs-review/state-unit.log",
+      "log_sha256": "384be32b236b942b5f023ada8e33caaad558bad31d394d7161bff35d0ecd8a1f"
+    },
+    "rtos": {
+      "command": "make pipeline-rtos",
+      "result": "PASS",
+      "marker": "RTOS simulation BOARD=0 PASS",
+      "log": "build/docs-review/rtos.log",
+      "log_sha256": "013b22f6d0fbd2ba120b79243dbec0e876639697dcfe27ded21ddac99f3cc9b4"
+    },
+    "rtos-board": {
+      "command": "make pipeline-rtos-board-sim",
+      "result": "PASS",
+      "marker": "RTOS simulation BOARD=1 PASS",
+      "log": "build/docs-review/rtos-board.log",
+      "log_sha256": "f18420958fcf85dc4a5978912582ac8e82365298fa458525481b46e900219835"
+    },
+    "shell": {
+      "command": "make pipeline-rtos-shell-test",
+      "result": "PASS",
+      "marker": "SHELL PASS: UART commands, ps, invalid input, quoting, backspace, TAB, continuous RX burst, TTY and Ctrl-C restore",
+      "log": "build/docs-review/shell.log",
+      "log_sha256": "a97c4ffe267196ae5997c4742dfca9bcb2d2a59f99469444679de521ab94784d"
+    },
+    "icache": {
+      "command": "make pipeline-icache-test",
+      "result": "PASS",
+      "marker": "ICACHE UNIT TEST PASS (2875 checks)",
+      "log": "build/docs-review/icache.log",
+      "log_sha256": "c21a1de3a1262fc856c3090f03045dbe6b2ca070ef0bf75647a08b7a77b88e14"
+    },
+    "reset-pulse": {
+      "command": "make pipeline-reset-pulse",
+      "result": "PASS",
+      "marker": "RESET PULSE TEST PASS (60 runs, pulses 1-8 cycles)",
+      "log": "build/docs-review/reset-pulse.log",
+      "log_sha256": "536fd3fc49066532eb2a2db775cb80f3dc05dce9bbcdfb47b1e5d7ff29030241"
+    }
+  },
+  "pds": [
+    {
+      "date": "Sun Nov  1 16:03:55 2026",
+      "tool": "PDS 2025.2-SP3-EN build 231170",
+      "device": "PG2L200H",
+      "cores": 4,
+      "dram_bytes_per_hart": 262144,
+      "constraint_mhz": 70,
+      "setup_wns_ns": 0.945,
+      "setup_tns_ns": 0.0,
+      "recovery_wns_ns": 8.484,
+      "resources": {
+        "CLMA": {
+          "used": 7961,
+          "available": 30075,
+          "reported_util_percent": 27
+        },
+        "CLMS": {
+          "used": 1905,
+          "available": 9875,
+          "reported_util_percent": 20
+        },
+        "APM(grid)": {
+          "used": 44,
+          "available": 370,
+          "reported_util_percent": 12
+        },
+        "DRM(grid)": {
+          "used": 308,
+          "available": 415,
+          "reported_util_percent": 75
+        },
+        "+ DRM18K": {
+          "used": 8,
+          "available": 830,
+          "reported_util_percent": 1
+        },
+        "+ DRM36K": {
+          "used": 304,
+          "available": 415,
+          "reported_util_percent": 74
+        }
+      },
+      "design_summary": "All Constraints Met.",
+      "first_path": [
+        "Startpoint  : u_soc/g_hart[3].u_core/bridge_inst/u_pipeline_accel/u_mtx9_engine/mk[3]/opit_0_L6Q_perm/CLK",
+        "Endpoint    : u_soc/g_hart[3].u_core/bridge_inst/u_pipeline_accel/u_mtx9_engine/pe_acc[5][31]/opit_0_AQ_perm/CIN"
+      ],
+      "timing_source": "results/pipeline_amp_board_top.rtr",
+      "timing_sha256": "f401dc4bdea07ac6322f5f80c27aab20bfac956d1fa1401d573f9396ded59b34",
+      "resource_source": "results/pipeline_amp_board_top.ror",
+      "resource_sha256": "d31646396243dbcc1dc78c46c2c1f55e9b83aa8b09501c0a12ddca7ce1d65d7f"
+    },
+    {
+      "date": "Sun Nov  1 17:44:37 2026",
+      "tool": "PDS 2025.2-SP3-EN build 231170",
+      "device": "PG2L200H",
+      "cores": 4,
+      "dram_bytes_per_hart": 262144,
+      "constraint_mhz": 200,
+      "setup_wns_ns": -5.449,
+      "setup_tns_ns": -86357.86,
+      "recovery_wns_ns": -0.573,
+      "resources": {
+        "CLMA": {
+          "used": 8041,
+          "available": 30075,
+          "reported_util_percent": 27
+        },
+        "CLMS": {
+          "used": 1892,
+          "available": 9875,
+          "reported_util_percent": 20
+        },
+        "APM(grid)": {
+          "used": 40,
+          "available": 370,
+          "reported_util_percent": 11
+        },
+        "DRM(grid)": {
+          "used": 329,
+          "available": 415,
+          "reported_util_percent": 80
+        },
+        "+ DRM18K": {
+          "used": 48,
+          "available": 830,
+          "reported_util_percent": 6
+        },
+        "+ DRM36K": {
+          "used": 304,
+          "available": 415,
+          "reported_util_percent": 74
+        }
+      },
+      "design_summary": "Some Constraints Violated.",
+      "first_path": [
+        "Startpoint  : u_soc/g_hart[3].u_core/bridge_inst/bram_driver_inst/Mem_BRAM/mem_0_lower/gopdrm_36k/CLKB[0]",
+        "Endpoint    : u_soc/g_hart[3].u_core/Core_cpu/Mundus/EXU/exu_ex1/MUL/Mult/u_mult/N2_m2/gopapm/X[8]"
+      ],
+      "timing_source": "results/pipeline_amp_board_top(1).rtr",
+      "timing_sha256": "48874b1f035b037d2134023f0848e6452fc865e4e15e024f5bd1d26b10718825",
+      "resource_source": "results/pipeline_amp_board_top(1).ror",
+      "resource_sha256": "c6fd364b41ed9a682cef838a0ef0493d91031931bdef18cbca6b315c2579d4d6"
+    }
+  ]
+}
