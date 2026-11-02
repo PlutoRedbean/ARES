@@ -1,8 +1,6 @@
 *
 !*/
 !.gitignore
-!sim/
-!design/
 !technical/
 !*.tex
 !*.jpeg
