@@ -16,7 +16,7 @@
 \usepackage{tikz}
 \usetikzlibrary{arrows.meta,positioning}
 \usepackage[hidelinks]{hyperref}
-\hypersetup{pdftitle={面向 FPGA 的 RISC-V 九级流水线处理器设计},pdfauthor={},pdfsubject={技术文档}}
+\hypersetup{pdftitle={ARES：面向 FPGA 的 RISC-V 单发射流水线 SoC},pdfauthor={},pdfsubject={技术文档}}
 \setstretch{1.5}
 \setlength{\parindent}{2em}
 \setlength{\parskip}{0pt}
@@ -69,27 +69,25 @@
 
 \begin{document}
 \begin{center}
-{\songti\bfseries\zihao{3} 面向 FPGA 的 RISC-V\\九级流水线处理器设计\par}
+{\songti\bfseries\zihao{3} ARES：面向 FPGA 的 RISC-V\\单发射流水线 SoC\par}
 \end{center}
 \vspace{8pt}
 \section*{摘要}
 % 模板限制：800 字内。
-本作品实现了名为 Mundus 的 32 位 RISC-V 顺序、单发射、九级流水线处理器，覆盖 37 条 RV32I 基础整数指令、8 条 RV32M 乘除法指令、6 条 Zicsr 指令，以及机器模式 ECALL 与 MRET 流程。
-九个阶段依次为 IF1、IF2、ID、ISS、EX1、EX2、EX3、EX4、WB。
-设计采用一拍同步读的 BTB/Bimodal 预测器及提前查询机制，可选配 8 项返回地址栈；后端通过温度计码描述生产和消费时机，结合多级旁路与互锁处理数据相关，并使用提前 AGU 和含 Store Buffer 的分级 LSU 降低访存停顿。
-
-验证体系包括 Verilator、DPI-C、IP 核模型、提交统计、分支预测差分和板级 IO 模拟。
-现有运行记录中，withMext 在 316.667 MHz 下耗时 1.636 s，src0 在 316.667 MHz 下耗时 6.561 s，src1 和 src2 在 300 MHz 下分别耗时 6.432 s 与 9.034 s。
-相同 RV32M CoreMark 镜像下，启用 RAS 后跳转预测准确率由 94.65\% 提升至 98.98\%，总体准确率由 92.75\% 提升至 93.30\%。
-作品形成了架构设计、RTL 实现、软件验证和 FPGA 运行的工程流程，可用于处理器教学、微架构探索及嵌入式计算原型。
+ARES（AI-accelerated RISC-V Embedded SoC）是以 Mundus 32 位顺序单发射处理器为核心的嵌入式 SoC，主线 FPGA 目标为盘古 200Pro+ 的 PG2L200H-6IFBB676。
+处理器实现 RV32I 整数数据通路、RV32M、Zicsr、ECALL/MRET、机器定时器中断及 custom-0 CRC8；FENCE 用于访存排空，EBREAK 在退休后停机，FENCE.I 尚无指令缓存失效路径。
+核内以 ID、ISS、EX1--EX4、WB 组织译码至提交；取指侧使用请求/响应握手、两项在途元数据队列和八项前端队列，取指延迟随 Cache 命中与回填变化。
+当前配置采用 16 项 Bimodal/BTB、8 项 RAS、四路 ICache、8 KiB 两路 DCache，以及外设桥中的四项写队列。
+SoC 提供单核和 2/4-hart AMP 配置，并集成矩阵、状态机和链表 MMIO 加速器；共享 L2 另属实验配置。单核 RT-Thread Nano 与 MSH 使用独立固件。
+验证入口包括 Verilator 程序回归、模块定向测试及推断 BRAM/UART 板级仿真，Pango 构建使用 PDS 流程。
 
 \section{作品概述}
 \subsection{功能与特性}
 % 模板限制：400 字内。
 处理器支持 RV32I 整数运算、移位、比较、访存和控制流，扩展 RV32M 乘除法、Zicsr 寄存器读改写及基础机器模式异常处理。
-IF1 至 WB 九个阶段按顺序单发射、单提交运行，配合分支冲刷、数据旁路和互锁保持指令语义。
-核心以 IROM 与 PERIP 直连接口接入存储器、LED、数码管、开关、按键和计时器，可运行赛题程序并显示结果。
-RV32F 尚未完整实现，当前测试配置未启用该扩展。
+核心按顺序单发射、单提交运行，配合重定向、数据旁路、互锁和 DCache miss replay 处理相关性。
+IROM 取指和 PERIP 数据接口均具有握手控制；SoC 集成片上存储、UART、计时器、显示 IO 和 CoreMark 加速器。
+AMP 提供私有数据窗口与共享 mailbox，RT-Thread Nano 支持单核运行。
 
 \subsection{应用领域}
 % 模板限制：400 字内。
@@ -100,26 +98,23 @@ RV32F 尚未完整实现，当前测试配置未启用该扩展。
 % 模板限制：400 字内。
 前端将预测表读取流水化，提前查询候选下一 PC，并保存停顿期间的预测及取指元数据。
 后端以温度计码统一表达生产者结果时刻和消费者需求时刻，选择最新且就绪的旁路结果。
-AGU 在 ISS 提前计算访存地址，LSU 按请求、字返回、半字或字节返回、Store 数据四级组织，并用 4 项 Store Buffer 合并写入及转发数据。
-乘除法使用 Vivado IP；仿真侧通过 DPI-C 和 IP 模型与 FPGA 时序对齐。
+AGU 在 ISS 提前计算访存地址，三阶段 LSU 区分 DCache 命中快路径和外部返回慢路径，外设桥用四项写队列及逐字节转发协调访存。
+乘法器采用四级部分积流水，除法器采用 radix-4 迭代 RTL；存储包装使用可综合 BRAM。CRC8 指令与三类 MMIO 引擎支持软硬件协同加速。
 
-\subsection{主要性能指标}
-% 模板限制：200 字内。
+\subsection{主要配置}
+以下列出 RTL 默认配置及板级时钟目标。
 \begin{table}[H]
 \centering
 \begin{tabularx}{\linewidth}{@{}P{0.30\linewidth}X@{}}
 \toprule
-指标 & 记录结果 \\
+项目 & 配置 \\
 \midrule
-已支持指令 & RV32I 37 条、RV32M 8 条、Zicsr 6 条 \\
-withMext & 316.667 MHz，1.636 s \\
-withoutMext & 308.000 MHz，3.772 s \\
-src0 & 316.667 MHz，6.561 s \\
-src1 & 300.000 MHz，6.432 s \\
-src2 & 300.000 MHz，9.034 s \\
-CoreMark 跳转预测 & RAS 开启 98.98\% \\
-LUT / FF / BRAM & 6394 / 7000 / 69 \\
-片上功耗估算 & 0.677 W \\
+处理器与扩展 & Mundus，顺序单发射；RV32IM、Zicsr、基础机器模式与 CRC8 \\
+FPGA / 工具链 & PG2L200H-6IFBB676 / Pango PDS \\
+板级时钟目标 & 27 MHz 输入，PLL 输出 CPU 100 MHz / 外设 50 MHz \\
+预测器与前端 & 16 项 BTB、2 bit Bimodal、8 项 RAS；8 项前端队列 \\
+存储层次 & 单核默认 4 KiB 四路 ICache、8 KiB 两路 DCache \\
+系统配置 & 单核；2/4-hart 私有存储 AMP；共享 L2 实验版 \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -134,16 +129,17 @@ LUT / FF / BRAM & 6394 / 7000 / 69 \\
 
 \subsection{设计流程}
 % 模板限制：200 字内。
-先进行 C++ 模拟及 gem5 架构探索，确定流水级和关键路径；随后用 Chisel 描述核心并生成 RTL，接入旁路、预测和访存模块。
-在 Verilator 中运行指令、程序及 BPU 差分测试，核对 IP 与 IO 模型后，使用 Vivado 完成综合、实现和时序检查，再加载数字孪生平台，记录频率、运行时间和资源数据。
+在 ARES 仓库内以 Chisel 生成 Mundus RTL，集成可综合存储、外设和加速器；编译 ELF 并拆分为 IROM/DRAM HEX。
+通过 Verilator、模块测试和板级仿真核对功能，再使用 PDS 执行综合、布局布线、时序检查与位流生成。每个配置分别保存镜像、日志和验收结果。
 
 \clearpage
 \section{系统组成及功能说明}
 \subsection{整体介绍}
-系统以 Mundus 处理器为核心，前端经 IROM 接口获取指令，后端经 PERIP 访问数据存储及外设。
+ARES 以 Mundus 处理器为核心，前端经 IROM 请求/响应接口连接 ICache 或直通适配器，后端经含 DCache 的 LSU 和 PERIP 接口访问数据存储及外设。
 处理器内部由前端预测和取指、译码、发射与寄存器读取、执行、LSU、乘除法及写回单元构成。
 HZU 根据分支结果协调重定向，ISU 根据数据就绪状态决定旁路与互锁，WB 保持顺序提交。
-图~\ref{fig:soc-framework} 表示 SoC 层连接，图~\ref{fig:core-overview} 表示核内模块关系。
+图~\ref{fig:soc-framework} 表示单核 SoC 的连接概览。AMP 为每 hart 例化 \code{student_top}、私有 IROM/ICache/数据 BRAM 和加速器，另连共享 uncached mailbox。
+\code{pipeline_mc_soc_top} 则是共享 L2 的独立实验配置。
 
 \begin{figure}[htbp]
 \centering
@@ -151,83 +147,145 @@ HZU 根据分支结果协调重定向，ISU 根据数据就绪状态决定旁路
  box/.style={draw,align=center,minimum height=9mm,font=\small},
  core/.style={box,text width=3.0cm},other/.style={box,text width=2.3cm}]
 \node[core] (cpu) {Mundus 处理器核\\Core\_cpu};
-\node[other,right=17mm of cpu] (irom) {IROM\\16 KiB};
+\node[other,right=17mm of cpu] (irom) {ICache / 直通\\IROM 32 KiB};
 \node[other,below=12mm of cpu] (bridge) {PERIP 互连与译码};
 \node[other,left=8mm of bridge] (dram) {DRAM\\256 KiB};
-\node[other,right=8mm of bridge] (io) {LED SEG SW\\KEY COUNTER};
-\draw[->] (cpu)--node[above,font=\scriptsize]{地址}(irom);
+\node[other,right=8mm of bridge] (io) {UART / timer / IO\\MMIO 加速器};
+\draw[->] (cpu)--node[above,font=\scriptsize]{取指请求}(irom);
 \draw[->] ([yshift=-3mm]irom.west)--node[below,font=\scriptsize]{指令}([yshift=-3mm]cpu.east);
 \draw[<->] (cpu)--node[right,font=\scriptsize]{地址、控制、数据}(bridge);
 \draw[<->] (bridge)--(dram);\draw[<->] (bridge)--(io);
 \end{tikzpicture}
-\caption{基于当前接口和地址映射绘制的 SoC 连接}
+\caption{ARES 单核 SoC 连接概览（DCache 位于核内 LSU）}
 \label{fig:soc-framework}
 \end{figure}
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=\linewidth,height=0.5\textheight,keepaspectratio]{mundus_core_architecture_horizontal.png}
-\caption{Mundus 核内模块总体关系}
+\caption{旧版 Mundus 核内模块关系}
 \label{fig:core-overview}
 \end{figure}
 
 \subsection{硬件系统介绍}
 \subsubsection{硬件整体介绍}
-核心采用 Chisel 描述，并生成 SystemVerilog 与 FPGA IP、存储器和外设包装集成。
-验证目标为 Xilinx Kintex-7，使用 Vivado 2023.2 进行综合、实现和比特流生成。
-九级流水线将前端预测和同步取指、后端运算与数据返回分开组织，以降低单周期组合逻辑压力。
+核心采用 Chisel 描述，并生成 SystemVerilog 与手写乘除法 RTL、BRAM 和外设包装集成。
+当前主线目标为盘古 200Pro+ / PG2L200H-6IFBB676，使用 PDS；本文保留的 Xilinx Kintex-7 / Vivado 2023.2 截图属于旧版 Mundus。
+板级 PLL 由 27 MHz 产生 100 MHz CPU 与 50 MHz 外设时钟。AMP 将各 hart 的 CPU、外设桥和 UART 连接到同一 100 MHz 域，板级 50 MHz 输出不参与 AMP 数据通路。
 \subsubsection{机械设计介绍}
 作品依托现有 FPGA 试验平台实现，不包含独立机壳、传动机构或机械装配设计。
 \subsubsection{电路各模块介绍}
 \paragraph{SoC 集成方式}
 
-目前将处理器封装为赛方 \id{Core_cpu} 接口，连接 IROM、DRAM、LED、数码管、
-SW、KEY 和计数器，图~\ref{fig:soc-framework} 给出系统连接。
+\code{Mundus} 经手写 \code{myCPU} 包装接入 \code{student_top}，其中 \code{Core_cpu} 是实例名。
+单核板级顶层为 \code{pipeline_board_top}，AMP 板级顶层为 \code{pipeline_amp_board_top}；RTOS 与 MSH 另有独立板级顶层和镜像。
 
 \paragraph{核心接口}
 
-当前处理器顶层采用 IROM 与 PERIP 两组直连 SoC 接口。
-接口信号见表~\ref{tab:core-interface}。
+以下使用 Chisel Bundle 信号名，方向均相对 Mundus 核；\code{myCPU} 包装将点号展开为下划线。
+IROM 的请求与响应分别握手；PERIP 请求在 \code{valid && ready} 时接受，读结果由 \code{rvalid} 标记，读响应没有独立 ready。\code{wen} 表示读写属性。
 
 \begin{table}[H]
-  \centering
-  \caption{当前 CPU 核接口}
-  \label{tab:core-interface}
-  \begin{adjustbox}{max width=\linewidth}
-\begin{tabular}{P{2.8cm}C{3.0cm}C{1.5cm}P{6.2cm}}
-    \toprule
-    信号 & 相对 CPU 方向 & 位宽 & 说明 \\
-    \midrule
-    irom.addr & 输出 & 32 & 指令取址地址 \\
-    irom.data & 输入 & 32 & IROM 当前返回的指令 \\
-    perip.addr & 输出 & 32 & DRAM/外设访问地址 \\
-    perip.wen & 输出 & 1 & 写请求有效 \\
-    perip.mask & 输出 & 2 & byte/half/word 访问宽度编码 \\
-    perip.wdata & 输出 & 32 & 写数据 \\
-    perip.rdata & 输入 & 32 & DRAM/外设读数据 \\
-    \bottomrule
-  \end{tabular}
-\end{adjustbox}
+\centering
+\caption{当前 Mundus 核接口}
+\label{tab:core-interface}
+\begin{tabularx}{\linewidth}{@{}P{5.5cm}C{1.2cm}C{1.7cm}X@{}}
+\toprule
+信号 & 方向 & 位宽 & 说明 \\
+\midrule
+\code{irom.req_valid / req_addr} & 输出 & 1 / 32 & 取指请求及字节地址 \\
+\code{irom.req_ready} & 输入 & 1 & 请求接收能力 \\
+\code{irom.rsp_valid / rsp_data} & 输入 & 1 / 32 & 有效指令响应 \\
+\code{irom.rsp_ready / flush} & 输出 & 各 1 & 响应接收、丢弃旧路径事务 \\
+\code{perip.valid / addr} & 输出 & 1 / 32 & 数据请求及字节地址 \\
+\code{perip.wen / mask / wdata} & 输出 & 1 / 2 / 32 & 写属性、宽度编码、写数据 \\
+\code{perip.ready / rvalid / idle} & 输入 & 各 1 & 接受请求、读返回有效、桥空闲 \\
+\code{perip.rdata} & 输入 & 32 & 外部读数据 \\
+\code{timer_irq / data_offset} & 输入 & 1 / 32 & 定时器中断、私有数据地址偏移 \\
+\code{coh.inv_valid / inv_addr} & 输入 & 1 / 32 & 实验版一致性失效及地址 \\
+\code{coh.epoch} & 输入 & 8 & 实验版一致性版本号 \\
+\code{retire.valid / rd_wen} & 输出 & 各 1 & 退休有效、GPR 写使能 \\
+\code{retire.is_ebreak} & 输出 & 1 & EBREAK 退休标记 \\
+\code{retire.pc / pc_next / wdata} & 输出 & 各 32 & 退休 PC、真实下一 PC、写回数据 \\
+\code{retire.rd} & 输出 & 5 & 写回寄存器编号 \\
+\bottomrule
+\end{tabularx}
 \end{table}
+
+\code{perip.mask} 的 \code{00/01/10} 分别表示 byte/half/word，\code{11} 表示无访存；不等同于逐字节写选通。
+单核与 AMP 将一致性输入接零；共享 L2 实验版连接失效与 epoch。复位入口为 \code{0x80000000}。
+
+\paragraph{当前主要参数}
+
+核参数以 \code{rtl/pipeline/gen/configs/scsrc/autoconf.scala} 为准，手写包装参数见 \code{rtl/pipeline/include/pipeline_autoconf.vh}，ICache 几何取决于实际顶层例化。
+
+\begin{table}[H]
+\centering
+\caption{当前默认参数及顶层覆盖}
+\begin{tabularx}{\linewidth}{@{}P{3.8cm}X@{}}
+\toprule
+项目 & 参数及适用配置 \\
+\midrule
+BPU / 前端 & BTB 索引 4 bit，共 16 项；Bimodal 2 bit；RAS 深度 8；前端队列 8 项；在途元数据 2 项 \\
+单核 ICache & \code{student_top} 默认 32 组 $\times$ 4 路 $\times$ 32 B = 4 KiB \\
+AMP ICache & \code{pipeline_amp_top} 默认 64 组 $\times$ 4 路 $\times$ 64 B = 16 KiB/hart；每 hart 内部 IROM 为 32 KiB \\
+AMP 板级 ICache & \code{pipeline_amp_board_top} 覆盖为 128 组 $\times$ 4 路 $\times$ 64 B = 32 KiB/hart \\
+DCache & 8 KiB，1024 组 $\times$ 2 路 $\times$ 4 B；每次只回填一个字，写直达、写 miss 不分配 \\
+外设桥写队列 & 深度 4；FIFO 排出，Load 按字节转发最新的较老 Store \\
+单核 / AMP 数据 BRAM & 单核默认 256 KiB；AMP 默认每 hart 32 KiB，\code{DRAM_AW=13}、\code{DATA_STRIDE=0x8000} \\
+乘除法时序 & 乘法流水延迟 4；除法控制器固定延迟参数 35，底层为 16 次 radix-4 迭代 \\
+可选能力 & RAS 开启；loop predictor、RV32E、可选 Z 位操作以及 \code{mscratch/misa} 关闭 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+AMP 以 \code{EXTERNAL_IROM=0}、\code{ICACHE_WAYS=4} 为每 hart 例化私有 IROM 和四路 ICache。
 
 \paragraph{SoC 地址空间}\label{tab:address-space}
 
+下表为 \code{student_top/perip_bridge} 单核与 AMP 路径的地址映射，其中 \code{DRAM} 表示片上数据 BRAM。
+
 \begin{table}[H]
-  \centering
-  \caption{SoC 地址空间}
-  \begin{tabularx}{\linewidth}{@{}P{1.7cm}P{5.2cm}P{1.1cm}X@{}}
-    \toprule
-    区域 & 地址范围 & 属性 & 说明 \\
-    \midrule
-    IROM & {\ttfamily\zihao{5}0x80000000--0x80003FFF} & 只读 & 16 KiB，当前周期读 \\
-    DRAM & {\ttfamily\zihao{5}0x80100000--0x8013FFFF} & 读写 & 256 KiB，支持 1/2/4 byte \\
-    SW & {\ttfamily\zihao{5}0x80200000--0x80200007} & 只读 & 仅 4 byte 对齐访问 \\
-    KEY & {\ttfamily\zihao{5}0x80200010--0x80200013} & 只读 & 低 8 bit 有效 \\
-    SEG & {\ttfamily\zihao{5}0x80200020--0x80200023} & 读写 & 七段数码管 \\
-    LED & {\ttfamily\zihao{5}0x80200040--0x80200043} & 只写 & LED 显示 \\
-    \id{COUNTER} & {\ttfamily\zihao{5}0x80200050--0x80200053} & 读写 & 起止计时控制 \\
-    \bottomrule
-  \end{tabularx}
+\centering
+\caption{单核与 AMP 的地址映射}
+\begin{tabularx}{\linewidth}{@{}P{2.0cm}P{4.7cm}C{1.2cm}X@{}}
+\toprule
+区域 & 地址或地址范围 & 属性 & 说明 \\
+\midrule
+IROM & \code{0x80000000--0x80007FFF} & 只读 & 32 KiB，32 bit 字；同步 BRAM，经 Cache/直通访问 \\
+数据窗口 & \code{0x80100000--0x8013FFFF} & 读写 & 单核 256 KiB，DCache 可缓存窗口 \\
+SW & \code{0x80200000 / 0x80200004} & 只读 & 开关低/高 32 bit \\
+KEY & \code{0x80200010} & 只读 & 低 8 bit 有效 \\
+SEG / LED & \code{0x80200020 / 0x80200040} & 读写 & 数码管 / LED 寄存器 \\
+毫秒计数 & \code{0x80200050} & 读写 & 读毫秒数；写 \mbox{\code{0x80000000}} 启动、\mbox{\code{0xFFFFFFFF}} 停止 \\
+中断 pending & \code{0x80200054} & 读写 & bit0 为 pending，写 bit0=1 确认 \\
+UART TX & \code{0x80200060} & 只写 & 写低 8 bit 发送 \\
+UART 状态 & \code{0x80200064} & 只读 & bit1=TX ready，bit0=RX valid \\
+UART RX & \code{0x80200068} & 只读 & 读取并消费收到的字节 \\
+\bottomrule
+\end{tabularx}
 \end{table}
+
+\begin{table}[H]
+\centering
+\caption{CoreMark 兼容窗口、加速器与 AMP mailbox}
+\begin{tabularx}{\linewidth}{@{}P{2.0cm}P{4.7cm}C{1.2cm}X@{}}
+\toprule
+区域 & 地址或地址范围 & 属性 & 说明 \\
+\midrule
+CPU 周期数 & \code{0xA0000050 / 0xA0000054} & 只读 & 64 bit 周期计数器的低/高 32 bit \\
+UART TX 别名 & \code{0xA00003F8} & 只写 & 对应原生 TX 寄存器 \\
+UART 状态别名 & \code{0xA00003FC} & 只读 & bit1=TX busy，bit0=RX valid；与原生状态的 bit1 极性相反 \\
+Hart 信息 & \code{0xA0000FF0 / 0xA0000FF4} & 只读 & hart ID / 配置的 hart 数 \\
+矩阵引擎 & \code{0xA0001000--0xA0001FFF} & 读写 & \code{mtx9_engine} MMIO 页 \\
+状态机引擎 & \code{0xA0002000--0xA0002FFF} & 读写 & \code{state9_engine} MMIO 页 \\
+链表引擎 & \code{0xA0003000--0xA0003FFF} & 读写 & \code{list9_engine} MMIO 页 \\
+共享 mailbox & \code{0xA000F000--0xA000F0FF} & 读写 & 仅 AMP 顶层连接；uncached，4 槽 $\times$ 16 字 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+AMP 默认每 hart 配置 32 KiB 私有数据 BRAM。软件链接窗口为 \code{0x80100000--0x80107FFF}；AGU 对数据窗口地址加 \code{hart_id * 0x8000}，本地 BRAM 以低地址位索引。IROM 和 MMIO 保持原地址。
+AMP 板级仅引出 hart0 UART TX，RX 接空闲；独立 MSH 板级顶层另接 B24 RX、C24 TX。
 
 \paragraph{指令集支持}
 
@@ -245,7 +303,9 @@ SW、KEY 和计数器，图~\ref{fig:soc-framework} 给出系统连接。
     RV32I 控制流 & \code{beq, bne, blt, bge, bltu, bgeu, jal, jalr} \\
     RV32M & \code{mul, mulh, mulhsu, mulhu, div, divu, rem, remu} \\
     Zicsr & \code{csrrw, csrrs, csrrc, csrrwi, csrrsi, csrrci} \\
-    特权相关 & \code{ecall, mret}；\code{ebreak} 可被识别，尚不作为完整调试异常实现 \\
+    环境与特权 & \code{ecall, mret}、机器定时器中断；\code{ebreak} 退休后停机 \\
+    屏障 & \code{fence} 等待 LSU 和外设桥空闲；\code{fence.i} 暂复用屏障，无 ICache 失效功能 \\
+    自定义扩展 & custom-0 \code{CRC8}，两阶段完成 \\
     \bottomrule
   \end{tabularx}
 \end{table}
@@ -253,26 +313,47 @@ SW、KEY 和计数器，图~\ref{fig:soc-framework} 给出系统连接。
 \paragraph{总体结构}
 
 \cpuname{} 采用顺序、单发射、单提交结构，每周期最多接收并提交一条指令。
-前端分为 IF1、IF2、ID、ISS，后端分为 EX1、EX2、EX3、EX4、WB，具体功能见图~\ref{fig:current-pipeline} 及下文。
+表~\ref{tab:current-stages} 列出取指功能与核内阶段。IF1/IF2 分别表示取指请求和响应，二者通过握手和队列衔接。
+
+\begin{table}[H]
+\centering
+\caption{当前取指功能及核内流水阶段}
+\label{tab:current-stages}
+\begin{tabularx}{\linewidth}{@{}P{2.0cm}X@{}}
+\toprule
+阶段或功能 & 当前职责 \\
+\midrule
+取指请求（原 IF1） & PC 选择、BPU 提前查询、IROM/ICache 请求；仅握手后推进正常取指 PC \\
+取指响应（原 IF2） & 两项元数据队列与响应配对，再经八项前端队列送往 ID；Cache miss/反压时延迟可变 \\
+ID & 译码、立即数、控制信号和源寄存器地址；提前发起同步 GPR 读取 \\
+ISS & 同步 GPR 数据对齐、相关检查与旁路、提前 AGU；向 DCache 发起查表 \\
+EX1 & ALU、BRU、CSR、CRC8 第一阶段、启动乘除法；向 LSU 的 LS1 提交访存地址和 Store 数据 \\
+EX2 & DCache 命中结果及 CRC8 第二阶段；确认 cacheable Load miss 和相关指令 replay；消费 HZU 寄存后的重定向 \\
+EX3 & 选择外部返回的慢路径 Load 数据，已命中结果继续传递 \\
+EX4 & 传递执行结果、寄存器写回和退休元数据至 WB \\
+WB & 选择普通/乘除法结果，GPR 写回与顺序退休；EBREAK 触发停机 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+BRU 在 EX1 计算真实控制流，HZU 寄存一拍后发出重定向，清除错误路径的前端、ID/ISS 和 ISS/EX1 内容，保留更老的后端指令。
+LSU 请求未被桥接受时冻结相关流水级；数据相关在 ISS 互锁并向 EX1 注入气泡；长操作未完成时保持顺序提交。
+当前 Load 采用命中时机预测，若 EX2 确认 DCache miss 且较年轻 EX1 指令依赖该结果，则重放该消费者。
 
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=\textwidth,height=0.68\textheight,keepaspectratio]{MundusPipeline.png}
-\caption{当前 \cpuname{} 九阶段单发射处理器结构}
+\caption{旧版 Mundus 九阶段示意}
 \label{fig:current-pipeline}
 \end{figure}
 
-九级流水线依次划分为 IF1、IF2、ID、ISS、EX1、EX2、EX3、EX4 和 WB。IF1 负责 PC 选择、预测请求和同步 IROM 地址发起，IF2 将一拍后返回的指令与 PC、顺序 PC 及预测元数据对齐；ID 完成译码和立即数生成，ISS 完成同步 RegisterFile 读取、相关性检查、旁路选择及访存地址生成；EX1 分别开始执行 ALU、Branch、CSR 运算、访存、乘除法流水线，在 EX1 末期返回 ALU 结果，EX2 接收 LSU 返回的 Load Word 结果，EX3 开始分支预测检测并接收 LSU 返回的 Load Half/Byte 结果，EX4 向 LSU 提供 Store data，并广播分支预测错误的 flush 信号，用于冲刷流水线寄存器以及写入 CSR、存储器操作；WB 作为统一顺序提交与 RegisterFile 写回点。
-
-控制冒险发生时清空相应阶段流水线寄存器上的错误路径指令；普通数据相关在 ISS 阶段互锁并向 EX1 注入气泡；除法结果未完成时则冻结需要保持精确顺序的流水级。
-
 \paragraph{RTL 前端设计}
 
-当前前端由 PC 选择逻辑、BPU、同步 IROM、取指元数据寄存器以及 IF/ID 输出通路组成，
-如图~\ref{fig:frontend-architecture} 所示。BPU 以 Bimodal 预测器判断跳转方向，
+当前前端由 PC 选择逻辑、BPU、ICache/直通接口、两项取指元数据队列、八项前端队列和 IF/ID 输出通路组成。
+图~\ref{fig:frontend-architecture} 预留当前前端结构图，ICache 及其队列配合详见下文。BPU 以 Bimodal 预测器判断跳转方向，
 通过 BTB 保存历史跳转目标，并可选配返回地址栈 RAS 预测函数返回地址。PC 用于驱动
 IROM 取指并生成对应的请求元数据；IROM 返回指令后，与 \id{FetchMeta} 中保存的
-PC 及预测信息对齐，共同组成取指响应并送入 IDU。
+PC 及预测信息对齐，再经前端队列送入 IDU。
 
 RAS 对函数调用与返回较频繁的程序具有较明显的预测收益，\textbf{但对于此类控制流较少的程序，
 准确率改善可能较为有限；与此同时，RAS 及其更新、选择逻辑也会增加一定的硬件资源和
@@ -281,22 +362,21 @@ RAS 对函数调用与返回较频繁的程序具有较明显的预测收益，\
 关闭该配置时，上述模块、接口和数据通路均不参与硬件例化，BPU 仅使用 Bimodal 与 BTB
 完成分支预测。
 
-上述预测参数可通过 menuconfig 界面统一配置，如图~\ref{fig:branch-menuconfig} 所示。
-设计者可以选择分支预测策略，设置 BTB 索引宽度和 Bimodal 计数器位宽，并独立控制
-RAS 是否启用及其索引宽度。配置结果会在生成 RTL 时生效，从而在预测能力与硬件开销
-之间进行取舍。
+当前 ARES 核由仓库内的 \code{gen/configs/scsrc/autoconf.scala} 配置并经 \code{make pipeline-core-gen} 生成 RTL，手写 Verilog 参数需同步核对。
+图~\ref{fig:branch-menuconfig} 展示原 NPC 工程的 menuconfig 界面。
 
 \begin{figure}[htbp]
   \centering
   \includegraphics[width=0.94\linewidth,height=0.68\textheight,keepaspectratio]{menuconfig_branch_predict.png}
-  \caption{分支预测单元的 menuconfig 配置界面}
+  \caption{原 NPC 工程的 menuconfig 配置界面（历史资料）}
   \label{fig:branch-menuconfig}
 \end{figure}
 
 \begin{figure}[htbp]
   \centering
-  \includegraphics[width=0.98\linewidth,height=0.68\textheight,keepaspectratio]{front_arch.png}
-  \caption{当前 RTL 前端总体结构}
+  \fbox{\parbox{0.92\linewidth}{\small\textbf{TODO：绘制当前前端架构图。}\\
+  展示 PC/BPU、ICache/直通适配器、两项元数据队列、八项 fall-through 队列、IF/ID 接口，以及请求/响应握手、槽位预留和 redirect 清理。}}
+  \caption{当前前端与取指队列结构（待绘制）}
   \label{fig:frontend-architecture}
 \end{figure}
 
@@ -329,7 +409,7 @@ RAS 是否启用及其索引宽度。配置结果会在生成 RTL 时生效，�
 \end{adjustbox}
 \end{table}
 
-EX1 得到真实控制流结果后，将实际方向反馈给预测器。对应索引项已经有效时，计数器根据
+EX1 得到真实控制流结果后，经 HZU 寄存一拍，将实际方向反馈给预测器。对应索引项已经有效时，计数器根据
 实际结果向 STK 或 SNTK 饱和更新；空表项首次记录一次实际跳转时，计数器从 WTK
 开始。复位时计数器初始化为 WNTK，使尚未完成训练的表项倾向于预测不跳转。
 
@@ -378,17 +458,17 @@ BTB 中保存的历史目标；若 RAS 为空，则退回普通 Bimodal 与 BTB 
 \medskip
 \noindent\textbf{BTB 表项与命中更新}\par
 
-BTB 采用直接映射结构，当前配置 \id{BTB_WIDTH=8}，共有 $2^8=256$ 个表项。
+BTB 采用直接映射结构，当前配置 \id{BTB_WIDTH=4}，共有 $2^4=16$ 个表项。
 每个表项包含 \id{valid}、\id{tag}、历史跳转目标 \id{target}、Bimodal 的 2 bit
 \id{counter} 以及返回指令标志 \id{is_return}，相关阵列被约束为 Distributed RAM。
-取指 PC 按 4 字节对齐，\id{PC[9:2]} 用作索引，\id{PC[31:10]} 用作 tag；索引
+取指 PC 按 4 字节对齐，\id{PC[5:2]} 用作索引，\id{PC[31:6]} 用作 tag；索引
 选出候选表项后，再由 valid 和 tag 比较确认其是否属于当前 PC，基本结构如图
 ~\ref{fig:bimodal-btb} 所示。
 
 \begin{figure}[htbp]
   \centering
   \includegraphics[width=0.96\linewidth,height=0.68\textheight,keepaspectratio]{btb.png}
-  \caption{Bimodal、BTB 与 RAS 预测选择结构}
+  \caption{Bimodal、BTB 与 RAS 原理图（当前几何为 16 项 BTB、8 项 RAS）}
   \label{fig:bimodal-btb}
 \end{figure}
 
@@ -407,7 +487,7 @@ BTB 采用直接映射结构，当前配置 \id{BTB_WIDTH=8}，共有 $2^8=256$ 
          \land \mathrm{is\_return\_r}.
   \end{aligned}
 \end{equation}
-未命中或最终预测不跳转时，IFU 选择 \id{PC+4}。EX1 确认控制流指令实际跳转后，
+未命中或最终预测不跳转时，IFU 选择 \id{PC+4}。EX1 的控制流更新经 HZU 寄存后，
 BTB 写入 valid、tag、target 和 \id{is_return}；同时按实际方向训练对应的 Bimodal
 计数器。复位时所有 valid 清零、counter 初始化为 WNTK；tag、target 和
 \id{is_return} 不复位，其无效内容由 valid 屏蔽。控制冒险通过比较预测下一 PC 与
@@ -459,57 +539,155 @@ RAS 选择、多级选择和 32 bit 加法，仍是前端综合与布局布线�
 后续请求恢复时优先使用暂存结果，并在请求被接受后清除暂存有效位。固定的一拍响应保证了
 同一时刻最多只有一个需要暂存的预测。
 在重定向的时候，redirect信号用于防止错误路径的预测在流水线冲刷后再次生效。当\id{redirect} 拉高时，IFU
-在当拍禁止新请求并清除预测暂存；下一拍也不会产生与旧请求对应的有效 BPU 响应，因而
-旧路径的预测方向和目标不会被重新消费。
+在当拍禁止新取指并清除预测暂存，同时向 BPU 查询重定向目标。下一拍返回的是新目标的预测；元数据和前端队列也同时清空，旧路径指令不会再次被消费。
 
-\subparagraph{取指单元 IFU 与同步 IROM}
+\subparagraph{取指单元 IFU 与 IROM 握手}
 
-指令存储器采用的是 Block Memory Generator 生成的单端口 ROM，有一拍的读延迟，因此 IROM 是同步读：
-第 $N$ 拍给出地址 $P$，第 $N+1$ 拍才得到
-inst$(P)$。IFU 使用 \id{fetchRespValid} 表示这一拍返回是否属于有效请求，并在
-\id{fetchRespMeta} 中保存请求 PC、顺序 PC、预测方向和预测目标。IROM 数据返回后，
-再与这组元数据组合成 IF/ID payload，避免使用已经前进后的当前 PC。
-
-表~\ref{tab:frontend-timing} 给出无 stall、无 redirect 且下游可接收时的稳态时序。
-其中 $Q$ 是根据 $P$ 的预测得到的下一地址，$R$ 是根据 $Q$ 的预测得到的再下一地址。
+底层 \code{IROM_BMEM32} 是 8192 $\times$ 32 bit 的同步存储包装，直通适配器读延迟为一拍；核心所见响应延迟由所选 ICache/适配器决定。
+IFU 在 \code{req_valid && req_ready} 时将 PC、顺序 PC 和预测信息入队 \code{metaVec}，在响应握手时用队首元数据配对指令，并推进 \code{metaCount}；最多两项在途请求。
+当前八项前端队列保存已返回指令，发出请求前按队列占用和在途数量预留空间，避免后端停顿造成响应丢失。Cache 负责在 \code{rsp_ready} 为低时保持响应。
 
 \begin{table}[H]
-  \centering
-  \caption{BPU 提前预测与同步 IROM 的稳态对齐}
-  \label{tab:frontend-timing}
-  \begin{tabularx}{0.98\textwidth}{P{3.0cm}YYY}
-    \toprule
-    信号/动作 & 第 $N$ 拍 & 第 $N+1$ 拍 & 第 $N+2$ 拍 \\
-    \midrule
-    PC 寄存器 & $P$ & $Q$ & $R$ \\
-    IROM 地址 & $P$ & $Q$ & $R$ \\
-    IROM 输出 & 前一请求数据 & inst$(P)$ & inst$(Q)$ \\
-    BPU 请求 PC & $Q$ & $R$ & 下一候选地址 \\
-    BPU 有效响应 & pred$(P)$ & pred$(Q)$ & pred$(R)$ \\
-    响应元数据 & 准备 $P$ & $P$ 有效，准备 $Q$ & $Q$ 有效，准备 $R$ \\
-    IROM 响应组合 & 前一请求 & inst$(P)$ 与 $P$ 的元数据 & inst$(Q)$ 与 $Q$ 的元数据 \\
-    \bottomrule
-  \end{tabularx}
+\centering
+\caption{取指握手、背压与重定向规则}
+\label{tab:frontend-timing}
+\begin{tabularx}{\linewidth}{@{}P{3.3cm}X@{}}
+\toprule
+事件 & PC、元数据和指令的处理 \\
+\midrule
+请求握手 & 推进 PC/BPU，并将本次请求的 PC 与预测信息入队 \\
+响应握手 & 队首元数据与指令配对，送入前端队列或直接交给下游 \\
+Cache miss / 反压 & 未握手请求不推进 PC；已接受请求继续占用预留槽 \\
+后端停顿 & 已返回指令留在前端队列；空间用尽后停止发新请求 \\
+Redirect & 重置 PC，清元数据与前端队列、旧预测暂存；\code{irom.flush} 清理取指事务状态 \\
+\bottomrule
+\end{tabularx}
 \end{table}
 
-目前使用一个响应槽FetchMeta连接同步 IROM 与 IF/ID 接口。
-\id{fetchRespValid} 表示响应槽中保存的请求元数据以及
-当前 IROM 输出是否有效。当响应槽为空，或其中的指令正在被下游接收时，IFU
-允许同拍消费旧响应并发出下一次请求，因此如果下游持续 ready 时，前端仍可
-保持每周期一次取指请求。
+单核默认四路 ICache 命中延迟为两拍，流水化命中路径可每拍接受一条请求；refill 和重定向会增加等待。
 
-当 \id{fetchRespValid} 有效但下游停顿时，IFU会停止新请求和 PC 更新，
-并将 IROM 地址保持为响应槽中的PC，使同步 ROM 输出的
-指令与已保存的 PC、顺序 PC 和预测信息保持一致，直到该响应被下游接收。数据路径为
-PC 寄存器 $\rightarrow$ IROM 地址选择 $\rightarrow$ BRAM 同步输出
-$\rightarrow$ 指令与 \id{fetchRespMeta} 组合 $\rightarrow$ IF/ID 接口。
-单响应槽结构的关键控制路径为下游 \id{ready} 与 \id{fetchRespValid}
-$\rightarrow$ \id{respSlotHolding} $\rightarrow$ \id{fetchReqFire}
-$\rightarrow$ PC 写使能、BPU 请求有效以及响应元数据更新。
+\subparagraph{指令缓存 ICache}
+\label{subsec:icache-design}
 
-当预测错误需要重定向时，优先级高于正常取指，IFU 会禁止新请求、屏蔽 IF/ID 输出，
-并将 PC 更新为 HZU 给出的真实下一地址，同时清除 \id{fetchRespValid}来保证暂存数据无效。下一拍 IFU 从
-重定向地址重新发起取指，旧路径响应因有效位已清除而不会再次成为有效事务。
+\Needspace{4\baselineskip}
+\medskip
+\noindent\textbf{接入位置与设计目标}\par
+
+ICache 位于 IFU 与只读 IROM 之间，提供每次一条 32 bit 指令的请求/响应接口。其目标是将前端的取指节奏与底层同步存储器解耦，并利用流水化命中路径维持单发射所需的每拍一条取指吞吐。
+当前连接为 IFU $\rightarrow$ \code{pipeline_icache} $\rightarrow$ \code{pipeline_irom_passthrough} $\rightarrow$ \code{IROM_BMEM32}。ICache 以整行缓存指令，回填适配器将一行拆为连续的 32 bit IROM 读取。
+
+\code{USE_ICACHE=1} 选择缓存路径，\code{USE_ICACHE=0} 仅保留一拍直通适配器，两者向 IFU 提供相同的握手信号。\code{ICACHE_PIPE_HITS=1} 允许命中流水重叠，置 0 则保留串行请求节奏，用于对照取指吞吐的影响。
+AMP 在每个 \code{student_top} 内例化同一主线四路缓存；各 hart 拥有私有缓存和私有 32 KiB IROM，执行相同的只读代码镜像。
+
+\begin{figure}[htbp]
+\centering
+\fbox{\parbox{0.92\linewidth}{\small\textbf{TODO：绘制 ICache 内部架构图。}\\
+标出请求地址寄存、valid/tag/age 目录、提前路选择、同步数据 BRAM、选字逻辑、响应槽、回填缓冲与状态机；区分 IFU 握手口和 IROM 逐字回填口。}}
+\caption{ICache 内部结构（待绘制）}
+\label{fig:icache-architecture}
+\end{figure}
+
+\Needspace{4\baselineskip}
+\medskip
+\noindent\textbf{容量、地址划分与存储组织}\par
+
+缓存容量满足 $C=S\times W\times B$，其中 $S$ 为组数，$W$ 为路数，$B$ 为行字节数。三类当前配置的地址划分见表~\ref{tab:icache-address-fields}；其中 AMP 的 \code{ICACHE_LINES} 表示总行数，例化主线缓存时除以 4 得到组数。
+
+\begin{table}[H]
+\centering
+\caption{当前四路 ICache 配置与地址划分}
+\label{tab:icache-address-fields}
+\begin{tabularx}{\linewidth}{@{}P{2.8cm}C{1.7cm}C{1.1cm}XXX@{}}
+\toprule
+配置 & 容量 & 组数 & tag & index & 行内偏移 \\
+\midrule
+单核默认 & 4 KiB & 32 & \code{PC[31:10]} & \code{PC[9:5]} & \code{PC[4:0]} \\
+AMP 默认/hart & 16 KiB & 64 & \code{PC[31:12]} & \code{PC[11:6]} & \code{PC[5:0]} \\
+AMP 板级/hart & 32 KiB & 128 & \code{PC[31:13]} & \code{PC[12:6]} & \code{PC[5:0]} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+指令按 4 字节对齐，行内偏移最低两位不参与选字，其余位选择该行中的第几条指令。32 B 行包含 8 条指令，64 B 行包含 16 条指令；返回端始终只输出其中一条，不进行跨行拼接，也不支持 16 bit 压缩指令的半字取指。
+
+目录以展平数组保存每组各路的 valid、tag 和 age，数据阵列则以 \code{{way,set}} 为地址，一项存放完整缓存行。单核默认数据项宽度为 256 bit，AMP 配置为 512 bit。
+目录在组合逻辑中比较请求 tag，提前选择数据阵列读地址；同步 BRAM 只读命中路的一整行，再根据保存的字偏移选择 32 bit 指令。这避免了为了并行读出四路数据而复制整套数据阵列，代价是 tag 比较与路选择位于 BRAM 读地址之前。
+
+\Needspace{4\baselineskip}
+\medskip
+\noindent\textbf{命中流水与响应保持}\par
+
+设周期 $T$ 中请求 $P$ 握手：时钟沿保存其 tag、组号和字偏移，并完成对应数据行的同步读取；接下来的 \code{S_LOOK} 周期确认命中，将选出的指令写入响应槽，随后对 IFU 置 \code{rsp_valid}。按该接口的周期划分，命中延迟为两拍。
+
+缓存以 \code{out_free = !rsp_valid_r || rsp_ready} 判断响应槽是否可写。响应槽已满且下游不接收时，原响应保持不变，当前查找结果转入 \code{S_RESP} 等待；空间释放后再写入该结果。因此，已返回的响应不会因下一次查找而被覆盖。
+\code{PIPE_HITS=1} 时，\code{S_LOOK} 命中且响应槽可写的同拍可以接受下一个请求，将当前结果写入响应槽，同时为下一请求读取数据行，稳态达到每拍接受一条请求、每拍返回一条指令。
+请求到响应的命中延迟为两拍，连续命中吞吐为一条/拍。流水最多同时容纳一个响应槽和一个查找请求，miss 期间暂停接受新请求。
+
+\Needspace{4\baselineskip}
+\medskip
+\noindent\textbf{替换策略与逐字回填}\par
+
+每组四路的 age 保持为 $0,1,2,3$ 的一个排列，0 表示最近访问，3 表示最久未访问。命中路更新为 0，原来比它更新的各路 age 加 1；回填安装时也按此规则将被填入路设为最近使用。
+未命中时选择 age 为 3 的路作为 victim，并锁存行首地址、tag、组号和路号。该 age 排序实现四路 LRU 替换。
+
+回填阶段分别维护 \code{beat_issue} 和 \code{beat_rsp}：请求握手才推进发出计数，响应握手才将数据写入对应 \code{refill_buf} 项并推进接收计数。
+第 $i$ 个请求的字节地址为 $\mathrm{line\_base}+4i$，单核默认发出 8 个字请求，AMP 的 64 B 行发出 16 个。最后一个响应到达后，缓冲中的字按地址递增顺序组成整行，再写入数据阵列和目录。
+缓存等待整行完成后重新查找原请求，每次处理一个 miss。
+
+\begin{table}[H]
+\centering
+\caption{ICache 状态与转移条件}
+\label{tab:icache-fsm}
+\begin{tabularx}{\linewidth}{@{}P{2.6cm}X@{}}
+\toprule
+状态 & 工作及后续状态 \\
+\midrule
+\code{S_IDLE} & 等待请求握手，保存地址并进入 \code{S_LOOK} \\
+\code{S_LOOK} & 命中且响应槽可写时提交响应；若同拍接受新请求则继续查找，否则回到空闲。响应槽被占用则转 \code{S_RESP}；miss 则锁存 victim 并进入回填 \\
+\code{S_REFILL} & 逐字发出请求并接收响应，收齐一行后转 \code{S_FILL} \\
+\code{S_FILL} & 安装数据行，写 tag/valid 并更新 age，随后转 \code{S_RELOOK} \\
+\code{S_RELOOK} & 从新安装的数据行发起同步读取，再转 \code{S_LOOK} \\
+\code{S_RESP} & 保持待提交结果，响应槽可写后提交；可同时接收下一请求 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{figure}[htbp]
+\centering
+\fbox{\parbox{0.92\linewidth}{\small\textbf{TODO：绘制 ICache 命中与回填时序图。}\\
+分别展示连续命中、响应背压和 miss 回填；标出两拍命中延迟、一条/拍稳态吞吐、最后一字返回后的安装及重查周期，以及 \code{beat_issue/beat_rsp} 的独立推进。}}
+\caption{ICache 命中、背压与回填时序（待绘制）}
+\label{fig:icache-timing}
+\end{figure}
+
+\Needspace{4\baselineskip}
+\medskip
+\noindent\textbf{IFU 元数据与前端队列的配合}\par
+
+ICache 只返回指令字，不回送 PC、请求编号或预测信息。因此 IFU 要求响应按请求接受顺序返回，并用两项元数据队列 \code{metaVec} 保存每个在途请求的 PC、顺序 PC、预测方向与预测下一 PC。
+请求握手将元数据压入队尾，响应握手将队首与 \code{rsp_data} 配对。压入和弹出同拍发生时复用腾出的槽位，使前端不必等队列完全清空才继续取指。
+
+已配对的指令进入深度为 8 的 fall-through 前端队列。队列为空且 ID 可接收时，响应直接旁通给下游；队列已有较老指令或下游暂停时，响应存入队尾，下一次优先输出队首，保持程序顺序。
+IFU 使用 $\mathrm{reservedCount}=\mathrm{fqCount}+\mathrm{metaCount}$ 预留空间，只有该值小于 8 且元数据队列有容量时才允许发出新的取指请求。判断有意不计入本拍可能出队的收益，使后端 ready 不直接串回 PC/BPU 请求生成路径。
+八项容量由已返回指令和在途请求共同预留。
+
+\Needspace{4\baselineskip}
+\medskip
+\noindent\textbf{重定向、复位与统计}\par
+
+分支纠正、Load 消费者重放或中断进入均通过 IFU 的 redirect 清理旧路径：禁止本拍新取指，清空元数据和前端队列，切换 PC，并向 ICache 及其直通回填适配器同时发出 \code{flush}。
+缓存清理事务状态和响应有效位，停止接收当前回填，并保留目录中的 tag/valid。直通适配器同时清除 pending，丢弃旧响应。
+
+\textbf{已知实现缺陷：安装与 flush 同拍时可能破坏有效缓存项。}数据阵列的 \code{fill_we} 仅由 \code{S_FILL} 状态生成，而目录安装受主状态机的 rst/flush 优先分支约束；若安装当拍发生 flush，数据写仍执行、目录更新却被屏蔽，从而可能保留旧 tag 却写入新行数据。
+Icarus 定向检查的复现过程为：测试台先将 valid 预置为零以隔离上电初始化问题，再填入同组的 \code{0x80000000/0x80000400/0x80000800/0x80000C00}；对 \code{0x80001000} 的回填在 \code{S_FILL} 当拍 flush，随后重取 \code{0x80000000}，复现命中旧 tag 却返回新行数据。
+该缺陷待修复，修复后的回归应覆盖有效 victim、flush 与普通复位的安装同拍组合。
+
+普通 \code{rst} 清状态机、响应槽和计数器，将每组 age 置为路号，保留 valid/tag/data。该复位方式要求 IROM 镜像保持不变；有效位的上电初始化待验证。
+\code{FENCE.I} 复用访存屏障，ICache 失效功能尚未实现。
+
+模块提供请求、miss、安装完成及响应提交四个 64 bit 计数器，\code{student_top} 在 EBREAK 退休时触发统计输出。其中 \code{hit_count} 是响应提交计数，包含 miss 回填后重查成功的响应。性能记录分别列出请求、miss、完成回填和响应提交数，并注明 Cache 配置与镜像。
+
+本节对应 \code{core/vsrc/icache/pipeline_icache.v}、\code{core/scsrc/ifu/IFU.scala} 和 \code{soc/jyd/pipeline_irom_passthrough.v}，路径均相对 \code{rtl/pipeline/}。集成验证入口包括 smoke、ISA、CoreMark 及 Cache 开关对照测试。
 
 \subparagraph{译码单元 IDU}
 
@@ -532,13 +710,13 @@ R、I、S、B、U、J 和 CSR 格式生成立即数。集中式译码表同时�
 \begin{figure}[htbp]
   \centering
   \includegraphics[width=\textwidth,height=0.68\textheight,keepaspectratio]{execution_pipeline.png}
-  \caption{后端流水线架构}
+  \caption{旧版 Mundus 后端架构}
   \label{fig:backend_pipeline}
 \end{figure}
 
 \subparagraph{发射与旁路单元 ISU}
 
-ISU 负责 RegisterFile 旁路修正、数据相关检查和发射。ISU 的 interlock 信号，为 ISS 流水线阶段自锁信号，依据冒险在哪一流水线阶段产生，生产者能否满足消费者的需求而生成。（旁路及冒险相关内容，在第~\ref{subsec:bypass}~小节详细阐述）RegisterFile 的读地址通常由 ID 阶段提前提供，使同步读数据在指令进入 ISS 时对齐；若 ISS 因相关或除法未完成执行而停顿，则读地址保持当前指令，避免寄存器值错位。
+ISU 负责 RegisterFile 旁路修正、数据相关检查和发射。ISU 的 interlock 信号，为 ISS 流水线阶段自锁信号，依据冒险在哪一流水线阶段产生，生产者能否满足消费者的需求而生成。（旁路及冒险相关内容，在第~\ref{subsec:bypass}~小节详细阐述）RegisterFile 的读地址由 ID 提前提供，使同步读数据在指令进入 ISS 时对齐；相关、长操作、桥反压或中断排空造成保持时，读使能关闭，已读数据与寄存的提前比较结果一同保持，避免与 ISS 指令错位。
 
 本设计将访存地址的计算提前到 ISS 阶段，这虽然会导致 AGU 无法旁路 EX1 的数据，产生一个周期的 use-load stall，但是可以减少一个周期的 load-use stall。根据我们对汇编代码的分析，use-load stall的发生频率，往往比 load-use stall 要低。
 
@@ -553,96 +731,255 @@ ISU 负责 RegisterFile 旁路修正、数据相关检查和发射。ISU 的 int
 
 \subparagraph{执行单元 EXU}
 
-EXU 为四级流水线单元，分为 EX1--EX4 四个流水线阶段。
+EXU 由 EX1--EX4 四个阶段组成：EX1 完成 ALU、BRU、CSR、CRC8 第一阶段并发出 LSU/乘除法请求；EX2 接收 DCache 命中数据、完成 CRC8 并判断 Load miss replay；EX3 接收慢路径 Load；EX4 向 WB 传递结果和退休信息。
 
-EX1 完成 ALU、运算，以及向LSU、乘除法器发送相应请求；
-EX2 从 LSU 获取 load-word 访存结果；
-EX3 从 LSU 获取 load-half/byte 访存结果，并交由 BRU 完成 Branch 计算，寄存 control-hazard 信号，产生控制冒险判断结果；
-EX4 向 LSU 发送 store data 写数据，并向前后端广播control-hazard，进行流水线寄存器冲刷。
-
-ALU 支持 32 位加减、按位逻辑、逻辑/算术移位和有符号/无符号比较。
-BRU 支持六类条件分支及 JAL/JALR，产生真实 next PC。JALR 的最低位清零，保证目标地址符合规范。
+ALU 支持 32 位加减、按位逻辑、移位及有符号/无符号比较。
+BRU 在 EX1 处理六类条件分支和 JAL/JALR，JALR 目标最低位清零；HZU 将结果寄存一拍后协调重定向。
 
 \subparagraph{乘除法单元}
 
-乘法器使用 Vivado Multiplier IP 核，经过 4 周期固定延迟，计算得出 64 bit 乘积，由 WBU 根据 MUL、MULH、MULHSU、MULHU 指令decode生成的控制信号，选择低 32 bit或高 32 bit。当前配置乘法延迟为 4 周期。
+当前 Pango 文件表使用 \code{soc/ip/mult.v} 和 \code{soc/ip/div.v} 的可综合 RTL，手写 \code{Multiplier/Divider} 包装连接核接口。
+乘法器以 33 bit 带显式符号的操作数形成四个部分积，再分级相加，固定四拍输出低 64 bit 乘积；WBU 按 MUL/MULH/MULHSU/MULHU 选择高低部分。
+除法底层执行 16 次 radix-4 无符号迭代，核侧负责符号与除零结果，控制器固定延迟参数为 35。较新的 DIV/REM 在已有长操作在途时留在 ISS；WB 等待长操作结果以保持顺序提交。
 
-除法器使用 Vivado Divider IP 核，经过固定周期延迟，支持有符号和无符号商/余数运算。为维持顺序提交，较新的 DIV/REM 在已有除法在途时停留于 ISS；当除法到达 WB 但结果尚未完成时，全流水线冻结。
+\subparagraph{浮点运算能力}
 
-\subparagraph{浮点运算单元}
+RV32F 尚未集成到 ARES 核。
 
-由于 IP 核提供的乘除、乘加、加减单元均只有 RNE 的舍入模式，而 F 扩展要求有 5 种
-舍入模块，同时 IP 核缺少 NX 异常输出，因此本处理器的浮点运算单元均不使用 IP 核而
-独立实现，目前除乘除、乘加单元其它运算单元已经实现。由于尚未完整实现 FPU 且目前的
-测试程序暂时不对 F 扩展进行测试，因此没有在代码配置中开启 F 扩展的使用。
+
 
 \subparagraph{CSR 与异常处理}
 
 CSR 单元通过掩码选择目标寄存器，并对 RW、RS、RC 三类命令执行覆盖、置位和清位。
-立即数 CSR 指令将 zimm 零扩展后复用同一写数据通路。当前基础 CSR 如表
-~\ref{tab:csr} 所示。
+立即数 CSR 指令将 zimm 零扩展后复用同一写数据通路。当前启用 CSR 如表~\ref{tab:csr} 所示。
 
 \begin{table}[H]
-  \centering
-  \caption{机器模式 CSR 实现}
-  \label{tab:csr}
-  \begin{adjustbox}{max width=\linewidth}
-\begin{tabular}{cccP{7.0cm}}
-    \toprule
-    CSR & 地址 & 复位值 & 用途 \\
-    \midrule
-    \id{mstatus} & \id{0x300} & \id{0x00001800} & 保存 MIE/MPIE 等机器模式状态 \\
-    \id{mtvec} & \id{0x305} & 0 & Direct 模式异常入口地址 \\
-    \id{mscratch} & \id{0x340} & 0 & 当前配置可选并已使能 \\
-    \id{mepc} & \id{0x341} & 0 & 保存触发 ECALL 指令的 PC \\
-    \id{mcause} & \id{0x342} & 0 & ECALL from M-mode 写入 11 \\
-    \bottomrule
-  \end{tabular}
-\end{adjustbox}
+\centering
+\caption{当前机器模式 CSR}
+\label{tab:csr}
+\begin{tabularx}{\linewidth}{@{}P{2.0cm}P{1.5cm}P{2.4cm}X@{}}
+\toprule
+CSR & 地址 & 复位值 & 实现语义 \\
+\midrule
+\code{mstatus} & \code{0x300} & \code{0x00001800} & MIE/MPIE 可写，MPP 固定 M 模式 \\
+\code{mie} & \code{0x304} & 0 & 仅 MTIE（bit7） \\
+\code{mtvec} & \code{0x305} & 0 & 仅 Direct 模式，低两位清零 \\
+\code{mepc} & \code{0x341} & 0 & ECALL 的 PC 或中断恢复 PC，低两位清零 \\
+\code{mcause} & \code{0x342} & 0 & ECALL=11；机器定时器中断=\code{0x80000007} \\
+\code{mip} & \code{0x344} & MTIP 随输入 & bit7 反映 \code{timer_irq}，CSR 写不清 pending \\
+\bottomrule
+\end{tabularx}
 \end{table}
 
-执行 ECALL 时，CSR 单元将当前指令 PC 写入 \id{mepc}，将 11 写入
-\id{mcause}，把原 MIE 保存至 MPIE 并清零 MIE，随后 PC 重定向至
-\id{mtvec}。执行 MRET 时，PC 重定向至 \id{mepc}，MIE 恢复为 MPIE，MPIE
-置 1。该流程与区域赛给出的最小 trap 测试范围一致。
+\code{mscratch}（\code{0x340}）和 \code{misa}（\code{0x301}）为可选 CSR，当前生成配置关闭。
+ECALL 保存当前 PC 和原因 11，MIE 保存到 MPIE 后清零，再转至 \code{mtvec}；MRET 恢复 MIE、置 MPIE 并跳至 \code{mepc}。
+机器定时器中断在 MIE、MTIE 与 pending 同时有效时停止新发射，等待后端、乘除法、LSU 和桥排空，通过寄存的空闲状态进入 trap。\code{mepc} 使用最后退休指令的真实下一 PC；中断返回原 \code{mepc}，ECALL 软件处理后通常将其加 4。
+该 CSR 与 trap 流程支持 RT-Thread Nano 单核运行。
 
-\subparagraph{访存单元 LSU}
+\subparagraph{数据缓存 DCache}
+\label{subsec:dcache-design}
 
-LSU 接收已由 ISU/AGU 计算的地址、写数据、访问宽度和读写属性。对 Store 指令，
-PERIP 写使能只在请求真正握手时产生；对 Load 指令，LSU 将返回数据按 byte、half、
-word 截取，并依照 LB/LH 或 LBU/LHU 做符号/零扩展。若下游暂停，返回结果通过保持
-寄存器保存，避免存储器返回数据丢失。
+\Needspace{4\baselineskip}
+\medskip
+\noindent\textbf{缓存范围与单字组织}\par
 
-在 LS4 阶段 LSU 才会将数据写回内存或外设，这可以延长数据准备的时间，减少因等待数据
-计算完成而停顿的时间，如 mul 指令要在 EX4 阶段才可以计算出，如果下一条指令要将 mul 指令
-的计算结果写入内存或外设，则 LSU 可通过数据前递将结果提供给 LS4，消除停顿。
+DCache 位于 LSU 内部，加速 \code{0x80100000--0x8013FFFF} 数据窗口的 Load 结果取得。cacheable 判断比较地址高 14 位；UART、计时器、加速器和 mailbox 等 MMIO 均不参与缓存，避免将具有副作用的寄存器读写当作普通内存访问。
+AMP 在 ISS 的 AGU 后、DCache 查表前对数据窗口地址加 \code{data_offset}，使缓存 tag、组号和后续 BRAM 访问使用同一偏移后的地址；IROM 与 MMIO 不经过该重定位。
 
-而将数据写回内存或外设的时机放在 LS4 阶段会与 LS1、LS2 可能的读指令产生结构冒险，这又会
-产生新的停顿。对于写外设和读操作，由于读写外设的顺序一般不可改变，所以优先保证写操作
-进行而将读指令进行停顿；对于写内存和读操作，则会先将要写入内存的数据写入 store buffer，
-而不让写指令占用总线的使用，优先进行读操作，写入 store buffer 的数据会在总线空闲时再后台
-自动写入内存。
+总容量为 8 KiB，按 $1024\ \mathrm{sets}\times2\ \mathrm{ways}\times4\ \mathrm{B}$ 组织。每项保存一个 32 bit 字，一次 miss 回填一个字。
+组索引为 \code{addr[11:2]}，tag 为 \code{addr[17:12]}，\code{addr[1:0]} 是字内字节偏移。可缓存窗口的高 14 位固定，目录仅保存其余地址中的 tag。
 
-\begin{figure}[htbp]
-  \centering
-  \includegraphics[width=\textwidth,height=0.68\textheight,keepaspectratio]{lsu architecture.png}
-  \caption{四级流水 LSU 架构图}
-  \label{fig:lsu architecture}
-\end{figure}
-
-数据写入 Store Buffer 时会先判断 Store Buffer 中有没有相同写入地址且有效的条目，如果有
-则将新的写入数据合并进旧的条目中，如果没有则写入到由 sb\_wr\_ptr 维护的 Buffer 队列末尾。
-若 sb\_count 为 4 则表示 Store Buffer 已满，需要停顿让 Store Buffer 有空间来接收新数据。
-
-在从 Store Buffer 中读数据时，会先判断读地址是否与 Store Buffer 中有效条目中的一条相同，
-若有则表示命中，会将从 Buffer 中读出的数据与从 Bram 读出的数据合并然后返回。
+每路各自例化一份 \code{DCacheData_BRAM} 与 \code{DCacheTag_BRAM}，分别保存数据和 \code{{valid,tag}}；另有一份每组 1 bit 的 \code{DCacheLru_BRAM} 保存最近使用路。各阵列均使用独立写口和同步读口，读地址直接来自 ISS，不在地址端串入命中、互锁或全组选择逻辑。
+两个 tag 和两个数据字并行读出，tag 比较后优先选择编号较小的命中路。命中判定和数据选择使用同一命中向量，避免二者选择不同的路。
 
 \begin{figure}[htbp]
-  \centering
-  \includegraphics[width=\textwidth,height=0.68\textheight,keepaspectratio]{store_buffer_architecture.png}
-  \caption{Store Buffer 结构示意图}
-  \label{fig:store_buffer_architecture}
+\centering
+\fbox{\parbox{0.92\linewidth}{\small\textbf{TODO：绘制两路单字 DCache 架构图。}\\
+标出 ISS 读地址、两路 Tag/Data BRAM、独立 LRU BRAM、tag 比较与选路、请求保持和响应寄存器、Store 合并旁路、refill 与一致性失效写入口。注明容量为 1024 组 $\times$ 2 路 $\times$ 4 B。}}
+\caption{两路 DCache 内部结构（待绘制）}
+\label{fig:dcache-architecture}
 \end{figure}
+
+\Needspace{4\baselineskip}
+\medskip
+\noindent\textbf{提前查表、命中返回与请求保持}\par
+
+DCache 的查表与正式接受请求分开进行。ISS 发射访存指令时，\code{lookup_addr} 已驱动全部 BRAM 的同步读地址；随后 LS1 中的地址及属性与读出结果对齐，只有 LSU 请求实际推进、且地址属于可缓存窗口时，才由 \code{req_valid} 接受这次缓存访问。
+命中向量、选中的数据、访问宽度、Store 属性和地址进入响应寄存器，在 LS2 提供给执行流水线。这样把较大的存储阵列读取放在 ISS 到 LS1 之间，LS1 到 LS2 主要承担 tag 比较和两路数据选择。
+
+长操作或桥背压使请求停留在 LS1 时，BRAM 地址仍跟随 ISS。缓存使用 \code{held_req_valid} 及对应的命中向量、数据和 victim 快照保存已完成的查表结果，直到该请求被接受或不再存在。
+保持槽保存尚未接受请求的查表结果，响应寄存器保存已接受请求的数据与属性。
+
+\Needspace{4\baselineskip}
+\medskip
+\noindent\textbf{替换、初始化与单字回填}\par
+
+每组优先选择无效路；两路均有效时，淘汰最近使用路的另一条路。\code{lru[s]} 实际保存 MRU 路号，命中访问和成功回填都会更新它；两路情况下一个 bit 即可表达 LRU 顺序。
+例如，同组的 A、B 均已驻留且最近访问 A，则下一次同组 miss 选择 B 所在路。若命中更新与回填更新争用同一个 LRU 写口，回填优先；丢失一次命中更新只影响替换选择，不改变已保存数据。
+
+victim 在接受请求时确定，并通过 LSU 的 \code{ls2_cache_way/ls3_cache_way} 随该 Load 传递。外部字返回时直接使用保存的路号安装，避免在回填阶段再读取 LRU 或根据已变化的组状态重新选择路。
+miss 所需的外部读由 PERIP 发出；LS3 消费返回时提供地址、完整 32 bit 原始字和 victim。LB/LH 等指令虽只写回扩展后的部分数据，缓存仍安装整个原始字，供后续不同宽度访问复用。
+
+复位通过 \code{tag_init_busy} 逐组清除两路 valid 并初始化 LRU，1024 组需要 1024 次写入；之后再用一拍 \code{tag_ready} 延迟排除最后一次同步旧读结果。
+数据 RAM 保留内容，由 valid 控制数据有效性。初始化期间关闭命中和回填安装，Load 通过外部慢路径完成。
+
+\Needspace{4\baselineskip}
+\medskip
+\noindent\textbf{写直达、Store 命中更新与旁路}\par
+
+所有 Store 都通过 PERIP 进入后备存储路径，DCache 不持有脏数据。命中 Store 在 LS2 将原字与写数据按字节掩码合并，更新缓存副本；未命中 Store 不分配新项，只完成外部写入，属于 write-through、no-write-allocate 策略。
+对每个被写字节，合并关系为
+\begin{equation}
+D_{\mathrm{new}}=(D_{\mathrm{old}}\land\neg M)\lor(D_{\mathrm{store}}\land M),
+\end{equation}
+其中 $M$ 是按地址低位和访问宽度生成的 32 bit 位掩码，写数据先移到目标 byte/half 所在的位置。
+访存处理限定在一个 32 bit 字内，半字和字访问遵循自然对齐。
+
+Store 更新所有在请求接受时匹配的路，而不只更新选出数据的最低编号路。提前选择 victim 的流水化回填可能使同一字短时出现在两路；同时更新这些副本可以避免后续命中另一路时看到旧值。
+缓存还比较当前完成 Store 及前一拍写入字与后继请求的字地址，将合并后的完整字旁路给后继访问，减少对 BRAM 同址读写模式的依赖。该旁路处理缓存内的写读相关，外设桥另行处理写队列到 Load 的转发。
+
+\Needspace{4\baselineskip}
+\medskip
+\noindent\textbf{回填、写入和失效竞争}\par
+
+同一条数据可能同时受到回填、较年轻 Store、同步查表和实验版一致性失效影响，当前控制按表~\ref{tab:dcache-conflicts} 处理。
+
+\begin{table}[H]
+\centering
+\caption{DCache 主要竞争及处理规则}
+\label{tab:dcache-conflicts}
+\begin{tabularx}{\linewidth}{@{}P{3.6cm}X@{}}
+\toprule
+竞争情况 & 当前处理 \\
+\midrule
+回填与 ISS 查表同组 & 寄存被写路号、是否同字及回填数据；下一拍覆盖该路可能不确定的 BRAM 读结果 \\
+回填占用了 Store 原命中路 & \code{store_clash} 按路记住同组替换，直到响应完成；抑制向已被替换路写入旧字合并结果 \\
+较老 Load 返回、较年轻 Store 已到同字 & LS1 或 LS2 出现同字 Store 时，LSU 放弃较老 Load 的缓存安装，避免重新制造旧副本 \\
+Store 命中更新与回填同拍 & Store 数据写优先，回填放弃；后备存储仍保存完整结果 \\
+一致性失效与回填同拍 & 失效占用目录写口，回填放弃 \\
+Load 发出后 epoch 改变 & 回填 epoch 与当前 epoch 不等则不安装，避免安装失效前的旧数据 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+放弃回填时，Load 和写直达 Store 继续完成，后续访问该字时重新从后备存储读取。
+
+\code{coh.inv_valid/inv_addr} 与 8 bit epoch 仅在共享 L2 实验路径使用。远端写入按组索引清除该组两路 valid，每路执行一次目录写入。
+LSU 在 Load 发出时采样 epoch，回填时比较当前版本。主线单核和 AMP 将一致性输入接零。
+
+\subparagraph{访存单元 LSU 与访存控制}
+\label{subsec:lsu-memory-control}
+
+\Needspace{4\baselineskip}
+\medskip
+\noindent\textbf{快慢路径及阶段对齐}\par
+
+LSU 由 LS1、LS2、LS3 组成，与 EX1、EX2、EX3 对齐；ISS 中的提前 AGU 和 DCache 查表位于正式访存请求之前。阶段职责见表~\ref{tab:lsu-memory-stages}。
+
+\begin{table}[H]
+\centering
+\caption{LSU 阶段及请求、响应对齐}
+\label{tab:lsu-memory-stages}
+\begin{tabularx}{\linewidth}{@{}P{2.5cm}X@{}}
+\toprule
+阶段 & 地址、数据与控制行为 \\
+\midrule
+ISS 提前查询 & 形成有效地址，加入 AMP 数据偏移；驱动两路 Tag/Data 及 LRU 同步读口 \\
+LS1 / EX1 & 接收地址、宽度、符号属性及 Store 数据；向 PERIP 发出正式请求，握手后保存请求和 victim \\
+LS2 / EX2 & 提供 DCache hit 与格式化快数据；Store 命中时更新缓存副本；确定 Load 的 EX2/EX3 就绪时机 \\
+LS3 / EX3 & 按序取得桥返回或慢响应缓存队首，完成慢路径格式化；按条件将原始字回填 DCache \\
+后续 EX4 / WB & 传递已选定的结果及退休信息，最终顺序写回 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Load 命中时在 EX2 取得 \code{rdata_fast}，结果可用于旁路；EX3 继续传递已获得的值。未命中或访问 MMIO 时，EX3 使用 \code{rdata_slow}。
+两条路径均先按地址低位移位，再对 byte/half 截取，按 LB/LH 或 LBU/LHU 进行符号/零扩展；LW 使用完整字。Load 的结果可用时机由命中情况决定。
+
+DCache 通过 EX2 提前提供命中结果，缩短 Load-use 延迟。LS1 在 LS2 命中结论产生前向桥发出 Load，因此命中时仍执行一次外部读取。EX3 按序消费慢响应，命中时沿用快路径结果，miss 时选择慢数据并按条件回填。
+已接受请求通过 LSU 流水与慢响应缓冲推进，后续发射由相关性和桥背压控制。
+
+\begin{figure}[htbp]
+\centering
+\fbox{\parbox{0.92\linewidth}{\small\textbf{TODO：绘制当前三阶段 LSU 与快慢响应架构图。}\\
+展示 ISS 提前查询、LS1 请求握手、LS2 命中快路径、LS3 慢路径及回填、两项慢响应缓冲；注明 Load 命中后外部请求仍完成，以及 Store 在 LS1 发出、LS2 更新缓存。}}
+\caption{三阶段 LSU 与快慢响应路径（待绘制）}
+\label{fig:lsu architecture}
+\end{figure}
+
+\Needspace{4\baselineskip}
+\medskip
+\noindent\textbf{请求握手、背压与慢响应保持}\par
+
+PERIP 请求以 \code{valid && ready} 为接受事件，\code{wen} 仅表示读写属性。LSU 在存在 LS1 访存、且没有更老长操作暂停时持续置 \code{perip.valid}；桥不能接收时，EXU 由 \code{perip.valid && !perip.ready} 产生 \code{backend_stall}，保持执行流水及上游内容，直到同一请求完成握手。
+缓存请求、Store 入桥及读响应标签均在接受事件发生时更新。
+
+LSU 传给请求有效逻辑的 \code{stall} 只包含更老的长操作暂停，桥背压则经 \code{ready} 本地合并到流水使能中，避免 valid 与 ready 经全局停顿形成组合依赖环。
+长操作暂停时 \code{perip.valid} 降低，相关地址/宽度选择维持旧响应的对齐；桥背压保持尚未接受的 LS1 请求。
+
+当前 \code{student_top/perip_bridge} 路径约定：读请求一旦被接受，数据经过 BRAM 读取和输出寄存，在两拍后以 \code{perip.rvalid} 返回，正好对应 LS3；MMIO、周期计数、加速器和 mailbox 的响应也对齐到该时刻。
+PERIP 没有读响应 ready，已经发出的读不会因为核停顿而停止返回。LSU 因而设置两个按序数据槽：若 LS3 可消费且队列为空，本拍返回直接使用；否则返回入队，恢复后优先消费队首。
+两个槽位容纳长操作冻结流水后仍会陆续返回的两个已接受读。
+
+
+\Needspace{4\baselineskip}
+\medskip
+\noindent\textbf{Load 命中预测与 miss replay}\par
+
+为避免 DCache tag 比较直接串回 ISS/GPR 使能路径，Load 在 EX1 的生产时机按 EX2 命中预测。相关网络据此允许满足条件的后继指令继续推进；EX2 再用寄存的 \code{cache_hit} 修正结果可用时机：命中为 \code{WHEN_ABS_EX2}，miss 为 \code{WHEN_ABS_EX3}。
+
+若 EX2 是可缓存窗口内的 miss Load，且较年轻 EX1 指令的任一实际使用源操作数依赖该 EX2 Load，EXU 产生 \code{load_miss_replay}，以该消费者 PC 重定向。
+被重放的消费者与更年轻前端内容被丢弃，较老 Load 沿慢路径继续完成；消费者重新取指后按新的生产时机取得正确操作数。即使消费者不是立即发起访存的指令，相关源检查也同时覆盖 rs1 和 rs2。
+地址基址另受 ISS 早期 AGU 需求约束。
+
+MMIO 通过慢路径完成，不参与该 replay。更老分支的纠正目标优先于年轻消费者的 replay；中断只在排空满足后进入，避免以消费者重放地址代替真实中断恢复 PC。
+
+\begin{figure}[htbp]
+\centering
+\fbox{\parbox{0.92\linewidth}{\small\textbf{TODO：绘制 Load hit/miss 与消费者 replay 对照时序。}\\
+分别画出命中快返回、miss 且消费者无关、miss 且 EX1 消费者依赖；标出 EX2 命中判定、EX3 慢返回、消费者 PC 重定向及较老 Load 保留。补充 AGU 提前依赖与 MMIO 不触发该 replay 的注释。}}
+\caption{Load 快慢路径与 miss replay 时序（待绘制）}
+\label{fig:dcache-replay-timing}
+\end{figure}
+
+\Needspace{4\baselineskip}
+\medskip
+\noindent\textbf{外设桥写队列与逐字节转发}\par
+
+当前四项 Store Buffer 位于 \code{perip_bridge}，每项保存数据窗口内地址、32 bit 写数据及 2 bit 访问宽度。DRAM Store 握手后进入 FIFO，头尾指针与计数分别管理入队和出队；同地址 Store 也保留顺序条目，不在入队时合并。
+队列非空时头项连续排入一级 BRAM 写命令寄存器，再由独立写端口写入数据 BRAM。写队列排空需要同时满足 FIFO 为空和暂存写无效。
+同拍出队与入队可重叠，队列满时也可以借助本拍出队接收下一 Store。BRAM 读端口独立服务 DRAM Load，不要求等待整个队列排空。
+
+接受 Load 时，桥对同一个对齐字地址的较老 Store 做快照：先取已暂存写命令，再按 FIFO 从最老到最新扫描。每个匹配条目只覆盖其有效字节，较新的较老 Store 对同一 byte lane 的值优先。
+转发 mask 和数据随读响应标签经过两拍流水，在返回时与 BRAM 原字合并。若掩码扩展为 32 bit 的 $F$，则
+\begin{equation}
+D_{\mathrm{load}}=(D_{\mathrm{BRAM}}\land\neg F)\lor(D_{\mathrm{forward}}\land F).
+\end{equation}
+未被较老 Store 覆盖的字节仍来自 BRAM；这允许 Load 读取队列中多条 byte/half Store 拼接出的最新完整字，同时避免依赖 BRAM 同址读写返回旧值还是新值的器件差异。
+
+例如，初始对齐字为 \code{0x11223344}，按顺序执行 \code{SB 0xAA, 1(A)}、\code{SH 0xBBCC, 2(A)}，随后执行 \code{LW 0(A)}。无论这两次写仍在 FIFO、正在暂存还是已经落地，按字节转发所要求的返回值都是 \code{0xBBCCAA44}。
+
+\begin{figure}[htbp]
+\centering
+\fbox{\parbox{0.92\linewidth}{\small\textbf{TODO：绘制外设桥 Store FIFO、暂存写与 Load 转发结构。}\\
+标出 FIFO 头尾及计数、一级写命令寄存器、独立 BRAM 读写端口、从老到新的逐字节覆盖优先级，以及 mask/data 与读标签的两拍对齐。可用 byte+half Store 后 LW 的例子标注最终拼接结果。}}
+\caption{写队列与逐字节 Load 转发（待绘制）}
+\label{fig:store_buffer_architecture}
+\end{figure}
+
+\Needspace{4\baselineskip}
+\medskip
+\noindent\textbf{MMIO 顺序、FENCE 与中断排空}\par
+
+MMIO 读写绕过 DCache，并在桥中等待 Store FIFO 为空且暂存写无效，保证不会越过尚未落地的较老 DRAM Store。UART TX 还要求 \code{console_tx_ready}，只有最终接受事件才触发发送；加速器请求也只在桥接受后转发。
+
+FENCE 停留在 ID，直到 \code{LSU.idle} 与 \code{perip.idle} 同时成立。前者检查 LS1--LS3 是否仍有访存、慢响应缓冲是否为空以及是否正在发请求；后者检查写 FIFO、暂存写、请求、加速器返回和两级读响应标签是否全部空闲。
+排空后 FENCE 作为不写寄存器的指令继续推进，等待期间阻塞年轻指令发射。加速器内部计算的完成状态由软件读取引擎状态寄存器判断。
+机器定时器中断还要停止新发射，并等待执行、写回及长操作排空，再通过寄存的空闲判断进入 trap；它复用访存空闲信息，但恢复 PC 来自最后退休指令的真实下一 PC。
+\code{FENCE.I} 当前仅共用 FENCE 排空语义，ICache 的事务 flush 与缓存内容失效仍是不同操作。
+
+本节对应 \code{core/scsrc/lsu/dcache.scala}、\code{core/scsrc/lsu/lsu.scala}、\code{core/scsrc/exu/EXU.scala}、\code{soc/jyd/perip_bridge.sv} 及三类 DCache BRAM 包装，路径均相对 \code{rtl/pipeline/}。
+现有 \code{pipeline-dcache-test} 包含同组双项驻留、LRU、部分写、失效、epoch、查表保持及回填冲突等定向和随机检查；\code{pipeline-smoke}、程序回归及 IRQ 测试用于覆盖系统顺序与暂停组合。
 
 \subparagraph{写回单元 WBU}
 
@@ -661,7 +998,7 @@ WBU 是顺序提交点，选择普通执行结果、乘法结果或除法结果�
 为\textbf{解决“生产者什么时候能生产出可旁路的数据；消费者什么时候需要生产者的数据”两个问题}，本设计在 IDU 阶段，根据不同的指令类型，给出了各个指令的\textbf{生产时机}和\textbf{消费时机}。
 生产时机由 5 bit 的 \id{PROD_ABS} 温度计码表示。从低位到高位依次对应 EX1、EX2、EX3、
 EX4 和 WB 检查点；某一位为 1 表示结果到该检查点仍未就绪，为 0 表示此时已经可以旁路。
-因此，连续的低位 1 越多，代表生产者产生结果越晚。当前 IDU 实际使用的生产时机编码如
+因此，连续的低位 1 越多，代表生产者产生结果越晚。下表沿用旧报告的 \id{PROD_ABS_*} 记号，对应代码 \id{WHEN_ABS_*}；当前生产时机如
 表~\ref{tab:idu-produce-time} 所示。
 
 \begin{table}[H]
@@ -673,8 +1010,8 @@ EX4 和 WB 检查点；某一位为 1 表示结果到该检查点仍未就绪，
     编码 & 温度计码 & 结果可旁路时机 & 对应的指令 \\
     \midrule
     \code{PROD_ABS_EX1} & \code{00000} & EX1末期 & 普通整数运算、移位和比较指令，\id{JAL/JALR}、CSR 指令、\id{AUIPC/LUI} \\
-    \code{PROD_ABS_EX2} & \code{00001} & EX2末期 & \id{LW} \\
-    \code{PROD_ABS_EX3} & \code{00011} & EX3末期 & \id{LB/LH/LBU/LHU} \\
+    \code{PROD_ABS_EX2} & \code{00001} & EX2末期 & 所有 Load 的命中预测；CRC8 \\
+    \code{PROD_ABS_EX3} & \code{00011} & EX3末期 & EX2 确认 miss 后的 Load 慢路径 \\
     \code{PROD_ABS_EX4} & \code{00111} & EX4末期 & 暂无生产者 \\
     \code{PROD_ABS_WB_EARLY} & \code{01111} & WB早期 & \id{MUL/MULH/MULHSU/MULHU} \\
     \code{PROD_ABS_WB_LATE} & \code{11111} & WB完成 & \id{DIV/DIVU/REM/REMU} \\
@@ -684,22 +1021,22 @@ EX4 和 WB 检查点；某一位为 1 表示结果到该检查点仍未就绪，
 
 其中，\id{PROD_ABS_EX1}，与\id{CONS_EX4}，等效为立刻可以生产/最晚才需要消费，故不生产数据/不消费数据的指令，统一被编码为\id{PROD_ABS_EX1}，与\id{CONS_EX4}。
 
-当前 IDU 使用的消费时机编码如表~\ref{tab:idu-consume-time} 所示。
+消费码沿用本文 \id{CONS_*} 记号，对应代码 \id{NEED_*}；AGU 在 ISU 中将访存基址的需求覆盖为 ISS 早期。当前使用情况如表~\ref{tab:idu-consume-time} 所示。
 
 \begin{table}[H]
   \centering
-  \caption{IDU 消费时机编码}
+  \caption{当前消费者需求时机（含 ISU 的 AGU 覆盖）}
   \label{tab:idu-consume-time}
   \begin{tabularx}{0.96\textwidth}{P{3.7cm}C{1.8cm}C{2.2cm}X}
     \toprule
     编码 & 温度计码 & 消费时机 & 对应的指令 \\
     \midrule
     \code{CONS_ISS_EARLY} & \code{11111} & ISS 早期 & Load/Store 类指令的地址 base \id{rs1} \\
-    \code{CONS_ISS_LATE} & \code{11110} & ISS 末期 & 基本 ALU 运算  \\
+    \code{CONS_ISS_LATE} & \code{11110} & ISS 末期 & ALU、branch、CSR 源寄存器、Store 数据及普通操作数  \\
     \code{CONS_EX1} & \code{11100} & EX1 & 暂无消费者 \\
-    \code{CONS_EX2} & \code{11000} & EX2 & branch 指令 \\
-    \code{CONS_EX3} & \code{10000} & EX3 & CSR 指令、store 指令 \\
-    \code{CONS_EX4} & \code{00000} & EX4 & 暂无消费者 \\
+    \code{CONS_EX2} & \code{11000} & EX2 & 当前未分配消费者 \\
+    \code{CONS_EX3} & \code{10000} & EX3 & 当前未分配消费者 \\
+    \code{CONS_EX4} & \code{00000} & EX4 & 无需读取的源操作数占位 \\
     \bottomrule
   \end{tabularx}
 \end{table}
@@ -728,11 +1065,10 @@ IDU 给出的 \id{PROD_ABS_*} 以生产者自身的流水过程为绝对时间�
   \end{tabularx}
 \end{table}
 
-为\textbf{解决“被旁路的数据在哪里”的问题}，本设计在 ISU 阶段组合地生成数据冒险发生位置 \id{where} 信号。具体生成过程如下。对于 \id{rs1} 和 \id{rs2}，ISU 分别将源寄存器编号与 EX1、EX2、
-EX3、EX4、WB 各级携带的目的寄存器编号比较。某一级的匹配条件可以表示为
+为\textbf{解决“被旁路的数据在哪里”的问题}，当前 ISU 使用提前比较结果寄存与 EX1 当拍比较生成 \id{where}。对于 \id{rs1} 和 \id{rs2}，ID 提前比较 EX1--EX4 的目的寄存器，寄存结果在 ISS 对齐至 EX2--WB，并补充 EX1 的当拍比较。某一级的匹配条件可以表示为
 \code{match_s = rs_ren && stage_valid && rd_wen && (rd != x0) && (rs == rd)}：只有消费者确实
 读取该源寄存器、该级指令有效且会写非零目的寄存器时，才认为存在 RAW 相关。各级匹配
-结果按照表~\ref{tab:where-layout} 的布局组成 5 bit 的 \id{where}。\id{rs1} 和
+结果按照表~\ref{tab:where-layout} 的布局组成 6 bit 的 \id{where}，其中 ISS 保留位置零，低五位表示当前有效旁路位置。\id{rs1} 和
 \id{rs2} 各自维护一份 \id{where}。
 
 \begin{table}[H]
@@ -743,6 +1079,7 @@ EX3、EX4、WB 各级携带的目的寄存器编号比较。某一级的匹配�
     \toprule
     位 & 对应位置 & 置 1 条件 \\
     \midrule
+    \code{where[5]} & ISS & 保留位，当前为 0 \\
     \code{where[4]} & EX1 & 源寄存器与 EX1 的有效目的寄存器匹配 \\
     \code{where[3]} & EX2 & 源寄存器与 EX2 的有效目的寄存器匹配 \\
     \code{where[2]} & EX3 & 源寄存器与 EX3 的有效目的寄存器匹配 \\
@@ -781,14 +1118,14 @@ EX3、EX4、WB 各级携带的目的寄存器编号比较。某一级的匹配�
 普通指令的 \id{CONS_ISS_LATE}（\id{11110}）按位相与为 0，因此可以直接旁路。\id{LW}
 的绝对码为 \id{00001}，当它位于 EX1 时得到 \id{00011}，即 \id{PROD_REL_EX1}；与
 \id{CONS_ISS_LATE} 按位相与的结果非零，因此后继指令停顿一周期。下一周期 \id{LW}
-进入 EX2，相对码变为 \id{00001}，此时即可旁路。类似地，AGU 基址使用
+进入 EX2，相对码在命中时变为 \id{00001}，此时即可旁路；miss 时改为 EX3 就绪，若年轻消费者已使用预测结果则 replay。类似地，AGU 基址使用
 \id{CONS_ISS_EARLY}，即使紧邻的普通 ALU 生产者已经得到 \id{PROD_REL_ISS_LATE}，两者
 按位相与仍非零，所以互锁逻辑会准确插入一个周期停顿。
 
 互锁判断与旁路选择共用同一份 \id{where}。ISU 将消费者的 \id{CONS_*} 与
 \id{PROD_REL_*} 按位相与；结果非零表示生产者无法赶上消费时机，需要触发
 \id{interlock}。与此同时，各级生产者根据自身绝对生产码生成 \id{bypass_mask}，其位布局
-与 \id{where} 完全相同，判断方式如表~\ref{tab:ready-mask} 所示。
+为 6 bit（ISS 保留位为 0），低五位与下表对应，判断方式如表~\ref{tab:ready-mask} 所示。
 
 \begin{table}[H]
   \centering
@@ -827,31 +1164,28 @@ EX3、EX4、WB 各级携带的目的寄存器编号比较。某一级的匹配�
 
 \subparagraph{控制冒险}
 
-EX3 BRU计算完成分支跳转结果后，解析控制流指令，并将预测 PC、预测方向、真实 PC 和真实方向送入 HZU。预测错误时，
-经一拍寄存后，HZU 在 EX4 阶段，产生重定向地址并冲刷前端至 EX3 之前的错误路径指令。IFU 同拍禁止新取指并清除
-响应有效位与预测暂存，同时屏蔽相应流水线寄存器的输出，使旧路径的在途 IROM 数据不会再作为有效
-事务进入流水线。
+EX1 的 BRU 计算真实 next PC，HZU 将误预测标记、真实目标及预测器更新信息寄存一拍。重定向清空前端元数据和队列、ID/ISS 与 ISS/EX1 的错误路径内容，并通过 \code{irom.flush} 丢弃旧取指事务。
+DCache miss replay 和定时器中断也可触发前端重定向；中断恢复入口优先于普通分支，普通分支目标优先于年轻 Load 消费者的重放目标。
 
 \subparagraph{结构冒险}
 
-数据在 LS4 阶段通过总线写回，而在 LS1、LS2 阶段可能会有 load 指令通过总线读数据，
-这会因总线接口被同时访问产生结构冒险。解决方式为优先进行写操作，而将需要读总线的指
-令暂停，这样可以保证外设原来的读写顺序。同时为了减少因结构冒险而产生的停顿，在写入 bram
-时会先不访问总线而将数据先写入到 store buffer 中，这样可以减少总线的占用，为读操作留出
-总线的使用权，减少停顿。存入 store buffer 的数据会在总线空闲的时候写入 bram，且
-在 store buffer 已满并有 load 指令和写入 bram 的指令正在执行时仍会产生结构冒险并停顿。
+当前数据请求共享 PERIP 握手口，\code{valid && !ready} 使流水线保持请求，避免重复或丢失访问。
+桥中的四项 FIFO 通过独立 BRAM 写口连续排出，DRAM Load 使用独立读口并合并尚未落地的较老 Store 数据；MMIO 则等待写队列和暂存写排空。
+FENCE 在 ID 等待 LSU 与桥同时空闲；EBREAK 退休后冻结流水线。上述机制取代旧版 LS4 写与 LS1/LS2 读争用的说明。
 
-\paragraph{OV5640 摄像头视频通路}
+\paragraph{OV5640 摄像头视频通路（独立工程及集成规划）}
+
+当前 Pango 视频工程的 \code{video_fb_top} 实现摄像头到 DDR3 双缓冲再到 HDMI 的独立链路，未接入流水线 SoC。以下保留缩略图 MMIO、miniTensor 和网页控制的集成方案。
 
   OV5640 通过 DVP 8 位接口输出图像。
 FPGA 先通过 SCCB 总线完成传感器上电时序和寄存器配置，将输出格式设置为 RGB565；DVP 接收模块对 8 位字节流做确定性配对，恢复 16 位像素，
 并在 HREF 低电平期间复位字节相位，避免行长变化或毛刺造成奇偶字节错位。像素处理时钟由 DVP 时钟二分频得到，
 数据经过三级流水后送入后续处理，以匹配同步存储器和跨时钟域接口的时序。
 
-  视频通路分为缩略图和整帧两条支路，如图~\ref{fig:ov5640-video-path}所示。
+  原集成方案将视频通路分为缩略图和整帧两条支路，如图~\ref{fig:ov5640-video-path}所示。
 缩略图支路在 1280$\times$720 有效画面中取中心 640$\times$640 窗口，
 按 20$\times$20 像素单元做 4:1 盒式滤波，降采样为 32$\times$32 RGB565 图像，
-并通过双 bank 和异步 FIFO 写入片上 BRAM；SoC 通过 MMIO 窗口读取当前帧，
+并通过双 bank 和异步 FIFO 写入片上 BRAM；方案中由 SoC 通过 MMIO 窗口读取当前帧，
 供 miniTensor 手势识别使用。整帧支路保留完整 1280$\times$720 图像，经 DDR3 双缓冲后由 HDMI 以 720p30 输出，
 用于实时预览和演示。
 
@@ -862,59 +1196,49 @@ FPGA 先通过 SCCB 总线完成传感器上电时序和寄存器配置，将输
   \makebox[\linewidth][c]{%
     \includegraphics[width=1.10\linewidth,height=0.95\textheight,keepaspectratio]{figures/module10_ov5640_video.drawio.pdf}%
   }
-  \caption{OV5640 摄像头视频通路}
+  \caption{原 OV5640 视频集成方案（当前独立视频工程未接入 ARES）}
   \label{fig:ov5640-video-path}
 \end{figure}
 
 \subsection{软件系统介绍}
 \subsubsection{软件整体介绍}
-软件包括目标端裸机运行时和测试程序，以及主机端 Verilator 仿真框架、参考模型、波形和日志工具。
-演示应用还包括运行在主机浏览器中的 Web 控制器，它通过串口接收板端手势识别结果，驱动 HTML 演示页面完成场景切换与视觉反馈。
-目标端程序完成指令与算法计算，主机端负责镜像加载、时钟复位、行为比对、性能计数和 IO 模拟，两者通过 DPI-C 提交及分支事件连接。
+当前目标端包括 AbstractMachine 裸机运行时与 CoreMark，以及独立的 RT-Thread Nano 自检和 MSH 固件；主机端提供镜像拆分、Verilator 驱动和模块测试脚本。
+当前核生成配置关闭原 NPC 的 DPIC/difftest 钩子。裸机仿真仍可通过独立 DPI 存储器模型运行，退休观察使用显式 \code{retire_*} 接口；RTOS 板级仿真使用推断 BRAM 和实际 UART RTL。
+
 \subsubsection{软件各模块介绍}
 \paragraph{仿真平台}
 
-现有验证平台使用 Verilator 将 Chisel 生成的 SystemVerilog 编译为 C++ 模型，C/C++
-仿真框架负责镜像加载、时钟激励、存储器模型、日志、性能计数和波形输出。RTL 通过
-DPI-C 将提交、访存和分支预测事件传给仿真框架；GTKWave 用于查看 Verilator 生成的
-FST 波形。整个流程不依赖 FPGA 即可完成大规模程序运行和错误定位。
+Verilator 将 RTL 编译为 C++ 模型，测试台负责时钟、复位、镜像和结束条件。\code{rtl/pipeline/test} 提供 smoke、ISA、CoreMark、Cache、乘除法、IRQ、UART、AMP 等入口；波形和日志按对应构建配置生成。
+\code{CONFIG_SIMULATION=false} 关闭原 NPC 仿真插桩，与 Verilator 构建中的独立 DPI 存储器接口是不同开关。
 
 \paragraph{软件测试环境}
 
 原测评报告记录的软件环境为 Ubuntu 24.04、Verilator 5.046、GTKWave 3.3.116、
 GCC/G++ 13.3.0 和 RISC-V 交叉编译工具链。测试程序与裸机运行时环境共同编译，
-链接至处理器能够访问的地址空间，再转换为仿真器或 Vivado IP 可以加载的镜像。
+链接至处理器能够访问的地址空间，再由当前脚本生成 BIN 和 IROM/DRAM HEX；旧 Vivado COE 流程仅用于历史结果。
 
 针对赛题的内存空间设计编写了专用的链接脚本以及入口函数，为编译程序提供最基本的
 运行时环境。目标端地址空间与硬件采用相同的 IROM、DRAM 和外设映射，见第二部分的 SoC 地址空间。
 
 \paragraph{硬件仿真环境}
 
-硬件仿真环境由处理器模型、指令/数据存储器模型、时钟与复位激励、DPI-C 接口和参考
-模型构成。测试开始时，仿真框架将程序镜像加载至存储器；处理器从复位入口开始执行；
-每当 WBU 提交一条有效指令时，仿真框架更新 guest 指令数，并可将 PC、寄存器和访存
-副作用与参考模型比较。出现不一致时立即停止运行并输出出错指令附近的状态。
-
-BPU 采用独立的模块差分方式：取指侧比较预测方向和目标，更新侧把真实分支结果同时送入
-RTL 和 C++ Bimodal 模型。发生重定向后已经无效的取指事件不参与预测质量统计。
+当前硬件仿真由对应顶层、存储模型、时钟/复位和测试台组成；ISA 程序检查 EBREAK 退休及 \code{a0}，CoreMark 检查输出 CRC 和通过标记，模块测试检查缓存、算术、外设与中断协议。
+旧 NPC 的逐指令参考模型和 BPU 差分报告见第三部分。
 
 \paragraph{测试程序}
 
-仿真测试按用途分为四类：第一类是逐指令功能测试，用于覆盖 RV32I、RV32M、Zicsr
-和异常返回；第二类是 CoreMark 等程序级测试，用于检查长程序稳定性并统计周期数和 IPC；
-第三类是 BPU 模块差分测试，用于分别验证预测实现正确性与预测质量；
-第四类是竞业达提供的 RV32I/RV32IM、CSR/trap 与性能镜像。
-
-由于使用了 IP 核以及 FPGA io（student\_top 的 io 如图~\ref{fig:student_top}所示），为了确保仿真环境最大限度反映真实硬件情况，我们为仿真环境设计了 io 仿真，涵盖运行时间计算、数码管模拟、LED模拟三大功能。
+当前测试入口覆盖 \code{pipeline-smoke}、\code{pipeline-isa}、CoreMark 各镜像、DCache 与乘除法单测、多核 mailbox/存储实验及 RTOS/IRQ/UART。
+cpu-tests 包含 36 个程序级回归用例。
+图~\ref{fig:student_top} 和图~\ref{fig:FPGA-sim-cmp} 展示旧版 IO 模拟及板级运行。
 
 \begin{figure}[htbp]
   \centering
   \includegraphics[width=0.90\linewidth,height=0.68\textheight,keepaspectratio]{student_top.png}
-  \caption{student\_top.sv io}
+  \caption{旧版 student\_top IO}
   \label{fig:student_top}
 \end{figure}
 
-由图~\ref{fig:FPGA-sim-cmp}可见，仿真环境运行时间结果自洽（数码管和 log 处 execution time 均显示 8.637s），而且仿真环境 IO 输出也均与 FPGA IO 输出一致。可以认为仿真对 FPGA 有较好模拟作用。
+图~\ref{fig:FPGA-sim-cmp} 记录旧版 60 MHz 配置中 IO 模拟与 FPGA 显示结果的一致性（8.637 s）。
 
 \begin{figure}[htbp]
   \centering
@@ -930,29 +1254,28 @@ RTL 和 C++ Bimodal 模型。发生重定向后已经无效的取指事件不参
     \caption*{(b) FPGA 60 MHz 实际运行情况}
   \end{minipage}
   \par\medskip
-  \caption{FPGA 和仿真环境对比图}
+  \caption{旧版 Mundus FPGA 与仿真 IO 对比（60 MHz 历史配置）}
   \label{fig:FPGA-sim-cmp}
 \end{figure}
 
 
 \paragraph{工程模块组织}
-以下保留当前工程文档中的模块目录，区分处理器 RTL、仿真框架、配置与工具。
+当前 ARES 的相关模块组织如下，构建产物位于 \code{build/}。
 \begin{lstlisting}[language={},numbers=none]
-npc/
-|-- scsrc/                 Chisel processor RTL
-|   |-- Mundus.scala       Core top and pipeline control
-|   |-- ifu/               BPU and IFU
-|   |-- idu/               Instruction decoder
-|   |-- isu/               Issue, register read, AGU, bypass
-|   |-- exu/               ALU, BRU, CSR and EX1--EX4
-|   |-- lsu/               Load/store unit
-|   |-- mtu/, dvu/         Multiplier and divider
-|   `-- wbu/               Commit and write-back
-|-- vsrc/                  BlackBoxes, DPIC wrappers and FPGA IP
-|-- csrc/                  Verilator runtime and reference checks
-|-- configs/               Kconfig and generated configuration
-|-- tools/                 Branch/cache analysis and helper tools
-`-- build/                 Generated model and existing test logs
+ARES/
+|-- rtl/pipeline/core/scsrc/     Chisel core, DCache and CRC8
+|-- rtl/pipeline/core/vsrc/      Generated core and handwritten wrappers
+|-- rtl/pipeline/gen/            mill build and core configuration
+|-- rtl/pipeline/soc/            jyd, amp, mc, ip and pango
+|-- rtl/pipeline/board/          Clock/reset and board tops
+|-- rtl/pipeline/test/           RTL testbenches and Verilator drivers
+|-- rtl/accel/                   Matrix, state and list engines
+|-- fpga/pango/pipeline/         PDS flow and constraints
+|-- tests/abstract-machine/      Bare-metal runtime and linker scripts
+|-- tests/benchmarks/coremark/   CoreMark and port
+|-- rtthread-nano/rt-thread/bsp/ARES/  RTOS BSP
+|-- scripts/                    Firmware/image/test tools
+`-- build/                      Local generated images, models and logs
 \end{lstlisting}
 
 \begin{figure}[htbp]
@@ -960,10 +1283,10 @@ npc/
 \begin{tikzpicture}[node distance=5mm,>=Latex,
  flowprocess/.style={draw,align=center,text width=10cm,inner sep=4pt,font=\small}]
 \node[flowprocess] (image) {编译、链接目标程序并生成 IROM/DRAM 镜像};
-\node[flowprocess,below=of image] (load) {加载镜像，驱动复位、时钟及 IP 核模型};
-\node[flowprocess,below=of load] (check) {采集 WBU、访存与分支事件，和参考模型比较};
-\node[flowprocess,below=of check] (io) {更新 LED、数码管、计时器及性能统计};
-\node[flowprocess,below=of io] (exit) {记录退出状态、日志、波形及预测质量报告};
+\node[flowprocess,below=of image] (load) {加载镜像，驱动复位、时钟及存储模型};
+\node[flowprocess,below=of load] (check) {观察退休接口、程序结果及测试台协议检查};
+\node[flowprocess,below=of check] (io) {观察 UART/LED/计时器，记录对应配置的周期};
+\node[flowprocess,below=of io] (exit) {记录退出状态、CRC、日志、波形及镜像信息};
 \draw[->] (image)--(load);\draw[->] (load)--(check);
 \draw[->] (check)--(io);\draw[->] (io)--(exit);
 \end{tikzpicture}
@@ -980,28 +1303,30 @@ npc/
 \midrule
 运行时与镜像 & 链接布局、程序及初始数据 & 入口与 IROM/DRAM 镜像 \\
 仿真驱动 & 镜像、复位、时钟 & 波形、日志与运行状态 \\
-提交检查 & WBU 的 PC、寄存器和访存事件 & 一致性结果、指令计数 \\
-BPU 差分 & 预测方向、目标、真实分支结果 & 模型匹配率与预测质量 \\
+退休观察 & 退休有效、PC、GPR 写回及 EBREAK & 程序结束条件及指令计数 \\
+BPU 差分（历史） & 原 NPC 的预测及更新事件 & 旧版模型匹配率与准确率 \\
 IO 模拟 & LED、SEG、计时控制 & 灯组、数码管和运行时间 \\
-手势识别与网页控制 & 摄像头图像、串口指令 & 手势类别、页面状态、视觉效果 \\
+手势/网页方案 & 图像与串口协议 & 手势类别、控制指令及页面状态 \\
 \bottomrule
 \end{tabularx}
 \end{table}
 
-\paragraph{手势识别与网页演示控制模块}
+\paragraph{手势识别与网页演示控制模块（原集成方案）}
 
-该模块把摄像头前的手势转换为网页演示控制指令，形成从手势识别、串口传输到网页状态机与视觉反馈的闭环。硬件端在 FPGA 上完成图像采集、固定取景区裁剪和 $32\times32$ 灰度归一化，由 miniTensor 上的轻量 INT8 卷积网络输出手势类别与置信度；固件通过连续多帧一致性和置信度门限抑制抖动，
+本节介绍手势识别与网页控制的集成方案，端到端集成待验证。
+
+该方案拟把摄像头前的手势转换为网页演示控制指令，形成从手势识别、串口传输到网页状态机与视觉反馈的闭环。方案中的硬件端在 FPGA 上完成图像采集、固定取景区裁剪和 $32\times32$ 灰度归一化，由 miniTensor 上的轻量 INT8 卷积网络输出手势类别与置信度；固件通过连续多帧一致性和置信度门限抑制抖动，
 再把确认后的手势转换为一行 ASCII 指令，经 115200 8N1 串口发送给上位机。
 硬件端从图像采集到串口发送的通路如图~\ref{fig:gesture-hardware-path}所示。
 
 \begin{figure}[htbp]
   \centering
   \includegraphics[width=\linewidth,height=0.42\textheight,keepaspectratio]{figures/gesture_web_hardware_path.pdf}
-  \caption{手势识别与网页控制的硬件通路}
+  \caption{手势识别与网页控制的硬件方案}
   \label{fig:gesture-hardware-path}
 \end{figure}
 
-上位机 Web 控制器基于 Web Serial API 和 Three.js 实现。串口字节流先经过行解析和指令解析，再由冷却/去重逻辑过滤重复手势，进入“基础状态 + 瞬时叠加层”的状态机；状态机只负责逻辑转移，效果层根据状态事件驱动粒子 Logo、全息球、激光扫描、能量波和 HUD 信息层等视觉元素。该分层使协议、状态逻辑和渲染相互独立，便于单元测试和现场调试；无硬件时可用键盘、调试面板或自动演示模式模拟指令。软件端从串口接入到全屏展示的通路如图~\ref{fig:gesture-software-path}所示。
+原方案的上位机 Web 控制器采用 Web Serial API 和 Three.js。串口字节流先经过行解析和指令解析，再由冷却/去重逻辑过滤重复手势，进入“基础状态 + 瞬时叠加层”的状态机；状态机只负责逻辑转移，效果层根据状态事件驱动粒子 Logo、全息球、激光扫描、能量波和 HUD 信息层等视觉元素。该分层使协议、状态逻辑和渲染相互独立，便于单元测试和现场调试；无硬件时可用键盘、调试面板或自动演示模式模拟指令。软件端从串口接入到全屏展示的通路如图~\ref{fig:gesture-software-path}所示。
 
 \begin{figure}[htbp]
   \centering
@@ -1009,34 +1334,58 @@ IO 模拟 & LED、SEG、计时控制 & 灯组、数码管和运行时间 \\
   \makebox[\linewidth][c]{%
     \includegraphics[width=1.10\linewidth,height=0.62\textheight,keepaspectratio]{figures/gesture_web_software_path.pdf}%
   }
-  \caption{手势识别与网页控制的软件通路}
+  \caption{手势识别与网页控制的软件方案}
   \label{fig:gesture-software-path}
 \end{figure}
 
 \section{完成情况及性能参数}
 \subsection{整体介绍}
-已完成 RV32IM、Zicsr 与基础机器模式指令的数据通路、九级流水线控制、可选 RAS、分级 LSU 和 Store Buffer，并形成仿真及 FPGA 运行记录。
-现有板卡运行照片见图~\ref{fig:src0_1_FPGA}、图~\ref{fig:src2_without_FPGA} 和图~\ref{fig:with_FPGA}；整机斜 45 度全局照片尚需补充。
+以下汇总截至 2026 年 11 月 3 日的实现、验证记录及待完成项。
+
 \subsection{工程成果}
 \subsubsection{机械成果}
 使用现有 FPGA 平台，未独立设计机械部件。
 \subsubsection{电路成果}
-已形成处理器 RTL、Core\_cpu 封装、存储与外设互连及可加载的 FPGA 工程；当前板级记录覆盖 src0、src1、src2、withMext 与 withoutMext。
-RV32F 数据通路和部分运算单元仍在完善，未作为已完成的扩展列入当前测试结论；赛题现场指定的 Z 扩展指令仍待按要求增补。
+已具备 Mundus 核、I/DCache、片上存储与外设、CRC8 和三类 MMIO 引擎、单核及 2/4-hart AMP 顶层。AMP 当前为每 hart 私有 IROM、四路 ICache 与数据 BRAM，通过 uncached mailbox 协作。
+共享 L2 实验线 \code{pipeline_mc_soc_top} 的 CoreMark 读响应顺序问题待解决。
+待实现项包括 RV32F、\code{FENCE.I} 缓存失效及完整特权/调试支持。
 \subsubsection{软件成果}
-已具备镜像转换与加载、Verilator 驱动、IP 模型、IO 显示、指令与程序运行日志、提交统计及 BPU 差分报告。
-现有截图同时包含主机测试输出和板卡结果，支持按具体配置核对功能和性能。
-\subsection{特性成果}
+已具备 CoreMark 及加速镜像构建、ELF/BIN/HEX 转换、单核和 AMP 测试入口，以及独立 RT-Thread Nano 自检/MSH 固件。
+
+
+\begin{table}[H]
+\centering
+\caption{实现与验证状态}
+\begin{tabularx}{\linewidth}{@{}P{3.2cm}X@{}}
+\toprule
+范围 & 状态 \\
+\midrule
+Core / Cache / 加速器 & RTL 与回归入口已具备；已有回归记录：smoke、36 个 cpu-tests、DCache 和 CoreMark CRC 通过 \\
+ICache 缺陷 & Icarus 定向检查已复现 \code{S_FILL} 与 flush 同拍的数据/目录不一致，待修复 \\
+AMP 多核 & 2/4-hart 顶层与程序入口已具备，已有 CoreMark 与聚合测试记录 \\
+Pango 板级 & PLL、CDC、BRAM、UART、AMP 板级顶层及文件表已入库；已有 PDS 负时序裕量记录，时序闭合待完成 \\
+RTOS / MSH & 已有文档记录单核启动、抢占、延时、UART 与 Shell 仿真；对应 PDS 实际时序及实板收发尚待验收 \\
+独立视频工程 & 摄像头/DDR3/HDMI 独立验证已有记录；与 ARES/miniTensor/Web 的闭环集成待完成 \\
+旧版 Mundus & 下文保留 Kintex-7、赛题镜像、分支准确率、资源与功耗的历史记录 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+状态依据为 RTL 及 \code{docs/pipeline_rtos.md}、\code{docs/microarch/pipeline_dcache.md}、\code{fpga/pango/pipeline/README.md} 中的验证记录。
+
+\subsection{旧版 Mundus 验证资料与历史性能}
+以下日志、准确率表、板卡照片、资源和功耗图来自旧版 Mundus，配置包括 256 项 BTB、Vivado IP、16 KiB IROM，运行频率为 300--316.667 MHz。
+
 \paragraph{仿真结果与分析}
 
 \subparagraph{功能验证}
 
-现有报告记录 RV32I 与 RV32M 逐指令测试通过。图~\ref{fig:rv32m-riscv-tests} 展示当前 RV32M 测试输出，8 项均为 PASS；对应版本的 RV32I 逐条测试截图尚需补充。
+现有报告记录 RV32I 与 RV32M 逐指令测试通过。图~\ref{fig:rv32m-riscv-tests} 展示旧版 RV32M 测试输出，8 项均为 PASS；对应版本的 RV32I 逐条测试截图尚需补充。
 
 \begin{figure}[htbp]
   \centering
   \includegraphics[width=0.90\linewidth,height=0.68\textheight,keepaspectratio]{mext_test_result.png}
-  \caption{RV32M riscv-tests 测试结果}
+  \caption{旧版 Mundus：RV32M riscv-tests 测试结果}
   \label{fig:rv32m-riscv-tests}
 \end{figure}
 
@@ -1044,7 +1393,7 @@ RV32F 数据通路和部分运算单元仍在完善，未作为已完成的扩�
 withMext 程序镜像。四组程序均执行至 \id{HIT GOOD TRAP} 并正常退出，如图
 ~\ref{fig:jyd-src01-log} 和图~\ref{fig:jyd-src2-mext-log} 所示。日志同时给出了总时钟
 周期数、提交指令数和 IPC，说明处理器不仅能够完成基础指令测试，也能够连续运行规模
-更大的赛题程序；其中 withMext 的通过还验证了当前数据通路对 RV32M 乘除法指令的支持。
+更大的赛题程序；其中 withMext 的通过验证了旧版数据通路对 RV32M 乘除法指令的支持。
 
 \begin{figure}[htbp]
   \centering
@@ -1060,7 +1409,7 @@ withMext 程序镜像。四组程序均执行至 \id{HIT GOOD TRAP} 并正常退
     \caption*{(b) src1}
   \end{minipage}
   \par\medskip
-  \caption{竞业达 src0 与 src1 程序仿真结果}
+  \caption{旧版 Mundus：竞业达 src0 与 src1 程序仿真结果}
   \label{fig:jyd-src01-log}
 \end{figure}
 
@@ -1078,7 +1427,7 @@ withMext 程序镜像。四组程序均执行至 \id{HIT GOOD TRAP} 并正常退
     \caption*{(b) withoutMext}
   \end{minipage}
   \par\medskip
-  \caption{竞业达 src2 与 withoutMext 程序仿真结果}
+  \caption{旧版 Mundus：竞业达 src2 与 withoutMext 程序仿真结果}
   \label{fig:jyd-src2-mext-log}
 \end{figure}
 
@@ -1086,7 +1435,7 @@ withMext 程序镜像。四组程序均执行至 \id{HIT GOOD TRAP} 并正常退
   \centering
   \hfill
   \includegraphics[width=\linewidth,height=0.68\textheight,keepaspectratio]{withMext3_jyd_log.png}
-  \caption{竞业达 withMext 程序仿真结果}
+  \caption{旧版 Mundus：竞业达 withMext 程序仿真结果}
   \label{fig:jyd-mext-log}
 \end{figure}
 
@@ -1099,14 +1448,14 @@ withMext 程序镜像。四组程序均执行至 \id{HIT GOOD TRAP} 并正常退
 
 当 CoreMark 在未使用原生 RV32M 乘除法指令的代码流上测试时，乘除运算需要
 通过软件例程完成，由于数据的随机性，位移乘法会导致分支预测难以进行。在没有乘除指令的情况下，
-CoreMark 使用 Bimodal 预测条件分支、跳转和总体准确率分别为 70.26\%、74.72\% 和 70.75\%。当前测试镜像直接
+CoreMark 使用 Bimodal 预测条件分支、跳转和总体准确率分别为 70.26\%、74.72\% 和 70.75\%。该组旧版 RV32M 测试镜像直接
 使用硬件 \code{mul}/\code{div} 等 RV32M 指令，不再通过软乘除例程模拟同类运算；
 在关闭 RAS、仍采用 256 项 Bimodal/BTB 的情况下，三项准确率分别达到 92.48\%、
 94.65\% 和 92.75\%，对比如表~\ref{tab:bpu-old-current} 所示。
 
 \begin{table}[H]
   \centering
-  \caption{ CoreMark 的 Bimodal 预测结果对比}
+  \caption{旧版 Mundus： CoreMark 的 Bimodal 预测结果对比}
   \label{tab:bpu-old-current}
   \begin{adjustbox}{max width=\linewidth}
 \begin{tabular}{lrrr}
@@ -1121,15 +1470,15 @@ CoreMark 使用 Bimodal 预测条件分支、跳转和总体准确率分别为 7
 \end{table}
 
 原生乘除法指令缩短了动态指令序列，并减少软乘除函数调用、返回以及循环分支对 BTB
-表项的占用和冲突，使剩余控制流更集中、更容易被 Bimodal/BTB 学习。因此，当前代码流
-的总体准确率较之前提高 22.00 个百分点。
+表项的占用和冲突，使剩余控制流更集中、更容易被 Bimodal/BTB 学习。因此，该组历史代码流
+的总体准确率较软件乘除版本提高 22.00 个百分点。
 
 在此基础上，表~\ref{tab:bpu-ras-comparison} 使用相同 RV32M 镜像(即含有乘除法指令)进一步比较 RAS
 开关造成的变化，从而单独评价 RAS 的收益。
 
 \begin{table}[H]
   \centering
-  \caption{Bimodal/BTB 与 Bimodal/BTB+RAS 预测结果对比}
+  \caption{旧版 Mundus：Bimodal/BTB 与 Bimodal/BTB+RAS 预测结果对比}
   \label{tab:bpu-ras-comparison}
   \begin{adjustbox}{max width=\linewidth}
 \begin{tabular}{llrrr}
@@ -1172,7 +1521,7 @@ CoreMark 中函数调用与返回较为频繁，因此最能体现 RAS 的收益
     \includegraphics[width=\linewidth,height=0.68\textheight,keepaspectratio]{core_ras_branch.png}
     \caption*{(b) 开启 RAS}
   \end{minipage}
-  \caption{CoreMark 中 RAS 对分支预测结果的影响}
+  \caption{旧版 Mundus：CoreMark 中 RAS 对分支预测结果的影响}
   \label{fig:coremark-ras-comparison}
 \end{figure}
 
@@ -1194,7 +1543,7 @@ src2 中条件分支事件占比较高，且其 79.35\% 的方向/目标预测�
     \includegraphics[width=\linewidth,height=0.68\textheight,keepaspectratio]{src2_ras_branch.png}
     \caption*{(b) 开启 RAS}
   \end{minipage}
-  \caption{src2 RV32M 中 RAS 对分支预测结果的影响}
+  \caption{旧版 Mundus：src2 RV32M 中 RAS 对分支预测结果的影响}
   \label{fig:src2-ras-comparison}
 \end{figure}
 
@@ -1217,7 +1566,7 @@ RAS 使 src0 的跳转错误由 183 次减少到 163 次，使 src1 的跳转错
     \includegraphics[width=\linewidth,height=0.68\textheight,keepaspectratio]{src0_ras_branch.png}
     \caption*{(b) src0，开启 RAS}
   \end{minipage}
-  \caption{src0 RV32M 中 RAS 对分支预测结果的影响}
+  \caption{旧版 Mundus：src0 RV32M 中 RAS 对分支预测结果的影响}
   \label{fig:src0-ras-comparison}
 \end{figure}
 
@@ -1234,7 +1583,7 @@ RAS 使 src0 的跳转错误由 183 次减少到 163 次，使 src1 的跳转错
     \includegraphics[width=\linewidth,height=0.68\textheight,keepaspectratio]{src1_ras_branch.png}
     \caption*{(b) src1，开启 RAS}
   \end{minipage}
-  \caption{src1 RV32M 中 RAS 对分支预测结果的影响}
+  \caption{旧版 Mundus：src1 RV32M 中 RAS 对分支预测结果的影响}
   \label{fig:src1-ras-comparison}
 \end{figure}
 
@@ -1251,12 +1600,12 @@ RAS 使 src0 的跳转错误由 183 次减少到 163 次，使 src1 的跳转错
     \includegraphics[width=\linewidth,height=0.68\textheight,keepaspectratio]{withMext3_ras_branch.png}
     \caption*{(b) withMext，开启 RAS}
   \end{minipage}
-  \caption{withMext RV32M 中 RAS 对分支预测结果的影响}
+  \caption{旧版 Mundus：withMext RV32M 中 RAS 对分支预测结果的影响}
   \label{fig:withmext3-ras-comparison}
 \end{figure}
 
-综合来看，原生 RV32M 指令通过消除软乘除例程，简化了程序的动态控制流，使当前
-Bimodal/BTB 相比旧文档中的测试更容易获得较高准确率；RAS 则是在相同代码流上进一步
+综合来看，该组历史测试中原生 RV32M 指令通过消除软乘除例程，简化了程序的动态控制流，使旧版
+Bimodal/BTB 相比软件乘除代码流更容易获得较高准确率；RAS 则是在相同代码流上进一步
 针对函数返回目标进行优化，不改变条件分支的 Bimodal 方向预测。其收益取决于返回指令
 的频率及原 BTB 对返回目标的预测质量：CoreMark 的跳转准确率提高 4.33 个百分点，收益
 最明显；src0、src1、src2 和 withMext 的基础跳转准确率已经接近 100\%，因此总体收益
@@ -1268,11 +1617,11 @@ Bimodal/BTB 相比旧文档中的测试更容易获得较高准确率；RAS 则�
 \subparagraph{硬件平台说明}
 
 验证平台为竞业达 FPGA 试验箱的数字孪生平台，目标器件为 Xilinx Kintex-7，
-工程使用 Vivado 2023.2 完成综合、实现和 bitstream 生成。
+旧版工程使用 Vivado 2023.2 完成综合、实现和 bitstream 生成；当前 ARES 主线为 Pango/PDS。
 
 \subparagraph{运行流程说明}
 
-FPGA 验证流程包括：生成当前 SystemVerilog；将处理器和 SoC 文件加入 Vivado 工程；
+旧版 FPGA 验证流程包括：生成对应版本的 SystemVerilog；将处理器和 SoC 文件加入 Vivado 工程；
 更新 IROM/DRAM 初始化文件；生成或更新 IP 输出产物；执行综合、实现和时序检查；生成
 bitstream；在数字孪生平台加载工程；最后观察 LED、数码管和计数结果。
 
@@ -1285,7 +1634,7 @@ CSR/trap 和性能程序，LED 用于显示各测试项状态，数码管显示�
 \begin{figure}[htbp]
   \centering
   \includegraphics[width=0.72\linewidth,height=0.68\textheight,keepaspectratio]{withMext}
-  \caption{withMext IROM 初始化文件的部分内容}
+  \caption{旧版 Mundus：withMext IROM 初始化文件的部分内容}
   \label{fig:irom-coe-example}
 \end{figure}
 
@@ -1295,7 +1644,7 @@ CSR/trap 和性能程序，LED 用于显示各测试项状态，数码管显示�
 
 集成于官方 SoC 上的九级流水处理器在上板测试中正常运行。多次验证结果表明
 RV32I 的 37 条指令、RV32M 的 8 条指令、Zicsr 的 6 条指令及特权相关指令
-均通过测试，说明处理器在数字孪生平台上具备稳定的功能正确性和较好的综合运行性能。
+均通过对应赛题测试。
 
 \begin{figure}[htbp]
   \centering
@@ -1310,7 +1659,7 @@ RV32I 的 37 条指令、RV32M 的 8 条指令、Zicsr 的 6 条指令及特权�
     \includegraphics[width=\linewidth,height=0.68\textheight,keepaspectratio]{src1_300m.png}
     \caption*{(b) 以 300.00 MHz 运行 src1}
   \end{minipage}
-  \caption{FPGA src0 src1 运行结果}
+  \caption{旧版 Mundus：FPGA src0 src1 运行结果}
   \label{fig:src0_1_FPGA}
 \end{figure}
 
@@ -1327,44 +1676,43 @@ RV32I 的 37 条指令、RV32M 的 8 条指令、Zicsr 的 6 条指令及特权�
     \includegraphics[width=\linewidth,height=0.68\textheight,keepaspectratio]{without_308m.png}
     \caption*{(b) 以 308.00 MHz 运行 withoutMext}
   \end{minipage}
-  \caption{FPGA src2 与 withoutMext 运行结果}
+  \caption{旧版 Mundus：FPGA src2 与 withoutMext 运行结果}
   \label{fig:src2_without_FPGA}
 \end{figure}
 
 \begin{figure}[htbp]
   \centering
   \includegraphics[width=\linewidth,height=0.68\textheight,keepaspectratio]{with_316m.png}
-  \caption{以 316.67 MHz 运行 withMext}
+  \caption{旧版 Mundus：以 316.67 MHz 运行 withMext}
   \label{fig:with_FPGA}
 \end{figure}
 
 \subparagraph{资源使用及面积、功耗分析}
 
 根据资源和面积报告可知，由于使用了 BRAM 代替了 IROM 和 DRAM，节省了大量的 LUTRAM 使用和面
-积占用，故目前的处理器设计使用的资源较少，LUT、FF 仅分别使用了 3\% 和 2\%，
-仍有充足余裕可供进一步开发。
+积占用，故该旧版处理器设计使用的资源较少，LUT、FF 分别占旧 Kintex-7 器件资源的 3\% 和 2\%。
 
 \begin{figure}[htbp]
   \centering
   \includegraphics[width=\linewidth,height=0.68\textheight,keepaspectratio]{resources.png}
-  \caption{资源使用}
+  \caption{旧版 Mundus：资源使用}
   \label{fig:resource}
 \end{figure}
 
 \begin{figure}[htbp]
   \centering
   \includegraphics[width=0.82\linewidth,height=0.68\textheight,keepaspectratio]{area.png}
-  \caption{综合面积}
+  \caption{旧版 Mundus：综合面积}
   \label{fig:area}
 \end{figure}
 
-由功耗报告可知，芯片总功耗为 0.677 W，动态功耗占比为总功耗的 75 \%，静态功耗占比为总功耗的 25\%。而在动态功耗中，Clock、Signals、以及 Logic 的
+旧版 Vivado 功耗报告估算芯片总功耗为 0.677 W，动态功耗占比为总功耗的 75 \%，静态功耗占比为总功耗的 25\%。而在动态功耗中，Clock、Signals、以及 Logic 的
 占比各自为 19\%、29\%和 18\%。具体数据如图~\ref{fig:power} 所示。
 
 \begin{figure}[htbp]
   \centering
   \includegraphics[width=\linewidth,height=0.68\textheight,keepaspectratio]{power.png}
-  \caption{功耗占比}
+  \caption{旧版 Mundus：功耗占比}
   \label{fig:power}
 \end{figure}
 
@@ -1372,21 +1720,22 @@ RV32I 的 37 条指令、RV32M 的 8 条指令、Zicsr 的 6 条指令及特权�
 \section{总结}
 \subsection{可扩展之处}
 % 模板限制：300 字内。
-后续可完善 RV32F 尚缺的乘除及乘加运算、舍入模式与异常标志，并补充对应回归。
-前端可继续优化 BTB 命中、RAS 目标选择与 PC 更新路径，后端可分析 AGU 提前计算带来的 use-load 停顿与 load-use 收益。
-工程方面应固化每组测试的 RAS/IP 配置、程序镜像和时序报告，并补充 RV32I 逐条测试截图、整机斜 45 度照片及实测供电功耗。
+后续优先修复 ICache 安装/flush 同拍缺陷并验证有效位初始化，再补齐当前配置对应的 Cache/重放、IRQ、AMP 和加速器回归证据，核对目标频率下的 PDS 时序、资源和实板输出。
+后续扩展包括 \code{FENCE.I} 失效、共享 L2 响应顺序修正、视频/miniTensor/Web 闭环和 RV32F。
+每组结果应固定 RTL、参数、程序镜像、工具和测量方法，历史准确率及功耗另行归档。
+
 \subsection{心得体会}
 % 模板限制：1000 字内。
 高主频设计需要把计算路径、存储器延迟和流水控制放在同一时序框架内考虑。
-将 BPU 读表流水化后，提前查询和预测保持必须共同保证请求与响应对齐；仅缩短组合路径，不能自动保证连续取指吞吐。
-九级流水线中的数据相关也不能只按指令类型固定停顿，而应结合生产位置和消费需求判断结果能否及时到达。
+将 BPU 读表流水化后，提前查询和预测保持共同完成请求与响应对齐，维持稳态取指吞吐。
+数据相关处理结合生产者位置和消费者需求，选择旁路或互锁。
 
-将 AGU 提前到 ISS 可以减少部分 load-use 停顿，但同时引入紧邻基址依赖的约束；Store Buffer 可以减少写入占用，却需要正确处理同地址合并、读转发和外设顺序。
+将 AGU 提前到 ISS 可以减少部分 load-use 停顿，但同时引入紧邻基址依赖的约束；Store Buffer 可以减少写入占用，却需要正确处理逐字节读转发、写队列排空和外设顺序。
 这些优化说明，局部延迟收益必须在完整程序和统一提交语义下检验。
 
 验证结果还需要区分配置和统计口径。
-使用原生 RV32M 的代码流与软件乘除例程具有不同的动态分支行为，不能把两者的准确率差异全部归因于预测器变化。
-RAS 收益应在同一镜像下比较；IP 功耗估算、仿真周期与板卡运行时间也应分别记录。
+原生 RV32M 与软件乘除例程具有不同的动态分支行为，预测器及 RAS 收益应在相同代码流和镜像下比较。
+综合功耗估算、仿真周期与板卡运行时间分别记录。
 保留配置、日志和照片，使功能、时序及性能结论能够对应到具体工程状态，是处理器持续演进的重要基础。
 
 \begingroup
