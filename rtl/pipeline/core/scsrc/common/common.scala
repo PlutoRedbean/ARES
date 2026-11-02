@@ -51,7 +51,9 @@ object Func {
                                   stall: Bool, bubble: Bool, kill: Bool = false.B) = {
     prevOut.ready := thisIn.ready && !stall
     thisIn.bits := RegEnable(prevOut.bits, prevOut.valid && thisIn.ready && !stall)
-    val valid = Reg(Bool())
+    // Payload carries no reset (valid guards it); valid must, or a short reset
+    // pulse lets instructions from before the pulse retire afterwards.
+    val valid = RegInit(false.B)
     when(kill) {
       // A redirect invalidates younger work even while an older long-latency
       // instruction is holding every pipeline register.

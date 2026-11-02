@@ -19,6 +19,7 @@
 #   make pipeline-div-test          divider unit test (Icarus)
 #   make pipeline-dcache-test       2-way D-cache unit test (Verilator)
 #   make pipeline-icache-test       4-way I-cache unit test (Icarus)
+#   make pipeline-reset-pulse       short-reset pulse regression
 #   make pipeline-coremark          baseline CoreMark
 #   make pipeline-coremark-{crc,matrix,state,full}
 #   make pipeline-coremark-mt       2/4-hart MULTITHREAD CoreMark
@@ -151,7 +152,7 @@ unit-list9:
         coremark-matrix-array-image coremark-state-image coremark-full-image \
         test-coremark-image test-coremark-array test-images \
         lint-mtx9 lint-state9 lint-list9 unit-mtx9 unit-state9 unit-list9 clean \
-        pipeline-core-gen pipeline-lint pipeline-div-test pipeline-mult-test pipeline-icache-test pipeline-smoke pipeline-isa-images pipeline-isa-sim pipeline-isa pipeline-coremark pipeline-coremark-nocache pipeline-coremark-serial pipeline-coremark-crc pipeline-coremark-matrix pipeline-coremark-state pipeline-coremark-full pipeline-coremark-images pipeline-coremark-mc pipeline-coremark-mt pipeline-coremark-mt-test pipeline-coremark-full-mt pipeline-coremark-mt-image pipeline-coremark-full-mt-image coremark-full-mc-image pipeline-image pipeline-board-image pipeline-amp-image pipeline-amp-image-mt pipeline-pango-lint pipeline-amp-pango-lint pipeline-amp-board-sim pipeline-console pipeline-mc-images pipeline-mc-lint pipeline-mc-run pipeline-mc-test
+        pipeline-core-gen pipeline-lint pipeline-div-test pipeline-mult-test pipeline-icache-test pipeline-reset-pulse pipeline-smoke pipeline-isa-images pipeline-isa-sim pipeline-isa pipeline-coremark pipeline-coremark-nocache pipeline-coremark-serial pipeline-coremark-crc pipeline-coremark-matrix pipeline-coremark-state pipeline-coremark-full pipeline-coremark-images pipeline-coremark-mc pipeline-coremark-mt pipeline-coremark-mt-test pipeline-coremark-full-mt pipeline-coremark-mt-image pipeline-coremark-full-mt-image coremark-full-mc-image pipeline-image pipeline-board-image pipeline-amp-image pipeline-amp-image-mt pipeline-pango-lint pipeline-amp-pango-lint pipeline-amp-board-sim pipeline-console pipeline-mc-images pipeline-mc-lint pipeline-mc-run pipeline-mc-test
 # Accelerated image locations (built by the existing ARES CoreMark scripts).
 PIPELINE_COREMARK_CRC_BIN    ?= $(ARES_HOME)/build/coremark_crc/coremark.bin
 PIPELINE_COREMARK_MATRIX_BIN ?= $(ARES_HOME)/build/coremark_matrix/coremark.bin
@@ -271,6 +272,17 @@ pipeline-icache-test:
 	    -o build/icache_test/tb_icache \
 	    rtl/pipeline/core/vsrc/icache/pipeline_icache.v rtl/pipeline/test/tb_icache.sv
 	@cd $(ARES_HOME) && vvp build/icache_test/tb_icache
+
+# Short-reset regression (docs/pipeline_reset_analysis.md section 11): pulses
+# reset for 1-8 cycles at several phases and checks that no instruction from
+# before the pulse retires or stores afterwards.
+pipeline-reset-pulse:
+	@mkdir -p $(ARES_HOME)/build/reset_pulse
+	@cd $(ARES_HOME) && CCACHE_DISABLE=1 verilator --cc --exe --build --language 1800-2017 -D__VERILATOR__ -Wno-fatal \
+	    --top-module tb_reset_pulse -f rtl/pipeline/pipeline.f \
+	    rtl/pipeline/test/tb_reset_pulse.sv $(ARES_HOME)/rtl/pipeline/test/sim_reset_pulse_main.cpp \
+	    -Mdir $(ARES_HOME)/build/reset_pulse -o $(ARES_HOME)/build/reset_pulse/reset_pulse
+	@$(ARES_HOME)/build/reset_pulse/reset_pulse
 
 pipeline-smoke:
 	@mkdir -p $(ARES_HOME)/build/pipeline_smoke

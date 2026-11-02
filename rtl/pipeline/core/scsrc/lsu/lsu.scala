@@ -58,7 +58,9 @@ class LSU extends Module {
   io.perip.valid := !io.stall && ls1_mem_valid
   io.in.ready := pipe_ready && (!ls1_mem_valid || io.perip.ready)
 
-  val ls2_valid     = RegEnable(ls1_valid && !io.flush, io.in.ready)
+  // Stage valids are reset (payloads are not) so a short reset pulse cannot
+  // leave an in-flight load or store behind.
+  val ls2_valid     = RegEnable(ls1_valid && !io.flush, false.B, io.in.ready)
   val ls2_addr      = RegEnable(ls1_addr              , io.in.ready)
   val ls2_L_sign    = RegEnable(ls1_L_sign            , io.in.ready)
   val ls2_mem_wen   = RegEnable(ls1_mem_wen           , io.in.ready)
@@ -68,7 +70,7 @@ class LSU extends Module {
   // write was accepted after this request left L1.
   val ls2_epoch     = RegEnable(io.coh.epoch          , io.in.ready)
 
-  val ls3_valid     = RegEnable(ls2_valid    , io.out.ready)
+  val ls3_valid     = RegEnable(ls2_valid    , false.B, io.out.ready)
   val ls3_addr      = RegEnable(ls2_addr     , io.out.ready)
   val ls3_L_sign    = RegEnable(ls2_L_sign   , io.out.ready)
   val ls3_mem_wen   = RegEnable(ls2_mem_wen  , io.out.ready)

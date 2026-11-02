@@ -2143,8 +2143,28 @@ module LSU(
     io_slow_ready & ls3_read_valid & (|slow_response_count);
   wire [1:0]       _GEN_1 = {slow_response_enqueue, slow_response_dequeue};
   always @(posedge clock) begin
+    if (reset) begin
+      ls2_valid <= 1'h0;
+      ls3_valid <= 1'h0;
+      slow_response_head <= 1'h0;
+      slow_response_tail <= 1'h0;
+      slow_response_count <= 2'h0;
+    end
+    else begin
+      if (io_in_ready)
+        ls2_valid <= io_in_valid & ~io_flush;
+      if (io_out_ready)
+        ls3_valid <= ls2_valid;
+      if (slow_response_dequeue)
+        slow_response_head <= slow_response_head - 1'h1;
+      if (slow_response_enqueue)
+        slow_response_tail <= slow_response_tail - 1'h1;
+      if (_GEN_1 == 2'h2)
+        slow_response_count <= slow_response_count + 2'h1;
+      else if (_GEN_1 == 2'h1)
+        slow_response_count <= slow_response_count - 2'h1;
+    end
     if (io_in_ready) begin
-      ls2_valid <= io_in_valid & ~io_flush;
       ls2_addr <= io_in_bits_addr;
       ls2_L_sign <= io_in_bits_L_sign;
       ls2_mem_wen <= io_in_bits_mem_wen;
@@ -2153,7 +2173,6 @@ module LSU(
       ls2_cache_way <= _dcache_io_req_way;
     end
     if (io_out_ready) begin
-      ls3_valid <= ls2_valid;
       ls3_addr <= ls2_addr;
       ls3_L_sign <= ls2_L_sign;
       ls3_mem_wen <= ls2_mem_wen;
@@ -2167,21 +2186,6 @@ module LSU(
       slow_response_hold_0 <= io_perip_rdata;
     if (slow_response_enqueue & slow_response_tail)
       slow_response_hold_1 <= io_perip_rdata;
-    if (reset) begin
-      slow_response_head <= 1'h0;
-      slow_response_tail <= 1'h0;
-      slow_response_count <= 2'h0;
-    end
-    else begin
-      if (slow_response_dequeue)
-        slow_response_head <= slow_response_head - 1'h1;
-      if (slow_response_enqueue)
-        slow_response_tail <= slow_response_tail - 1'h1;
-      if (_GEN_1 == 2'h2)
-        slow_response_count <= slow_response_count + 2'h1;
-      else if (_GEN_1 == 2'h1)
-        slow_response_count <= slow_response_count - 2'h1;
-    end
   end // always @(posedge)
   DCache dcache (
     .clock            (clock),
@@ -2443,8 +2447,6 @@ module EXU(
       exu_ex2_io_in_bits_r_envir <= _exu_ex1_io_out_bits_envir;
       exu_ex2_io_in_bits_r_when <= _exu_ex1_io_out_bits_when;
     end
-    if (~_GEN)
-      valid <= _exu_ex1_io_out_valid;
     if (_exu_ex2_io_out_valid & _exu_ex3_io_in_ready & ~_GEN_0) begin
       exu_ex3_io_in_bits_r_pc <= _exu_ex2_io_out_bits_pc;
       exu_ex3_io_in_bits_r_pc_next <= _exu_ex2_io_out_bits_pc_next;
@@ -2458,8 +2460,6 @@ module EXU(
       exu_ex3_io_in_bits_r_envir <= _exu_ex2_io_out_bits_envir;
       exu_ex3_io_in_bits_r_when <= _exu_ex2_io_out_bits_when;
     end
-    if (~_GEN_0)
-      valid_1 <= _exu_ex2_io_out_valid;
     if (_exu_ex3_io_out_valid & _exu_ex4_io_in_ready & ~_GEN_1) begin
       exu_ex4_io_in_bits_r_pc <= _exu_ex3_io_out_bits_pc;
       exu_ex4_io_in_bits_r_pc_next <= _exu_ex3_io_out_bits_pc_next;
@@ -2471,8 +2471,19 @@ module EXU(
       exu_ex4_io_in_bits_r_envir <= _exu_ex3_io_out_bits_envir;
       exu_ex4_io_in_bits_r_when <= _exu_ex3_io_out_bits_when;
     end
-    if (~_GEN_1)
-      valid_2 <= _exu_ex3_io_out_valid;
+    if (reset) begin
+      valid <= 1'h0;
+      valid_1 <= 1'h0;
+      valid_2 <= 1'h0;
+    end
+    else begin
+      if (~_GEN)
+        valid <= _exu_ex1_io_out_valid;
+      if (~_GEN_0)
+        valid_1 <= _exu_ex2_io_out_valid;
+      if (~_GEN_1)
+        valid_2 <= _exu_ex3_io_out_valid;
+    end
   end // always @(posedge)
   exu_ex1 exu_ex1 (
     .clock                          (clock),
@@ -3093,6 +3104,10 @@ module Mundus(
     if (reset) begin
       irq_draining <= 1'h0;
       irq_resume_pc <= 32'h80000000;
+      valid <= 1'h0;
+      valid_1 <= 1'h0;
+      valid_2 <= 1'h0;
+      valid_3 <= 1'h0;
       halted <= 1'h0;
       irq_quiescent <= 1'h0;
     end
@@ -3102,6 +3117,16 @@ module Mundus(
         & (_EXU_io_irq_eligible | irq_draining);
       if (_WBU_io_valid)
         irq_resume_pc <= _WBU_io_retire_pc_next;
+      valid <= ~EXU_io_flush & (if_id_stall ? valid : _IFU_io_out_valid & ~EXU_io_flush);
+      valid_1 <=
+        ~EXU_io_flush & (id_iss_stall ? valid_1 : _IDU_io_out_valid & ~EXU_io_flush);
+      valid_2 <=
+        ~EXU_io_flush
+        & (iss_ex1_stall
+             ? valid_2
+             : _ISU_io_out_valid & ~(EXU_io_flush | issue_hazard | irq_draining));
+      if (~ex4_wb_stall)
+        valid_3 <= _EXU_io_out_valid;
       halted <= _WBU_io_valid & _WBU_io_retire_is_ebreak | halted;
       irq_quiescent <=
         irq_draining & ~_EXU_io_ex1_valid & ~_EXU_io_ex2_valid & ~_EXU_io_ex3_valid
@@ -3114,7 +3139,6 @@ module Mundus(
       IDU_io_in_bits_r_snpc <= _IFU_io_out_bits_snpc;
       IDU_io_in_bits_r_predicted_pc <= _IFU_io_out_bits_predicted_pc;
     end
-    valid <= ~EXU_io_flush & (if_id_stall ? valid : _IFU_io_out_valid & ~EXU_io_flush);
     if (_IDU_io_out_valid & _ISU_io_in_ready & ~id_iss_stall) begin
       ISU_io_in_bits_r_predicted_pc <= _IDU_io_out_bits_predicted_pc;
       ISU_io_in_bits_r_alu_ctrl <= _IDU_io_out_bits_alu_ctrl;
@@ -3143,8 +3167,6 @@ module Mundus(
       ISU_io_in_bits_r_mem_bytes <= _IDU_io_out_bits_mem_bytes;
       ISU_io_in_bits_r_envir <= _IDU_io_out_bits_envir;
     end
-    valid_1 <=
-      ~EXU_io_flush & (id_iss_stall ? valid_1 : _IDU_io_out_valid & ~EXU_io_flush);
     if (_ISU_io_out_valid & _EXU_io_in_ready & ~iss_ex1_stall) begin
       EXU_io_in_bits_r_predicted_pc <= _ISU_io_out_bits_predicted_pc;
       EXU_io_in_bits_r_alu_ctrl <= _ISU_io_out_bits_alu_ctrl;
@@ -3176,11 +3198,6 @@ module Mundus(
       EXU_io_in_bits_r_mem_bytes <= _ISU_io_out_bits_mem_bytes;
       EXU_io_in_bits_r_envir <= _ISU_io_out_bits_envir;
     end
-    valid_2 <=
-      ~EXU_io_flush
-      & (iss_ex1_stall
-           ? valid_2
-           : _ISU_io_out_valid & ~(EXU_io_flush | issue_hazard | irq_draining));
     if (_EXU_io_out_valid & ~ex4_wb_stall) begin
       WBU_io_in_bits_r_pc <= _EXU_io_out_bits_pc;
       WBU_io_in_bits_r_pc_next <= _EXU_io_out_bits_pc_next;
@@ -3192,8 +3209,6 @@ module Mundus(
       WBU_io_in_bits_r_rd_data <= _EXU_io_out_bits_rd_data;
       WBU_io_in_bits_r_envir <= _EXU_io_out_bits_envir;
     end
-    if (~ex4_wb_stall)
-      valid_3 <= _EXU_io_out_valid;
   end // always @(posedge)
   RegisterFile #(
     .ADDR_WIDTH(5),
