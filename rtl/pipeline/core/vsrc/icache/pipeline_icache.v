@@ -196,7 +196,10 @@ module pipeline_icache #(
             (req_fire ? {pre_hit_way, req_index} : {hit_way, req_index_r}) :
                               {miss_way, miss_index};
 
-    wire fill_we = (state == S_FILL);
+    // The data-array write and the directory install below happen on the same
+    // cycle under the same condition, so a flush or reset on the S_FILL cycle
+    // can never leave a tag pointing at another line's data.
+    wire fill_we = (state == S_FILL) && !rst;
 
     // Read data is committed only in S_LOOK/S_RESP through rsp_valid_r, and it
     // is re-read on the cycle the request is accepted, so it carries no reset.
@@ -278,7 +281,9 @@ module pipeline_icache #(
             for (age_i = 0; age_i < NR_SETS*NR_WAYS; age_i = age_i + 1)
                 age_mem[age_i] <= age_i[AGE_W-1:0];
         end else if (flush) begin
-            // Drop any in-flight request/response; keep cached lines.
+            // Drop any in-flight request/response; keep cached lines.  A line
+            // whose last beat has arrived (S_FILL) is still installed below:
+            // all of its words are in refill_buf and IROM is read-only.
             state       <= S_IDLE;
             rsp_valid_r <= 1'b0;
             beat_issue  <= {BEAT_CNT_W{1'b0}};
@@ -315,21 +320,6 @@ module pipeline_icache #(
                              age_mem[req_index_r*NR_WAYS + hit_way])
                         age_mem[req_index_r*NR_WAYS + age_i] <=
                             age_mem[req_index_r*NR_WAYS + age_i] + 1'b1;
-                end
-            end
-
-            // Fill: install the line and update tag/valid/age
-            if (fill_we) begin
-                valid_mem[miss_index*NR_WAYS + miss_way] <= 1'b1;
-                tag_mem[miss_index*NR_WAYS + miss_way]   <= miss_tag;
-                refill_count_r <= refill_count_r + 64'd1;
-                for (age_i = 0; age_i < NR_WAYS; age_i = age_i + 1) begin
-                    if (age_i[WAY_IDX_W-1:0] == miss_way)
-                        age_mem[miss_index*NR_WAYS + age_i] <= {AGE_W{1'b0}};
-                    else if (age_mem[miss_index*NR_WAYS + age_i] <
-                             age_mem[miss_index*NR_WAYS + miss_way])
-                        age_mem[miss_index*NR_WAYS + age_i] <=
-                            age_mem[miss_index*NR_WAYS + age_i] + 1'b1;
                 end
             end
 
@@ -387,6 +377,22 @@ module pipeline_icache #(
 
                 default: state <= S_IDLE;
             endcase
+        end
+
+        // Fill: install the line and update tag/valid/age.  Outside the flush
+        // branch so the directory always follows the data-array write.
+        if (fill_we) begin
+            valid_mem[miss_index*NR_WAYS + miss_way] <= 1'b1;
+            tag_mem[miss_index*NR_WAYS + miss_way]   <= miss_tag;
+            refill_count_r <= refill_count_r + 64'd1;
+            for (age_i = 0; age_i < NR_WAYS; age_i = age_i + 1) begin
+                if (age_i[WAY_IDX_W-1:0] == miss_way)
+                    age_mem[miss_index*NR_WAYS + age_i] <= {AGE_W{1'b0}};
+                else if (age_mem[miss_index*NR_WAYS + age_i] <
+                         age_mem[miss_index*NR_WAYS + miss_way])
+                    age_mem[miss_index*NR_WAYS + age_i] <=
+                        age_mem[miss_index*NR_WAYS + age_i] + 1'b1;
+            end
         end
     end
 
