@@ -602,6 +602,31 @@ BTB 采用直接映射结构，表项数量由参数 BTB\_WIDTH 决定，在本�
   \caption{control-hazard 冒险波形图}
 \end{figure}
 
+\paragraph{OV5640 摄像头视频通路}
+
+  OV5640 通过 DVP 8 位接口输出图像。
+FPGA 先通过 SCCB 总线完成传感器上电时序和寄存器配置，将输出格式设置为 RGB565；DVP 接收模块对 8 位字节流做确定性配对，恢复 16 位像素，
+并在 HREF 低电平期间复位字节相位，避免行长变化或毛刺造成奇偶字节错位。像素处理时钟由 DVP 时钟二分频得到，
+数据经过三级流水后送入后续处理，以匹配同步存储器和跨时钟域接口的时序。
+
+  视频通路分为缩略图和整帧两条支路，如图~\ref{fig:ov5640-video-path}所示。
+缩略图支路在 1280$\times$720 有效画面中取中心 640$\times$640 窗口，
+按 20$\times$20 像素单元做 4:1 盒式滤波，降采样为 32$\times$32 RGB565 图像，
+并通过双 bank 和异步 FIFO 写入片上 BRAM；SoC 通过 MMIO 窗口读取当前帧，
+供 miniTensor 手势识别使用。整帧支路保留完整 1280$\times$720 图像，经 DDR3 双缓冲后由 HDMI 以 720p30 输出，
+用于实时预览和演示。
+
+
+\begin{figure}[htbp]
+  \centering
+  % 适当放大：允许图宽略超正文宽度，居中放置。
+  \makebox[\linewidth][c]{%
+    \includegraphics[width=1.10\linewidth,height=0.95\textheight,keepaspectratio]{figures/module10_ov5640_video.drawio.pdf}%
+  }
+  \caption{OV5640 摄像头视频通路}
+  \label{fig:ov5640-video-path}
+\end{figure}
+
 \subsection{软件系统介绍}
 \subsubsection{软件整体介绍}
 软件分为运行在目标处理器上的裸机测试程序，以及运行在主机上的 Verilator 仿真与 C++ 参考模型。
@@ -670,7 +695,9 @@ process/.style={draw=black,rounded corners=1pt,align=center,text width=10cm,inne
 
 \paragraph{手势识别与网页演示控制模块}
 
-该模块把摄像头前的手势转换为网页演示控制指令，形成从手势识别、串口传输到网页状态机与视觉反馈的闭环。硬件端在 FPGA 上完成图像采集、固定取景区裁剪和 $32\times32$ 灰度归一化，由 miniTensor 上的轻量 INT8 卷积网络输出手势类别与置信度；固件通过连续多帧一致性和置信度门限抑制抖动，再把确认后的手势转换为一行 ASCII 指令，经 115200 8N1 串口发送给上位机。手势与指令的对应关系为：张开手掌对应 \code{START}，握拳对应 \code{FIST}，食指对应 \code{POINT}，V 字对应 \code{MODE}，竖拇指对应 \code{CONFIRM}，特殊手势对应 \code{ULTIMATE}，复位对应 \code{RESET}。硬件端从图像采集到串口发送的通路如图~\ref{fig:gesture-hardware-path}所示。
+该模块把摄像头前的手势转换为网页演示控制指令，形成从手势识别、串口传输到网页状态机与视觉反馈的闭环。硬件端在 FPGA 上完成图像采集、固定取景区裁剪和 $32\times32$ 灰度归一化，由 miniTensor 上的轻量 INT8 卷积网络输出手势类别与置信度；固件通过连续多帧一致性和置信度门限抑制抖动，
+再把确认后的手势转换为一行 ASCII 指令，经 115200 8N1 串口发送给上位机。
+硬件端从图像采集到串口发送的通路如图~\ref{fig:gesture-hardware-path}所示。
 
 \begin{figure}[htbp]
   \centering
@@ -683,12 +710,13 @@ process/.style={draw=black,rounded corners=1pt,align=center,text width=10cm,inne
 
 \begin{figure}[htbp]
   \centering
-  \includegraphics[width=0.92\linewidth,height=0.50\textheight,keepaspectratio]{figures/gesture_web_software_path.pdf}
+  % 适当放大：允许图宽略超正文宽度，居中放置。
+  \makebox[\linewidth][c]{%
+    \includegraphics[width=1.10\linewidth,height=0.62\textheight,keepaspectratio]{figures/gesture_web_software_path.pdf}%
+  }
   \caption{手势识别与网页控制的软件通路}
   \label{fig:gesture-software-path}
 \end{figure}
-
-模块通过 33 个单元测试、TypeScript 类型检查和生产构建验证，并已用于板端手势识别与网页串口联调，可完成答辩演示中的场景切换、确认和特效触发。
 
 \clearpage
 \section{完成情况及性能参数}
