@@ -1,7 +1,8 @@
 # ARES 单核 RT-Thread Nano
 
 RT-Thread Nano 3.1.5 已在共享的 Mundus 流水线 CPU 上完成最小单核移植。
-CoreMark 是独立裸机程序；RTOS 固件不链接 CoreMark、miniTensor、Shell 或加速器应用。
+CoreMark 是独立裸机程序；默认 RTOS 自检固件不链接 CoreMark、miniTensor、Shell 或加速器应用。
+交互式 MSH 使用另一个固件配置和 `build/rtos_shell/`，见下文。
 本次验证包括推断 BRAM 的 RTL 仿真及物理 UART 解码的板级仿真；PDS 实际综合、时序和烧录尚未执行。
 
 ## 构建与运行
@@ -65,6 +66,55 @@ UART RX 保持 idle，本固件无需输入。这里不声称支持 SMP、用户
 串口输出也占用时间。`tick=70 timer_irq=58` 也不矛盾，ISR 会按硬件毫秒差值一次补多个 tick，
 计数器启动至首次服务及屏蔽中断期间都可能累积时间。`BOARD=1` 表示仿真选择板级顶层，
 不表示已经在 FPGA 实板运行。
+
+## 交互式 MSH
+
+复用仓库内 RT-Thread 的 FinSH/MSH 实现，静态分配 shell 线程及 4 KiB 栈，不启用动态堆。
+默认自检镜像继续保留；Shell 镜像直接启动命令行，不重复执行 A/B 自检。
+
+```sh
+make pipeline-rtos-shell            # 编译并连接当前终端
+make pipeline-rtos-shell-test       # 自动串口、连续输入和真实 TTY 测试
+make pipeline-rtos-shell-pango-lint
+python3 scripts/test_rtos_pds.py --shell
+```
+
+启动后显示 `ARES MSH ready. Type help.` 和 `msh >`。支持退格、TAB 补全和双引号参数。
+模拟器的 Ctrl-C、Ctrl-D 或 `quit` 会退出并恢复终端设置。管道输入需要最后发送 `quit`：
+
+```sh
+printf 'help\nps\ntick\nirq\nled 1\necall\nquit\n' | build/rtos_shell/model/run --max-ms 500
+```
+
+| 命令 | 功能 |
+| --- | --- |
+| `help` | 列出命令及说明 |
+| `ps` | 显示实际线程的名称、优先级、状态数值及栈容量（字节） |
+| `tick` / `irq` | 读取内核/硬件时间，以及定时器和 ECALL 计数 |
+| `led 0` / `led 1` | 设置 LED0 |
+| `echo "hello ARES"` | 回显参数 |
+| `sleep 100` | 当前 shell 线程延时指定毫秒，范围 0–60000 |
+| `ecall` | 执行真实同步异常现场自检 |
+| `quit` | 输出模拟器退出标记；在实板上返回命令行 |
+
+Shell 仿真通过真实 115200 8N1 双向 UART 引脚传输，不通过 MMIO 注入字符。
+自动测试包含命令、错误参数、未知命令、引号、退格、TAB、无输入节流的连续串口流以及终端恢复。
+Shell 专用顶层增加 128 字节 RX FIFO，待 CPU 读取确认后再向原 CDC 邮箱提交下一字节；
+输入积压超出容量时置位溢出标志并点亮 LED7，仿真遇到溢出立即失败。
+没有串口硬件流控，长时间 `sleep` 时持续发送大量数据仍可能超过容量。
+
+实板顶层为 `pipeline_rtos_shell_board_top`，RX **B24**、TX **C24**，3.3V / LVCMOS33，115200 8N1。
+B24 由用户提供，电平和 IO 标准与仓库内板卡示例
+`fpga/pango/ip/ddr3/ddr3_test/pnr/ddr_test.fdc` 的 `uart_rxd` 约束一致。
+串口终端关闭本地回显。先运行 `make rtos-shell-image`，再在 PDS 主机执行：
+
+```bat
+pds_shell.exe -file fpga/pango/pipeline/flow_pipeline_rtos_shell.tcl -project_name pipeline_rtos_shell
+```
+
+固件、ELF/HEX/映射文件和哈希位于 `build/rtos_shell/`；PDS 工程和镜像快照位于
+`build/pds_rtos_shell/`。这些入口不覆盖默认 RTOS 或 CoreMark 镜像。
+本机已验证 UART 仿真和流程路径；实际 PDS 综合、时序、位流生成及 B24 上板收发尚未执行。
 
 ## 中断与定时器契约
 

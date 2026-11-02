@@ -49,3 +49,37 @@ pipeline-timer-irq-test:
 	@vvp build/rtos_irq/timer
 
 pipeline-irq-test: pipeline-timer-irq-test
+
+.PHONY: rtos-shell-image pipeline-rtos-shell-build pipeline-rtos-shell
+rtos-shell-image:
+	@$(MAKE) -C $(ARES_HOME)/rtthread-nano/rt-thread/bsp/ARES PROFILE=shell OUT=$(ARES_HOME)/build/rtos_shell
+	@python3 scripts/pipeline_image.py --elf build/rtos_shell/ares-rtos.elf \
+	    --irom build/rtos_shell/irom.hex --dram build/rtos_shell/dram.hex --json build/rtos_shell/image.json
+	@python3 scripts/rtos_sim_filelist.py build/rtos_shell/sim.f
+
+pipeline-rtos-shell-build: rtos-shell-image
+	@CCACHE_DISABLE=1 verilator --cc --exe --build --timing -j 4 -U__VERILATOR__ -Wno-fatal \
+	    --top-module tb_pipeline_shell -f build/rtos_shell/sim.f \
+	    rtl/pipeline/board/pipeline_uart_rx_fifo.v \
+	    rtl/pipeline/board/pipeline_rtos_shell_board_top.v rtl/pipeline/test/tb_pipeline_shell.sv \
+	    $(ARES_HOME)/rtl/pipeline/test/sim_shell_main.cpp \
+	    --Mdir $(ARES_HOME)/build/rtos_shell/model -o run
+
+pipeline-rtos-shell: pipeline-rtos-shell-build
+	@$(ARES_HOME)/build/rtos_shell/model/run
+
+.PHONY: pipeline-rtos-shell-test pipeline-rtos-shell-fifo-test
+pipeline-rtos-shell-fifo-test:
+	@mkdir -p build/rtos_shell
+	@iverilog -g2012 -s tb_uart_rx_fifo -o build/rtos_shell/rx_fifo \
+	    rtl/pipeline/board/pipeline_uart_rx_fifo.v rtl/pipeline/test/tb_uart_rx_fifo.sv
+	@vvp build/rtos_shell/rx_fifo
+
+pipeline-rtos-shell-test: pipeline-rtos-shell-build pipeline-rtos-shell-fifo-test
+	@python3 scripts/test_rtos_shell.py
+
+.PHONY: pipeline-rtos-shell-pango-lint
+pipeline-rtos-shell-pango-lint: rtos-shell-image
+	@verilator --lint-only --timing -U__VERILATOR__ -Wall -Wno-fatal \
+	    --top-module pipeline_rtos_shell_board_top -f build/rtos_shell/sim.f \
+	    rtl/pipeline/board/pipeline_uart_rx_fifo.v rtl/pipeline/board/pipeline_rtos_shell_board_top.v

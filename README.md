@@ -90,6 +90,8 @@ WNS **−1.527 ns**、TNS −3,167 ns，瓶颈在 `u_mtx9_engine` 的阵列读/�
 RT-Thread Nano 3.1.5 使用独立程序和 `build/rtos/` 镜像，共用支持机器定时器中断的 CPU。
 `make pipeline-rtos` / `make pipeline-rtos-board-sim` 已验证启动、无 yield 抢占、延时唤醒及 UART。
 CoreMark 保持独立裸机运行；四组固定镜像的回归输出和周期与修改前相同。
+`make pipeline-rtos-shell` 提供独立 MSH 串口交互固件，支持线程、tick、中断、LED 和 ECALL 命令；
+实板 RX B24 / TX C24（3.3V，115200 8N1）的独立 PDS 入口已准备，上板收发尚待验证。
 构建、接口和 PDS 验证边界见 [单核 RTOS](docs/pipeline_rtos.md)。
 
 ## 仓库布局

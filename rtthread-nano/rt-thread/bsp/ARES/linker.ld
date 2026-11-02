@@ -6,7 +6,11 @@ MEMORY {
 }
 SECTIONS {
  .text : ALIGN(4) { KEEP(*(.text.startup)) *(.text*) } > IROM
- .rodata : ALIGN(16) { *(.rodata*) *(.srodata*) } > DRAM
+ .rodata : ALIGN(16) {
+  *(.rodata*) *(.srodata*)
+  . = ALIGN(4); __fsymtab_start = .; KEEP(*(FSymTab)) __fsymtab_end = .;
+  . = ALIGN(4); __vsymtab_start = .; KEEP(*(VSymTab)) __vsymtab_end = .;
+ } > DRAM
  .data : ALIGN(16) { *(.data*) *(.sdata*) } > DRAM
  .bss (NOLOAD) : ALIGN(16) {
   __bss_start = .; *(.bss*) *(.sbss*) *(COMMON) . = ALIGN(16); __bss_end = .;

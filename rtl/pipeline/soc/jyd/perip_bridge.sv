@@ -45,6 +45,7 @@ module perip_bridge #(
     input  wire [1:0]   perip_mask,
     output reg  [31:0]  perip_rdata,
     output wire         timer_irq,
+    output wire         uart_rx_consumed,
 
     input  wire [63:0]  virtual_sw_input,
     input  wire [7:0]   virtual_key_input,
@@ -325,6 +326,7 @@ module perip_bridge #(
     assign store_enqueue = perip_valid && perip_ready && perip_wen &&
                            dram_write_hit;
     assign read_accept = perip_valid && perip_ready && (~perip_wen);
+    assign uart_rx_consumed = read_accept && perip_addr_eff == CONSOLE_RX && console_rx_valid;
     assign dram_load_accept = read_accept && dram_read_hit;
     assign mmio_write_accept = perip_valid && perip_ready && perip_wen &&
                                (~dram_write_hit);

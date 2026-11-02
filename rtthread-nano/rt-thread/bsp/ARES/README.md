@@ -5,4 +5,6 @@
 内核与 common/context_gcc.S 直接复用 vendored 源码，不修改旧 BSP。
 
 从仓库根运行 `make rtos-image`、`make pipeline-rtos` 或 `make pipeline-rtos-board-sim`。
+交互式 MSH 使用 `make pipeline-rtos-shell`；`PROFILE=shell` 输出到独立的 `build/rtos_shell/`，
+支持 `help`、`ps`、`tick`、`irq`、`led`、`echo`、`sleep`、`ecall` 和模拟器退出命令 `quit`。
 完整内存/中断契约、测试结果和 PDS 入口见 [单核 RTOS 文档](../../../../docs/pipeline_rtos.md)。

@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 """Validate PDS flow paths with Tcl stubs; this does not run PDS or timing."""
+import argparse
 import hashlib
 from pathlib import Path
 import subprocess
 
 root = Path(__file__).resolve().parents[1]
-profile = 'rtos'
+parser = argparse.ArgumentParser()
+parser.add_argument('--shell', action='store_true')
+args = parser.parse_args()
+profile = 'rtos_shell' if args.shell else 'rtos'
 flow = root / f'fpga/pango/pipeline/flow_pipeline_{profile}.tcl'
 stubs = r'''
 proc set_arch {args} {}

@@ -1,6 +1,11 @@
 ARES_HOME := $(abspath ../../../..)
 RTT := $(abspath ../..)
+PROFILE ?= test
+ifeq ($(PROFILE),shell)
+OUT ?= $(ARES_HOME)/build/rtos_shell
+else
 OUT ?= $(ARES_HOME)/build/rtos
+endif
 CROSS_COMPILE ?= riscv64-unknown-elf-
 CC := $(CROSS_COMPILE)gcc
 CFLAGS := -march=rv32im_zicsr -mabi=ilp32 -mcmodel=medany -mstrict-align -Os -g \
@@ -10,12 +15,22 @@ CFLAGS := -march=rv32im_zicsr -mabi=ilp32 -mcmodel=medany -mstrict-align -Os -g 
 KERNEL := clock components cpu idle irq kservice object scheduler thread timer
 SOURCES := $(addprefix $(RTT)/src/,$(addsuffix .c,$(KERNEL)))
 LOCAL := board console timer trap main cpuport
+ifeq ($(PROFILE),shell)
+CFLAGS += -DARES_SHELL -Iinclude/compat -I$(RTT)/components/finsh
+KERNEL += ipc
+LOCAL := board console timer trap cpuport shell_main shell_runtime
+SHELL_OBJECTS := $(OUT)/finsh_shell.o $(OUT)/finsh_msh.o
+else ifneq ($(PROFILE),test)
+$(error PROFILE must be test or shell)
+endif
 OBJECTS := $(addprefix $(OUT)/kernel_,$(addsuffix .o,$(KERNEL))) \
- $(addprefix $(OUT)/,$(addsuffix .o,$(LOCAL))) $(OUT)/start.o $(OUT)/trap_entry.o $(OUT)/context.o
+ $(addprefix $(OUT)/,$(addsuffix .o,$(LOCAL))) $(OUT)/start.o $(OUT)/trap_entry.o $(OUT)/context.o $(SHELL_OBJECTS)
 .PHONY: all
 all: $(OUT)/ares-rtos.elf
 $(OUT):
 	mkdir -p $@
+$(OUT)/finsh_%.o: $(RTT)/components/finsh/%.c | $(OUT)
+	$(CC) $(CFLAGS) -c $< -o $@
 $(OUT)/kernel_%.o: $(RTT)/src/%.c | $(OUT)
 	$(CC) $(CFLAGS) -c $< -o $@
 $(OUT)/%.o: %.c | $(OUT)

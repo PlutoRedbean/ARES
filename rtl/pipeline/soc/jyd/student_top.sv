@@ -63,7 +63,8 @@ module student_top#(
     output wire        shared_req_write,
     output wire [31:0] shared_req_addr,
     output wire [31:0] shared_req_wdata,
-    output wire [3:0]  shared_req_wstrb
+    output wire [3:0]  shared_req_wstrb,
+    output wire        uart_rx_consumed
 );
 
     // Core fetch handshake and the selected instruction-memory path.
@@ -246,6 +247,7 @@ module student_top#(
         .perip_rdata		(perip_rdata),
         .perip_idle         (perip_idle),
         .timer_irq          (timer_irq),
+        .uart_rx_consumed   (uart_rx_consumed),
         .virtual_sw_input	(virtual_sw),
         .virtual_key_input	(virtual_key),	
         .uart_rx_data      (uart_rx_data),
