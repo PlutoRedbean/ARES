@@ -361,7 +361,7 @@ module IDU(
   output [4:0]  io_out_bits_mdu_ctrl,
   output [3:0]  io_out_bits_bit_ctrl,
   output [2:0]  io_out_bits_csr_ctrl,
-  output [5:0]  io_out_bits_csr_mask,
+  output [7:0]  io_out_bits_csr_mask,
   output        io_out_bits_jump,
                 io_out_bits_ras_push,
                 io_out_bits_ras_pop,
@@ -641,12 +641,16 @@ module IDU(
   assign io_out_bits_csr_ctrl = inst_type == 3'h6 ? io_in_bits_inst[14:12] : 3'h0;
   assign io_out_bits_csr_mask =
     io_in_bits_inst[31:20] == 12'h342
-      ? 6'h8
+      ? 8'h8
       : io_in_bits_inst[31:20] == 12'h305
-          ? 6'h4
+          ? 8'h4
           : io_in_bits_inst[31:20] == 12'h341
-              ? 6'h2
-              : {5'h0, io_in_bits_inst[31:20] == 12'h300};
+              ? 8'h2
+              : io_in_bits_inst[31:20] == 12'h300
+                  ? 8'h1
+                  : io_in_bits_inst[31:20] == 12'h344
+                      ? 8'h80
+                      : {1'h0, io_in_bits_inst[31:20] == 12'h304, 6'h0};
   assign io_out_bits_jump = isJal | isJalr;
   assign io_out_bits_ras_push = (isJal | isJalr) & rdIsLink;
   assign io_out_bits_ras_pop =
@@ -938,7 +942,7 @@ module ISU(
   input  [4:0]  io_in_bits_mdu_ctrl,
   input  [3:0]  io_in_bits_bit_ctrl,
   input  [2:0]  io_in_bits_csr_ctrl,
-  input  [5:0]  io_in_bits_csr_mask,
+  input  [7:0]  io_in_bits_csr_mask,
   input         io_in_bits_jump,
                 io_in_bits_ras_push,
                 io_in_bits_ras_pop,
@@ -966,7 +970,7 @@ module ISU(
   output [4:0]  io_out_bits_mdu_ctrl,
   output [3:0]  io_out_bits_bit_ctrl,
   output [2:0]  io_out_bits_csr_ctrl,
-  output [5:0]  io_out_bits_csr_mask,
+  output [7:0]  io_out_bits_csr_mask,
   output        io_out_bits_jump,
                 io_out_bits_ras_push,
                 io_out_bits_ras_pop,
@@ -1328,7 +1332,11 @@ module CSR(
                 io_valid,
   input  [2:0]  io_ctrl,
   input  [31:0] io_wdata,
-  input  [5:0]  io_mask,
+  input  [7:0]  io_mask,
+  input         io_timer_irq,
+                io_irq_take,
+  input  [31:0] io_irq_pc,
+  output        io_irq_eligible,
   input         io_ecall,
                 io_mret,
   input  [31:0] io_trap_pc,
@@ -1338,67 +1346,88 @@ module CSR(
 );
 
   reg  [31:0] csrRegs_0_2;
-  reg  [31:0] csrRegs_1_2;
   reg  [31:0] csrRegs_2_2;
   reg  [31:0] csrRegs_3_2;
-  wire        _old_data_T = io_mask == 6'h1;
-  wire        _old_data_T_2 = io_mask == 6'h2;
-  wire        _old_data_T_4 = io_mask == 6'h4;
-  wire        _old_data_T_6 = io_mask == 6'h8;
+  reg  [31:0] csrRegs_4_2;
+  reg  [31:0] csrRegs_5_2;
+  wire        _old_data_T_1 = io_mask == 8'h40;
+  wire        _old_data_T_5 = io_mask == 8'h1;
+  wire        _old_data_T_7 = io_mask == 8'h2;
+  wire        _old_data_T_9 = io_mask == 8'h4;
+  wire        _old_data_T_11 = io_mask == 8'h8;
   wire [31:0] io_rdata_0 =
-    _old_data_T_6
-      ? csrRegs_3_2
-      : _old_data_T_4
-          ? csrRegs_2_2
-          : _old_data_T_2 ? csrRegs_1_2 : _old_data_T ? csrRegs_0_2 : 32'h0;
+    _old_data_T_11
+      ? csrRegs_5_2
+      : _old_data_T_9
+          ? csrRegs_4_2
+          : _old_data_T_7
+              ? csrRegs_3_2
+              : _old_data_T_5
+                  ? csrRegs_2_2
+                  : io_mask == 8'h80
+                      ? {24'h0, io_timer_irq, 7'h0}
+                      : _old_data_T_1 ? csrRegs_0_2 : 32'h0;
   wire [31:0] csr_wdata =
     io_ctrl == 3'h3
       ? io_rdata_0 & ~io_wdata
       : {32{io_ctrl == 3'h2}} & io_rdata_0 | io_wdata;
   wire        do_write = io_valid & (|io_ctrl) & (|io_mask);
+  wire        _GEN = io_irq_take | io_ecall;
+  wire        _GEN_0 = _GEN | io_mret;
   always @(posedge clock) begin
     if (reset) begin
-      csrRegs_0_2 <= 32'h1800;
-      csrRegs_1_2 <= 32'h0;
-      csrRegs_2_2 <= 32'h0;
+      csrRegs_0_2 <= 32'h0;
+      csrRegs_2_2 <= 32'h1800;
       csrRegs_3_2 <= 32'h0;
+      csrRegs_4_2 <= 32'h0;
+      csrRegs_5_2 <= 32'h0;
     end
     else begin
-      if (io_ecall) begin
-        csrRegs_0_2 <=
-          {csrRegs_0_2[31:8], csrRegs_0_2[3], csrRegs_0_2[6:4], 1'h0, csrRegs_0_2[2:0]};
-        csrRegs_1_2 <= io_trap_pc;
-        csrRegs_3_2 <= 32'hB;
+      if (_GEN_0 | ~(do_write & _old_data_T_1)) begin
+      end
+      else
+        csrRegs_0_2 <= {24'h0, csr_wdata[7], 7'h0};
+      if (_GEN) begin
+        csrRegs_2_2 <=
+          {csrRegs_2_2[31:8], csrRegs_2_2[3], csrRegs_2_2[6:4], 1'h0, csrRegs_2_2[2:0]};
+        csrRegs_3_2 <= (io_irq_take ? io_irq_pc : io_trap_pc) & 32'hFFFFFFFC;
+        csrRegs_5_2 <= io_irq_take ? 32'h80000007 : 32'hB;
       end
       else begin
         if (io_mret)
-          csrRegs_0_2 <=
-            {csrRegs_0_2[31:8], 1'h1, csrRegs_0_2[6:4], csrRegs_0_2[7], csrRegs_0_2[2:0]};
-        else if (do_write & _old_data_T)
-          csrRegs_0_2 <= csr_wdata;
-        if (io_mret | ~(do_write & _old_data_T_2)) begin
+          csrRegs_2_2 <=
+            {csrRegs_2_2[31:8], 1'h1, csrRegs_2_2[6:4], csrRegs_2_2[7], csrRegs_2_2[2:0]};
+        else if (do_write & _old_data_T_5)
+          csrRegs_2_2 <= {24'h18, csr_wdata[7:3] & 5'h11, 3'h0};
+        if (io_mret | ~(do_write & _old_data_T_7)) begin
         end
         else
-          csrRegs_1_2 <= csr_wdata;
-        if (io_mret | ~(do_write & _old_data_T_6)) begin
+          csrRegs_3_2 <= csr_wdata & 32'hFFFFFFFC;
+        if (io_mret | ~(do_write & _old_data_T_11)) begin
         end
         else
-          csrRegs_3_2 <= csr_wdata;
+          csrRegs_5_2 <= csr_wdata;
       end
-      if (io_ecall | io_mret | ~(do_write & _old_data_T_4)) begin
+      if (_GEN_0 | ~(do_write & _old_data_T_9)) begin
       end
       else
-        csrRegs_2_2 <= csr_wdata;
+        csrRegs_4_2 <= csr_wdata & 32'hFFFFFFFC;
     end
   end // always @(posedge)
+  assign io_irq_eligible = csrRegs_2_2[3] & csrRegs_0_2[7] & io_timer_irq;
   assign io_rdata = io_rdata_0;
-  assign io_mtvec = csrRegs_2_2;
-  assign io_mepc = csrRegs_1_2;
+  assign io_mtvec = csrRegs_4_2;
+  assign io_mepc = csrRegs_3_2;
 endmodule
 
 module exu_ex1(
   input         clock,
                 reset,
+                io_timer_irq,
+                io_irq_take,
+  input  [31:0] io_irq_pc,
+  output        io_irq_eligible,
+  output [31:0] io_irq_target,
   output        io_in_ready,
   input         io_in_valid,
   input  [31:0] io_in_bits_predicted_pc,
@@ -1407,7 +1436,7 @@ module exu_ex1(
   input  [4:0]  io_in_bits_mdu_ctrl,
   input  [3:0]  io_in_bits_bit_ctrl,
   input  [2:0]  io_in_bits_csr_ctrl,
-  input  [5:0]  io_in_bits_csr_mask,
+  input  [7:0]  io_in_bits_csr_mask,
   input         io_in_bits_jump,
                 io_in_bits_ras_push,
                 io_in_bits_ras_pop,
@@ -1533,19 +1562,24 @@ module exu_ex1(
     .io_bit_aux  (_CRC8_EX1_io_bit_aux)
   );
   CSR CSR (
-    .clock      (clock),
-    .reset      (reset),
-    .io_valid   (exu_fire),
-    .io_ctrl    ({1'h0, io_in_bits_csr_ctrl[1:0]}),
-    .io_wdata   (io_in_bits_csr_ctrl[2] ? io_in_bits_imm : io_in_bits_rs1_val),
-    .io_mask    (io_in_bits_csr_mask),
-    .io_ecall   (exu_fire & is_ecall),
-    .io_mret    (exu_fire & is_mret),
-    .io_trap_pc (io_in_bits_pc),
-    .io_rdata   (_CSR_io_rdata),
-    .io_mtvec   (_CSR_io_mtvec),
-    .io_mepc    (_CSR_io_mepc)
+    .clock           (clock),
+    .reset           (reset),
+    .io_valid        (exu_fire),
+    .io_ctrl         ({1'h0, io_in_bits_csr_ctrl[1:0]}),
+    .io_wdata        (io_in_bits_csr_ctrl[2] ? io_in_bits_imm : io_in_bits_rs1_val),
+    .io_mask         (io_in_bits_csr_mask),
+    .io_timer_irq    (io_timer_irq),
+    .io_irq_take     (io_irq_take),
+    .io_irq_pc       (io_irq_pc),
+    .io_irq_eligible (io_irq_eligible),
+    .io_ecall        (exu_fire & is_ecall),
+    .io_mret         (exu_fire & is_mret),
+    .io_trap_pc      (io_in_bits_pc),
+    .io_rdata        (_CSR_io_rdata),
+    .io_mtvec        (_CSR_io_mtvec),
+    .io_mepc         (_CSR_io_mepc)
   );
+  assign io_irq_target = _CSR_io_mtvec;
   assign io_in_ready = io_out_ready & ~_DIV_io_stall;
   assign io_out_valid = io_out_valid_0;
   assign io_out_bits_pc = io_in_bits_pc;
@@ -2194,6 +2228,11 @@ endmodule
 module EXU(
   input         clock,
                 reset,
+                io_timer_irq,
+                io_irq_take,
+  input  [31:0] io_irq_pc,
+  output        io_irq_eligible,
+  output [31:0] io_irq_target,
   output        io_in_ready,
   input         io_in_valid,
   input  [31:0] io_in_bits_predicted_pc,
@@ -2202,7 +2241,7 @@ module EXU(
   input  [4:0]  io_in_bits_mdu_ctrl,
   input  [3:0]  io_in_bits_bit_ctrl,
   input  [2:0]  io_in_bits_csr_ctrl,
-  input  [5:0]  io_in_bits_csr_mask,
+  input  [7:0]  io_in_bits_csr_mask,
   input         io_in_bits_jump,
                 io_in_bits_ras_push,
                 io_in_bits_ras_pop,
@@ -2438,6 +2477,11 @@ module EXU(
   exu_ex1 exu_ex1 (
     .clock                          (clock),
     .reset                          (reset),
+    .io_timer_irq                   (io_timer_irq),
+    .io_irq_take                    (io_irq_take),
+    .io_irq_pc                      (io_irq_pc),
+    .io_irq_eligible                (io_irq_eligible),
+    .io_irq_target                  (io_irq_target),
     .io_in_ready                    (io_in_ready),
     .io_in_valid                    (io_in_valid),
     .io_in_bits_predicted_pc        (io_in_bits_predicted_pc),
@@ -2797,6 +2841,7 @@ module Mundus(
   input         io_coh_inv_valid,
   input  [31:0] io_coh_inv_addr,
   input  [7:0]  io_coh_epoch,
+  input         io_timer_irq,
   input  [31:0] io_data_offset,
   output        io_retire_valid,
   output [31:0] io_retire_pc,
@@ -2812,6 +2857,7 @@ module Mundus(
   wire        id_iss_stall;
   wire        if_id_stall;
   wire        EXU_io_flush;
+  wire        irq_take;
   wire        _HZU_io_hzu_bpu_update_en;
   wire [31:0] _HZU_io_hzu_bpu_update_pc;
   wire        _HZU_io_hzu_bpu_update_ras_push;
@@ -2828,7 +2874,10 @@ module Mundus(
   wire [31:0] _WBU_io_gpr_data;
   wire        _WBU_io_rd_wen;
   wire [4:0]  _WBU_io_rd_when;
+  wire [31:0] _WBU_io_retire_pc_next;
   wire        _WBU_io_retire_is_ebreak;
+  wire        _EXU_io_irq_eligible;
+  wire [31:0] _EXU_io_irq_target;
   wire        _EXU_io_in_ready;
   wire        _EXU_io_out_valid;
   wire [31:0] _EXU_io_out_bits_pc;
@@ -2887,7 +2936,7 @@ module Mundus(
   wire [4:0]  _ISU_io_out_bits_mdu_ctrl;
   wire [3:0]  _ISU_io_out_bits_bit_ctrl;
   wire [2:0]  _ISU_io_out_bits_csr_ctrl;
-  wire [5:0]  _ISU_io_out_bits_csr_mask;
+  wire [7:0]  _ISU_io_out_bits_csr_mask;
   wire        _ISU_io_out_bits_jump;
   wire        _ISU_io_out_bits_ras_push;
   wire        _ISU_io_out_bits_ras_pop;
@@ -2919,7 +2968,7 @@ module Mundus(
   wire [4:0]  _IDU_io_out_bits_mdu_ctrl;
   wire [3:0]  _IDU_io_out_bits_bit_ctrl;
   wire [2:0]  _IDU_io_out_bits_csr_ctrl;
-  wire [5:0]  _IDU_io_out_bits_csr_mask;
+  wire [7:0]  _IDU_io_out_bits_csr_mask;
   wire        _IDU_io_out_bits_jump;
   wire        _IDU_io_out_bits_ras_push;
   wire        _IDU_io_out_bits_ras_pop;
@@ -2950,6 +2999,8 @@ module Mundus(
   wire [31:0] _IFU_io_out_bits_predicted_pc;
   wire [31:0] _GPR_rdata1;
   wire [31:0] _GPR_rdata2;
+  reg         irq_draining;
+  reg  [31:0] irq_resume_pc;
   wire        _ex4_wb_stall_T = _WBU_io_long_stall | _EXU_io_backend_stall;
   reg  [31:0] IDU_io_in_bits_r_pc;
   reg  [31:0] IDU_io_in_bits_r_inst;
@@ -2962,7 +3013,7 @@ module Mundus(
   reg  [4:0]  ISU_io_in_bits_r_mdu_ctrl;
   reg  [3:0]  ISU_io_in_bits_r_bit_ctrl;
   reg  [2:0]  ISU_io_in_bits_r_csr_ctrl;
-  reg  [5:0]  ISU_io_in_bits_r_csr_mask;
+  reg  [7:0]  ISU_io_in_bits_r_csr_mask;
   reg         ISU_io_in_bits_r_jump;
   reg         ISU_io_in_bits_r_ras_push;
   reg         ISU_io_in_bits_r_ras_pop;
@@ -2990,7 +3041,7 @@ module Mundus(
   reg  [4:0]  EXU_io_in_bits_r_mdu_ctrl;
   reg  [3:0]  EXU_io_in_bits_r_bit_ctrl;
   reg  [2:0]  EXU_io_in_bits_r_csr_ctrl;
-  reg  [5:0]  EXU_io_in_bits_r_csr_mask;
+  reg  [7:0]  EXU_io_in_bits_r_csr_mask;
   reg         EXU_io_in_bits_r_jump;
   reg         EXU_io_in_bits_r_ras_push;
   reg         EXU_io_in_bits_r_ras_pop;
@@ -3025,16 +3076,38 @@ module Mundus(
   reg  [2:0]  WBU_io_in_bits_r_envir;
   reg         valid_3;
   reg         halted;
-  assign EXU_io_flush = _HZU_io_hzu_hazard | _EXU_io_load_miss_replay;
+  reg         irq_quiescent;
+  assign irq_take = irq_draining & _EXU_io_irq_eligible & irq_quiescent & ~halted;
+  assign EXU_io_flush = _HZU_io_hzu_hazard | _EXU_io_load_miss_replay | irq_take;
   wire        issue_hazard = ~_HZU_io_hzu_hazard & _ISU_io_interlock;
   wire        fence_wait =
     _IDU_io_out_valid & _IDU_io_out_bits_envir == 3'h5
     & ~(_EXU_io_lsu_idle & io_perip_idle);
-  assign if_id_stall = _ex4_wb_stall_T | issue_hazard | fence_wait | halted;
-  assign id_iss_stall = _ex4_wb_stall_T | issue_hazard | fence_wait | halted;
+  assign if_id_stall =
+    _ex4_wb_stall_T | issue_hazard | fence_wait | halted | irq_draining;
+  assign id_iss_stall =
+    _ex4_wb_stall_T | issue_hazard | fence_wait | halted | irq_draining;
   assign iss_ex1_stall = _ex4_wb_stall_T | halted;
   assign ex4_wb_stall = _ex4_wb_stall_T | halted;
   always @(posedge clock) begin
+    if (reset) begin
+      irq_draining <= 1'h0;
+      irq_resume_pc <= 32'h80000000;
+      halted <= 1'h0;
+      irq_quiescent <= 1'h0;
+    end
+    else begin
+      irq_draining <=
+        ~(irq_take | ~_EXU_io_irq_eligible | halted)
+        & (_EXU_io_irq_eligible | irq_draining);
+      if (_WBU_io_valid)
+        irq_resume_pc <= _WBU_io_retire_pc_next;
+      halted <= _WBU_io_valid & _WBU_io_retire_is_ebreak | halted;
+      irq_quiescent <=
+        irq_draining & ~_EXU_io_ex1_valid & ~_EXU_io_ex2_valid & ~_EXU_io_ex3_valid
+        & ~_EXU_io_ex4_valid & ~valid_3 & ~_EXU_io_long_in_flight & _EXU_io_lsu_idle
+        & io_perip_idle & ~_HZU_io_hzu_hazard & ~_EXU_io_load_miss_replay;
+    end
     if (_IFU_io_out_valid & _IDU_io_in_ready & ~if_id_stall) begin
       IDU_io_in_bits_r_pc <= _IFU_io_out_bits_pc;
       IDU_io_in_bits_r_inst <= _IFU_io_out_bits_inst;
@@ -3105,7 +3178,9 @@ module Mundus(
     end
     valid_2 <=
       ~EXU_io_flush
-      & (iss_ex1_stall ? valid_2 : _ISU_io_out_valid & ~(EXU_io_flush | issue_hazard));
+      & (iss_ex1_stall
+           ? valid_2
+           : _ISU_io_out_valid & ~(EXU_io_flush | issue_hazard | irq_draining));
     if (_EXU_io_out_valid & ~ex4_wb_stall) begin
       WBU_io_in_bits_r_pc <= _EXU_io_out_bits_pc;
       WBU_io_in_bits_r_pc_next <= _EXU_io_out_bits_pc_next;
@@ -3119,10 +3194,6 @@ module Mundus(
     end
     if (~ex4_wb_stall)
       valid_3 <= _EXU_io_out_valid;
-    if (reset)
-      halted <= 1'h0;
-    else
-      halted <= _WBU_io_valid & _WBU_io_retire_is_ebreak | halted;
   end // always @(posedge)
   RegisterFile #(
     .ADDR_WIDTH(5),
@@ -3132,7 +3203,7 @@ module Mundus(
     .wen    (_WBU_io_gpr_wen & _WBU_io_valid),
     .waddr  (_WBU_io_gpr_addr),
     .wdata  (_WBU_io_gpr_data),
-    .ren    (~(_ex4_wb_stall_T | _ISU_io_interlock)),
+    .ren    (~(_ex4_wb_stall_T | _ISU_io_interlock | irq_draining)),
     .raddr1 (_IDU_io_out_bits_rs1_addr),
     .rdata1 (_GPR_rdata1),
     .raddr2 (_IDU_io_out_bits_rs2_addr),
@@ -3162,7 +3233,9 @@ module Mundus(
     .io_actual_taken          (_HZU_io_hzu_branch_resolve_actual_taken),
     .io_redirected            (EXU_io_flush),
     .io_redirected_pc
-      (_HZU_io_hzu_hazard ? _HZU_io_hzu_branch_resolve_actual_pc : _EXU_io_replay_pc)
+      (irq_take
+         ? _EXU_io_irq_target
+         : _HZU_io_hzu_hazard ? _HZU_io_hzu_branch_resolve_actual_pc : _EXU_io_replay_pc)
   );
   IDU IDU (
     .io_in_ready              (_IDU_io_in_ready),
@@ -3308,6 +3381,11 @@ module Mundus(
   EXU EXU (
     .clock                          (clock),
     .reset                          (reset),
+    .io_timer_irq                   (io_timer_irq),
+    .io_irq_take                    (irq_take),
+    .io_irq_pc                      (irq_resume_pc),
+    .io_irq_eligible                (_EXU_io_irq_eligible),
+    .io_irq_target                  (_EXU_io_irq_target),
     .io_in_ready                    (_EXU_io_in_ready),
     .io_in_valid                    (valid_2),
     .io_in_bits_predicted_pc        (EXU_io_in_bits_r_predicted_pc),
@@ -3369,7 +3447,7 @@ module Mundus(
     .io_coh_inv_addr                (io_coh_inv_addr),
     .io_coh_epoch                   (io_coh_epoch),
     .io_lsu_lookup_valid
-      (ISU_io_out_ready & _ISU_io_out_valid & ~EXU_io_flush
+      (ISU_io_out_ready & _ISU_io_out_valid & ~irq_draining & ~EXU_io_flush
        & _ISU_io_out_bits_mem_bytes != 2'h3),
     .io_lsu_lookup_addr             (_ISU_io_out_bits_addr),
     .io_lsu_idle                    (_EXU_io_lsu_idle),
@@ -3434,7 +3512,7 @@ module Mundus(
     .io_rd_when          (_WBU_io_rd_when),
     .io_retire_valid     (io_retire_valid),
     .io_retire_pc        (io_retire_pc),
-    .io_retire_pc_next   (io_retire_pc_next),
+    .io_retire_pc_next   (_WBU_io_retire_pc_next),
     .io_retire_rd_wen    (io_retire_rd_wen),
     .io_retire_rd        (io_retire_rd),
     .io_retire_wdata     (io_retire_wdata),
@@ -3461,6 +3539,7 @@ module Mundus(
     .io_hzu_branch_resolve_actual_taken (_HZU_io_hzu_branch_resolve_actual_taken),
     .io_hzu_hazard                      (_HZU_io_hzu_hazard)
   );
+  assign io_retire_pc_next = _WBU_io_retire_pc_next;
   assign io_retire_is_ebreak = _WBU_io_retire_is_ebreak;
 endmodule
 
