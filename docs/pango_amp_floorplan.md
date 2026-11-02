@@ -1,5 +1,12 @@
 # Pango AMP floorplan 实验（PG2L200H / pipeline_amp_board_top）
 
+> 本文保留 floorplan 各阶段的历史分析及当时网表。2026-11-03 核对现存原始报告：
+> `pipeline_amp_board_top.rtr` 为四核 70 MHz，setup WNS +0.945 ns；`(1).rtr`
+> 为四核 200 MHz，setup WNS -5.449 ns、recovery WNS -0.573 ns。两组 DRAM
+> 均为 256 KiB/hart，当前 32 KiB/hart 配置的 PnR 待补。完整结果见
+> [技术报告](technical/technical_report.tex)。
+
+
 > Related: [pipeline_multicore.md](pipeline_multicore.md)（AMP 结构）、
 > [../fpga/pango/pipeline/README.md](../fpga/pango/pipeline/README.md)（Pango 流程）。
 >

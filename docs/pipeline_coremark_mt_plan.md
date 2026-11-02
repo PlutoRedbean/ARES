@@ -1,14 +1,13 @@
 # Pipeline SoC：2/4-hart CoreMark MULTITHREAD 实施计划
 
-> 状态：**Phase 1–3 已实现并通过 2/4-hart Verilator 验收（2026-10-30）**。
-> 现有已通过项是 2-hart AMP（每个 hart 一份 `MULTITHREAD=1` 镜像，各打印
-> 一份报告）；本文定义的是 **标准 CoreMark MULTITHREAD** 的单份聚合报告
-> 方案。Phase 4（板级/扩展）尚未开始。
+> 当前状态（2026-11-03）：2/4-hart 基础与全加速 MULTITHREAD 均已支持；
+> AMP 使用每 hart 私有 IROM、四路 ICache、32 KiB DRAM 和加速器，共享 mailbox。
+> 板级顶层、文件表、镜像生成和板级仿真已入库，默认 2 hart；AMP 专用 PDS
+> flow 在外部工程。本文 Phase 1–3 保留实施记录，其中共享 IROM / 直接映射
+> ICache 是旧结构；当前结构与结果以[技术报告](technical/technical_report.tex)
+> 和[构建流程](pipeline_coremark_full_mt_flow.md)为准。
 >
-> 目标：2/4 hart 可配置；4 hart 时 `MULTITHREAD=4`、每 context 2,500
-> iterations，CoreMark 自己显示 10,000 iterations；2 hart 时同样可配置。
->
-> 非目标：共享 L2、cache coherence、原子指令、完整 AMP/OS、额外计分脚本。
+> 不涉及共享 L2、cache coherence、原子指令或 SMP。
 
 ## 1. 先固定语义
 
@@ -61,19 +60,18 @@ make pipeline-coremark-mt CORES=2
 make pipeline-coremark-mt CORES=4
 make pipeline-coremark-mt-test            # 2 + 4 都跑
 
-# 全加速（CRC8 + matrix + state）变体：单份聚合报告
+# 全加速（CRC8 + list + matrix + state）变体：单份聚合报告
 make pipeline-coremark-full-mt CORES=2
+make pipeline-coremark-full-mt CORES=4
 
 # 全加速 AMP（每个 hart 一份 MULTITHREAD=1 报告，TB 只检查 done/a0）
 make pipeline-coremark-mc CORES=2
 make pipeline-coremark-mc CORES=4
 ```
 
-> **IROM 容量**：2-hart 全加速聚合镜像是 32,432 B（`.boot` 316 +
-> `.text` 32,116），在 32 KiB IROM 中只剩 336 B；4-hart 全加速聚合镜像会
-> 溢出 300 B（需约 33,068 B），当前无法链接。4-hart 全加速请用 AMP 变体
-> （MULTITHREAD=1 镜像 30,436 B，可放 4 份私有窗口），或把 IROM 扩到
-> 64 KiB（Phase 4）。基础（非加速）4-hart MT 只有 13,800 B，正常。
+> **IROM 容量**：全加速目标已使用链表引擎与 `--small-code`，2/4-hart
+> 聚合镜像均可链接进 32 KiB IROM。早期四核溢出 300 B 的结论已失效；
+> 当前占用以 ELF 的 `.boot + .text` 段大小为准。
 
 > 命名说明：旧的 OoO 2-hart overlay 仍占用 `coremark-mt-image` /
 > `coremark-full-mt-image`（`build/coremark_mt`），因此 pipeline 的
@@ -97,7 +95,7 @@ build/coremark_mt4/
 ## 3. SoC 结构
 
 ```text
-                 shared read-only IROM (32 KiB)
+                 private IROM + four-way ICache / hart
               /        |          |          \
            hart0     hart1      hart2      hart3
             |         |          |          |
@@ -116,7 +114,7 @@ build/coremark_mt4/
 - **不做 coherence/invalidate**；
 - **不做原子/锁**；
 - mailbox 是 uncached MMIO，只做 CoreMark 的启动/结果汇总；
-- 代码只读，可共享；数据/加速器状态每 hart 私有。
+- 各 hart 的 IROM 使用相同只读镜像，物理存储、数据和加速器状态均私有。
 
 ### 3.1 顶层与参数
 
@@ -129,9 +127,8 @@ build/coremark_mt4/
   - 私有 L1 D$；
   - 私有 DRAM 32 KiB；
   - 私有 MMIO：UART/timer/cycle counter；
-  - 私有 matrix/state 加速器；
+  - 私有 IROM、四路 ICache 与 matrix/state/list 加速器；
 - 共享：
-  - IROM（多 bank 或物理复制）；
   - uncached mailbox；
   - 全局 start/done/cycle（可选，CoreMark 自己计时也可）。
 
@@ -140,16 +137,16 @@ build/coremark_mt4/
 ### 3.2 地址空间
 
 ```text
-0x8000_0000 - 0x8000_7FFF      shared IROM，32 KiB，只读
+0x8000_0000 - 0x8000_7FFF      每 hart 私有 IROM，32 KiB，只读
 0x8010_0000 + h*0x8000         hart h 私有 DRAM 32 KiB
-0xA000_0000 + h*0x1000         hart h 私有 MMIO：UART/timer/accel
+0xA000_xxxx                    每 hart 同址私有 MMIO：UART/timer/accel
 0xA000_F000                    shared mailbox（uncached）
 ```
 
 - `DATA_STRIDE=0x8000`；
 - 4 hart：4 x 32 KiB = 128 KiB；
 - `_stack_top = 0x8010_8000 + h*0x8000`；
-- 可以用现有硬件 `DATA_OFFSET`，也可以软件设置 `sp/gp`。
+- 软件使用统一的链接地址；硬件在 AGU 数据路径施加 `DATA_OFFSET=h*0x8000`。
 
 ### 3.3 Mailbox
 
@@ -241,28 +238,21 @@ CoreMark 依次调用 N 次：
 - CoreMark 自带的 `[0]..[N-1]` CRC 行保留，不做额外修改；
 - testbench 只解析 host 侧结果，不向 UART 注入文本。
 
-## 5. L1 I$（已实现）
+## 5. 当前 L1 ICache
 
-实现：`soc/amp/pipeline_amp_icache.sv` + `soc/amp/pipeline_irom_arbiter.sv`。
+当前 AMP 各 hart 在 `student_top` 内实例化主线
+`core/vsrc/icache/pipeline_icache.v`，`EXTERNAL_IROM=0`。
+默认 64 组 × 4 路 × 64 B = 16 KiB；全加速 MT 与板级使用
+128 组 × 4 路 × 64 B = 32 KiB。每 hart 私有 32 KiB IROM，
+`USE_ICACHE=0` 选择该 hart 的直通路径。命中延迟两拍，连续命中每拍一条请求。
 
-- 每 hart 私有 L1 I$：默认 256 行 × 64 B = 16 KiB，直接映射；
-  `ICACHE_LINES` 参数化（full-accel 镜像的 ~30 KiB 代码用 512 行）；
-- 取指使用与单 hart 主线 I$ 相同的 req/rsp/flush 握手；命中时请求当拍
-  接受、下一拍返回指令；miss 时 `req_ready` 为低，IFU 保持 PC 且不分配
-  响应槽，refill 完成后同一 PC 重新命中；
-- refill 从**单端口共享 32 KiB IROM**：4 个 hart 的 refill 请求经
-  round-robin 仲裁，一次授权完成整行 16 word 突发，保证不会装半行；
-- 代码只读，**不需要 I$ coherence**；`FENCE.I` 没有可失效的行
-  （IROM 不可写），因此不接失效信号；
-- I$ 只减少 IROM 带宽压力，不引入 L2。
-
-对照：无 I$ 时必须物理复制 N 份 IROM 或做多 bank；有 I$ 后单个共享 bank
-即可（`make pipeline-coremark-mt ... USE_ICACHE=0` 可回退到 Phase 2 的
-复制 bank 结构）。
+早期 `pipeline_amp_icache` 与 `pipeline_irom_arbiter` 的共享 IROM 结构已替换，
+其性能和带宽记录保留在下文 Phase 3。接口、目录与回填时序见
+[ICache 说明](microarch/pipeline_icache.md)及[技术报告](technical/technical_report.tex)。
 
 ## 6. 实施阶段
 
-### Phase 1：2/4-hart CoreMark port（已完成）
+### Phase 1：2/4-hart CoreMark port（实施记录）
 
 - [x] 新增共享邮箱 `soc/mc/pipeline_coremark_mbox.sv`（4 槽、单字、uncached）；
 - [x] `perip_bridge` 增加 `HART_ID`/`HART_COUNT` 与 `0xA000_F000` 共享 MMIO 转发；
@@ -301,7 +291,7 @@ Verilator 中跑满；上表用同一份代码按比例缩小到 200 总迭代�
 > 说明：`fence` 紧跟设备 store 会停在 `fence_wait`（见 §3.3），overlay 使用
 > 编译器 barrier；这是 Phase 1 的软件规避，core/LSU 的 fence 行为待单独排查。
 
-### Phase 2：SoC v2 参数化 top（已完成）
+### Phase 2：SoC v2 参数化 top（实施记录）
 
 - [x] `pipeline_amp_top #(CORES=2/4)`（`soc/amp/pipeline_amp_top.sv`）；
 - [x] shared IROM：每个 hart 一份 32 KiB bank（物理复制），由 top 统一实例化；
@@ -330,7 +320,7 @@ Verilator 中跑满；上表用同一份代码按比例缩小到 200 总迭代�
 - 规范报告的 10,000 总迭代仍受 Verilator 时长限制，按 200 总迭代验收；
   10,000 总迭代镜像可用 `make pipeline-coremark-mt-image CORES=2` 构建。
 
-### Phase 3：L1 I$（已完成）
+### Phase 3：共享 IROM / 直接映射 L1 I$（历史实现，已替换）
 
 - [x] 核心采用 req/rsp/flush 取指握手（`IROM` bundle + `IFU.scala`），重新生成
   `Mundus.sv`（3387 行）；miss 时 PC 保持、不分配响应槽；
@@ -346,7 +336,7 @@ Verilator 中跑满；上表用同一份代码按比例缩小到 200 总迭代�
 | --- | --- | --- |
 | CoreMark/MHz（16 KiB I$，共享 bank） | 4.579943 | 9.166984 |
 | CoreMark/MHz（无 I$，复制 bank） | 4.580135 | 9.167960 |
-| timed cycles（I$） | 43,746,087 | 21,938,513 |
+| 仿真总周期（I$） | 43,746,087 | 21,938,513 |
 | refills / words（I$） | 202/3,232 + 115/1,840 | 207/3,312 + 3×(114/1,824) |
 | `crcfinal` | 0x988c ×2 | 0x0158 ×4 |
 | 所有 hart `a0` | 0 | 0 |
@@ -356,16 +346,15 @@ Verilator 中跑满；上表用同一份代码按比例缩小到 200 总迭代�
   替代了无 I$ 时每个取指周期对各自 bank 的读取；
 - full-accel 聚合（`make pipeline-coremark-full-mt CORES=2`，512 行 I$）：
   15.816722 CoreMark/MHz、CRCs 0x988c ×2、PASS；
-- 4-hart 全加速聚合镜像需要约 33,068 B，超出 32 KiB IROM 300 B，当前不可
-  链接；4-hart 全加速用 AMP 变体（`make pipeline-coremark-mc CORES=4`，
-  12,694,279 cycles、所有 hart `a0=0`）；
+- 当时四核软件数组链表聚合镜像超出 IROM 300 B；当前链表引擎与
+  `--small-code` 版本已支持四核聚合，见构建流程。
 - legacy full-accel AMP（约 30 KiB 代码）用 512 行（32 KiB）I$ 保持
   12,687,129 cycles（16 KiB 时因容量 miss 慢约 3%）；
 - `pipeline-coremark-mc` 固定 512 行 I$；`pipeline-coremark-mt` 默认 16 KiB。
 
 ### Phase 4：板级/扩展
 
-- 2/4 核 Pango 顶层；
+- AMP 板级顶层、文件表与板级仿真已入库，默认 2 核；4 核需同步顶层和镜像入口；
 - 资源/时序签核；
 - 可选 8 context。
 
@@ -382,12 +371,12 @@ Verilator 中跑满；上表用同一份代码按比例缩小到 200 总迭代�
 | L2/coherence | 不实例化 | 不实例化 |
 | L1 D$ | 每 hart 私有 | 每 hart 私有 |
 | L1 I$ | 16 KiB 私有 | 16 KiB 私有 |
-| 共享 IROM | 1 × 32 KiB + refill 仲裁 | 1 × 32 KiB + refill 仲裁 |
+| 私有 IROM | 每 hart 32 KiB | 每 hart 32 KiB |
 | 共享 mailbox | 2 槽 | 4 槽 |
 
 ## 8. 风险
 
-1. **IROM 取指带宽**：无 I$ 时单端口 shared IROM 会破坏 2/4 倍扩展；Phase 3 的 I$ + refill 仲裁解决了这一点（无 I$ 时用复制 bank）。
+1. **IROM 组织**：当前每 hart 私有 IROM / 四路 ICache；Phase 3 共享 bank 的带宽结果仅用于历史对照。
 2. **Mailbox 可见性**：必须 uncached + fence；不要走 L1 D$；不需要原子。
 3. **每 hart 私有数据**：`mt_results/mt_memblock` 必须是每 hart 私有；不能共享写。
 4. **2/4 镜像不能混用**：`MULTITHREAD/ITERATIONS` 是编译期宏，必须分目录。
@@ -400,7 +389,7 @@ Verilator 中跑满；上表用同一份代码按比例缩小到 200 总迭代�
 - [pipeline_coremark_full_mt_flow.md](pipeline_coremark_full_mt_flow.md)：IROM 镜像构建、全加速 MT 运行与结果检查的分步指南；
 - `docs/coremark_multithread.md`：旧 2-hart CoreMark MT overlay 的行为和 mailbox 细节，可作为 port 改造参考；
 - `docs/pipeline_multicore.md`：共享 L2/coherence 的 2/4-hart profile，与本方案互斥；
-- `rtl/pipeline/soc/amp/pipeline_amp_top.sv`：SoC v2 参数化 top（`USE_ICACHE=1` 单共享 IROM + 每 hart I$；0 为复制 bank）；
+- `rtl/pipeline/soc/amp/pipeline_amp_top.sv`：SoC v2 参数化 top（每 hart 私有 IROM；`USE_ICACHE=1` 使用核内四路 I$，0 为直通）；
 - `rtl/pipeline/soc/amp/pipeline_amp_icache.sv`：每 hart 直接映射 I$（默认 16 KiB，req/rsp miss 停顿）；
 - `rtl/pipeline/soc/amp/pipeline_irom_arbiter.sv`：round-robin 整行 refill 仲裁；
 - `rtl/pipeline/core/scsrc/ifu/IFU.scala` / `common/MundusPayloads.scala`：req/rsp/flush 取指握手，重新生成 `Mundus.sv`；

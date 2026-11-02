@@ -1,9 +1,10 @@
 # CoreMark 链表引擎（list9_engine）
 
-> 状态：已实现并通过 Verilator 验收（2026-11-01）。
-> 单核 100 iterations：**13.381925 CoreMark/MHz**（7,525,556 cycles），
-> 4-hart `MULTITHREAD=4` 200 iterations：**57.242704 CoreMark/MHz**
-> （3,630,085 cycles），4 份 CRC 全对。
+> 状态：已实现。2026-11-03 当前 RTL 复测：单核 100 次迭代为
+> **13.381925 CoreMark/MHz**（7,472,766 timed ticks，7,525,556 仿真总周期）；
+> 四核 MT 200 总迭代为 **56.029283 CoreMark/MHz**（3,569,562 timed ticks，
+> 3,709,479 仿真总周期），所有 context CRC 正确。完整条件见
+> [技术报告](technical/technical_report.tex)。第 6 节保留 2026-11-01 的历史对照。
 
 ## 1. 为什么做
 
@@ -85,17 +86,17 @@ fallback 和黄金模型；两者共享同一段尾代码。
 - 4-hart `MULTITHREAD=4`：`CoreMark PASS`，4 份
   `crclist/crcmatrix/crcstate` 全对，`a0=0`。
 
-## 6. 结果（Verilator，100 MHz 计数）
+## 6. 历史结果（2026-11-01，Verilator，100 MHz 计数）
 
-| 配置 | iterations | cycles | CoreMark/MHz | 相对旧全加速 |
+| 配置 | iterations | 仿真总周期 | CoreMark/MHz（按 timed ticks） | 相对旧全加速 |
 | --- | ---: | ---: | ---: | ---: |
 | 全加速（旧软件数组） | 100 | 14,263,577 | 7.0109 | 1.000x |
 | 全加速 + P0-0（软件） | 100 | 14,179,708 | 7.0824 | 1.010x |
 | **全加速 + list9_engine** | **100** | **7,525,556** | **13.3819** | **1.909x** |
 | **4-hart MT + list9_engine** | **200** | **3,630,085** | **57.2427** | **1.82x**（相对 31.5 聚合） |
 
-4-hart 聚合接近线性（单核 13.38 × 4 = 53.5，实测 57.24，因为
-4×50 iterations 摊薄了启动开销）。
+该历史四核结果与单核的 ICache 配置及每 context 迭代数不同；多核扩展比应
+采用同配置的两核/四核 MT 结果计算，见技术报告。
 
 ## 7. 限制与后续
 

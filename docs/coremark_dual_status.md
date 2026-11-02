@@ -1,5 +1,10 @@
 # Dual-core CoreMark status (AMP bring-up)
 
+> 历史资料：本文记录旧 OoO / 共享 L2 工程，所列已删除模块和旧 Make 目标
+> 不作为当前 ARES 的操作入口。当前架构与结果见[技术报告](technical/technical_report.tex)，
+> 当前运行命令见[核与 SoC 说明](../rtl/pipeline/README.md)。
+
+
 > 更新：2026-10-27。旧“共享 L2 数据破坏”诊断已撤销。远端 `l2-cache` 的 LSU 修复与验证设施已移植到本地 `base_core` 工作区，保留原生 C5。
 
 ## 当前集成
@@ -10,7 +15,7 @@
 - 单／双核 TB：修正双退休计数、按 lane 顺序判定 a0／EBREAK、完成后统计冻结；失败／超时返回非零。
 - L2 单测增加 c1 驱逐 c0 dirty line 后读回；短镜像 harness 检查见 `make test-coremark-harness`。
 
-当前本地测试、镜像哈希、指标及边界见 [集成执行记录](l2_integration_results.md)。复现方式见 [交接说明](multicore_l2_handoff.md)，根因见 [旧故障分析](coremark_dual_bug_report.md)。
+当前本地测试、镜像哈希、指标及边界见 集成执行记录（旧文档未保留）。复现方式见 交接说明（旧文档未保留），根因见 [旧故障分析](coremark_dual_bug_report.md)。
 
 ## 本地原生 C5 结果（2026-10-27）
 

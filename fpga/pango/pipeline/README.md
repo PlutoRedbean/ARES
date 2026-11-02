@@ -3,7 +3,8 @@
 > 目标器件：Pangu 200Pro+ / **PG2L200H-6IFBB676**，PDS 2022.2-SP6.4 或
 > PDS 2025.2-SP3-EN，综合用 `synthesize -ads`。本目录服务
 > `pipeline_board_top`（单核）和 `pipeline_amp_board_top`（2-hart AMP/MT），
-> 不影响 `../flow_video_fb.tcl`、`../flow_bist.tcl` 等既有视频/DDR3 流程。
+> AMP 顶层默认 2 hart、可参数化为 4；专用 `flow_pipeline_amp.tcl` 仍在外部 PDS 工程。
+> 当前复测与历史 PDS 报告摘要见[技术报告](../../../docs/technical/technical_report.tex)。
 >
 > PDS 2022.2 的 `compile` 用 `-system_verilog`；PDS 2025.2 用
 > `-verilog_standard SystemVerilog`。仓库里的 flow 是 2022.2 写法；
@@ -11,12 +12,12 @@
 
 ## 1. 这套流程需要什么
 
-在 Linux/构建主机上先准备两块本地存储的初始化文件。**全加速 CoreMark**
-镜像必须带 `--small-code`，否则放不进 32 KiB IROM：
+在 Linux/构建主机上先准备本地存储初始化文件。当前全加速 CoreMark 默认
+启用链表引擎；单核本次镜像的 `.boot + .text` 为 28,188 B，可放入 32 KiB IROM：
 
 ```bash
-# 全加速：CRC8 + array list + matrix engine + state scanner
-make PIPELINE_COREMARK_IMAGE_FLAGS=--small-code coremark-full-image
+# 全加速：CRC8 + list engine + matrix engine + state scanner
+make coremark-full-image
 
 # 拆成 Pango 的两块本地存储器。flow_pipeline.tcl 固定读 build/pipeline/，
 # 所以这里用默认输出目录，不要写到 build/pipeline_full/ 后忘记复制。
@@ -25,9 +26,9 @@ make pipeline-image \
     PIPELINE_IMAGE_OUT=$PWD/build/pipeline
 ```
 
-全加速镜像的参考占用是 `irom: 7984/8192` words、`dram: 356/65536` words，
-只剩约 208 words 的 IROM 余量；改动软件后先看 `build/pipeline/image.json` 的
-`nonzero_words`。基线镜像则用 `make pipeline-image` 的默认 ELF。
+修改软件后，用 `riscv64-unknown-elf-size -A` 检查 ELF 的 `.boot + .text`。
+`image.json` 中的 `nonzero_words` 是内容统计，不代表段范围或容量余量。
+MT 镜像固定启用 `--small-code`，本次两核/四核占用为 21,688 / 21,740 B。
 
 拆分规则（由 `scripts/pipeline_image.py` 校验）：
 
@@ -107,7 +108,7 @@ PERIPH = VCO / RATIO1(20.0) =  50 MHz
 引脚。本板现有 profile 没有 UART RX 引脚，所以 `rx` 仍接 1；CoreMark 只依赖
 TX，若后续需要接收，补 `uart_rx` 引脚并去掉 tie。
 
-## 3.1 每 hart 私有 DRAM 的几何（S0 spike）
+## 3.1 每 hart 私有 DRAM 的几何与历史对照
 
 AMP 链接脚本给每个 hart 一个 **32 KiB** 窗口
 （[ares-linker-mc.ld](../../../tests/abstract-machine/scripts/ares-linker-mc.ld)，
@@ -143,7 +144,7 @@ BRAM 被撒满整片器件，最差路径的第一跳（BRAM → 桥）就有 **
 改回 `"build/pipeline/dram.hex"`，其余不动，即可重复 2026-11-01 那份
 （DRM 329、WNS −5.449）的几何。
 
-**这一轮 PDS 要看三个数**：
+**当时为 32 KiB 几何设定的验收目标（尚无对应 PnR 实测）**：
 
 1. `DRM` 使用量：4-hart 应从 329 掉到 ~105（每 hart 8 个 DRAM 而不是 64）；
 2. `WNS`：约束保持 200 MHz，预期从 −5.449 收到 −3.5 左右；
@@ -162,9 +163,9 @@ BRAM 被撒满整片器件，最差路径的第一跳（BRAM → 桥）就有 **
 用 `make pipeline-coremark-full` 在本地先确认全加速镜像：
 
 ```text
-Total ticks     : 12452732
+Total ticks     : 7471566
 Iterations      : 100
-CoreMark/MHz    : 8.030366
+CoreMark/MHz    : 13.384075
 [0]crclist      : 0xe714
 [0]crcmatrix    : 0x1fd7
 [0]crcstate     : 0x8e3a
@@ -172,8 +173,8 @@ CoreMark/MHz    : 8.030366
 CoreMark PASS
 ```
 
-上板应看到同样的 CRC 和 `CoreMark PASS`，分数应接近 8.0 CoreMark/MHz
-（最终值以 PnR 后的 100 MHz 时序为准）。烧写：
+上板检查同样的 CRC 与 `CoreMark PASS`，并将 `Total ticks` 与同镜像仿真对照。
+运行频率与软件时钟常量应一致，烧写前检查对应 PDS 时序。烧写：
 
 ```bat
 D:\PDS_2022.2-SP6.4\bin\cdt_js.exe -port 65420
@@ -187,7 +188,7 @@ UART 115200 8N1，TX C24。若 UART 无输出：
 2. 确认 `build/pipeline/*.hex` 与本次镜像哈希一致（`image.json`）；
 3. 确认串口 115200 8N1、TX C24；
 4. 确认流程运行目录是仓库根（否则 `$readmemh` 找不到文件）；
-5. 确认 `image.json` 的 `irom.nonzero_words` 不是旧基线镜像（全加速应约 7984）。
+5. 核对 `image.json` 中 ELF / HEX 哈希，确认本次烧录的是目标镜像。
 
 ## 4.1 2-hart AMP full 加速 CoreMark
 
@@ -204,7 +205,7 @@ CoreMark，**hart0 的 UART 已经接到板级 `uart_tx`（C24）**；hart1 的�
 make pipeline-amp-board-sim
 ```
 
-实测输出（hart0 的独立报告；hart1 的串口只进仿真）：
+早期软件数组链表镜像的板级仿真输出（历史记录；hart0 独立报告，hart1 仅进仿真）：
 
 ```text
 [amp-board] image: irom 5582/8192, dram 2952/65536 nonzero words
@@ -241,7 +242,7 @@ make pipeline-amp-pango-lint
 make pipeline-coremark-mc CORES=2
 ```
 
-PDS：
+PDS（在已包含 `flow_pipeline_amp.tcl` 的外部 PDS 工程中执行）：
 
 ```bat
 D:\PDS_2022.2-SP6.4\bin\pds_shell.exe ^
@@ -257,8 +258,8 @@ generate_bitstream\pipeline_amp_board_top.sbit
 
 注意：
 
-- `pipeline-amp-image` 使用 `coremark-full-mc-image` 的 `--small-code`；否则
-  full 镜像会超出 32 KiB IROM。
+- `pipeline-amp-image` 使用 `coremark-full-mc-image` 的 `--small-code` 和软件数组链表；
+  它与当前启用链表引擎的 `pipeline-coremark-full-mt` 是不同镜像。
 - `dram.hex` 必须是 **每个 hart 一份 32 KiB 复制**。`pipeline_image.py
   --replicate-dram-words 8192` 就是做这个；不要直接用单核 `pipeline-image`
   生成的 `dram.hex`，否则 hart1 的私有窗口是空的。
@@ -289,6 +290,7 @@ cat build/pipeline/image.json   # elf 指向 build/coremark_full_mt2/...
 
 ```bash
 make pipeline-amp-board-sim PIPELINE_BOARD_PROFILE=mt
+# 以下为早期软件数组链表镜像的历史仿真记录
 # [amp-board] image: irom 5984/8192, dram 3016/65536 nonzero words
 # Iterations      : 200
 # CoreMark/MHz    : 15.863735
@@ -301,7 +303,7 @@ make pipeline-amp-board-sim PIPELINE_BOARD_PROFILE=mt
 | | amp（默认） | mt |
 |---|---|---|
 | 镜像 ELF | `build/coremark_full_mc`（ITERATIONS=100、MULTITHREAD=1） | `build/coremark_full_mt2`（MULTITHREAD=2） |
-| hart0 串口输出 | 自己的独立报告，约 7.94 CoreMark/MHz | 两核聚合报告，约 15.86 CoreMark/MHz |
+| hart0 串口输出 | 自己的独立报告 | 全部 context 的聚合报告，当前两核 SoC 仿真为 28.167228 CoreMark/MHz |
 | IROM 占用 | 5582/8192 words | 5984/8192 words |
 
 ⚠️ `build/pipeline/` 是**唯一的板级镜像槽**：仿真也会重写它。跑完 `mt` 仿真
@@ -310,21 +312,20 @@ make pipeline-amp-board-sim PIPELINE_BOARD_PROFILE=mt
 `make pipeline-amp-board-sim PIPELINE_BOARD_PROFILE=mt` 用的是 200 iterations
 的镜像，**只用于仿真**。
 
-mt4 还上不了板：`pipeline_amp_board_top` 里 `CORES` 固定为 2、只引出 hart0
-的 UART，所以 `make pipeline-amp-image-mt CORES=4` 会直接报错。要做 4 核得先
-加一个 `CORES=4` 的板级顶层，并重新过时序/布局（当前 2 核在 100 MHz 下 WNS
-已是 −1.527 ns，见 [docs/pango_amp_floorplan.md](../../../docs/pango_amp_floorplan.md)）。
+`pipeline_amp_board_top` 的 CORES 是参数，默认 2。当前
+`make pipeline-amp-image-mt CORES=4` 仍被 Make 的板级入口拒绝；四核上板需
+同步顶层参数、镜像入口和 PDS 约束，并重新进行时序验收。四核 SoC 仿真已支持。
 
 ## 4.3 镜像一致性与可复现校验
 
-`build/pipeline/` 里的 `irom.hex` / `dram.hex` 是唯一来源，三个消费方都
-只认这两个文件：
+`pipeline-board-image` 生成 `irom.hex`、`dram.hex` 和 `dram_amp.hex`：
 
-| 消费方 | 怎么读 |
+| 消费方 | 使用的镜像 |
 | --- | --- |
-| 板级仿真 | `pipeline_amp_board_sim <irom.hex> <dram.hex>`，原样装进 DPI 存储模型 |
-| PDS 综合 | `irom_bmem32.sv` / `pipeline_bram.v` 的 `$readmemh` 默认值 |
-| 构建清单 | `build/pipeline/image.json` 记录 `elf_sha256` 与两个 hex 的 sha256 |
+| 板级仿真 | `irom.hex` / `dram.hex`，装入 DPI 模型 |
+| AMP PDS | 私有 IROM 使用 `irom.hex`，每 hart 32 KiB BRAM 使用 `dram_amp.hex` |
+| 单核 PDS | `irom.hex` / `dram.hex` |
+| 构建清单 | `image.json` 保存 ELF 与各 HEX 的哈希、地址和复制参数 |
 
 构建是确定性的：同一 ELF 重复构建，ELF 与两个 hex 的 SHA-256 都不变
 （ELF 里没有 debug 段，只有 `.comment`，所以 hex 不受构建路径影响）。
@@ -345,8 +346,7 @@ print(d['irom']['sha256'], d['dram']['sha256'])"
 | `0x008000..0x0fffff` | 全零（非零字节会被脚本拒绝） |
 
 仿真和上板剩下的差别都是"仿真替代不了"的部分：`pipeline_pll_sim` 给的是
-理想 PLL/时钟树，CDC/复位是行为级模型，IO 电气和真实时序（当前 WNS
-−1.527 ns）不在仿真里；存储器容量、初始化内容和 2 拍读延迟两侧一致。
+理想 PLL/时钟树，CDC/复位是行为级模型，IO 电气和真实时序不在仿真里；存储器容量、初始化内容和 2 拍读延迟两侧一致。
 
 ## 5. 首次 PDS 构建要重点确认
 
@@ -359,5 +359,7 @@ print(d['irom']['sha256'], d['dram']['sha256'])"
 > 2026-10-31 已在本机 PDS 2022.2-SP6.4 跑通
 > `compile -system_verilog` + `synthesize -ads`（16m13s，含 I-cache）：
 > 49,361 LUT（30.89%）、24,767 FF（7.75%）、79.5 DRM（19.16%）、8 APM。
-> `USE_ICACHE=1`，`pipeline_icache` 已 elaborate；`dev_map` / `pnr` /
-> `gen_bit_stream` 仍需在 PDS 主机上执行。
+> `USE_ICACHE=1`，`pipeline_icache` 已 elaborate。此处是单核综合历史记录。
+> 后续 2026-11-01 四核 PnR 报告在 70 MHz 下全部约束满足，在 200 MHz 下
+> setup WNS -5.449 ns、recovery WNS -0.573 ns；两组均为 256 KiB/hart DRAM，
+> 不能代替当前 32 KiB/hart 配置的 PnR 验收。

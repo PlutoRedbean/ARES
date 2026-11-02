@@ -1,11 +1,18 @@
 # CoreMark UART output and 100 MHz simulation timing
 
+> 历史资料：本文记录旧 OoO / 共享 L2 工程，所列已删除模块和旧 Make 目标
+> 不作为当前 ARES 的操作入口。当前架构与结果见[技术报告](technical/technical_report.tex)，
+> 当前运行命令见[核与 SoC 说明](../rtl/pipeline/README.md)。
+
+
 CoreMark's own `ee_printf` output is enabled. The ARES software uses klib
 `printf` -> `putch` -> an MMIO byte store at `0xA00003F8`. Each hart has an
 `ares_benchmark_io` device that feeds the existing `ares_uart` RTL transmitter
 at 100 MHz / 115200 baud / 8N1. The testbench decodes the actual TX waveform
 and prints complete lines with `[hart0]` or `[hart1]` prefixes. It waits for
 the final frame before finishing. The console is not a direct MMIO `$write`.
+
+当前流水线 SoC 的 `0xA00003FC` 为 bit1=TX busy、bit0=RX valid；下文 bit0=busy 是旧工程接口。
 
 ## Benchmark scoring
 

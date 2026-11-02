@@ -1,5 +1,10 @@
 # Pipeline data cache (2-way set associative)
 
+> Current configuration/results (2026-11-03): see the
+> [technical report](../technical/technical_report.tex). Performance measurements
+> below predate this rerun and retain their original cache/image configuration.
+
+
 Status: integrated in the single-hart `rtl/pipeline` SoC and in the coherent
 multi-hart SoC (`pipeline_hart.sv`).  The competition requirement is a
 **2-way set-associative D-cache**; this document records the geometry, the
@@ -94,9 +99,9 @@ shape and only adds logic after the RAM outputs:
   their depth; the collision forward was moved from "select the whole word" to
   "select the written Way", so it did not add a level.
 
-The reported PnR bottleneck of the current SoC is the `mtx9` accelerator
-array, not the load path, so the extra LUT does not move the achieved
-frequency; see [README.md](../../README.md).
+Historical PnR reports include accelerator and load/forwarding critical paths.
+The current cache configuration needs its own PnR measurement; see the technical
+report for the available 70/200 MHz reports and their DRAM geometry.
 
 ## Replacement policy
 

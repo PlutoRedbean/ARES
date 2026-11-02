@@ -1,5 +1,10 @@
 # CoreMark 最快构建与跑分流程
 
+> 历史资料：本文记录旧 OoO / 共享 L2 工程，所列已删除模块和旧 Make 目标
+> 不作为当前 ARES 的操作入口。当前架构与结果见[技术报告](technical/technical_report.tex)，
+> 当前运行命令见[核与 SoC 说明](../rtl/pipeline/README.md)。
+
+
 > 目标：从当前仓库快速得到 **CRC8 + 数组化 core_bench_list + 9-PE INT16 matrix engine + 状态机 scanner + O3 + 32 KiB ICache** 的 CoreMark 跑分。
 > 加速算法由构建脚本、新增 TU 和 RTL 配置接入；ARES 移植层及报告部分已适配 UART 和 100 MHz 周期计时，算法与 CRC 校验保留。
 > 当前全加速 100-iteration 实测：每核计时段 14,204,416 cycles，CoreMark/MHz 为 7.040064；正文中的旧 TB 分数表保留作历史对照。

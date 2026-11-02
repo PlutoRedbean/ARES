@@ -4,12 +4,11 @@
 > [pipeline_coremark_mt_plan.md](pipeline_coremark_mt_plan.md).  This document
 > covers the shared-L2/coherence profile only.
 >
-> Status: RTL + Verilator implementation complete for 2 and 4 harts; the
-> 2-hart full-accelerated CoreMark target is implemented.  The 2-hart AMP
-> Pango board wrapper (`pipeline_amp_board_top` + `flow_pipeline_amp.tcl`) is
-> added; PDS synthesis/timing/board signoff is pending.  The shared-L2 board
-> wrapper and 128-bit BRAM image remain open.
-> Baseline: pipeline-single-issue, after the M4 acceleration images.
+> Status (2026-11-03): the shared-L2 experiment has 2/4-hart memory tests;
+> CoreMark still has a slow-response ordering issue. AMP is a separate
+> private-memory configuration with working CoreMark targets, an in-repository
+> board top/file list and board simulation. Its PDS flow is in the external
+> PDS project. Current results are in the [technical report](technical/technical_report.tex).
 
 ## 1. Configuration
 
@@ -48,12 +47,12 @@ remains the CoreMark/ISA path.
 | `rtl/pipeline/soc/mc/pipeline_mmio.sv` | per-hart hart id/count, cycle counter, UART, LED, and per-hart matrix/state accelerated MMIO |
 | `rtl/pipeline/soc/mc/pipeline_mc_soc_top.sv` | `CORES`/`DATA_STRIDE` parameters, shared L2, per-hart IROM/MMIO, retire observation |
 | `tests/abstract-machine/scripts/ares-linker-mc.ld` | one 32 KiB private DRAM region per hart; `_stack_top=0x8010_8000` |
-| `rtl/pipeline/test/tb_pipeline_coremark_mc.sv` | 2-hart full accelerated CoreMark TB with per-hart DRAM image replication |
+| `rtl/pipeline/test/tb_pipeline_coremark_amp.sv` | 2-hart full accelerated CoreMark TB with per-hart DRAM image replication |
 
 ## 3. Coherence protocol
 
-The pipeline L1 D-cache is **write-through** and direct-mapped (8 KiB, 4 B
-entries, tag + valid in BRAM).  A store always reaches the shared L2; a store
+The pipeline L1 D-cache is **write-through**, 8 KiB and 2-way set-associative
+(1024 sets, one 4 B word per entry, tag + valid in BRAM).  A store always reaches the shared L2; a store
 hit also updates the local L1 copy.  Therefore the shared layer only needs
 **write-invalidate**:
 
@@ -61,8 +60,8 @@ hit also updates the local L1 copy.  Therefore the shared layer only needs
 2. It registers a one-cycle invalidate pulse to every hart except *k*.  The
    pulse carries the **exact stored word address**, because the L1 caches 4 B
    words, not 64 B lines.
-3. Each L1 clears the direct-mapped tag at `addr[12:2]`.  No tag compare is
-   needed; clearing the whole index cannot leave a stale alias.
+3. Each L1 clears both ways of the set selected by `addr[11:2]`. No tag
+   comparison is needed; clearing the whole set removes any matching alias.
 4. The L2 increments an 8-bit `coh_epoch` on every accepted store.
 5. A cacheable load captures the epoch when it leaves L1.  The epoch travels
    with the load through LS2/LS3.  On refill, the line is installed only if the
@@ -146,14 +145,14 @@ Additional gates kept green after the core changes:
 make pipeline-smoke     # FENCE before/after stores, EBREAK halt
 make pipeline-isa       # 36/36 cpu-tests
 make pipeline-mc-lint   # 2 and 4 hart elaboration
-make unit-l2            # existing L2 reference model (single/dual port)
+# L2 directed TB: rtl/pipeline/test/tb_pipeline_l2_mc.sv
 ```
 
 The standalone L2 coherence checker is `rtl/pipeline/test/tb_pipeline_l2_mc.sv`
 (`CORES=2/4`): it checks read/write visibility, invalidate-to-other-harts,
 writer-not-invalidated, epoch advancement and dirty-victim writeback.
 
-### 6.1 Two-hart full-accelerated CoreMark (private-memory AMP)
+### 6.1 Early two-hart full-accelerated CoreMark (historical private-memory AMP)
 
 The first complete multi-hart full-accelerated CoreMark run uses the
 private-memory AMP profile:

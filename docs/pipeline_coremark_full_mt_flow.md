@@ -1,207 +1,114 @@
-# 单发射流水线 SoC：构建 IROM 程序并运行全加速 CoreMark MULTITHREAD
+# ARES：全加速 CoreMark MULTITHREAD 构建与运行
 
-> 适用对象：`pipeline_amp_top`（2/4 hart，Phase 3 的共享 IROM + 每 hart I$）、
-> 标准 CoreMark MULTITHREAD 聚合报告、四类加速（CRC8 + array list + matrix +
-> state）。
->
-> 本文给出从 ELF 到 IROM 的镜像构建、Verilator 运行、结果检查，以及 Pango
-> 侧 IROM/DRAM hex 拆分；多 hart 板级顶层与每 hart DRAM 初始化仍属 Phase 4。
-> 关联文档：[pipeline_coremark_mt_plan.md](pipeline_coremark_mt_plan.md)、
-> [pipeline_single_issue_plan.md](pipeline_single_issue_plan.md)。
+当前 `pipeline_amp_top` 支持 2/4 hart，每 hart 私有 IROM、四路 ICache、DRAM
+和加速器，通过共享 uncached mailbox 启动并汇总结果。全加速包含 CRC8、链表、
+矩阵和状态机引擎。最终结果见 [技术报告](technical/technical_report.tex)。
 
-## 1. 对象与产物
+## 1. 配置与产物
 
 | 项 | 位置 / 值 |
 | --- | --- |
-| SoC top | `rtl/pipeline/soc/amp/pipeline_amp_top.sv`（`CORES=2|4`） |
-| IROM | 1 份共享 32 KiB bank，`0x8000_0000–0x8000_7FFF`，8192 × 32-bit |
-| I$ | 每 hart 私有；全加速镜像使用 512 行 × 64 B = 32 KiB（`ICACHE_LINES=512`） |
-| DRAM | 每 hart 私有 32 KiB 窗口，`0x8010_0000 + h*0x8000` |
-| DRAM 数据复制 | 仿真 loader 把镜像 DRAM 段复制到每个 hart 的窗口 |
-| mailbox | `0xA000_F000 + h*0x40`，hart id `0xA000_0FF0` |
-| 镜像目录 | `build/coremark_full_mt2/`（2 hart）、`build/coremark_full_mt4/`（4 hart） |
-| 关键文件 | `coremark-riscv32-ares.elf`、`coremark.bin`、`coremark_dmem.hex`、`inputs.json`、`port/` |
+| SoC top | `rtl/pipeline/soc/amp/pipeline_amp_top.sv`，`CORES=2|4` |
+| IROM | 每 hart 私有 32 KiB，`0x8000_0000–0x8000_7FFF` |
+| ICache | 每 hart 四路，完整加速目标使用 512 行 × 64 B = 32 KiB |
+| DRAM | 每 hart 私有 32 KiB，AGU 施加 `DATA_OFFSET=h*0x8000` |
+| mailbox | `0xA000_F000+h*0x40`；hart ID 在 `0xA000_0FF0` |
+| 镜像 | `build/coremark_full_mt2/` 或 `build/coremark_full_mt4/` |
+| 文件 | `coremark-riscv32-ares.elf`、`coremark.bin`、`inputs.json`、staged port |
 
-镜像中的指令段只有 `.boot + .text`，放到 IROM；`.rodata/.data/.bss/栈` 放到
-每个 hart 的私有 DRAM 窗口。因此“IROM 程序大小”看 `.boot + .text`，不是
-`coremark.bin` 的约 1 MB（后者是跨过 1 MiB 地址空洞的扁平镜像）。
+`.boot + .text` 放在 IROM，`.rodata/.data/.bss/栈` 放在 DRAM。扁平 BIN 跨过
+IROM 与 DRAM 间的地址空洞，不能用 BIN 文件大小判断 IROM 是否溢出。
 
-## 2. 前置条件
+## 2. 构建镜像
 
-- `riscv64-unknown-elf-` 交叉工具链（gcc/ld/objcopy/size）；
-- `python3`、`make`、Verilator 5.x（含 `--build`）；
-- 不需要网络；EEMBC CoreMark 源码固定在 `tests/benchmarks/coremark/`。
-
-## 3. 构建全加速 MT 镜像
-
-默认 10,000 总迭代（2 hart → 每 context 5,000；4 hart → 每 context 2,500）：
+需要 RISC-V 裸机工具链 `riscv64-unknown-elf-`、Python 3、make、Verilator 和
+主机 C++ 编译器。CoreMark 源码已包含在仓库中。
 
 ```bash
+# 镜像默认总迭代 10000；2/4 核分别生成
 make pipeline-coremark-full-mt-image CORES=2
+make pipeline-coremark-full-mt-image CORES=4
+
+# 仿真用 200 总迭代镜像
+make pipeline-coremark-full-mt-image CORES=4 COREMARK_MT_TOTAL_ITERATIONS=200
 ```
 
-仿真常用的缩小 profile（2×100 总迭代）：
+构建脚本使用 `--list-engine --matrix-engine --state-engine --small-code`、
+`--mt-pipe --cores N --total-iterations T` 与 `ares-linker-mc.ld`。
+CRC8 指令、三个引擎和 staged MULTITHREAD port 一起链接；`inputs.json`
+保存参数、overlay 和镜像哈希，EEMBC 源目录不被改写。
+
+2/4-hart 全加速聚合镜像均已支持。早期软件数组链表版本曾超出 32 KiB IROM，
+链表引擎接入后该限制已解除。每次构建检查实际段大小：
 
 ```bash
-make pipeline-coremark-full-mt-image CORES=2 COREMARK_MT_TOTAL_ITERATIONS=200
+riscv64-unknown-elf-size -A build/coremark_full_mt4/coremark-riscv32-ares.elf
 ```
 
-命令内部执行：
-
-```text
-build_coremark_crc.py --array-list --matrix-engine --state-engine
-    --ldscript tests/abstract-machine/scripts/ares-linker-mc.ld
-    --mt-pipe --cores 2 --total-iterations <TOTAL> --out build/coremark_full_mt2
-```
-
-- `--mt-pipe` 把 `scripts/coremark_mt_pipe/` 的 port overlay 应用到
-  **staged 副本**，并追加
-  `CFLAGS += -DARES_MT_CORES=2 -DARES_MT_ITERATIONS=<TOTAL/2>`；
-- `MULTITHREAD` 与 `ITERATIONS` 是编译期宏，2/4 hart 镜像不能混用；
-- EEMBC 源码树不被改写，全部差异记录在 `inputs.json` 的
-  `mt_pipe` / `mt_overlay_sha256` 段。
-
-### 3.1 检查镜像大小
-
-```bash
-riscv64-unknown-elf-size -A build/coremark_full_mt2/coremark-riscv32-ares.elf
-```
-
-2-hart 全加速 MT 的参考值：
-
-| 段 | 大小 | 位置 |
-| --- | --- | --- |
-| `.boot` | 316 B | IROM |
-| `.text` | 32,116 B | IROM |
-| IROM 合计 | **32,432 B / 32,768 B**（8,108 / 8,192 word，余 336 B） | `0x8000_0000` |
-| `.rodata + .data` | 2,032 B | 每 hart DRAM |
-| `.bss` | 4,172 B | 每 hart DRAM |
-| DRAM 合计 | 6,204 B / 32 KiB | `0x8010_0000 + h*0x8000` |
-
-> **4-hart 全加速聚合镜像现在可以链接**：`--list-engine` 把软件数组影子的
-> 热点换成了 list9_engine，text 从约 33 KiB 压到 30 KiB 以内；
-> `make pipeline-coremark-full-mt CORES=4` 已能生成单份 `MULTITHREAD=4`
-> 报告（200 iterations，57.242704 CoreMark/MHz，4 份 CRC 全对）。
-> 如果以后再加加速器导致 text 回涨，仍可把 IROM 扩到 64 KiB（Phase 4）。
-
-## 4. 运行仿真
-
-一条命令完成镜像构建、仿真器编译和运行：
+## 3. 仿真与通过条件
 
 ```bash
 make pipeline-coremark-full-mt CORES=2
+make pipeline-coremark-full-mt CORES=4
 ```
 
-- 镜像总迭代取 `PIPELINE_MT_SIM_TOTAL`（默认 200）；
-- 仿真器固定用 `-GICACHE_LINES=512`（32 KiB I$，覆盖约 31.7 KiB 代码）；
-- 运行 `build/pipeline_coremark_full_mt2/pipeline_coremark_full_mt`。
+`PIPELINE_MT_SIM_TOTAL` 默认为 200；2 hart 各跑 100 次，4 hart 各跑 50 次。
+这是独立 context 的吞吐聚合。程序打印一份 `Iterations : 200` 报告，各
+context 的 CRC 分别检查。
 
-手工复用已编译仿真器：
+通过条件为 `CoreMark PASS`、各 hart 的 done=1 / a0=0，以及进程正常退出。
+100 次迭代的 `crcfinal=0x988c`，50 次为 `0x0158`；两种迭代数的
+`crclist/crcmatrix/crcstate` 均为 `e714/1fd7/8e3a`。
 
-```bash
-build/pipeline_coremark_full_mt2/pipeline_coremark_full_mt \
-    build/coremark_full_mt2/coremark.bin 200000000 2
-```
-
-最后一个参数是 hart 数；`200000000` 是最大周期数。
-
-### 4.1 预期输出与检查点
+分数使用 UART 的 `Total ticks`，不使用测试台最后打印的总 `cycles`：
 
 ```text
-Iterations      : 200
-CoreMark/MHz    : 15.816722
-Parallel ares-mt-mbox : 2
-[0]crcfinal      : 0x988c
-[1]crcfinal      : 0x988c
-CoreMark PASS
-ICACHE hart1 refills=... words=...
-ICACHE hart0 refills=... words=...
-pipeline-coremark-amp: cycles=... cores=2 done=1/1 a0=[00000000,00000000] PASS
+CoreMark/MHz = 总迭代数 * 1000000 / Total ticks
 ```
 
-通过条件（全部满足）：
+基础 MT 用 `make pipeline-coremark-mt CORES=2|4`，默认 16 KiB ICache。
+独立报告 AMP 用 `make pipeline-coremark-mc CORES=2|4`，各 hart 运行
+MULTITHREAD=1；不能把其一份报告当成整个系统的聚合分数。
 
-1. `CoreMark PASS`；
-2. `[0]..[N-1]crcfinal` 相同，且与单核同迭代数参考一致
-   （100 iter → `0x988c`，50 iter → `0x0158`）；
-3. TB 行 `done` 全 1、`a0` 全 0、结尾 `PASS`；
-4. 进程退出码为 0。
+## 4. Pango 镜像与板级
 
-`ICACHE ...` 行是每 hart 的 refill 统计（行数 / word 数），用于观察 IROM
-带宽；全加速 2-hart 参考值约 hart0 337 行 / hart1 231 行。
-
-## 5. 从 ELF 到 IROM（Pango）
-
-链接脚本 [ares-linker-mc.ld](../tests/abstract-machine/scripts/ares-linker-mc.ld)：
-
-```text
-irom 0x8000_0000  32 KiB   .boot + .text
-dram 0x8010_0000  32 KiB   .rodata + .data + .bss + stack
-                        _stack_top = 0x8010_8000
-```
-
-拆分 Pango 初始化文件：
+AMP 板级顶层、文件表和仿真已入库：`pipeline_amp_board_top`、
+`rtl/pipeline/pipeline_amp_pango.f`、`make pipeline-amp-board-sim`。
+板级默认 2 hart，各 hart 使用 32 KiB 数据 BRAM。
 
 ```bash
-make pipeline-image \
-    PIPELINE_IMAGE_ELF=build/coremark_full_mt2/coremark-riscv32-ares.elf
+# 默认 2-hart、10000 总迭代的聚合镜像，供板级使用
+make pipeline-amp-image-mt CORES=2
+
+# 独立报告 AMP 镜像
+make pipeline-amp-image
+
+# 板级仿真使用 200 总迭代
+make pipeline-amp-board-sim
 ```
 
-输出：
+`pipeline-board-image` 统一生成：
 
-- `build/pipeline/irom.hex`：8192 × 32-bit，从 `0x8000_0000` 起；
-- `build/pipeline/dram.hex`：65536 × 32-bit，从 `0x8010_0000` 起；
-- `build/pipeline/image.json`：地址/大小/校验信息。
+| 文件 | 规模 | 用途 |
+| --- | --- | --- |
+| `build/pipeline/irom.hex` | 8192 × 32-bit | 每 hart 的私有 IROM 使用相同代码镜像 |
+| `build/pipeline/dram.hex` | 65536 × 32-bit | 仿真 / 256 KiB 数据存储，32 KiB 数据窗口复制 |
+| `build/pipeline/dram_amp.hex` | 8192 × 32-bit | AMP 板级每 hart 的 32 KiB 数据 BRAM |
+| `build/pipeline/image.json` | 元数据 | 布局、复制参数与 ELF/HEX 哈希 |
 
-综合 filelist 用 [pipeline_pango.f](../rtl/pipeline/pipeline_pango.f)，其中
-`IROM_BMEM32` 在非 Verilator 构建下推断为 BRAM 并从 `irom.hex` 初始化。
+`pipeline-amp-image-mt` 的 Make 入口限定 CORES=2；4-hart SoC 仿真已支持，
+4-hart 板级运行需同步顶层参数和该镜像入口。AMP 专用 PDS flow 仍在外部工程；
+当前配置的时序及实板验收状态见 [Pango 说明](../fpga/pango/pipeline/README.md)。
 
-> 当前板级顶层 `pipeline_board_top` 仍是单 hart；2/4-hart 板级顶层、每 hart
-> DRAM 初始化/复制和 PDS 时序签核属于 Phase 4。上面的 hex 拆分已经可用于
-> IROM 部分和后续板级接入。
+## 5. 常见问题
 
-## 6. 参数与变体
-
-| 变量/目标 | 作用 |
+| 现象 | 检查 |
 | --- | --- |
-| `CORES=2|4` | hart 数；全加速**聚合**镜像目前只支持 2 |
-| `COREMARK_MT_TOTAL_ITERATIONS` | 镜像总迭代数，默认 10,000 |
-| `PIPELINE_MT_SIM_TOTAL` | `pipeline-coremark-full-mt` 的仿真总迭代，默认 200 |
-| `PIPELINE_MT_MAX_CYCLES` | 仿真最大周期，默认 400,000,000 |
-| `ICACHE_LINES`（TB 参数） | I$ 行数；全加速镜像用 512 |
+| IROM 溢出 | 检查 `.boot + .text` 及 `--list-engine --small-code` 是否启用 |
+| 仿真耗时长 | 检查是否使用了镜像默认 10000 总迭代；常规仿真用 200 |
+| 修改 CORES 后结果错误 | 重建对应 mt2 / mt4 镜像，不能共用二进制 |
+| 分数与总 cycles 换算不符 | 采用 `Total ticks`；总周期还包含启动和收尾 |
+| 板级加载了错误程序 | 检查 `build/pipeline/image.json` 的 ELF 与 HEX 哈希 |
 
-其它可运行目标：
-
-```bash
-make pipeline-coremark-mt CORES=2          # 基础 MT（16 KiB I$）
-make pipeline-coremark-mt CORES=4
-make pipeline-coremark-mc CORES=2          # 全加速 AMP（每 hart 一份报告）
-make pipeline-coremark-mc CORES=4          # 4-hart 全加速 AMP
-```
-
-AMP 与 MT 的区别见 [pipeline_coremark_mt_plan.md](pipeline_coremark_mt_plan.md)；
-简言之：MT 是标准 MULTITHREAD 单份聚合报告，AMP 是每 hart 独立跑
-`MULTITHREAD=1` 并各自打印。
-
-## 7. 常见问题
-
-| 现象 | 原因 / 处理 |
-| --- | --- |
-| `region irom overflowed by 300 bytes` | 4-hart 全加速聚合镜像超 32 KiB IROM；用 AMP，或扩 IROM / 裁代码 |
-| 仿真很久不结束 | 10,000 迭代在 Verilator 需数小时；保持 `PIPELINE_MT_SIM_TOTAL=200` |
-| 没有 UART 输出 | stdout 重定向时按块缓冲；结束后才 flush；先确认进程仍在跑且未超时 |
-| 改了源码但结果没变 | 镜像按 `CORES/TOTAL` 分目录并记录在 `inputs.json`；重新执行构建目标 |
-| AMP 输出交错 | 4 个 hart 各自打印到同一 stdout；以 TB 的 done/a0 和 CRC 行为准 |
-| I$ 命中率差 | 全加速代码约 31.7 KiB，必须用 512 行；基础 MT 用默认 256 行 |
-
-## 8. 参考结果（Verilator，2026-10）
-
-| 配置 | 总迭代 | cycles | CoreMark/MHz | CRC | 结果 |
-| --- | --- | --- | --- | --- | --- |
-| 2-hart 全加速 MT（512 行 I$） | 200 | 12,717,275 | 15.816722 | 0x988c ×2 | PASS |
-| 2-hart 基础 MT（16 KiB I$） | 200 | 43,746,087 | 4.579943 | 0x988c ×2 | PASS |
-| 4-hart 基础 MT（16 KiB I$） | 200 | 21,938,513 | 9.166984 | 0x0158 ×4 | PASS |
-| 4-hart 全加速 AMP（512 行 I$） | 4×100 | 12,694,279 | 每 hart 约 7.9 | 0x988c ×4 | PASS |
-| **4-hart 全加速 MT（list engine）** | **200** | **3,630,085** | **57.242704** | 0x0158 ×4 | PASS |
-
-以上是 RTL 仿真值（100 MHz 计数），不是板级实测。
+逐阶段实施记录见 [MULTITHREAD 计划](pipeline_coremark_mt_plan.md)，
+共享 L2 实验线见 [pipeline_multicore.md](pipeline_multicore.md)。

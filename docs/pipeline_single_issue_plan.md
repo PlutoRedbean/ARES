@@ -1,12 +1,19 @@
 # ARES FPGA 单发射流水线 SoC 实施计划（PG2L200H）
 
+> 当前状态（2026-11-03）：本文保留迁移实施过程，旧性能与阶段检查项属于当时
+> 配置。当前已具备两路 DCache、每 hart 私有 IROM / 四路 ICache 的 AMP、
+> 2/4-hart 全加速 MULTITHREAD、单核 RT-Thread Nano / MSH 与板级仿真。
+> PDS 已有历史 PnR 报告；当前配置的时序与实板验收待补。最终描述和本次复测
+> 结果见[技术报告](technical/technical_report.tex)。
+
+
 > 状态：Draft v0.6（M0/M1/M2 完成，ISA 36/36 与基线 CoreMark 仿真通过；M4 加速镜像（CRC/矩阵/状态机）已完成 100-iteration 仿真；M4 双核/四核与写失效一致性 RTL 与 Verilator 验证已完成；2/4-hart 标准 CoreMark MULTITHREAD 已完成 Verilator 验收；Pango RTL 平台层已落地，PDS 综合/实现/上板待执行）
 > 日期：2026-10-30
 > v0.6 变更：完成 M4 双核/四核与一致性 RTL。新增参数化 `pipeline_mc_soc_top`（`CORES=2/4`）、共享写回 L2、每核 IROM/MMIO 适配与写失效一致性；L1 为写直达，L2 按字地址向其他核发失效，并用 8-bit epoch 抑制在途 refill 的旧行安装。新增 `make pipeline-mc-test`/`pipeline-mc-lint`、`tests/pipeline-mc` 无分支一致性测试与 L2 定向 TB。2/4 核仿真分别 PASS，单核 smoke/ISA 36/36 保持通过。另完成私有内存 AMP 的 2 核全加速 CoreMark：`make pipeline-coremark-mc` 两核各 7.916002、聚合 15.832004 CoreMark/MHz，`a0=0` PASS；共享 L2 的 CoreMark 仍有读响应顺序问题待修。详见 [pipeline_multicore.md](pipeline_multicore.md)。
 > v0.5 变更：完成 M4 加速镜像。pipeline core 增加两拍流水的 custom-0 CRC8 指令（EX1/EX2 各 4 个 bit step），SoC 复用 `rtl/accel/mtx9_engine.sv` / `state9_engine.sv` 并新增 `pipeline_accel.sv` 薄 MMIO 封装；新增 `pipeline-coremark-crc/matrix/state/full` 与 `pipeline-coremark-images`。100-iteration：CRC 2.6769、矩阵 4.0804、状态机 4.2895、全加速 7.9160 CoreMark/MHz，四个 CRC 全对。详见 [pipeline_accel_images.md](pipeline_accel_images.md)。
 > v0.4 变更：完成 RTL 层 Pango 适配——移除 Xilinx XPM、加入可综合并初始化的 IROM/DRAM、100/50 MHz PLL、分域复位、UART 板级顶层与 PDS 约束/流程；新增 `make pipeline-image`、`make pipeline-pango-lint` 与 `make pipeline-console`。SoC 侧 RTL 已按 Verilog-2001 兼容风格转换并由 `--language 1364-2005` 检查。综合、实现、资源/时序和上板仍归 M3，在 Pango 工具环境执行。
 > 当前分支：`pipeline-single-issue`
-> 关联文档：[implementation_plan.md](implementation_plan.md)、[jyd_soc_integration.md](jyd_soc_integration.md)、[coremark_uart_scoring.md](coremark_uart_scoring.md)、[pipeline_accel_images.md](pipeline_accel_images.md)
+> 关联文档：[核与 SoC 说明](../rtl/pipeline/README.md)、[coremark_uart_scoring.md](coremark_uart_scoring.md)、[pipeline_accel_images.md](pipeline_accel_images.md)
 
 ---
 
@@ -14,7 +21,7 @@
 
 ### 1.1 目标
 
-用 ysyx-workbench/npc 的 **单发射顺序流水线核**替换 ARES 当前的多发射 OoO 后端，形成一个可在 **Pango PG2L200H** 上实现和上板的 pipeline SoC，并先跑通 **基线 CoreMark**，从 RTL UART 读取 100-iteration 分数。
+用 ysyx-workbench/npc 的 **单发射顺序流水线核**替换 ARES 迁移前的多发射 OoO 后端，形成一个可在 **Pango PG2L200H** 上实现和上板的 pipeline SoC，并先跑通 **基线 CoreMark**，从 RTL UART 读取 100-iteration 分数。
 
 ### 1.2 本期范围
 
@@ -24,7 +31,7 @@
 - PG2L200H 综合、实现、资源/时序报告、上板 UART 跑分；
 - 为后续加速镜像、多核、中断保留接口和文档。
 
-### 1.3 本期不做
+### 1.3 原始迁移范围之外的工作（后续完成情况见 M4）
 
 - ~~双核/四核~~（v0.6 已实现 2/4 核与写失效一致性，见 [pipeline_multicore.md](pipeline_multicore.md)）、SMP/AMP 软件栈、原子操作；
 - 中断、CLINT/PLIC、RT-Thread；
@@ -179,7 +186,7 @@ PG2L200H board
 | perip mask | 2-bit `perip_mask` | jyd `perip_bridge` 也是 2-bit | **匹配**；但 ARES 迁移版是 4-bit `wstrb`，本计划不使用 |
 | 配置宏 | `CONFIG_MUL_LATENCY` 等 | `CONFIG_IROM_ADDR_WIDTH` 等 | 合并成一份 `pipeline_autoconf.vh`；见 3.3 |
 | 计时器 | CoreMark 读 `0xA000_0050/54` 的 64-bit cycle counter | jyd `0x8020_0050` 是 **毫秒计数器**，还可写 start/stop | 新增 64-bit cycle counter；不要把 jyd 毫秒计数器接到 CoreMark |
-| UART 状态 | CoreMark 期望 `0xA000_03FC` bit0 = busy | jyd `0x8020_0064` bit0 = `console_rx_valid`，bit1 = `console_tx_ready` | 兼容层把 bit0 规范化为 `~console_tx_ready`；或改软件 |
+| UART 状态 | CoreMark 期望 `0xA000_03FC` bit1 = busy | jyd `0x8020_0064` bit0 = `console_rx_valid`，bit1 = `console_tx_ready` | 兼容层把 bit1 规范化为 `~console_tx_ready`；或改软件 |
 | 地址映射 | `0xA000_03F8` / `0x3FC` / `0x50/54` | `0x8020_0060` / `0x64` / `0x50` | 兼容窗口做地址/状态转换；第一版不改 `ares.h` |
 | 存储器模型 | 需要可综合 BRAM | jyd `IROM_BMEM`/`BRAM` 是 DPI 仿真模型 | 新增 `IROM_BMEM32`（仿真 DPI/综合 BRAM 两套）；`BRAM` 用 Pango wrapper |
 | CDC | 不涉及 | jyd `counter`/`perip_bridge` 使用 Xilinx XPM | 换成 Pango/通用 2FF、gray-code CDC；M0 先做小规模综合验证 |
@@ -290,12 +297,12 @@ wire [31:0] byte_addr = 32'h8000_0000 + ({addra, 2'b00});
 | CoreMark 地址 | 功能 | jyd 目标 |
 | --- | --- | --- |
 | `0xA000_03F8` | UART TX | `0x8020_0060` |
-| `0xA000_03FC` | UART status | `0x8020_0064`，bit0 转成 busy |
+| `0xA000_03FC` | UART status | `0x8020_0064`，bit1 转成 busy |
 | `0xA000_0050` | cycle counter low | 新 64-bit 计数器低 32 位 |
 | `0xA000_0054` | cycle counter high | 新 64-bit 计数器高 32 位 |
 | 其他 `0xA000_xxxx` | 保留/返回 0 | 可选：透传到 jyd 外设 |
 
-- UART 写通过 `perip_addr_eff` 别名到 `CONSOLE_ADDR`；status 读返回 bit0 = `~console_tx_ready`；
+- UART 写通过 `perip_addr_eff` 别名到 `CONSOLE_ADDR`；status 读返回 bit1 = `~console_tx_ready`；
 - cycle counter 使用独立 64-bit `cycle_count`，占用 `RESP_CNT` 响应通道但不覆盖 `0x8020_0050` 毫秒计数器；
 - 该实现已通过 `make pipeline-coremark` 验证。
 
@@ -336,7 +343,7 @@ wire [31:0] byte_addr = 32'h8000_0000 + ({addra, 2'b00});
 | `0x8020_0000` | 4 KiB | jyd 外设（SW/KEY/SEG/LED/ms counter/UART） |
 | `0xA000_0050/54` | 8 B | 64-bit CPU cycle counter（兼容窗口） |
 | `0xA000_03F8` | 4 B | UART TX（兼容窗口） |
-| `0xA000_03FC` | 4 B | UART status，bit0=busy（兼容窗口） |
+| `0xA000_03FC` | 4 B | UART status，bit1=busy（兼容窗口） |
 
 - 现有 `make coremark-image` 产物直接使用，不改 `tests/abstract-machine/am/src/riscv/ares/include/ares.h`；
 - jyd 的 `0x8020_0050` 毫秒计数器保留，CoreMark 不读它；
@@ -475,7 +482,7 @@ RTL 层已完成（本机）：
 ### M4：后续扩展
 
 M4 整体状态：**未关闭**。已完成“加速镜像”与“双核/四核 + 写失效一致性”
-RTL/Verilator 子项；中断/RTOS、I-Cache/L2 的最终性能结构以及 PDS/板级签核仍未完成。
+RTL/Verilator 子项；中断/RTOS 与 I/DCache 已实现，PDS 当前配置时序及实板验收、共享 L2 CoreMark 仍待完成。
 
 已完成（加速镜像，100-iteration Verilator 仿真）：
 
@@ -519,7 +526,7 @@ RTL/Verilator 子项；中断/RTOS、I-Cache/L2 的最终性能结构以及 PDS/
   4.579943 / 9.166984 CoreMark/MHz（与无 I$ 差异 <0.03%），整轮只取
   5,072 / 8,784 个 IROM word；full-accel 聚合（`make pipeline-coremark-full-mt
   CORES=2`，512 行 I$）15.816722 CoreMark/MHz；4-hart 全加速聚合镜像超出
-  32 KiB IROM 约 300 B，暂以 `pipeline-coremark-mc CORES=4` AMP 变体运行；
+  32 KiB IROM 约 300 B（历史限制）；当前链表引擎版本已支持四核聚合；
 - 共享 L2 的 CoreMark 仍待修复：首个 `.rodata` seed 表读在 L1 refill/LSU
   slow-response 路径上被捕获为零/错位一拍，L2 响应数据本身正确；这是
   response ordering/tagging 问题，不是 CRC 或加速器问题；
@@ -529,9 +536,9 @@ RTL/Verilator 子项；中断/RTOS、I-Cache/L2 的最终性能结构以及 PDS/
 
 待完成：
 
-- 中断/RT-Thread；
-- 视资源决定最终 I-Cache/L2 结构（MSHR/bank/WBQ/QoS）；
-- 双核/四核的 Pango 板级 wrapper、128-bit DRAM 镜像与 PDS 综合/实现/上板；
+- 当前 Cache / AMP 配置的资源与时序验收；
+- 共享 L2 的进一步结构优化（MSHR/bank/WBQ/QoS）；
+- AMP 板级当前配置的 PDS 实现与上板；共享 L2 的板级 wrapper 和 128-bit DRAM 镜像；
 - 修复共享 L2 的 CoreMark 读响应顺序，再跑共享 L2 多核全加速 CoreMark；
 - 加速镜像与多核组合的资源/时序签核。
 
@@ -547,7 +554,7 @@ RTL/Verilator 子项；中断/RTOS、I-Cache/L2 的最终性能结构以及 PDS/
 | `$readmemh` 推断 BRAM 在 PDS 的行为 | 首次构建可能报找不到初始化文件或未推断为 BRAM | 流程 `cd` 到仓库根并检查 `build/pipeline/*.hex`；首次构建核对 DRM 用量与初始化结果 |
 | 5-stage core 无 `fence/ebreak/retire` | CoreMark 计时不可信/无法结束 | 在 Chisel 中补；M1 验收 |
 | 32-bit IROM 地址/时序错误 | 取指错/跑飞 | `inst_addr = pc[..:2]`，`IROM_BMEM32` 保持 1-cycle；单指令/ISA 回归先验证 |
-| UART status 位定义不一致 | 计时包含启动输出 | 兼容层规范化 bit0=busy；TB 等待 UART drain |
+| UART status 位定义不一致 | 计时包含启动输出 | 兼容层规范化 bit1=busy；TB 等待 UART drain |
 | 无 I-Cache，D-Cache 仅 8 KiB | 分数偏低 | 先接受基线；后续按分数/资源决定是否加 I$ 或扩大 D$ |
 | 生成物不可复现 | core 修改无法追溯 | 固定 npc commit/firtool；记录 SHA-256；不手改生成物 |
 | CoreMark 100 iterations 仿真时间长 | 迭代慢 | 先 1/4 iterations；最终分数用 UART；必要时缩短诊断输出 |

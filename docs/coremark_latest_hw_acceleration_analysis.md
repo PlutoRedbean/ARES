@@ -1,5 +1,10 @@
 # ARES 双核 CoreMark 最新指令流与硬件加速路线
 
+> 历史资料：本文记录旧 OoO / 共享 L2 工程，所列已删除模块和旧 Make 目标
+> 不作为当前 ARES 的操作入口。当前架构与结果见[技术报告](technical/technical_report.tex)，
+> 当前运行命令见[核与 SoC 说明](../rtl/pipeline/README.md)。
+
+
 > 历史说明：本文中的 OoO 核 / 共享 L2 集成路径（`rtl/top/*`、`rtl/backend/*`、`rtl/l2/*`）已随老核删除；
 > 引擎本身与镜像流程仍由当前的流水线 SoC 复用，见 `README.md`。
 

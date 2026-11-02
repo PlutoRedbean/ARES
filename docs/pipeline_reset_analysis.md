@@ -1,5 +1,10 @@
 # 复位审计：哪些可以删、哪些该交给 INIT 状态机
 
+> 版本说明：本文的扇出和资源统计对应当时网表；其中共享 IROM / AMP 专用
+> ICache 的描述属于旧结构。当前 AMP 已使用每 hart 私有 IROM 和主线四路 ICache。
+> 第 11 节短复位问题已按方案 A+B 修复（2026-11-03），回归入口为 `make pipeline-reset-pulse`。
+
+
 > 范围：当前主线 RTL —— 核 [rtl/pipeline/core](../rtl/pipeline/core)、
 > SoC [rtl/pipeline/soc](../rtl/pipeline/soc)、加速器 [rtl/accel](../rtl/accel)；
 > `rtl/video`、`rtl/pipeline/core/vsrc/DPIC`、`build/` 下的仿真/复制件不在范围内。
@@ -343,11 +348,15 @@ AMP 构建（2 hart + 1 个 mbox）：2 × 1,600 + 2,048 = **5,248 个复位端�
 2. `u_mbox` 的 256×32 改成同步读 BRAM（[pango_amp_floorplan.md](pango_amp_floorplan.md) Stage 0 的剩余项），复位已经在本次让位；
 3. 若要让 I$ 的初始化也确定化，给 `pipeline_icache`/`pipeline_amp_icache` 加 `S_CLEAR` 状态（本次按"只读 IROM ⇒ 陈旧 valid 无害"直接删除）；
 4. P2：`CSR` 默认值改 boot 写、`uart/counter/display_seg` 的小改动；
-5. **已知隐患，未修复**：流水线 valid 位没有复位，短复位脉冲下会让陈旧指令退休/写内存。详见 §11（含实测数据和建议修法）。
+5. **已修复**：流水线 valid 位原先没有复位，短复位脉冲下会让陈旧指令退休/写内存。详见 §11（含实测数据和修法）。
 
-## 11. 已知隐患：流水线 valid 位没有复位（记录，**未修复**）
+## 11. 已修复：流水线 valid 位没有复位
 
-> 状态：已复现、已定位，**本次不动 RTL**，等排期。修复代价约 9 个触发器。
+> 状态：**已修复（2026-11-03）**，采用 §11.5 的 A（`pipelineConnect` 的 valid 改为 `RegInit(false.B)`）
+> 和 B（LSU `ls2_valid/ls3_valid` 带复位），代价 9 个触发器。
+> 回归：`make pipeline-reset-pulse`（`rtl/pipeline/test/tb_reset_pulse.sv` +
+> `sim_reset_pulse_main.cpp`），两种程序 × 脉宽 1/2/3/4/6/8 × 5 个相位共 60 次，
+> 修复前 50 次失败，修复后全部通过。以下保留修复前的记录。
 >
 > 复现环境留在 `build/reset_exp/`（gitignore 内）：`tb_reset_pulse.sv` + `main.cpp` / `main_store.cpp`。
 

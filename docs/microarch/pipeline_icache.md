@@ -1,5 +1,10 @@
 # Pipeline instruction cache
 
+> Current configuration/results (2026-11-03): see the
+> [technical report](../technical/technical_report.tex). Performance measurements
+> below predate this rerun and retain their original cache/image configuration.
+
+
 Status: P2 integrated in the single-hart `rtl/pipeline` SoC.  The cache is
 Verilog-2005 style (`.v`, no SystemVerilog types/interfaces), self-contained
 under `rtl/pipeline`, and does not depend on `rtl/frontend` or its
@@ -119,7 +124,8 @@ S_FILL   : write data RAM + tag/valid/age
 S_RELOOK : one cycle for the synchronous data read
 S_RESP   : hold the response until rsp_ready; then commit and accept the next
            request in the same cycle
-flush    : any state -> S_IDLE, drop response/refill state
+flush    : any state -> S_IDLE, drop response/refill state; a line already
+           in S_FILL is still installed (data and directory together)
 ```
 
 With `ICACHE_PIPE_HITS=0`, `req_ready` is asserted only in `S_IDLE`, exactly
@@ -130,7 +136,9 @@ immediately.  The buffered IFU reserves a slot for every in-flight response,
 so in the current configuration `rsp_ready` is normally already high when the
 response is valid; the pipelined accept therefore happens in `S_LOOK`.
 
-The counters `hits/misses/refills/reqs` are 64-bit outputs.  `student_top`
+The counters `hits/misses/refills/reqs` are 64-bit outputs. `hits` counts
+completed responses, including a response after miss/refill; it is not a pure
+lookup-hit count.  `student_top`
 pulses `stats_dump` when the core retires `EBREAK`; under `__VERILATOR__` the
 cache prints them then (pure Verilog `$display`, no SystemVerilog `final`
 block):
@@ -139,11 +147,12 @@ block):
 ICACHE hits=36483040 misses=36676 refills=13772 reqs=37483188
 ```
 
-## Verification
+## Verification (historical cache-integration measurements)
 
 | Test | Result |
 | --- | --- |
 | `make pipeline-lint` | pass (warnings only) |
+| `make pipeline-icache-test` | directed + random unit test, incl. flush/reset on the `S_FILL` cycle |
 | `make pipeline-smoke` | pass, `write_events=2`, `ebreak_seen=1` |
 | `make pipeline-isa` | 36/36 pass |
 | `make pipeline-coremark` (`ICACHE_PIPE_HITS=1`) | `CoreMark PASS`, CRC match, `2.233867` CoreMark/MHz |
@@ -164,13 +173,23 @@ not be compared as a regression.
 
 ## Limitations / next steps
 
+- The data-array write and the tag/valid/age install share one enable,
+  `fill_we = (state == S_FILL) && !rst`.  A flush on the install cycle still
+  installs the complete line; a reset on it installs nothing.  Before this,
+  the data write ignored flush/reset while the directory update did not, which
+  could leave an old valid tag over new data (`make pipeline-icache-test`
+  reproduces that case).
+- Ordinary reset retains valid/tag/data; valid-bit power-up initialization remains
+  to be verified for the target implementation.
+
+
 - `FENCE.I` is still decoded as a generic `FENCE` barrier and does not
   invalidate the cache or flush the fetch queue.  The IROM is read-only, so
   this is safe today; add an invalidate port before supporting writable code.
 - Backing is still the private IROM.  Moving code to DRAM/L2 only requires a
   new refill adapter (the cache interface is already generic).
-- Single-hart only.  `pipeline_hart.sv` currently uses the passthrough path;
-  per-hart cache integration is a later step.
+- The mainline cache is used by single-hart and AMP `student_top` instances.
+  Only the shared-L2 experimental `pipeline_hart.sv` retains passthrough fetch.
 - No critical-word-first, hit-under-miss, MSHR, or abortable refill.  A
   redirect during a refill waits for the abort and then restarts.
 - A 4-wide response + window FIFO + prechecker was evaluated but is not
