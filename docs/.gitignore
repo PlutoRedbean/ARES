@@ -1,0 +1,12 @@
+*
+!*/
+!.gitignore
+!sim/
+!design/
+!technical/
+!*.tex
+!*.jpeg
+!*.jpg
+!*.png
+!ref.bib
+!*.drawio
