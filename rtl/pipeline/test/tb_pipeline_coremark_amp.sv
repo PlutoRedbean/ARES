@@ -80,20 +80,4 @@ module tb_pipeline_coremark_amp #(
     assign a0_2   = a0_out[2];
     assign a0_3   = a0_out[3];
 
-    // Report the per-hart instruction-cache turnover when each hart halts.
-    genvar gs;
-    generate
-        for (gs = 0; gs < 4; gs = gs + 1) begin : g_icache_stats
-            if ((gs < CORES) && (USE_ICACHE != 0)) begin : g_show
-                always @(posedge clk) begin
-                    if (!rst && retire_valid[gs] && retire_is_ebreak[gs])
-                        $display("ICACHE hart%0d refills=%0d words=%0d",
-                                 gs,
-                                 dut.g_hart[gs].g_ic.u_icache.stat_refills,
-                                 dut.g_hart[gs].g_ic.u_icache.stat_words);
-                end
-            end
-        end
-    endgenerate
-
 endmodule

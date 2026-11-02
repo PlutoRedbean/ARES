@@ -72,3 +72,9 @@ rtl/pipeline/soc/amp/pipeline_amp_top.sv
 
 # Board top (PLL/reset/UART/LED)
 rtl/pipeline/board/pipeline_amp_board_top.v
+
+# Mainline 4-way set-associative I-cache used by student_top
+rtl/pipeline/core/vsrc/icache/pipeline_icache.v
+
+# Internal I-cache refill adapter (used by student_top with EXTERNAL_IROM=0)
+rtl/pipeline/soc/jyd/pipeline_irom_passthrough.v

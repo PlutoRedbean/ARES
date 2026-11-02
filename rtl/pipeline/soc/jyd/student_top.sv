@@ -16,6 +16,10 @@ module student_top#(
     // Single-hart profile (EXTERNAL_IROM=0): 0 disables the internal cache.
     parameter                           USE_ICACHE          = 1,
     parameter                           ICACHE_PIPE_HITS    = 1,
+    // Mainline set-associative I-cache geometry (EXTERNAL_IROM=0).
+    parameter integer                   ICACHE_SETS         = 32,
+    parameter integer                   ICACHE_WAYS         = 4,
+    parameter integer                   ICACHE_LINE_BYTES   = 32,
     // Per-hart private DRAM geometry (forwarded to perip_bridge/bram_driver).
     parameter                           IROM_INIT_FILE      = "build/pipeline/irom.hex",
     parameter integer                   DRAM_AW             = 16,
@@ -152,9 +156,9 @@ module student_top#(
                 pipeline_icache #(
                     .ADDR_WIDTH (32),
                     .DATA_WIDTH (32),
-                    .LINE_BYTES (32),
-                    .NR_SETS    (32),
-                    .NR_WAYS    (4),
+                    .LINE_BYTES (ICACHE_LINE_BYTES),
+                    .NR_SETS    (ICACHE_SETS),
+                    .NR_WAYS    (ICACHE_WAYS),
                     .BEAT_BYTES (4),
                     .PIPE_HITS  (ICACHE_PIPE_HITS)
                 ) u_icache (

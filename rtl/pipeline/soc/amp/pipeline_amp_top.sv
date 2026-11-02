@@ -111,58 +111,23 @@ module pipeline_amp_top #(
     genvar g;
     generate
         for (g = 0; g < CORES; g = g + 1) begin : g_hart
-            if (USE_ICACHE != 0) begin : g_ic
-                pipeline_amp_icache #(
-                    .LINE_BYTES (ICACHE_LINE_BYTES),
-                    .LINES      (ICACHE_LINES)
-                ) u_icache (
-                    .clk          (clk),
-                    .rst          (rst),
-
-                    .req_valid    (hart_req_valid[g]),
-                    .req_addr     (hart_req_addr[g]),
-                    .req_ready    (hart_req_ready[g]),
-                    .rsp_valid    (hart_rsp_valid[g]),
-                    .rsp_data     (hart_rsp_data[g]),
-                    .rsp_ready    (hart_rsp_ready[g]),
-                    .flush        (hart_flush[g]),
-
-                    .mem_req      (ic_req[g]),
-                    .mem_req_addr (ic_req_addr[g]),
-                    .mem_gnt      (ic_gnt[g]),
-                    .mem_data     (shared_data),
-                    .stat_refills (),
-                    .stat_words   ()
-                );
-                assign bank_addr_direct[g] = {MEM_AW{1'b0}};
-                assign bank_data_direct[g] = 32'd0;
-            end else begin : g_direct
-                pipeline_irom_passthrough #(
-                    .ADDR_WIDTH           (32),
-                    .IROM_WORD_ADDR_WIDTH (`CONFIG_IROM_ADDR_WIDTH + 1)
-                ) u_passthrough (
-                    .clk       (clk),
-                    .rst       (rst),
-                    .req_valid (hart_req_valid[g]),
-                    .req_addr  (hart_req_addr[g]),
-                    .req_ready (hart_req_ready[g]),
-                    .rsp_valid (hart_rsp_valid[g]),
-                    .rsp_data  (hart_rsp_data[g]),
-                    .rsp_ready (hart_rsp_ready[g]),
-                    .flush     (hart_flush[g]),
-                    .irom_addr (bank_addr_direct[g]),
-                    .irom_data (bank_data_direct[g])
-                );
-                assign ic_req[g]      = 1'b0;
-                assign ic_req_addr[g] = {MEM_AW{1'b0}};
-            end
+            // The mainline set-associative I-cache lives inside student_top
+            // (EXTERNAL_IROM=0).  The old top-level AMP I-cache and its shared
+            // IROM are no longer used; these ties keep the external fetch port
+            // of student_top harmless.
+            assign hart_req_ready[g] = 1'b1;
+            assign hart_rsp_valid[g] = 1'b0;
+            assign hart_rsp_data[g]  = 32'd0;
 
             student_top #(
                 .DATA_OFFSET     (g * DATA_STRIDE),
                 .HART_ID         (g),
                 .HART_COUNT      (CORES),
-                .EXTERNAL_IROM   (1),
-                .USE_ICACHE      (0),
+                .EXTERNAL_IROM   (0),
+                .USE_ICACHE      (USE_ICACHE),
+                .ICACHE_SETS     (ICACHE_LINES / 4),
+                .ICACHE_WAYS     (4),
+                .ICACHE_LINE_BYTES (ICACHE_LINE_BYTES),
                 .DRAM_AW         (DRAM_AW),
                 .DRAM_INIT_FILE  (DRAM_INIT_FILE)
             ) u_core (
@@ -204,37 +169,6 @@ module pipeline_amp_top #(
                 .shared_req_wdata (mbox_req_wdata[g]),
                 .shared_req_wstrb (mbox_req_wstrb[g])
             );
-        end
-    endgenerate
-
-    generate
-        if (USE_ICACHE != 0) begin : g_shared_irom
-            pipeline_irom_arbiter #(
-                .MASTERS    (CORES),
-                .LINE_WORDS (ICACHE_LINE_BYTES / 4),
-                .ADDR_W     (MEM_AW)
-            ) u_arb (
-                .clk       (clk),
-                .rst       (rst),
-                .req       (ic_req),
-                .req_addr  (ic_req_addr),
-                .gnt       (ic_gnt),
-                .bank_addr (shared_addr)
-            );
-
-            IROM_BMEM32 u_irom (
-                .addra (shared_addr),
-                .clka  (clk),
-                .douta (shared_data)
-            );
-        end else begin : g_private_irom
-            for (g = 0; g < CORES; g = g + 1) begin : g_bank
-                IROM_BMEM32 u_irom (
-                    .addra (bank_addr_direct[g]),
-                    .clka  (clk),
-                    .douta (bank_data_direct[g])
-                );
-            end
         end
     endgenerate
 
