@@ -1,0 +1,868 @@
+% !TeX program = xelatex
+% 统一入口；章节结构及版式依据同目录的《技术文档模板.docx》。
+% 在本目录编译：latexmk -xelatex -interaction=nonstopmode -halt-on-error technical_report.tex
+% 依赖：XeLaTeX、Biber、gb7714-2015，以及 SimSun、SimHei、Times New Roman 字体。
+\documentclass[UTF8,a4paper,12pt,fontset=none,scheme=plain]{ctexart}
+\usepackage[left=3.175cm,right=3.175cm,top=2.54cm,bottom=2.54cm,headheight=40pt,headsep=4mm,footskip=14mm]{geometry}
+\usepackage{fontspec}
+\setmainfont{Times New Roman}
+\setCJKmainfont{SimSun}[AutoFakeBold=2]
+\newCJKfontfamily\songti{SimSun}[AutoFakeBold=2]
+\setCJKsansfont{SimHei}
+\setCJKmonofont{SimSun}
+\setmonofont{DejaVu Sans Mono}[Scale=0.85]
+\usepackage{graphicx,float,booktabs,longtable,array,makecell,tabularx,multirow}
+\usepackage{amsmath,amssymb,xcolor,enumitem,caption,fancyhdr,setspace,fvextra}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning}
+\usepackage[backend=biber,style=gb7714-2015,sorting=none]{biblatex}
+\addbibresource{ref.bib}
+\usepackage[hidelinks]{hyperref}
+\hypersetup{pdftitle={基于 RISC-V 指令集的六级流水线处理器设计},pdfauthor={},pdfsubject={技术文档}}
+\setstretch{1.5}
+\setlength{\parindent}{2em}
+\setlength{\parskip}{0pt}
+\setlength{\tabcolsep}{3pt}
+\renewcommand{\arraystretch}{1.16}
+\setlength{\LTpre}{6pt}
+\setlength{\LTpost}{8pt}
+\setlength{\emergencystretch}{2em}
+\setlist{nosep,leftmargin=2em,topsep=4pt}
+\captionsetup{font=small,labelfont=normalfont,justification=centering,skip=6pt}
+\renewcommand{\figurename}{图}
+\renewcommand{\tablename}{表}
+\ctexset{
+ section={name={第,部分},number=\chinese{section},format=\songti\bfseries\zihao{4},aftername=\quad,beforeskip=18pt,afterskip=10pt},
+ subsection={format=\songti\zihao{-4},beforeskip=12pt,afterskip=6pt},
+ subsubsection={format=\songti\zihao{-4},beforeskip=10pt,afterskip=4pt},
+ paragraph={format=\songti\bfseries\zihao{-4},runin=false,beforeskip=8pt,afterskip=3pt},
+ subparagraph={format=\songti\bfseries\zihao{-4},runin=false,indent=0pt,beforeskip=6pt,afterskip=3pt}}
+\renewcommand{\thesubsection}{\arabic{section}.\arabic{subsection}}
+\renewcommand{\thesubsubsection}{\thesubsection.\arabic{subsubsection}}
+\setcounter{secnumdepth}{3}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[C]{\includegraphics[width=6.516cm]{figures/template_header.png}}
+\renewcommand{\headrulewidth}{0.4pt}
+\fancyfoot[C]{\fontsize{12}{14}\selectfont\thepage}
+\newcommand{\code}[1]{\texttt{\detokenize{#1}}}
+\newcolumntype{Y}{>{\centering\arraybackslash}X}
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\newcolumntype{P}[1]{>{\raggedright\arraybackslash}p{#1}}
+\newcolumntype{C}[1]{>{\centering\arraybackslash}p{#1}}
+\newenvironment{tighttable}{\begingroup\setstretch{1}\fontsize{9}{12}\selectfont\setlength{\tabcolsep}{2pt}}{\endgroup}
+\newenvironment{normaltable}{\begingroup\setstretch{1.1}\fontsize{10}{14}\selectfont\setlength{\tabcolsep}{3pt}}{\endgroup}
+
+\begin{document}
+\begin{center}
+{\songti\bfseries\zihao{3} 基于 RISC-V 指令集的\\六级流水线处理器设计\par}
+\end{center}
+\vspace{8pt}
+\section*{摘要}
+% 模板限制：800 字内。
+本作品实现了一款面向 FPGA 的 RV32I 六级流水线处理器，覆盖赛题所需的 37 条基础整数指令。
+处理器由取指、译码、执行、访存请求、访存返回和写回六级组成，通过旁路转发、load-use 冒险处理和分支重定向保证流水线正确运行。
+分支预测采用基于 BTB 和两位饱和计数器的 bimodal 方案，存储及外设接口按官方 SoC 平台适配，并利用 BRAM 实现片上存储。
+
+验证工作结合 Verilator 指令测试、CoreMark 性能统计、BPU 参考模型对比与 FPGA 数字孪生平台运行。
+已有记录显示，src0、src1、src2 均在 200 MHz 条件下通过 37 条指令测试，运行时间分别为 10048、10458、12316 ms。
+同一组 CoreMark 仿真中，bimodal 相比固定不跳转策略将 IPC 从 0.680690 提高到 0.812050。
+本作品形成了从指令实现、流水线控制到 SoC 集成和运行验证的完整设计流程，可用于处理器教学、微架构实验及嵌入式计算原型验证。
+
+\section{作品概述}
+\subsection{功能与特性}
+% 模板限制：400 字内。
+处理器支持整数算术、逻辑、移位、比较、字节及字访存、条件分支和无条件跳转等 RV32I 常用功能。
+六级流水线分别负责取指、译码、执行、两级访存与写回，各级通过流水寄存器连接。
+旁路网络减少普通 RAW 相关停顿；load-use 检测通过暂停和气泡处理未就绪数据；控制冒险通过冲刷和 PC 重定向恢复正确路径。
+SoC 集成指令存储、数据存储、外设总线和显示功能，支持仿真及数字孪生平台验证。
+
+\subsection{应用领域}
+% 模板限制：400 字内。
+作品面向计算机组成原理教学、RISC-V 指令集实验、FPGA 处理器原型及小规模嵌入式计算验证。
+模块化数据通路便于观察指令在流水线中的传播，结合波形和参考模型可分析数据相关、控制相关和存储器延迟。
+通过切换分支预测配置，可在相同测试程序下比较周期数、IPC 与预测准确率，支持微架构优化实验。
+
+\subsection{主要技术特点}
+% 模板限制：400 字内。
+采用 Chisel 描述核心并生成 RTL，与 Verilog/SystemVerilog 外设和顶层包装集成。
+访存划分为 LS1 请求与 LS2 返回两个阶段，以适配 FPGA 同步存储器时序。
+寄存器堆采用同步读写和写优先处理，旁路路径覆盖 EXU、LS1、LS2。
+BTB 表项同时保存目标地址、标签和两位方向计数器，执行级反馈真实方向与目标用于训练。
+仿真平台利用 DPI-C 对接 C++ 模型，使功能检查与性能统计能够在同一运行流程中完成。
+
+\subsection{主要性能指标}
+% 模板限制：200 字内；统计口径为迁入报告的测评记录。
+\begin{table}[H]
+\centering
+\begin{normaltable}
+\begin{tabularx}{\linewidth}{@{}L{0.28\linewidth}X@{}}
+\toprule
+指标 & 结果 \\
+\midrule
+指令覆盖 & RV32I 基础 37 条 \\
+平台运行频率 & 200 MHz \\
+CoreMark IPC & 0.812050（bimodal） \\
+官方程序耗时 & 10048 / 10458 / 12316 ms \\
+LUT / FF & 4834 / 2890 \\
+BRAM & 64（14.38\%） \\
+\bottomrule
+\end{tabularx}
+\end{normaltable}
+\end{table}
+
+\subsection{主要创新点}
+% 模板限制：200 字内，逐点给出。
+\begin{enumerate}[label=\arabic*.]
+\item 面向同步 BRAM 拆分访存请求与返回，兼顾流水级边界和存储时序。
+\item 将 BTB 与两位方向计数器按表项结合，实现可配置分支预测与执行反馈训练。
+\item 将旁路、暂停、气泡和冲刷统一仲裁，并通过参考模型与平台运行交叉验证。
+\end{enumerate}
+
+\subsection{设计流程}
+% 模板限制：200 字内。
+首先确定 RV32I 指令范围和流水级划分，完成译码、运算、访存与写回模块；随后加入旁路、冒险仲裁和分支预测。
+在指令测试及 CoreMark 仿真通过后，适配官方 SoC 的地址映射、BRAM 和外设接口，使用 Vivado 完成综合、实现和比特流生成，最后在数字孪生平台加载并记录程序结果。
+
+\clearpage
+\section{系统组成及功能说明}
+\subsection{整体介绍}
+系统由处理器核、指令存储、数据存储及外设互连构成。
+IFU 从指令存储获取指令，处理器经译码和执行产生访存请求，LS1/LS2 与数据存储或外设接口交换数据，WBU 将结果写回寄存器堆。
+分支预测结果影响取指地址，执行级的真实结果用于纠正预测；旁路和冒险逻辑跨流水级协调执行顺序。
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.76\linewidth,height=0.45\textheight,keepaspectratio]{figures/soc_framework.png}
+\caption{处理器与存储及外设的系统连接}
+\label{fig:soc-framework}
+\end{figure}
+
+\subsection{硬件系统介绍}
+\subsubsection{硬件整体介绍}
+处理器采用 Chisel 描述，生成 Verilog/SystemVerilog 后与手写 SoC 外设、存储驱动和顶层包装集成。
+平台使用 Xilinx Kintex-7 FPGA 和 Vivado 2023.2；本文讨论的实现为 IFU、IDU、EXU、LS1、LS2、WBU 六级流水线版本。
+图~\ref{fig:cpu-arch} 展示处理器内部模块，图~\ref{fig:soc-framework} 展示与存储器及外设的连接。
+
+\subsubsection{机械设计介绍}
+系统依托现成 FPGA 试验平台实现，不包含独立设计的机壳、传动机构或机械装配件，机械结构设计不适用。
+
+\subsubsection{电路各模块介绍}
+\paragraph{RV32I指令集的支持情况}
+
+目前 CPU 支持 RV32I 基础整数指令集中的 37 条指令，具体支持情况如表~\ref{tab:rv32i_support} 所示。
+
+\begin{table}[htbp]
+  \centering
+  \caption{RV32I 指令集支持情况}
+  \label{tab:rv32i_support}
+  \begin{normaltable}
+  \begin{tabularx}{0.96\textwidth}{
+ >{\centering\arraybackslash}p{0.18\textwidth}
+ >{\raggedright\arraybackslash}X
+  }
+ \toprule
+ 指令类别 & 支持指令 \\
+ \midrule
+ 算术运算指令 &
+ \code{add}, \code{sub}, \code{addi}, \code{lui}, \code{auipc} \\
+
+ 逻辑运算指令 &
+ \code{and}, \code{or}, \code{xor}, \code{andi}, \code{ori}, \code{xori},
+ \code{slt}, \code{sltu}, \code{slti}, \code{sltiu} \\
+
+ 移位指令 &
+ \code{sll}, \code{srl}, \code{sra}, \code{slli}, \code{srli}, \code{srai} \\
+
+ 加载/存储指令 &
+ \code{lb}, \code{lh}, \code{lw}, \code{lbu}, \code{lhu},
+ \code{sb}, \code{sh}, \code{sw} \\
+
+ 分支跳转指令 &
+ \code{beq}, \code{bne}, \code{blt}, \code{bltu},
+ \code{bge}, \code{bgeu}, \code{jal}, \code{jalr} \\
+ \bottomrule
+  \end{tabularx}
+  \end{normaltable}
+\end{table}
+
+\paragraph{RV32I CPU的整体架构图}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=1.0\linewidth,height=0.66\textheight,keepaspectratio]{figures/cpu_arch.png}
+  \caption{RV32I CPU整体架构图}
+  \label{fig:cpu-arch}
+\end{figure}
+
+
+\paragraph{数据通路各模块的设计}
+
+本处理器采用六级流水线结构，整体数据通路划分为 IFU、IDU、EXU、LS1、LS2 和 WBU 六个主要阶段，各流水级之间通过流水线寄存器传递数据。流水线控制单元根据数据冒险、控制冒险和访存状态产生 stall、bubble 和 flush 信号，用于控制各级流水寄存器是否保持、清空或正常更新。
+
+从整体执行流程看，IFU 负责根据 PC 从 IROM 取出指令，并结合分支预测结果产生下一条取指地址；IDU 负责对指令进行译码，生成立即数和控制信号；EXU 负责完成算术逻辑运算、分支判断和访存地址计算；LS1 负责向数据存储器或外设接口发起访存请求；LS2 负责接收访存返回数据并完成 load 数据扩展；WBU 负责将最终结果写回通用寄存器堆。通过这种流水划分方式，处理器能够在多个时钟周期中并行处理多条指令，从而提高指令吞吐率。
+
+\subparagraph{PC与IFU（取指）模块}
+
+IFU（Instruction Fetch Unit）是处理器流水线的第一级，主要负责维护当前取指地址 PC，并根据 PC 从指令存储器 IROM 中取出 32 bit 指令。IFU 的输出包括当前指令的 PC、顺序下一条地址 snpc、取出的指令 inst，以及分支预测模块给出的预测信息。这些信息会被锁存到 IF/ID 流水线寄存器中，供后续译码阶段使用。
+
+PC 的更新需要同时考虑复位、控制冒险重定向、流水线暂停以及分支预测等情况。为了保证处理器在异常控制流和流水线阻塞情况下仍然能够正确执行，本设计中 PC 更新采用固定优先级。其优先级从高到低依次为：
+
+\begin{enumerate}
+    \item 当复位信号有效时，PC 被初始化为程序入口地址；
+    \item 当执行级检测到分支预测错误或跳转目标错误时，PC 被重定向为 EXU/BRU 给出的真实地址；
+    \item 当流水线因数据冒险或访存等待而暂停时，PC 保持当前值不变；
+    \item 当 BPU 预测当前指令需要跳转且 BTB 命中时，PC 更新为 BPU 给出的预测目标地址；
+    \item 在无跳转、无重定向、无暂停的普通情况下，PC 更新为顺序地址 PC + 4。
+\end{enumerate}
+
+本设计中的 IROM 作为指令存储器，为取指阶段提供指令机器码。IFU 每周期根据当前 PC 产生 IROM 地址，并将返回的指令送入 IF/ID 流水寄存器。若流水线未发生 stall 或 flush，则 IF/ID 在时钟上升沿锁存当前取指结果；若发生 stall，则 IF/ID 保持原值；若发生 flush，则 IF/ID 被清空或写入无效指令。通过这种方式，IFU 能够同时支持正常顺序取指、预测跳转取指、流水线暂停以及错误路径冲刷。
+
+\subparagraph{IDU（译码）模块}
+
+从 IF/ID 流水寄存器接收指令，从指令中解析opcode、rd、rs1、rs2 字段，并根据 RV32I 指令格式生成 I、S、B、U、J 五类立即数。
+
+除了以上基本的指令译码结果以外 ，同时还生成了ALU（算术逻辑单元）的操作码、ALU两个源操作数的选择信号、BRU 控制信号、寄存器写使能、访存写使能、访存宽度和加载符号扩展控制信号，方便后续对执行单元进行控制。
+
+完整控制信号见表~\ref{tab:control-signal-desc}，数据通路信号见表~\ref{tab:datapath-signal-desc}。
+
+\subparagraph{EXU（执行）模块}
+
+EXU 是主要执行阶段，内部包含 ALU、BRU 和 AGU 三个部分。ALU 负责整数算术逻辑运算，BRU 负责分支判断和跳转目标计算，AGU 负责 load/store 指令的访存地址计算。
+
+ALU 支持 RV32I 所需的加法、减法、逻辑与、逻辑或、异或、移位、有符号比较和无符号比较等操作。其输入由 IDU 生成的操作数选择信号决定，可以来自 rs1、rs2、立即数、pc 或 snpc。
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.90\linewidth,height=0.66\textheight,keepaspectratio]{figures/ALU.png}
+  \caption{ALU 模块示意图}
+\end{figure}
+
+BRU 负责处理 \code{beq}、\code{bne}、\code{blt}、\code{bge}、\code{bltu}、\code{bgeu}、\code{jal} 和 \code{jalr} 等控制流指令。对于条件分支指令，BRU 根据比较结果决定真实 next\_pc；对于 \code{jal}，真实 next\_pc 为 pc + imm；对于 \code{jalr}，真实 next\_pc 为 (rs1 + imm) \& \textasciitilde{}1。EXU 会将真实 next\_pc 与前端预测地址进行比较，若二者不一致，则触发 flush，并将 PC 重定向到正确地址。
+
+对于 load/store 指令，AGU 计算访存地址 rs1 + imm，并将访存地址、写数据、访存宽度和读写控制信号传递给 LS1。
+
+\subparagraph{LS1 访存请求模块}
+
+LS1 负责发起访存请求。它接收 EXU 计算出的访存地址、store 写数据、访存宽度和读写控制信号，并将这些信息输出到 PERIP 接口。
+
+对于 store 指令，LS1 根据 \code{sb}、\code{sh}、\code{sw} 的类型生成对应写数据和写掩码，分别完成字节、半字和字写入。对于 load 指令，LS1 发出读请求，并将访存地址、访存宽度和符号扩展控制信号继续传递给 LS2。
+
+\subparagraph{LS2 访存返回模块}
+
+LS2 负责接收 PERIP 接口返回的读数据，并根据 load 指令类型进行数据截取和扩展。对于 \code{lb}、\code{lh} 指令，LS2 对读取出的字节或半字进行符号扩展；对于 \code{lbu}、\code{lhu} 指令，LS2 进行零扩展；对于 \code{lw} 指令，LS2 直接使用完整 32 bit 读数据。
+
+对于非 load 指令，LS2 不进行访存数据处理，只将 EXU 或 LS1 传来的执行结果继续向后传递。LS2 的输出包括最终候选写回数据、目的寄存器编号和写回控制信号，这些信息会进入 LS2/WB 流水寄存器，并在 WBU 阶段完成写回。
+
+本设计将传统访存阶段拆分为 LS1 和 LS2 两级，主要是为了适配 FPGA 中 BRAM 的读返回延迟，同时降低单级组合逻辑复杂度，提高流水线可达主频。
+
+\subparagraph{WBU（写回）模块}
+
+WBU以LS2的输出作为输入，并输出目的寄存器地址、写使能和写回数据，并连接到寄存器堆的写端口，为后续写入寄存器做好准备。
+
+\subparagraph{寄存器组与数据转发模块}
+
+RegisterFile（寄存器组）的地址宽度为 5 bit。寄存器堆提供两个读端口和一个写端口，写回阶段在 wbu\_valid 且写使能有效时写入寄存器。本设计的通用寄存器堆（GPR）采用同步读写设计，在Vivado中可被综合为BRAM。同时为了避免同步读带来额外一周期的数据冒险，本设计为了不复杂化旁路网络，没有选择给ForwardUnit增加WBU的旁路，而是选择将GPR输出网络设计为写优先，从而兼顾BRAM的优秀读写时序和简化数据旁路网络
+
+ForwardUnit（数据转发单元）比较 IDU 阶段源寄存器与 EXU/LS1/LS2 阶段目的寄存器，处理数据冒险。由于访存流水被拆成 LS1 和 LS2，当前转发路径也从一般的 EXU/LSU 扩展为 EXU/LS1/LS2。
+
+\paragraph{数据通路信号表}
+
+\begin{normaltable}
+\begin{longtable}{@{}L{0.1875\linewidth}L{0.2250\linewidth}L{0.4875\linewidth}@{}}
+\caption{数据通路信号说明表}\label{tab:datapath-signal-desc}\\
+\toprule
+\textbf{信号名} & \textbf{含义} & \textbf{取值 / 说明} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{信号名} & \textbf{含义} & \textbf{取值 / 说明} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{inst_type} & 立即数类型 & R / I / S / B / U / J \\
+\code{ALU_operand1} & ALU 源操作数 1 选择 & 选择 ALU 第一个输入操作数 \\
+\code{ALU_operand2} & ALU 源操作数 2 选择 & 选择 ALU 第二个输入操作数 \\
+\code{ALU_ctrl} & ALU 运算控制 & 指定 ALU 执行的运算类型 \\
+\code{bru_ctrl} & 分支/跳转控制 & 控制条件分支与跳转指令 \\
+\code{rd_wen} & 寄存器写回使能 & \code{REG_WRITE} 表示写回寄存器 \\
+\code{mem_wen} & 存储器访问方向 & \code{MEM_WRITE} 表示写存储器；\code{MEM_READ} 表示读存储器 / 非写 \\
+\code{mem_bytes} & 访存宽度 & \code{MEM_BYTE} / \code{MEM_HALF} / \code{MEM_WORD} / \code{MEM_NONE} \\
+\code{L_sign} & load 指令扩展方式 & \code{SIGNED} / \code{UNSIGNED} \\
+\code{snpc} & 顺序下一条指令地址 & 通常表示 PC + 4，用于顺序取指、跳转链接写回等场景 \\
+\code{pc} & 当前指令地址 & 用于取指、\code{auipc} 计算与分支跳转目标计算 \\
+\code{shamt} & 移位立即数 & 用于 \code{slli}、\code{srli}、\code{srai} 等立即数移位指令 \\
+\code{wbu_valid} & 写回阶段有效标记 & 与写使能共同决定是否写入通用寄存器 \\
+\code{load} & load类型指令标记 & 用于LS2选择内存读数据或EXU运算结果作为写回数据 \\
+\code{PERIP} & 数据存储器/外设接口 & 用于访存请求发送与读数据返回 \\
+\code{IROM} & 指令存储器接口 & 根据PC地址返回32 bit指令 \\
+\end{longtable}
+\end{normaltable}
+
+\begin{tighttable}
+\begin{longtable}{@{}L{0.08\linewidth}C{0.05\linewidth}L{0.08\linewidth}L{0.16\linewidth}L{0.14\linewidth}L{0.24\linewidth}L{0.15\linewidth}@{}}
+\caption{RV32I各指令数据通路信号表}\label{tab:datapath-instructions}\\
+\toprule
+\textbf{指令} & \textbf{Imm} & \textbf{Reg读} & \textbf{ALU / 写回通路} & \textbf{LSU / 访存通路} & \textbf{BRU / PC 通路} & \textbf{Reg写} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{指令} & \textbf{Imm} & \textbf{Reg读} & \textbf{ALU / AGU / 写回通路} & \textbf{LSU / 访存通路} & \textbf{BRU / PC 通路} & \textbf{Reg写} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{add} & 无 & rs1, rs2 & rs1 + rs2 & 无 & 顺序取指 & rd $\leftarrow$ ALU \\
+\code{sub} & 无 & rs1, rs2 & rs1 - rs2 & 无 & 顺序取指 & rd $\leftarrow$ ALU \\
+\code{addi} & I & rs1 & rs1 + imm & 无 & 顺序取指 & rd $\leftarrow$ ALU \\
+\code{lui} & U & 无 & 直通 imm & 无 & 顺序取指 & rd $\leftarrow$ imm \\
+\code{auipc} & U & 无 & imm + pc & 无 & 顺序取指 & rd $\leftarrow$ ALU \\
+\code{and} & 无 & rs1, rs2 & rs1 \& rs2 & 无 & 顺序取指 & rd $\leftarrow$ ALU \\
+\code{or} & 无 & rs1, rs2 & rs1 \textbar{} rs2 & 无 & 顺序取指 & rd $\leftarrow$ ALU \\
+\code{xor} & 无 & rs1, rs2 & rs1 $\wedge$ rs2 & 无 & 顺序取指 & rd $\leftarrow$ ALU \\
+\code{andi} & I & rs1 & rs1 \& imm & 无 & 顺序取指 & rd $\leftarrow$ ALU \\
+\code{ori} & I & rs1 & rs1 \textbar{} imm & 无 & 顺序取指 & rd $\leftarrow$ ALU \\
+\code{xori} & I & rs1 & rs1 $\wedge$ imm & 无 & 顺序取指 & rd $\leftarrow$ ALU \\
+\code{slt} & 无 & rs1, rs2 & 有符号比较：rs1 $<$ rs2 & 无 & 顺序取指 & rd $\leftarrow$ 比较结果 \\
+\code{sltu} & 无 & rs1, rs2 & 无符号比较：rs1 $<$ rs2 & 无 & 顺序取指 & rd $\leftarrow$ 比较结果 \\
+\code{slti} & I & rs1 & 有符号比较：rs1 $<$ imm & 无 & 顺序取指 & rd $\leftarrow$ 比较结果 \\
+\code{sltiu} & I & rs1 & 无符号比较：rs1 $<$ imm & 无 & 顺序取指 & rd $\leftarrow$ 比较结果 \\
+\code{sll} & 无 & rs1, rs2 & rs1 $\ll$ rs2[4:0] & 无 & 顺序取指 & rd $\leftarrow$ ALU \\
+\code{srl} & 无 & rs1, rs2 & rs1 $\gg$ rs2[4:0]，逻辑右移 & 无 & 顺序取指 & rd $\leftarrow$ ALU \\
+\code{sra} & 无 & rs1, rs2 & rs1 \texttt{>>>} rs2[4:0]，算术右移 & 无 & 顺序取指 & rd $\leftarrow$ ALU \\
+\code{slli} & I & rs1 & rs1 $\ll$ shamt & 无 & 顺序取指 & rd $\leftarrow$ ALU \\
+\code{srli} & I & rs1 & rs1 $\gg$ shamt，逻辑右移 & 无 & 顺序取指 & rd $\leftarrow$ ALU \\
+\code{srai} & I & rs1 & rs1 \texttt{>>>} shamt，算术右移 & 无 & 顺序取指 & rd $\leftarrow$ ALU \\
+\code{lb} & I & rs1 & rs1 + imm & 读 1 字节，符号扩展 & 顺序取指 & rd $\leftarrow$ sext(mem[7:0]) \\
+\code{lh} & I & rs1 & rs1 + imm & 读 2 字节，符号扩展 & 顺序取指 & rd $\leftarrow$ sext(mem[15:0]) \\
+\code{lw} & I & rs1 & rs1 + imm & 读 4 字节 & 顺序取指 & rd $\leftarrow$ mem[31:0] \\
+\code{lbu} & I & rs1 & rs1 + imm & 读 1 字节，零扩展 & 顺序取指 & rd $\leftarrow$ zext(mem[7:0]) \\
+\code{lhu} & I & rs1 & rs1 + imm & 读 2 字节，零扩展 & 顺序取指 & rd $\leftarrow$ zext(mem[15:0]) \\
+\code{sb} & S & rs1, rs2 & rs1 + imm & 写入 rs2[7:0] & 顺序取指 & 无 \\
+\code{sh} & S & rs1, rs2 & rs1 + imm & 写入 rs2[15:0] & 顺序取指 & 无 \\
+\code{sw} & S & rs1, rs2 & rs1 + imm & 写入 rs2[31:0] & 顺序取指 & 无 \\
+\code{beq} & B & rs1, rs2 & 比较，无写回 & 无 & 若 rs1 == rs2，pc $\leftarrow$ pc + imm；否则顺序 & 无 \\
+\code{bne} & B & rs1, rs2 & 比较，无写回 & 无 & 若 rs1 != rs2，pc $\leftarrow$ pc + imm；否则顺序 & 无 \\
+\code{blt} & B & rs1, rs2 & 有符号比较，无写回 & 无 & 有符号 rs1 $<$ rs2，pc $\leftarrow$ pc + imm；否则顺序 & 无 \\
+\code{bltu} & B & rs1, rs2 & 无符号比较，无写回 & 无 & 无符号 rs1 $<$ rs2，pc $\leftarrow$ pc + imm；否则顺序 & 无 \\
+\code{bge} & B & rs1, rs2 & 有符号比较，无写回 & 无 & 有符号 rs1 $>=$ rs2，pc $\leftarrow$ pc + imm；否则顺序 & 无 \\
+\code{bgeu} & B & rs1, rs2 & 无符号比较，无写回 & 无 & 无符号 rs1 $>=$ rs2，pc $\leftarrow$ pc + imm；否则顺序 & 无 \\
+\code{jal} & J & 无 & 直通 snpc & 无 & pc $\leftarrow$ pc + imm & rd $\leftarrow$ snpc \\
+\code{jalr} & I & rs1 & 直通 snpc & 无 & pc $\leftarrow$ (rs1 + imm) \& \textasciitilde{}1 & rd $\leftarrow$ snpc \\
+\end{longtable}
+\end{tighttable}
+
+\paragraph{控制器设计}
+
+\subparagraph{控制信号表}
+
+\begin{normaltable}
+\begin{longtable}{@{}L{0.1875\linewidth}C{0.1125\linewidth}L{0.6000\linewidth}@{}}
+\caption{控制信号说明表}\label{tab:control-signal-desc}\\
+\toprule
+\textbf{控制信号} & \textbf{位宽} & \textbf{核心含义} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{控制信号} & \textbf{位宽} & \textbf{核心含义} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{alu_ctrl} & 12 & ALU 运算操作码 \\
+\code{bru_ctrl} & 9 & 分支 / 跳转类型控制 \\
+\code{rd_wen} & 1 & 通用寄存器写使能 \\
+\code{mem_wen} & 1 & 存储器写使能 \\
+\code{mem_bytes} & 2 & 访存宽度 \\
+\code{L_sign} & 1 & Load 符号扩展 \\
+\code{jump} & 1 & \code{jal}/\code{jalr} 无条件跳转标记 \\
+\end{longtable}
+\end{normaltable}
+
+
+\begin{tighttable}
+\begin{longtable}{@{}L{0.1042\linewidth}L{0.1895\linewidth}C{0.1137\linewidth}C{0.1232\linewidth}C{0.1421\linewidth}C{0.1137\linewidth}C{0.1137\linewidth}@{}}
+\caption{运算类、访存类指令控制信号表}\label{tab:control-alu-memory}\\
+\toprule
+\textbf{指令} & \textbf{alu\_ctrl} & \textbf{rd\_wen} & \textbf{mem\_wen} & \textbf{mem\_bytes} & \textbf{L\_sign} & \textbf{jump} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{指令} & \textbf{alu\_ctrl} & \textbf{rd\_wen} & \textbf{mem\_wen} & \textbf{mem\_bytes} & \textbf{L\_sign} & \textbf{jump} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{add} & \code{12'h4} & 1 & 0 & 3 & 0 & 0 \\
+\code{sub} & \code{12'h8} & 1 & 0 & 3 & 0 & 0 \\
+\code{addi} & \code{12'h4} & 1 & 0 & 3 & 0 & 0 \\
+\code{lui} & \code{12'h2} & 1 & 0 & 3 & 0 & 0 \\
+\code{auipc} & \code{12'h4} & 1 & 0 & 3 & 0 & 0 \\
+\code{and} & \code{12'h40} & 1 & 0 & 3 & 0 & 0 \\
+\code{or} & \code{12'h20} & 1 & 0 & 3 & 0 & 0 \\
+\code{xor} & \code{12'h10} & 1 & 0 & 3 & 0 & 0 \\
+\code{andi} & \code{12'h40} & 1 & 0 & 3 & 0 & 0 \\
+\code{ori} & \code{12'h20} & 1 & 0 & 3 & 0 & 0 \\
+\code{xori} & \code{12'h10} & 1 & 0 & 3 & 0 & 0 \\
+\code{slt} & \code{12'h400} & 1 & 0 & 3 & 0 & 0 \\
+\code{sltu} & \code{12'h800} & 1 & 0 & 3 & 0 & 0 \\
+\code{slti} & \code{12'h400} & 1 & 0 & 3 & 0 & 0 \\
+\code{sltiu} & \code{12'h800} & 1 & 0 & 3 & 0 & 0 \\
+\code{sll} & \code{12'h80} & 1 & 0 & 3 & 0 & 0 \\
+\code{srl} & \code{12'h100} & 1 & 0 & 3 & 0 & 0 \\
+\code{sra} & \code{12'h200} & 1 & 0 & 3 & 0 & 0 \\
+\code{slli} & \code{12'h80} & 1 & 0 & 3 & 0 & 0 \\
+\code{srli} & \code{12'h100} & 1 & 0 & 3 & 0 & 0 \\
+\code{srai} & \code{12'h200} & 1 & 0 & 3 & 0 & 0 \\
+\code{lb} & \code{12'h4} & 1 & 0 & 0 & 1 & 0 \\
+\code{lh} & \code{12'h4} & 1 & 0 & 1 & 1 & 0 \\
+\code{lw} & \code{12'h4} & 1 & 0 & 2 & 1 & 0 \\
+\code{lbu} & \code{12'h4} & 1 & 0 & 0 & 0 & 0 \\
+\code{lhu} & \code{12'h4} & 1 & 0 & 1 & 0 & 0 \\
+\code{sb} & \code{12'h4} & 0 & 1 & 0 & 0 & 0 \\
+\code{sh} & \code{12'h4} & 0 & 1 & 1 & 0 & 0 \\
+\code{sw} & \code{12'h4} & 0 & 1 & 2 & 0 & 0 \\
+\end{longtable}
+\end{tighttable}
+
+\begin{tighttable}
+\begin{longtable}{@{}L{0.1042\linewidth}L{0.1895\linewidth}C{0.1137\linewidth}C{0.1232\linewidth}C{0.1421\linewidth}C{0.1137\linewidth}C{0.1137\linewidth}@{}}
+\caption{分支跳转类指令控制信号表}\label{tab:control-branch}\\
+\toprule
+\textbf{指令} & \textbf{bru\_ctrl} & \textbf{rd\_wen} & \textbf{mem\_wen} & \textbf{mem\_bytes} & \textbf{L\_sign} & \textbf{jump} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{指令} & \textbf{bru\_ctrl} & \textbf{rd\_wen} & \textbf{mem\_wen} & \textbf{mem\_bytes} & \textbf{L\_sign} & \textbf{jump} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{beq} & \code{9'h09} & 0 & 0 & 3 & 0 & 0 \\
+\code{bne} & \code{9'h11} & 0 & 0 & 3 & 0 & 0 \\
+\code{blt} & \code{9'h21} & 0 & 0 & 3 & 0 & 0 \\
+\code{bltu} & \code{9'h81} & 0 & 0 & 3 & 0 & 0 \\
+\code{bge} & \code{9'h41} & 0 & 0 & 3 & 0 & 0 \\
+\code{bgeu} & \code{9'h101} & 0 & 0 & 3 & 0 & 0 \\
+\code{jal} & \code{9'h04} & 1 & 0 & 3 & 0 & 1 \\
+\code{jalr} & \code{9'h04} & 1 & 0 & 3 & 0 & 1 \\
+\end{longtable}
+\end{tighttable}
+
+\subparagraph{控制器设计说明}
+
+结合给定的 RV32I 指令控制信号表，本 CPU 的控制器整体集成在指令译码阶段，依托指令机器码中的操作码、功能码字段完成全指令集的组合逻辑译码工作，根据不同指令的功能需求，统一生成 alu\_ctrl、bru\_ctrl、rd\_wen、mem\_wen、mem\_bytes、L\_sign、jump 等核心控制信号，以此统筹调度流水线各级硬件模块的工作行为，实现算术逻辑运算、分支跳转、存储器访问与寄存器写回的整体协同运作。
+
+控制器针对不同功能指令完成差异化的控制信号编码配置，通过 12 位的 alu\_ctrl 完成 ALU 运算功能的精准选择，为加减运算、逻辑运算、移位操作、大小比较以及访存地址计算分配独立控制编码，让 ALU 能够依据指令需求完成对应运算处理。9 位的 bru\_ctrl 专门服务于分支与跳转指令，依据 \code{beq}、\code{bne}、\code{blt} 等不同条件分支规则完成编码区分，搭配 jump 标志位区分条件分支与 \code{jal}、\code{jalr} 无条件跳转指令，实现分支跳转逻辑的独立控制。
+
+在存储与写回控制逻辑设计上，控制器利用单比特 rd\_wen 信号管控通用寄存器写使能状态，运算类、移位类、加载类以及跳转链接指令需要结果写回寄存器，该信号置为有效，条件分支与存储类指令无需寄存器写入，默认关闭写使能。mem\_wen 作为存储器写控制信号，仅在 \code{sb}、\code{sh}、\code{sw} 等存储指令中生效，其余指令全部屏蔽内存写操作，配合 mem\_bytes 位宽控制信号，区分字节、半字、字三种访存规格，无访存操作的指令统一配置默认参数，保证硬件资源不会产生无效访问行为。
+
+针对加载指令的特殊需求，控制器设置 L\_sign 控制信号专门管理符号扩展逻辑，对 \code{lb}、\code{lh} 等有符号加载指令开启符号扩展，对 \code{lbu}、\code{lhu} 无符号加载指令关闭符号扩展，精准匹配 RV32I 加载指令的内存数据读取规则。整体控制器采用纯组合逻辑译码架构，以指令原始字段作为输入，直接输出稳定的控制信号组合，信号随流水线寄存器逐级传递，同时结合硬件冒险检测机制，在数据冒险与控制冒险场景下配合气泡、暂停机制修正控制信号生效逻辑，保障六级流水线运行过程中的稳定性与正确性，整套控制信号编码规则规整统一，指令与控制参数一一对应，让控制器具备结构简洁、逻辑清晰、易于拓展的设计特点。
+
+\paragraph{流水线功能设计}
+
+本设计采用 IFU、IDU、EXU、LS1、LS2、WBU 六级流水线结构，分别完成取指、译码、执行、访存请求发送、访存数据接收和写回。相较于传统五级流水线，本设计将访存阶段进一步拆分为 LS1 和 LS2 两级，使访存请求发送、访存数据返回和写回处理之间的边界更加清晰，也更适合同步读存储器接口。
+
+顶层 Mundus 中显式实例化了六个流水级模块，并通过 pipelineConnect 在相邻流水级之间传递数据，同时接入 stall 与 bubble 控制信号，以支持流水线暂停和气泡插入。整体流水线结构如图~\ref{fig:Pipeline_Structure}所示。
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.90\linewidth,height=0.66\textheight,keepaspectratio]{figures/Pipeline_Structure.png}
+  \caption{六级流水线示意图}
+  \label{fig:Pipeline_Structure}
+\end{figure}
+
+\paragraph{六级流水线结构}
+
+六级流水线各阶段的主要功能如下：
+
+\begin{itemize}
+  \item \textbf{IFU：}负责根据当前 PC 从 IROM 中取出指令，并结合分支预测结果生成下一条取指地址。
+  \item \textbf{IDU：}负责解析指令字段，生成立即数、寄存器编号和后续流水级所需的控制信号。
+  \item \textbf{EXU：}负责完成 ALU 运算、分支判断、跳转目标计算和访存地址计算。
+  \item \textbf{LS1：}负责向外部存储器或外设接口发送访存地址、写使能、写数据和字节掩码。
+  \item \textbf{LS2：}负责接收访存返回数据，并根据 load 指令类型完成数据截取、符号扩展或零扩展。
+  \item \textbf{WBU：}负责将最终计算结果或访存结果写回通用寄存器堆。
+\end{itemize}
+
+其中，LS1 和 LS2 的拆分是本设计区别于典型五级流水线的重要部分。传统五级流水线通常将访存请求生成、数据返回和 load 数据处理放在同一级中，而本设计将其拆成两个阶段，可以降低单级组合逻辑复杂度，并适配 FPGA 中常见的同步读存储器结构。
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.90\linewidth,height=0.66\textheight,keepaspectratio]{figures/pipeline.png}
+  \caption{六级流水线执行波形图}
+\end{figure}
+
+\paragraph{流水线数据前递}
+
+为了减少 RAW 数据冒险带来的流水线停顿，本设计实现了面向 EXU 操作数输入的数据前递机制。ForwardUnit 从 EXU、LS1、LS2 三个后续流水级收集可能需要前递的结果，并根据 IDU 阶段给出的源寄存器编号选择最新数据，最终输出 rs1\_val和 rs2\_val 供 EXU 使用。
+
+前递优先级按照流水线距离由近到远排列：EXU 优先，其次 LS1，最后 LS2。当多个后续流水级同时写回同一个目的寄存器时，该优先级可以保证 EXU 获得距离当前指令最近、也就是最新的结果。
+
+该机制可以减少多数 ALU-ALU、ALU-branch、ALU-store 等 RAW 冒险造成的停顿，使后续指令能够尽早使用前序指令的计算结果。对于 load 指令，由于数据要到 LS2 阶段才完成接收与扩展，因此仍然需要通过冒险检测逻辑处理 load-use 场景。
+
+\paragraph{冒险信号仲裁}
+
+程序运行中可能同时出现控制冒险和数据冒险。本设计通过 HazardDetect 对不同冒险进行集中仲裁，并采用控制冒险优先于数据冒险的策略。这样设计的原因是：一旦分支预测失败或跳转目标错误，当前流水线中的部分指令已经属于错误路径，此时优先清空错误路径比处理数据相关更加重要。
+
+该仲裁逻辑使流水线控制行为更加确定。控制冒险主要触发 flush 或 bubble，用于清空错误路径指令；数据冒险主要触发 stall 或 bubble，用于暂停前级流水线并插入气泡。各级 stall 和 bubble 信号在顶层统一连接到流水线寄存器控制端，从而形成完整的流水线控制闭环。
+
+典型的 load-use 冒险如下：
+
+\begin{center}
+\begin{tabular}{l}
+\code{lw}\quad \code{x1}, 0(\code{x2}) \\
+\code{add}\quad \code{x3}, \code{x1}, \code{x4}
+\end{tabular}
+\end{center}
+
+第一条 load 指令需要等到 LS2 阶段才能得到内存读数据，而第二条 \code{add} 指令在 EXU 阶段就需要使用 \code{x1} 的值。因此，当冒险检测单元发现后一条指令依赖前一条 load 指令的目的寄存器时，会暂停前端流水线并插入气泡，直到 load 数据可以通过 LS2 前递给后续指令，或在写回阶段通过写优先寄存器堆被后续指令读取。在本设计中，load-use 冒险需要 2 周期阻塞，如图~\ref{fig:load-use}所示
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.90\linewidth,height=0.66\textheight,keepaspectratio]{figures/load-use.png}
+  \caption{load-use 冒险波形图}
+  \label{fig:load-use}
+\end{figure}
+
+\paragraph{控制冒险重定向与分支预测}
+
+本设计具备分支预测与分支重定向能力。IFU 中的 BPU 可以根据当前 PC 给出预测方向和预测目标地址；EXU 中的 BRU 负责计算真实跳转结果；当预测 PC 与实际 PC 不一致时，控制冒险单元触发流水线清空和 PC 重定向。
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=1.0\linewidth,height=0.66\textheight,keepaspectratio]{figures/fi_btb.png}
+  \caption{Branch Target Buffer 结构示意图}
+\end{figure}
+
+BPU 内部采用 BTB 存储分支指令 PC 及其历史跳转目标地址，为了记录该分支的历史跳转倾向，
+我们在每个 BTB 表项中维护一个 2-bit 饱和计数器\cite{smith1981study}，
+研究表明 2-bit 计数器在预测准确率与硬件开销之间取得了最优平衡，增加计数器位宽收益甚微。倘若在BTB中没有找到相应的合法记录，则选择不跳转，即预测PC+4作为下一条执行指令。同时，我们在EXU模块执行完毕之后，会输出相应的信号让BTB内部的数据进行相应的更新，以此来学习分支的跳转行为。
+
+本设计在原有 BTB 的基础上实现了 bimodal 分支预测器。当前实现中，PHT（Pattern History Table）并没有作为独立表存在，而是与 BTB 表项一一对应，每个 BTB 表项内部维护一个 2-bit 饱和计数器 counter，用于记录该 PC 历史上是否倾向跳转。
+
+BTB 采用直接映射结构，表项数量由参数 BTB\_WIDTH 决定，在本次 bimodal 测试中取值为8，因此一共有 256 个表项。
+
+索引使用取指 PC 的低位对齐后地址位，由于 RISC-V 指令地址按 4 字节对齐，最低两位 PC[1:0] 不参与索引。剩余高位作为 tag，用于判断 BTB 表项是否命中。
+
+\begin{table}[htbp]
+  \centering
+  \caption{2-bit 饱和计数器状态定义}
+  \begin{normaltable}
+  \begin{tabular}{ccc}
+    \toprule
+    状态名称 & 编码 & 含义 \\
+    \midrule
+    SNTK & \texttt{2'b00} & Strong Not Taken，强不跳转 \\
+    WNTK & \texttt{2'b01} & Weak Not Taken，弱不跳转 \\
+    WTK  & \texttt{2'b10} & Weak Taken，弱跳转 \\
+    STK  & \texttt{2'b11} & Strong Taken，强跳转 \\
+    \bottomrule
+  \end{tabular}
+  \end{normaltable}
+\end{table}
+
+复位后，所有 BTB 表项的 valid 位被清零，同时计数器初始化为 WNTK，即弱不跳转状态。这意味着程序刚开始执行或 BTB 尚未学习到该分支行为时，预测器整体更倾向于预测不跳转。
+
+在引入 bimodal 分支预测器后，预测效果相比 always-not-taken 有明显提升。我们利用Coremark测试程序，总预测准确率从 33.65\% 提升到 70.75\%，分支预测准确率从 37.79\% 提升到 70.26\%。同时，估算的误预测次数由约 151.09M 降低到约 66.60M，减少了约 84.50M 次，说明 bimodal 预测器能够有效学习分支和跳转指令的历史行为，显著提升预测准确性。
+
+\subparagraph{预测逻辑}
+
+预测阶段，BPU 首先使用当前 fetch\_pc 访问 BTB。如果对应表项有效且 tag 匹配，则认为 BTB hit；否则认为 BTB miss。
+在 BTB miss 的情况下，预测器不会给出跳转预测，而是默认选择顺序执行。
+
+在 BTB hit 的情况下，预测器读取对应表项中的 2-bit counter，并使用 counter 的最高位作为方向预测依据，
+也就是说，当 counter最高位为1 时，预测 taken；当 counter 为最高位为 0 时，预测 not taken。
+
+预测规则可以总结为：
+
+\begin{equation}
+  \text{pred\_taken} =
+  \begin{cases}
+    1, & \text{BTB hit 且 counter[1] = 1} \\
+    0, & \text{BTB miss 或 counter[1] = 0}
+  \end{cases}
+\end{equation}
+
+若预测 taken，则使用 BTB 中保存的历史目标地址 target[pred\_idx] 作为预测跳转目标；若预测 not taken，则前端继续取 PC + 4。
+
+\subparagraph{训练逻辑}
+
+训练阶段发生在 EXU 模块得到真实执行结果之后。EXU 会输出该分支或跳转指令的真实跳转方向 actual\_taken 以及真实目标地址 update\_target，并通过 update\_en 触发 BTB/PHT 更新。
+更新时，预测器使用 update\_pc 重新计算索引，将该表项置为有效，写入新的 tag 和真实目标地址。
+同时，根据真实跳转结果对 2-bit counter 进行饱和更新。若真实结果为 taken，则 counter 向强跳转方向递增；若真实结果为 not taken，则 counter 向强不跳转方向递减。
+
+该机制能够使预测器逐渐学习循环、条件分支和跳转指令的历史行为。对于稳定跳转的分支，counter 会逐渐进入 WTK/STK 状态；对于稳定不跳转的分支，counter 会逐渐进入 WNTK/SNTK 状态。
+
+如果预测失败，会产生 2 周期的 Miss Penalty
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=1.0\linewidth,height=0.66\textheight,keepaspectratio]{figures/control-hazard.png}
+  \caption{control-hazard 冒险波形图}
+\end{figure}
+
+\subsection{软件系统介绍}
+\subsubsection{软件整体介绍}
+软件分为运行在目标处理器上的裸机测试程序，以及运行在主机上的 Verilator 仿真与 C++ 参考模型。
+目标端的链接脚本和入口代码为程序建立基本运行环境；主机端装载程序、驱动复位与时钟，采集退出状态和性能数据。
+现有验证环境使用 Ubuntu 24.04、Verilator v5.046、GTKWave v3.3.116、g++ 13.3.0 和 RISC-V GCC 14.2.0。
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\linewidth,height=0.40\textheight,keepaspectratio]{figures/sim_rte_memory.png}
+\caption{目标端运行时环境的内存空间}
+\label{fig:rte-memory}
+\end{figure}
+
+\subsubsection{软件各模块介绍}
+\begin{table}[htbp]
+\centering
+\caption{软件模块的输入与输出}
+\begin{normaltable}
+\begin{tabularx}{\linewidth}{@{}L{0.20\linewidth}XX@{}}
+\toprule
+模块 & 关键输入 & 关键输出 \\
+\midrule
+裸机运行时 & 入口地址、链接布局、测试程序 & 程序启动状态、返回值 \\
+指令测试 & 指令机器码、预期寄存器与内存值 & Pass/Fail 状态 \\
+CoreMark & 编译参数、测试数据 & 校验结果、退出码、运行统计 \\
+BPU 参考模型 & PC、预测方向和目标、真实分支结果 & 方向及目标匹配结果 \\
+仿真控制 & 程序镜像、复位与时钟 & 波形、周期数、guest 指令数 \\
+\bottomrule
+\end{tabularx}
+\end{normaltable}
+\end{table}
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[node distance=5mm,>=Latex,
+process/.style={draw=black,rounded corners=1pt,align=center,text width=10cm,inner sep=4pt,font=\small}]
+\node[process] (load) {装载目标程序与初始数据，复位处理器};
+\node[process,below=of load] (run) {驱动时钟执行，采集寄存器、存储和分支信息};
+\node[process,below=of run] (compare) {功能断言与 DPI-C 模型对比，更新参考模型};
+\node[process,below=of compare] (exit) {检测程序退出，依据返回值和内部校验判定结果};
+\node[process,below=of exit] (stats) {汇总周期数、指令数、IPC 和分支预测统计};
+\draw[->] (load)--(run); \draw[->] (run)--(compare);
+\draw[->] (compare)--(exit); \draw[->] (exit)--(stats);
+\end{tikzpicture}
+\caption{主机仿真及结果判定流程}
+\end{figure}
+
+\paragraph{指令功能测试}
+使用 riscv-tests 的 rv32ui 用例验证算术逻辑、移位、控制流和访存行为，分别检查目标寄存器、内存内容及 Pass/Fail 状态。
+算术用例覆盖正数、负数和溢出等情况；分支用例通过跳转网络验证条件和地址；访存用例检查不同宽度及符号扩展。
+
+\paragraph{CoreMark 与运行时协作}
+将 CoreMark 与专用运行时共同编译，采用原测评记录的 -O2 配置。
+程序完成列表、矩阵、状态机和 CRC 处理后进行内部一致性校验，正常退出返回 0，失败返回 1。
+仿真端根据退出状态判断测试有效性，并采集周期数和 guest 指令数；主机仿真耗时与目标处理器周期数分别统计。
+
+\paragraph{分支预测参考模型}
+取指阶段通过 DPI-C 传递 \code{fetch_pc}、\code{predicted_pc} 和 \code{predicted_taken}，对比 RTL 与 C++ 模型的方向和目标地址。
+发生重定向的无效取指不计入 fetch-side 对比。
+执行阶段用真实分支 PC、目标地址、方向及更新使能同步训练参考模型。
+
+\paragraph{平台测评与烧录流程}
+官方 src0、src1、src2 程序分别提供指令和数据初始化内容。
+将对应镜像写入存储初始化文件后，使用 Vivado 2023.2 完成综合、实现与比特流生成，并通过 Hardware Manager 或数字孪生平台加载。
+平台 LED 的通过标志及左侧数码管的指令通过数用于功能判断，右侧数码管显示运行时间。
+
+\clearpage
+\section{完成情况及性能参数}
+\subsection{整体介绍}
+处理器已完成 RTL 实现、仿真验证、FPGA 综合与实现，并在官方数字孪生平台运行 src0、src1、src2 测评程序。
+现有板级结果通过平台的 LED、数码管及界面状态展示，三个程序均在 200 MHz 条件下显示通过。
+
+\textbf{实物资料待补充：}系统正面及斜 45 度全局实物照片尚需补充；以下数字孪生截图属于虚拟平台运行记录，不替代实物照片。
+
+\subsection{工程成果}
+\subsubsection{机械成果}
+本项目使用现有 FPGA 开发平台，不涉及独立机械结构或机械加工成果。
+
+\subsubsection{电路成果}
+已形成可综合的处理器核、SoC 顶层及存储和外设接口，并完成针对官方平台的地址映射和 BRAM 读时序适配。
+综合、布局布线与烧录结果由资源报告、功耗报告和平台运行界面共同支撑。
+实板电路照片尚需补充，现有框图及工具报告分别见第二部分和第~\ref{sec:quantified}~节。
+
+\subsubsection{软件成果}
+已形成指令功能测试、CoreMark 裸机测试程序、运行时环境和 BPU 参考模型。
+程序可在 Verilator 仿真平台运行，并通过退出码、测试输出和周期统计给出可检查的结果；相关界面见本部分的仿真截图。
+
+\subsection{特性成果}
+\label{sec:quantified}
+\subsubsection{数字孪生运行结果}
+
+官方三个测试程序 src0、src1、src2 均通过，运行显示结果分别如图~\ref{fig:digital-src0}、图~\ref{fig:digital-src1} 和图~\ref{fig:digital-src2} 所示。
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.95\linewidth,height=0.66\textheight,keepaspectratio]{figures/digital_twin_src0.png}
+  \caption{src0 数字孪生运行结果}
+  \label{fig:digital-src0}
+\end{figure}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.95\linewidth,height=0.66\textheight,keepaspectratio]{figures/digital_twin_src1.png}
+  \caption{src1 数字孪生运行结果}
+  \label{fig:digital-src1}
+\end{figure}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.95\linewidth,height=0.66\textheight,keepaspectratio]{figures/digital_twin_src2.png}
+  \caption{src2 数字孪生运行结果}
+  \label{fig:digital-src2}
+\end{figure}
+
+\begin{table}[H]
+  \centering
+  \caption{官方测试程序数字孪生运行结果}
+  \label{tab:digital-twin-result}
+  \begin{normaltable}
+  \resizebox{\linewidth}{!}{%
+  \begin{tabular}{@{}ccccc@{}}
+    \toprule
+    测试程序 & 运行频率 & 指令测试通过数 & 显示运行时间 & 结果 \\
+    \midrule
+    src0 & 200 MHz & 37 & 10048 ms & 通过 \\
+    src1 & 200 MHz & 37 & 10458 ms & 通过 \\
+    src2 & 200 MHz & 37 & 12316 ms & 通过 \\
+    \bottomrule
+  \end{tabular}
+  }
+  \end{normaltable}
+\end{table}
+
+\subsubsection{指令功能验证}
+
+
+
+riscv-tests 测试结果如图~\ref{fig:riscv-tests-pass} 所示。测试输出中各条 RV32I 指令对应的测试项均显示为 PASS，说明 CPU 对基础整数指令集的功能支持能够通过当前测试套件验证。
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.90\linewidth,height=0.66\textheight,keepaspectratio]{figures/riscv_tests_pass.png}
+  \caption{riscv-tests 指令集测试通过结果}
+  \label{fig:riscv-tests-pass}
+\end{figure}
+
+\subsubsection{CoreMark 性能参数}
+
+
+
+CoreMark 测试结果汇总如表~\ref{tab:coremark-result} 所示，仿真日志截图见图~\ref{fig:coremark-result-bimodal} 和图~\ref{fig:coremark-result-ntk}。两种分支预测策略下程序均命中正常退出条件 HIT GOOD TRAP，说明 CoreMark 程序能够在当前处理器仿真环境中完成有效运行。由于两组测试的 guest 指令数相同，因此可以直接比较总周期数、IPC 和仿真执行效率。
+
+\begin{table}[H]
+  \centering
+  \caption{CoreMark 仿真性能统计结果}
+  \label{tab:coremark-result}
+  \renewcommand{\arraystretch}{1.15}
+  \begin{normaltable}
+  \resizebox{\linewidth}{!}{%
+  \begin{tabular}{@{}lccc@{}}
+    \toprule
+    指标 & Always Not Taken & Bimodal & 变化情况 \\
+    \midrule
+    主机运行耗时 / us & 173,597,518 & 158,015,344 & 减少 15,582,174 \\
+    CPU 总周期数 & 1,097,568,112 & 920,022,264 & 减少 177,545,848 \\
+    Guest 指令数 & 747,104,142 & 747,104,142 & 相同 \\
+    IPC & 0.680690 & 0.812050 & 提升约 19.30\% \\
+    仿真频率 / inst/s & 4,303,656 & 4,728,048 & 提升约 9.86\% \\
+    \bottomrule
+  \end{tabular}
+  }
+  \end{normaltable}
+\end{table}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=1.0\linewidth,height=0.66\textheight,keepaspectratio]{figures/coremark_result.png}
+  \caption{CoreMark 性能测试结果（Bimodal）}
+  \label{fig:coremark-result-bimodal}
+\end{figure}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=1.0\linewidth,height=0.66\textheight,keepaspectratio]{figures/coremark_ntk.png}
+  \caption{CoreMark 性能测试结果（Always Not Taken）}
+  \label{fig:coremark-result-ntk}
+\end{figure}
+
+\subsubsection{分支预测验证结果}
+
+从图~\ref{fig:ntk_pass} 和图~\ref{fig:bimodal_pass} 中可以看出，C++ 参考模型与 RTL 实现的 BPU 模块在 fetch-side 对比中的匹配率达到 100\%，说明 RTL 的分支预测方向和目标地址输出与参考模型保持一致，BPU 的基本预测逻辑和更新逻辑能够正确工作。
+
+同时，我们基于 CoreMark 程序对 Always Not Taken 和 Bimodal 两种分支预测策略进行了对比测试。结果表明，引入 Bimodal 预测器后，总预测准确率由 33.65\% 提升至 70.75\%，其中条件分支预测准确率由 37.79\% 提升至 70.26\%，跳转指令预测准确率由 0.00\% 提升至 74.72\%。根据预测正确次数估算，mispredict 次数由约 151.09M 次降低至约 66.60M 次，减少约 84.50M 次；同时，fetch\_redirected\_ignored 由 151,092,422 次降低至 62,259,999 次，说明错误路径取指和流水线冲刷次数明显减少。
+
+从整体性能来看，结合表~\ref{tab:coremark-result} 可知，在 guest 指令数相同的情况下，Bimodal 策略下的总周期数由 1,097,568,112 降低至 920,022,264，减少 177,545,848 个周期；IPC 由 0.680690 提升至 0.812050，提升约 19.30\%。由此可见，Bimodal 分支预测器能够有效学习分支和跳转指令的历史行为，减少控制冒险带来的无效执行开销，从而提升 CPU 整体运行性能。
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.90\linewidth,height=0.66\textheight,keepaspectratio]{figures/ntk_sim.png}
+  \caption{BPU 测试结果（Always Not Taken）}
+  \label{fig:ntk_pass}
+\end{figure}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.90\linewidth,height=0.66\textheight,keepaspectratio]{figures/bimodal_sim.png}
+  \caption{BPU测试结果（Bimodal）}
+  \label{fig:bimodal_pass}
+\end{figure}
+
+\subsubsection{资源使用及面积、功耗分析}
+
+根据资源和面积报告可知，由于使用了 BRAM 代替了 DRAM，节省了大量的 LUTRAM 使用和面积占用，故目前的处理器设计使用的资源较少，LUT、LUTRAM、FF 仅分别使用了 2\%、1\% 和 1\%，仍有充足余裕可供进一步开发。
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.82\linewidth,height=0.66\textheight,keepaspectratio]{figures/area_analysis.jpeg}
+  \caption{综合面积}
+  \label{fig:area-analysis}
+\end{figure}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.82\linewidth,height=0.66\textheight,keepaspectratio]{figures/resource_usage.jpeg}
+  \caption{资源使用}
+  \label{fig:resource-usage}
+\end{figure}
+
+根据图~\ref{fig:power-analysis} 的实现后网表功耗估算，总片上功耗为 0.55 W，
+动态功耗为 0.382 W（约 70\%），器件静态功耗为 0.167 W（约 30\%）。
+动态功耗中，时钟、信号和逻辑分别占约 11\%、34\% 和 20\%。
+该结果是 Vivado 的估算值，不能等同于实板供电端的仪器测量结果。
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.82\linewidth,height=0.66\textheight,keepaspectratio]{figures/power_analysis.jpeg}
+  \caption{功耗占比}
+  \label{fig:power-analysis}
+\end{figure}
+
+\clearpage
+\section{总结}
+\subsection{可扩展之处}
+% 模板限制：300 字内。
+后续可在当前基础指令实现上扩展 CSR 与系统指令，完善异常控制流和更多边界条件验证。
+针对性能，可继续评估分支预测容量、索引冲突及 load-use 停顿的影响，并在保持功能一致的条件下比较优化效果。
+平台方面可补充真实板卡照片、供电端功耗测量和更完整的时序约束报告，使综合估算、仿真结果与实板数据形成对应关系。
+
+\subsection{心得体会}
+% 模板限制：1000 字内。
+处理器设计需要同时考虑指令语义、流水线时序和平台接口。
+将访存拆分为请求与返回两级之后，流水寄存器中的控制信号必须与数据保持一致，旁路路径和暂停条件也需要随阶段边界共同调整。
+因此，模块划分不能只依据组合逻辑复杂度，还应结合存储器响应方式和数据何时可用。
+
+分支预测的收益需要通过相同程序和统计口径比较。
+方向或目标地址错误都会造成无效执行，参考模型的一致性检查可以帮助发现实现偏差，而总周期数和 IPC 才能说明预测策略对整机执行的影响。
+将主机耗时、目标周期数和平台显示时间分别记录，可以避免把不同层次的指标混为同一结论。
+
+系统集成还要求处理地址映射、存储初始化及外设时序。
+采用指令测试、性能测试、参考模型与平台运行的多层验证流程，可以逐步缩小问题范围。
+性能优化应以功能正确和可重复验证为前提，保留原始测试截图及参数有助于后续复核和改进。
+
+\section{参考文献}
+\nocite{smith1995microarchitecture,mittal2019survey}
+\printbibliography[heading=none]
+\end{document}
