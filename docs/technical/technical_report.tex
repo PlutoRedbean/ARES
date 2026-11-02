@@ -841,9 +841,35 @@ EX3 BRU计算完成分支跳转结果后，解析控制流指令，并将预测 
 总线的使用权，减少停顿。存入 store buffer 的数据会在总线空闲的时候写入 bram，且
 在 store buffer 已满并有 load 指令和写入 bram 的指令正在执行时仍会产生结构冒险并停顿。
 
+\paragraph{OV5640 摄像头视频通路}
+
+  OV5640 通过 DVP 8 位接口输出图像。
+FPGA 先通过 SCCB 总线完成传感器上电时序和寄存器配置，将输出格式设置为 RGB565；DVP 接收模块对 8 位字节流做确定性配对，恢复 16 位像素，
+并在 HREF 低电平期间复位字节相位，避免行长变化或毛刺造成奇偶字节错位。像素处理时钟由 DVP 时钟二分频得到，
+数据经过三级流水后送入后续处理，以匹配同步存储器和跨时钟域接口的时序。
+
+  视频通路分为缩略图和整帧两条支路，如图~\ref{fig:ov5640-video-path}所示。
+缩略图支路在 1280$\times$720 有效画面中取中心 640$\times$640 窗口，
+按 20$\times$20 像素单元做 4:1 盒式滤波，降采样为 32$\times$32 RGB565 图像，
+并通过双 bank 和异步 FIFO 写入片上 BRAM；SoC 通过 MMIO 窗口读取当前帧，
+供 miniTensor 手势识别使用。整帧支路保留完整 1280$\times$720 图像，经 DDR3 双缓冲后由 HDMI 以 720p30 输出，
+用于实时预览和演示。
+
+
+\begin{figure}[htbp]
+  \centering
+  % 适当放大：允许图宽略超正文宽度，居中放置。
+  \makebox[\linewidth][c]{%
+    \includegraphics[width=1.10\linewidth,height=0.95\textheight,keepaspectratio]{figures/module10_ov5640_video.drawio.pdf}%
+  }
+  \caption{OV5640 摄像头视频通路}
+  \label{fig:ov5640-video-path}
+\end{figure}
+
 \subsection{软件系统介绍}
 \subsubsection{软件整体介绍}
 软件包括目标端裸机运行时和测试程序，以及主机端 Verilator 仿真框架、参考模型、波形和日志工具。
+演示应用还包括运行在主机浏览器中的 Web 控制器，它通过串口接收板端手势识别结果，驱动 HTML 演示页面完成场景切换与视觉反馈。
 目标端程序完成指令与算法计算，主机端负责镜像加载、时钟复位、行为比对、性能计数和 IO 模拟，两者通过 DPI-C 提交及分支事件连接。
 \subsubsection{软件各模块介绍}
 \paragraph{仿真平台}
@@ -957,9 +983,35 @@ npc/
 提交检查 & WBU 的 PC、寄存器和访存事件 & 一致性结果、指令计数 \\
 BPU 差分 & 预测方向、目标、真实分支结果 & 模型匹配率与预测质量 \\
 IO 模拟 & LED、SEG、计时控制 & 灯组、数码管和运行时间 \\
+手势识别与网页控制 & 摄像头图像、串口指令 & 手势类别、页面状态、视觉效果 \\
 \bottomrule
 \end{tabularx}
 \end{table}
+
+\paragraph{手势识别与网页演示控制模块}
+
+该模块把摄像头前的手势转换为网页演示控制指令，形成从手势识别、串口传输到网页状态机与视觉反馈的闭环。硬件端在 FPGA 上完成图像采集、固定取景区裁剪和 $32\times32$ 灰度归一化，由 miniTensor 上的轻量 INT8 卷积网络输出手势类别与置信度；固件通过连续多帧一致性和置信度门限抑制抖动，
+再把确认后的手势转换为一行 ASCII 指令，经 115200 8N1 串口发送给上位机。
+硬件端从图像采集到串口发送的通路如图~\ref{fig:gesture-hardware-path}所示。
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth,height=0.42\textheight,keepaspectratio]{figures/gesture_web_hardware_path.pdf}
+  \caption{手势识别与网页控制的硬件通路}
+  \label{fig:gesture-hardware-path}
+\end{figure}
+
+上位机 Web 控制器基于 Web Serial API 和 Three.js 实现。串口字节流先经过行解析和指令解析，再由冷却/去重逻辑过滤重复手势，进入“基础状态 + 瞬时叠加层”的状态机；状态机只负责逻辑转移，效果层根据状态事件驱动粒子 Logo、全息球、激光扫描、能量波和 HUD 信息层等视觉元素。该分层使协议、状态逻辑和渲染相互独立，便于单元测试和现场调试；无硬件时可用键盘、调试面板或自动演示模式模拟指令。软件端从串口接入到全屏展示的通路如图~\ref{fig:gesture-software-path}所示。
+
+\begin{figure}[htbp]
+  \centering
+  % 适当放大：允许图宽略超正文宽度，居中放置。
+  \makebox[\linewidth][c]{%
+    \includegraphics[width=1.10\linewidth,height=0.62\textheight,keepaspectratio]{figures/gesture_web_software_path.pdf}%
+  }
+  \caption{手势识别与网页控制的软件通路}
+  \label{fig:gesture-software-path}
+\end{figure}
 
 \section{完成情况及性能参数}
 \subsection{整体介绍}
