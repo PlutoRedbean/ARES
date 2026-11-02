@@ -608,3 +608,5 @@ pipeline-mc-test: pipeline-mc-images
 clean:
 	@rm -rf $(ARES_HOME)/build
 	@echo "removed $(ARES_HOME)/build"
+
+include $(ARES_HOME)/scripts/rtos.mk

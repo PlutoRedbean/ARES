@@ -1,5 +1,6 @@
 module myCPU(
   input         cpu_rst     ,
+  input         timer_irq   ,
   input         cpu_clk     ,
 
   // Instruction-fetch request/response handshake
@@ -35,6 +36,7 @@ module myCPU(
 
   Mundus Mundus (
     .clock                 (cpu_clk     ),
+    .io_timer_irq          (timer_irq),
     .reset                 (cpu_rst     ),
     .io_irom_req_valid     (irom_req_valid),
     .io_irom_req_addr      (irom_req_addr ),

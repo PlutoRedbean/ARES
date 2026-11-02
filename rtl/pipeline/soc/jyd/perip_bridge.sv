@@ -77,6 +77,7 @@ module perip_bridge #(
     localparam [31:0] KEY_ADDR        = 32'h8020_0010;
     localparam [31:0] SEG_ADDR        = 32'h8020_0020;
     localparam [31:0] LED_ADDR        = 32'h8020_0040;
+    localparam [31:0] CNT_IRQ_ACK     = 32'h8020_0054;
     localparam [31:0] CNT_ADDR        = 32'h8020_0050;
     localparam [31:0] CONSOLE_ADDR    = 32'h8020_0060;
     localparam [31:0] CONSOLE_STATUS  = 32'h8020_0064;
@@ -731,6 +732,10 @@ module perip_bridge #(
                         response_tag_next = RESP_MMIO;
                         mmio_rdata_next   = LED;
                     end
+                    CNT_IRQ_ACK: begin
+                        response_tag_next = RESP_MMIO;
+                        mmio_rdata_next = {31'd0, timer_irq};
+                    end
                     CONSOLE_STATUS: begin
                         response_tag_next = RESP_MMIO;
                         mmio_rdata_next   = (perip_addr == BENCH_UART_STATUS)
@@ -855,6 +860,7 @@ module perip_bridge #(
         .cnt_clk        (cnt_clk),
         .rst            (rst),
         .cnt_enable_cpu (cnt_enable_cfg),
+        .timer_ack      (mmio_write_accept && perip_addr_eff == CNT_IRQ_ACK && perip_wdata[0]),
         .perip_rdata    (cnt_rdata),
         .timer_irq      (timer_irq)
     );

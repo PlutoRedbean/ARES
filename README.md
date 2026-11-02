@@ -85,6 +85,13 @@ dev_map → pnr -seed 2 → report_timing → gen_bit_stream`），约束
 WNS **−1.527 ns**、TNS −3,167 ns，瓶颈在 `u_mtx9_engine` 的阵列读/写通路；
 分析与下一步见 [docs/pango_amp_floorplan.md](docs/pango_amp_floorplan.md)。
 
+## 单核最小 RTOS
+
+RT-Thread Nano 3.1.5 使用独立程序和 `build/rtos/` 镜像，共用支持机器定时器中断的 CPU。
+`make pipeline-rtos` / `make pipeline-rtos-board-sim` 已验证启动、无 yield 抢占、延时唤醒及 UART。
+CoreMark 保持独立裸机运行；四组固定镜像的回归输出和周期与修改前相同。
+构建、接口和 PDS 验证边界见 [单核 RTOS](docs/pipeline_rtos.md)。
+
 ## 仓库布局
 
 | Path | Contents |

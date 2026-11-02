@@ -15,6 +15,11 @@ import DPUParams._
 
 class EXU extends Module {
   val io = IO(new Bundle {
+    val timer_irq = Input(Bool())
+    val irq_take = Input(Bool())
+    val irq_pc = Input(UInt(32.W))
+    val irq_eligible = Output(Bool())
+    val irq_target = Output(UInt(32.W))
     val in = Flipped(Decoupled(new IS_EX_Payload))
     val out  = Decoupled(new EX_WB_Payload)
     val flush = Input(Bool())
@@ -98,6 +103,12 @@ class EXU extends Module {
   val exu_ex2 = Module(new exu_ex2)
   val exu_ex3 = Module(new exu_ex3)
   val exu_ex4 = Module(new exu_ex4)
+
+  exu_ex1.io.timer_irq := io.timer_irq
+  exu_ex1.io.irq_take := io.irq_take
+  exu_ex1.io.irq_pc := io.irq_pc
+  io.irq_eligible := exu_ex1.io.irq_eligible
+  io.irq_target := exu_ex1.io.irq_target
 
   val lsu = Module(new LSU)
   lsu.io.in.valid          := exu_ex1.io.out.valid

@@ -22,6 +22,7 @@ module counter(
     input  wire         rst,
 
     input  wire         cnt_enable_cpu,
+    input  wire         timer_ack,
     output wire [31:0]  perip_rdata,
     output wire         timer_irq
 );
@@ -92,18 +93,20 @@ module counter(
 
     assign perip_rdata = cnt_ms_cpu;
 
-    // Convert each synchronized millisecond change into one CPU-clock pulse.
+    // Level pending: a new millisecond wins over simultaneous software ACK.
     always @(posedge cpu_clk) begin
         if (rst) begin
             cnt_ms_cpu_seen <= 32'd0;
             timer_irq_r     <= 1'b0;
         end else begin
-            timer_irq_r <= 1'b0;
             if (!cnt_enable_cpu) begin
                 cnt_ms_cpu_seen <= cnt_ms_cpu;
+                timer_irq_r <= 1'b0;
             end else if (cnt_ms_cpu != cnt_ms_cpu_seen) begin
                 cnt_ms_cpu_seen <= cnt_ms_cpu;
                 timer_irq_r     <= 1'b1;
+            end else if (timer_ack) begin
+                timer_irq_r <= 1'b0;
             end
         end
     end

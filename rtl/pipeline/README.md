@@ -66,8 +66,8 @@ rtl/pipeline/gen/                        # ARES-local mill build for the core
   - `instruction[31:0]` instead of `[63:0]`;
   - `inst_addr = pc[CONFIG_IROM_ADDR_WIDTH+2:2]` (32-bit word index);
   - `IROM_BMEM32` instead of `IROM_BMEM`;
-  - the jyd `myCPU` `timer_irq` connection is removed; the 5-stage core has no
-    interrupt port and interrupts are out of scope;
+  - machine timer IRQ now connects the bridge through `myCPU` into the
+    pipeline core (see the RTOS section below);
   - commit observation ports are exported.
 - `soc/jyd/irom_bmem32.sv`: 8192 x 32-bit entries, one-cycle read, DPI
   `vaddr_read` for simulation, inferred BRAM initialized from
@@ -375,3 +375,12 @@ make pipeline-core-gen
 The generation project is `rtl/pipeline/gen`; its mill cache is
 `rtl/pipeline/gen/out/` (ignored).  Re-importing from npc is only needed when
 the upstream source tree changes.
+
+## Single-hart RTOS
+
+The shared core now implements M-mode machine timer interrupts and `mie/mip`
+with precise backend drain, plus a level-pending millisecond timer ACK register.
+The independent RT-Thread Nano firmware and inferred-RAM/physical-UART tests
+pass. See [pipeline_rtos.md](../../docs/pipeline_rtos.md) for the interface,
+CoreMark cycle comparison and PDS execution limits. This does not implement
+SMP, nested IRQs or the full synchronous exception set.

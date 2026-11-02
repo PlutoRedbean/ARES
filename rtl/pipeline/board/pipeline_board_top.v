@@ -13,7 +13,9 @@
 `timescale 1ns / 1ps
 
 module pipeline_board_top #(
-    parameter UART_BAUD = 115200
+    parameter UART_BAUD = 115200,
+    parameter IROM_INIT_FILE = "build/pipeline/irom.hex",
+    parameter DRAM_INIT_FILE = "build/pipeline/dram.hex"
 ) (
     input  wire       clk_27m,
     input  wire       rst_n,
@@ -59,7 +61,10 @@ module pipeline_board_top #(
 
     wire [31:0] virtual_led;
 
-    student_top u_soc (
+    student_top #(
+        .IROM_INIT_FILE(IROM_INIT_FILE),
+        .DRAM_INIT_FILE(DRAM_INIT_FILE)
+    ) u_soc (
         .w_cpu_clk      (cpu_clk),
         .w_clk_50Mhz    (periph_clk),
         .w_clk_rst      (cpu_rst),

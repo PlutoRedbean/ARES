@@ -13,6 +13,11 @@ import CSRParams._
 
 class exu_ex1 extends Module {
   val io = IO(new Bundle {
+    val timer_irq = Input(Bool())
+    val irq_take = Input(Bool())
+    val irq_pc = Input(UInt(32.W))
+    val irq_eligible = Output(Bool())
+    val irq_target = Output(UInt(32.W))
     val in = Flipped(Decoupled(new IS_EX_Payload))
     val out  = Decoupled(new EX1_EX2_Payload)
     val flush = Input(Bool())
@@ -123,6 +128,11 @@ class exu_ex1 extends Module {
   val is_mret      = ex_in.bits.envir === ENVIR_MRET
 
   val CSR = Module(new CSR)
+  CSR.io.timer_irq := io.timer_irq
+  CSR.io.irq_take := io.irq_take
+  CSR.io.irq_pc := io.irq_pc
+  io.irq_eligible := CSR.io.irq_eligible
+  io.irq_target := CSR.io.mtvec
   CSR.io.valid      := exu_fire
   CSR.io.ctrl       := ex_in.bits.csr_ctrl(1, 0)
   CSR.io.wdata      := Mux(ex_in.bits.csr_ctrl(2), ex_in.bits.imm, rs1_val)

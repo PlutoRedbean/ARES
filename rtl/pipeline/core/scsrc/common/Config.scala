@@ -27,7 +27,7 @@ object MundusConfig {
   val CSR_IMM_WIDTH  = 1
   val CSR_CMD_WIDTH  = CSR_CTRL_WIDTH + CSR_IMM_WIDTH
   val CSR_ADDR_WIDTH = 12
-  val CSR_MASK_WIDTH = 6
+  val CSR_MASK_WIDTH = 8
 
   val GPR_ADDR_WIDTH = if (CONFIG_RVE) 4 else 5
   val REG_DATA_WIDTH  = 32
@@ -374,6 +374,8 @@ object RISCV_INST {
   val FENCE_I: UInt = "b00000000000000000001000000001111".U(32.W)
 
 // CSR_addr define
+  val MIE_ADDR      : UInt = 0x304.U(12.W)
+  val MIP_ADDR      : UInt = 0x344.U(12.W)
   val MEPC_ADDR     : UInt = 0x341.U(12.W)
   val MTVEC_ADDR    : UInt = 0x305.U(12.W)
   val MCAUSE_ADDR   : UInt = 0x342.U(12.W)
@@ -389,6 +391,8 @@ object RISCV_INST {
 object CSRParams {
   case class CsrSpec(name: String, addr: UInt, mask: UInt, init: BigInt, enabled: Boolean = true)
 
+  val CSR_NAME_MIE = "mie"
+  val CSR_NAME_MIP = "mip"
   val CSR_NAME_MSTATUS  = "mstatus"
   val CSR_NAME_MEPC     = "mepc"
   val CSR_NAME_MTVEC    = "mtvec"
@@ -401,6 +405,8 @@ object CSRParams {
   val CSR_RS   = 2.U(CSR_CTRL_WIDTH.W)
   val CSR_RC   = 3.U(CSR_CTRL_WIDTH.W)
 
+  val CSR_MASK_MIE = "b01000000".U(CSR_MASK_WIDTH.W)
+  val CSR_MASK_MIP = "b10000000".U(CSR_MASK_WIDTH.W)
   val CSR_MASK_NONE     = "b000000".U(CSR_MASK_WIDTH.W)
   val CSR_MASK_MSTATUS  = "b000001".U(CSR_MASK_WIDTH.W)
   val CSR_MASK_MEPC     = "b000010".U(CSR_MASK_WIDTH.W)
@@ -410,6 +416,8 @@ object CSRParams {
   val CSR_MASK_MISA     = "b100000".U(CSR_MASK_WIDTH.W)
 
   val CSR_SPECS: Seq[CsrSpec] = Seq(
+    CsrSpec(CSR_NAME_MIE, RISCV_INST.MIE_ADDR, CSR_MASK_MIE, BigInt(0)),
+    CsrSpec(CSR_NAME_MIP, RISCV_INST.MIP_ADDR, CSR_MASK_MIP, BigInt(0)),
     CsrSpec(CSR_NAME_MSTATUS,  RISCV_INST.MSTATUS_ADDR,  CSR_MASK_MSTATUS,  BigInt(0x00001800)),
     CsrSpec(CSR_NAME_MEPC,     RISCV_INST.MEPC_ADDR,     CSR_MASK_MEPC,     BigInt(0)),
     CsrSpec(CSR_NAME_MTVEC,    RISCV_INST.MTVEC_ADDR,    CSR_MASK_MTVEC,    BigInt(0)),

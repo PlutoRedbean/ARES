@@ -74,6 +74,7 @@ module pipeline_hart #(
     wire        perip_idle;
 
     myCPU u_core (
+        .timer_irq (1'b0),
         .cpu_rst            (rst),
         .cpu_clk            (clk),
 

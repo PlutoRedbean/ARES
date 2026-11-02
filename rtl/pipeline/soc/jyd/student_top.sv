@@ -17,6 +17,7 @@ module student_top#(
     parameter                           USE_ICACHE          = 1,
     parameter                           ICACHE_PIPE_HITS    = 1,
     // Per-hart private DRAM geometry (forwarded to perip_bridge/bram_driver).
+    parameter                           IROM_INIT_FILE      = "build/pipeline/irom.hex",
     parameter integer                   DRAM_AW             = 16,
     parameter                           DRAM_INIT_FILE      = "build/pipeline/dram.hex"
 ) (
@@ -82,8 +83,10 @@ module student_top#(
     wire perip_valid, perip_ready, perip_rvalid, perip_wen;
     wire [1:0] perip_mask;
     wire perip_idle;
+    wire timer_irq;
 
     myCPU Core_cpu (
+        .timer_irq          (timer_irq),
         .cpu_rst            (w_clk_rst),
         .cpu_clk            (w_cpu_clk),
 
@@ -216,7 +219,7 @@ module student_top#(
                 );
             end
 
-            IROM_BMEM32 Mem_IROM (
+            IROM_BMEM32 #(.IROM_INIT_FILE(IROM_INIT_FILE)) Mem_IROM (
                 .addra            (inst_addr  ),
                 .clka             (w_cpu_clk  ),
                 .douta            (instruction)
@@ -242,7 +245,7 @@ module student_top#(
         .perip_mask			(perip_mask),
         .perip_rdata		(perip_rdata),
         .perip_idle         (perip_idle),
-        .timer_irq          (),
+        .timer_irq          (timer_irq),
         .virtual_sw_input	(virtual_sw),
         .virtual_key_input	(virtual_key),	
         .uart_rx_data      (uart_rx_data),

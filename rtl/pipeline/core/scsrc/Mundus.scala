@@ -31,6 +31,7 @@ class Mundus extends Module {
     val irom  = new IROM()
     val perip = new PERIP()
     val coh   = new COH()
+    val timer_irq = Input(Bool())
     val data_offset = Input(UInt(32.W))
     val retire = Output(new RetireBundle)
   })
@@ -38,6 +39,11 @@ class Mundus extends Module {
   /*===========================================================================*/
   // 1. Signal Declarations
   /*===========================================================================*/
+
+  // Only the IRQ path stops issue. Already issued instructions drain normally.
+  val irq_draining = RegInit(false.B)
+  val irq_take = Wire(Bool())
+  val irq_resume_pc = RegInit("h80000000".U(32.W))
 
   val ifu_valid = Wire(Bool())
   val idu_valid = Wire(Bool())
@@ -142,7 +148,7 @@ class Mundus extends Module {
   GPR.io.wen    := gpr_wb.wen && wbu_valid
   GPR.io.waddr  := gpr_wb.addr
   GPR.io.wdata  := gpr_wb.data
-  GPR.io.ren    := !(long_stall_wb || backend_stall || data_hazard)
+  GPR.io.ren    := !(long_stall_wb || backend_stall || data_hazard || irq_draining)
   GPR.io.raddr1 := gpr_rs1_addr
   GPR.io.raddr2 := gpr_rs2_addr
   gpr_rs1_val   := GPR.io.rdata1
@@ -162,8 +168,8 @@ class Mundus extends Module {
   IFU.io.actual_taken  := hzu_branch_resolve.actual_taken
   IFU.io.redirected    := frontend_redirect
   // An older resolved branch has priority over a speculative load replay.
-  IFU.io.redirected_pc := Mux(control_hazard,
-    hzu_branch_resolve.actual_pc, EXU.io.replay_pc)
+  IFU.io.redirected_pc := Mux(irq_take, EXU.io.irq_target,
+    Mux(control_hazard, hzu_branch_resolve.actual_pc, EXU.io.replay_pc))
   if (CONFIG_BRANCH_LOOP_PREDICTOR_ENABLE != 0) {
     IFU.io.bpu_update_is_branch.get := hzu_branch_resolve.is_branch.get
   }
@@ -216,9 +222,12 @@ class Mundus extends Module {
   /*---------------------------------------------------------------------------*/
   // IS -> EX Pipeline Register
   pipelineConnect(ISU.io.out, EXU.io.in, iss_ex1_stall, iss_ex1_bubble, frontend_redirect)
-  EXU.io.lsu_lookup_valid := ISU.io.out.fire && !frontend_redirect &&
+  EXU.io.lsu_lookup_valid := ISU.io.out.fire && !irq_draining && !frontend_redirect &&
                              ISU.io.out.bits.mem_bytes =/= MEM_NONE
   EXU.io.lsu_lookup_addr := ISU.io.out.bits.addr
+  EXU.io.timer_irq := io.timer_irq
+  EXU.io.irq_take := irq_take
+  EXU.io.irq_pc := irq_resume_pc
   EXU.io.flush := frontend_redirect
   EXU.io.rs1_val_ex1 := ISU.io.rs1_val_ex1
   EXU.io.rs2_val_ex1 := ISU.io.rs2_val_ex1
@@ -357,7 +366,21 @@ class Mundus extends Module {
   data_hazard    := ISU.io.interlock
   control_hazard := HZU.io.hzu_hazard
   load_miss_replay := EXU.io.load_miss_replay
-  frontend_redirect := control_hazard || load_miss_replay
+  val irq_backend_empty = !ex1_valid && !ex2_valid && !ex3_valid &&
+    !ex4_valid && !WBU.io.in.valid && !long_in_flight &&
+    EXU.io.lsu_idle && io.perip.idle
+  // Registered quiescence keeps the IRQ redirect out of the LSU idle cone.
+  // No new instruction can enter the backend while irq_draining is set.
+  val irq_quiescent = RegNext(irq_draining && irq_backend_empty &&
+    !control_hazard && !load_miss_replay, false.B)
+  irq_take := irq_draining && EXU.io.irq_eligible && irq_quiescent && !halted
+  when(wbu_valid) { irq_resume_pc := WBU.io.retire.pc_next }
+  when(irq_take || !EXU.io.irq_eligible || halted) {
+    irq_draining := false.B
+  }.elsewhen(EXU.io.irq_eligible) {
+    irq_draining := true.B
+  }
+  frontend_redirect := control_hazard || load_miss_replay || irq_take
 
   val issue_hazard = !control_hazard && data_hazard
 
@@ -373,9 +396,9 @@ class Mundus extends Module {
   // by stalling its upstream register and a bubble is sent to Ex1, allowing
   // older instructions to keep advancing.  A long operation waiting in Wr still has
   // to freeze the in-order pipeline until its result is available.
-  ifu_stall     := long_stall_wb || backend_stall || issue_hazard || fence_wait || halted
-  if_id_stall   := long_stall_wb || backend_stall || issue_hazard || fence_wait || halted
-  id_iss_stall  := long_stall_wb || backend_stall || issue_hazard || fence_wait || halted
+  ifu_stall     := long_stall_wb || backend_stall || issue_hazard || fence_wait || halted || irq_draining
+  if_id_stall   := long_stall_wb || backend_stall || issue_hazard || fence_wait || halted || irq_draining
+  id_iss_stall  := long_stall_wb || backend_stall || issue_hazard || fence_wait || halted || irq_draining
   iss_ex1_stall := long_stall_wb || backend_stall || halted
   ex1_ex2_stall := long_stall_wb || backend_stall || halted
   ex2_ex3_stall := long_stall_wb || backend_stall || halted
@@ -384,7 +407,7 @@ class Mundus extends Module {
 
   if_id_bubble   := frontend_redirect
   id_iss_bubble  := frontend_redirect
-  iss_ex1_bubble := frontend_redirect || issue_hazard
+  iss_ex1_bubble := frontend_redirect || issue_hazard || irq_draining
   ex1_ex2_bubble := false.B
   ex2_ex3_bubble := false.B
   ex3_ex4_bubble := false.B

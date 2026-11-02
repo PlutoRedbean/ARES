@@ -23,3 +23,6 @@ JYD 旧平台说明见 [BSP README](rt-thread/bsp/MundusJyd/README.md)。
 
 构建目录、ELF/BIN/HEX/AXF、对象文件、日志、缓存和 IDE 用户状态由 [.gitignore](.gitignore)
 排除。共享 `.uvprojx`、`.ewp`、`.eww`、Eclipse 项目、链接/启动文件和供应商设备资源保留。
+
+当前 ARES 单核最小移植见 [bsp/ARES](rt-thread/bsp/ARES/README.md) 与
+[验证文档](../docs/pipeline_rtos.md)。上述导入说明仍适用于旧 MundusJyd BSP。
