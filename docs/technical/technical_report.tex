@@ -74,7 +74,7 @@
 \vspace{8pt}
 \section*{摘要}
 % 模板限制：800 字内。
-ARES（AI-accelerated RISC-V Embedded SoC）是以 Mundus 32 位顺序单发射处理器为核心的嵌入式 SoC，主线 FPGA 目标为盘古 200Pro+ 的 PG2L200H-6IFBB676。
+ARES 是以 Mundus 32 位顺序单发射处理器为核心的嵌入式 SoC，主线 FPGA 目标为盘古 200Pro+ 的 PG2L200H-6IFBB676。
 处理器实现 RV32I 整数数据通路、RV32M、Zicsr、ECALL/MRET、机器定时器中断及 custom-0 CRC8；FENCE 用于访存排空，EBREAK 在退休后停机，FENCE.I 尚无指令缓存失效路径。
 流水线由取指请求、取指响应、ID、ISS、EX1--EX4 和 WB 共九级组成；取指侧使用请求/响应握手、两项在途元数据队列和八项前端队列，取指延迟随 Cache 命中与回填变化。
 当前配置采用 16 项 Bimodal/BTB、8 项 RAS、四路 ICache、8 KiB 两路 DCache，以及外设桥中的四项写队列。
@@ -91,8 +91,10 @@ AMP 提供私有数据窗口与共享 mailbox，RT-Thread Nano 支持单核运�
 
 \subsection{应用领域}
 % 模板限制：400 字内。
-作品适用于 RISC-V 指令集教学、FPGA 处理器原型、体系结构实验和嵌入式程序验证。
-通过可配置的 BTB、Bimodal 与 RAS，可以对比不同程序的预测收益和硬件开销；通过温度计码、流水级就绪掩码及 IO 模型，可分析数据相关、访存等待和板级行为，为后续微架构优化提供依据。
+作品面向三类场景。
+一是嵌入式控制：单核配合机器定时器中断运行 RT-Thread Nano，提供时间片抢占、延时唤醒和串口命令行，可作为小型实时控制器的处理器平台。
+二是专用计算加速：CRC8 自定义指令与矩阵、状态机、链表 MMIO 引擎给出“热点函数替换、保留软件参考实现”的加速方法，可迁移到校验、滤波、协议解析等固定算法。
+三是体系结构教学与实验：BTB、Bimodal、RAS、ICache 和多核数量均可配置，结合温度计码相关检测与模块级测试台，可量化比较预测、缓存和并行化的收益与硬件开销。
 
 \subsection{主要技术特点}
 % 模板限制：400 字内。
@@ -111,7 +113,7 @@ AGU 在 ISS 提前计算访存地址，三阶段 LSU 区分 DCache 命中快路�
 \midrule
 处理器与扩展 & Mundus，顺序单发射；RV32IM、Zicsr、基础机器模式与 CRC8 \\
 FPGA / 工具链 & PG2L200H-6IFBB676 / Pango PDS \\
-板级时钟 & 27 MHz 输入，PLL 配置 CPU 100 MHz / 外设 50 MHz；现存四核 PDS 报告在 70 MHz 约束下满足时序（第~\ref{subsec:pds-results}~节） \\
+板级时钟 & 27 MHz 输入，PLL 配置 CPU 100 MHz / 外设 50 MHz；四核 PDS 实现（每 hart 256 KiB DRAM 的历史配置）在 70 MHz 约束下满足时序（第~\ref{subsec:pds-results}~节） \\
 预测器与前端 & 16 项 BTB、2 bit Bimodal、8 项 RAS；8 项前端队列 \\
 存储层次 & 单核默认 4 KiB 四路 ICache、8 KiB 两路 DCache \\
 系统配置 & 单核；2/4-hart 私有存储 AMP；共享 L2 实验版 \\
@@ -122,11 +124,11 @@ FPGA / 工具链 & PG2L200H-6IFBB676 / Pango PDS \\
 \subsection{主要创新点}
 % 模板限制：200 字内，逐点给出。
 \begin{enumerate}[label=\arabic*.]
-\item 通过提前预测、同步读表和响应保持，在预测流水化后维持稳态取指吞吐。
-\item 以温度计码统一生产与消费时机，结合两级旁路和互锁减少误停顿。
-\item 结合 ISS 级 AGU、分级 LSU 与 Store Buffer，协调高频实现和访存效率。
-\item 以 CRC8 自定义指令和矩阵、状态机、链表 MMIO 引擎替换热点函数，保留软件参考实现与原结果校验。
-\item 以私有存储加 uncached mailbox 实现 AMP 聚合计算；精确定时器中断支撑 RT-Thread Nano 抢占调度。
+\item 提前查询与预测保持隐藏 BPU 读表延迟，维持每拍一次取指。
+\item 温度计码统一生产与消费时机，配合两级旁路和互锁减少误停顿。
+\item ISS 级 AGU、三段 LSU 与逐字节转发写队列兼顾频率和访存效率。
+\item CRC8 指令与三类 MMIO 引擎替换 CoreMark 热点，单核约 6 倍加速。
+\item 私有存储加 uncached mailbox 实现 AMP 聚合；精确定时器中断支撑 RTOS 抢占。
 \end{enumerate}
 
 \subsection{设计流程}
@@ -171,7 +173,7 @@ HZU 根据分支结果协调重定向，ISU 根据数据就绪状态决定旁路
 \subsection{硬件系统介绍}
 \subsubsection{硬件整体介绍}
 核心采用 Chisel~\cite{bachrach2012chisel} 描述，并生成 SystemVerilog 与手写乘除法 RTL、BRAM 和外设包装集成。
-当前主线目标为盘古 200Pro+ / PG2L200H-6IFBB676，使用 PDS；本文保留的 Xilinx Kintex-7 / Vivado 2023.2 截图属于旧版 Mundus。
+当前主线目标为盘古 200Pro+ / PG2L200H-6IFBB676，使用 PDS；前身 Mundus 在 Xilinx Kintex-7 / Vivado 2023.2 上的验证资料见附录~\ref{app:legacy}。
 板级 PLL 由 27 MHz 产生 100 MHz CPU 与 50 MHz 外设时钟；100 MHz 为 PLL 配置值和仿真时钟，布线后时序结论见第~\ref{subsec:pds-results}~节。AMP 将各 hart 的 CPU、外设桥和 UART 连接到同一 100 MHz 域，板级 50 MHz 输出不参与 AMP 数据通路。
 \subsubsection{机械设计介绍}
 作品依托现有 FPGA 试验平台实现，不包含独立机壳、传动机构或机械装配设计。
@@ -188,7 +190,7 @@ IROM 的请求与响应分别握手；PERIP 请求在 \code{valid} \code{&&} \co
 
 \begin{table}[H]
 \centering
-\caption{当前 Mundus 核接口}
+\caption{Mundus 核接口}
 \label{tab:core-interface}
 \begin{tabularx}{\linewidth}{@{}P{5.5cm}C{1.2cm}C{1.7cm}X@{}}
 \toprule
@@ -216,13 +218,13 @@ IROM 的请求与响应分别握手；PERIP 请求在 \code{valid} \code{&&} \co
 \code{perip.mask} 的 \code{00/01/10} 分别表示 byte/half/word，\code{11} 表示无访存；不等同于逐字节写选通。
 单核与 AMP 将一致性输入接零；共享 L2 实验版连接失效与 epoch。复位入口为 \code{0x80000000}。
 
-\paragraph{当前主要参数}
+\paragraph{主要参数}
 
 核参数以 \code{rtl/pipeline/gen/configs/scsrc/autoconf.scala} 为准，手写包装参数见 \code{rtl/pipeline/include/pipeline_autoconf.vh}，ICache 几何取决于实际顶层例化。
 
 \begin{table}[H]
 \centering
-\caption{当前默认参数及顶层覆盖}
+\caption{默认参数及顶层覆盖}
 \begin{tabularx}{\linewidth}{@{}P{3.8cm}X@{}}
 \toprule
 项目 & 参数及适用配置 \\
@@ -291,11 +293,11 @@ AMP 板级仅引出 hart0 UART TX，RX 接空闲；独立 MSH 板级顶层另接
 
 \paragraph{指令集支持}
 
-指令编码与语义遵循 RISC-V 非特权规范~\cite{riscv-unpriv}，CSR 与 trap 行为遵循机器模式特权规范~\cite{riscv-priv}，当前实现范围如表~\ref{tab:isa} 所示。
+指令编码与语义遵循 RISC-V 非特权规范~\cite{riscv-unpriv}，CSR 与 trap 行为遵循机器模式特权规范~\cite{riscv-priv}，实现范围如表~\ref{tab:isa} 所示。
 
 \begin{table}[H]
   \centering
-  \caption{当前指令集支持情况}
+  \caption{指令集支持情况}
   \label{tab:isa}
   \begin{tabularx}{0.96\textwidth}{P{2.5cm}X}
     \toprule
@@ -321,14 +323,14 @@ AMP 板级仅引出 hart0 UART TX，RX 接空闲；独立 MSH 板级顶层另接
 
 \begin{table}[H]
 \centering
-\caption{当前取指功能及核内流水阶段}
+\caption{取指功能及核内流水阶段}
 \label{tab:current-stages}
 \begin{tabularx}{\linewidth}{@{}P{2.0cm}X@{}}
 \toprule
-阶段或功能 & 当前职责 \\
+阶段或功能 & 职责 \\
 \midrule
-取指请求（原 IF1） & PC 选择、BPU 提前查询、IROM/ICache 请求；仅握手后推进正常取指 PC \\
-取指响应（原 IF2） & 两项元数据队列与响应配对，再经八项前端队列送往 ID；Cache miss/反压时延迟可变 \\
+取指请求（IF1） & PC 选择、BPU 提前查询、IROM/ICache 请求；仅握手后推进正常取指 PC \\
+取指响应（IF2） & 两项元数据队列与响应配对，再经八项前端队列送往 ID；Cache miss/反压时延迟可变 \\
 ID & 译码、立即数、控制信号和源寄存器地址；提前发起同步 GPR 读取 \\
 ISS & 同步 GPR 数据对齐、相关检查与旁路、提前 AGU；向 DCache 发起查表 \\
 EX1 & ALU、BRU、CSR、CRC8 第一阶段、启动乘除法；向 LSU 的 LS1 提交访存地址和 Store 数据 \\
@@ -367,15 +369,7 @@ RAS 对函数调用与返回较频繁的程序具有较明显的预测收益，\
 关闭该配置时，上述模块、接口和数据通路均不参与硬件例化，BPU 仅使用 Bimodal 与 BTB
 完成分支预测。
 
-当前 ARES 核由仓库内的 \code{gen/configs/scsrc/autoconf.scala} 配置并经 \code{make} \code{pipeline-core-gen} 生成 RTL，手写 Verilog 参数需同步核对。
-图~\ref{fig:branch-menuconfig} 展示原 NPC 工程的 menuconfig 界面。
-
-\begin{figure}[htbp]
-  \centering
-  \includegraphics[width=0.94\linewidth,height=0.68\textheight,keepaspectratio]{menuconfig_branch_predict.png}
-  \caption{原 NPC 工程的 menuconfig 配置界面（历史资料）}
-  \label{fig:branch-menuconfig}
-\end{figure}
+ARES 核参数集中在 \code{gen/configs/scsrc/autoconf.scala}，由 \code{make} \code{pipeline-core-gen} 生成对应 RTL；开关 \code{CONFIG_BRANCH_RAS} 即可得到两种预测器配置。
 
 \begin{figure}[htbp]
   \centering
@@ -596,11 +590,11 @@ AMP 在每个 \code{student_top} 内例化同一主线四路缓存；各 hart �
 \medskip
 \noindent\textbf{容量、地址划分与存储组织}\par
 
-缓存容量满足 $C=S\times W\times B$，其中 $S$ 为组数，$W$ 为路数，$B$ 为行字节数。三类当前配置的地址划分见表~\ref{tab:icache-address-fields}；其中 AMP 的 \code{ICACHE_LINES} 表示总行数，例化主线缓存时除以 4 得到组数。
+缓存容量满足 $C=S\times W\times B$，其中 $S$ 为组数，$W$ 为路数，$B$ 为行字节数。三类配置的地址划分见表~\ref{tab:icache-address-fields}；其中 AMP 的 \code{ICACHE_LINES} 表示总行数，例化主线缓存时除以 4 得到组数。
 
 \begin{table}[H]
 \centering
-\caption{当前四路 ICache 配置与地址划分}
+\caption{四路 ICache 配置与地址划分}
 \label{tab:icache-address-fields}
 \begin{tabularx}{\linewidth}{@{}P{2.8cm}C{1.7cm}C{1.1cm}XXX@{}}
 \toprule
@@ -750,11 +744,11 @@ BRU 在 EX1 处理六类条件分支和 JAL/JALR，JALR 目标最低位清零；
 \subparagraph{CSR 与异常处理}
 
 CSR 单元通过掩码选择目标寄存器，并对 RW、RS、RC 三类命令执行覆盖、置位和清位。
-立即数 CSR 指令将 zimm 零扩展后复用同一写数据通路。当前启用 CSR 如表~\ref{tab:csr} 所示。
+立即数 CSR 指令将 zimm 零扩展后复用同一写数据通路。已实现的 CSR 如表~\ref{tab:csr} 所示。
 
 \begin{table}[H]
 \centering
-\caption{当前机器模式 CSR}
+\caption{机器模式 CSR}
 \label{tab:csr}
 \begin{tabularx}{\linewidth}{@{}P{2.0cm}P{1.5cm}P{2.4cm}X@{}}
 \toprule
@@ -849,7 +843,7 @@ Store 更新所有在请求接受时匹配的路，而不只更新选出数据�
 \label{tab:dcache-conflicts}
 \begin{tabularx}{\linewidth}{@{}P{3.6cm}X@{}}
 \toprule
-竞争情况 & 当前处理 \\
+竞争情况 & 处理方式 \\
 \midrule
 回填与 ISS 查表同组 & 寄存被写路号、是否同字及回填数据；下一拍覆盖该路可能不确定的 BRAM 读结果 \\
 回填占用了 Store 原命中路 & \code{store_clash} 按路记住同组替换，直到响应完成；抑制向已被替换路写入旧字合并结果 \\
@@ -997,7 +991,7 @@ WBU 是顺序提交点，选择普通执行结果、乘法结果或除法结果�
 为\textbf{解决“生产者什么时候能生产出可旁路的数据；消费者什么时候需要生产者的数据”两个问题}，本设计在 IDU 阶段，根据不同的指令类型，给出了各个指令的\textbf{生产时机}和\textbf{消费时机}。
 生产时机由 5 bit 的 \id{PROD_ABS} 温度计码表示。从低位到高位依次对应 EX1、EX2、EX3、
 EX4 和 WB 检查点；某一位为 1 表示结果到该检查点仍未就绪，为 0 表示此时已经可以旁路。
-因此，连续的低位 1 越多，代表生产者产生结果越晚。下表沿用旧报告的 \id{PROD_ABS_*} 记号，对应代码 \id{WHEN_ABS_*}；当前生产时机如
+因此，连续的低位 1 越多，代表生产者产生结果越晚。本文以 \id{PROD_ABS_*} 表示生产码，对应代码中的 \id{WHEN_ABS_*}；各类指令的生产时机如
 表~\ref{tab:idu-produce-time} 所示。
 
 \begin{table}[H]
@@ -1020,11 +1014,11 @@ EX4 和 WB 检查点；某一位为 1 表示结果到该检查点仍未就绪，
 
 其中，\id{PROD_ABS_EX1}，与\id{CONS_EX4}，等效为立刻可以生产/最晚才需要消费，故不生产数据/不消费数据的指令，统一被编码为\id{PROD_ABS_EX1}，与\id{CONS_EX4}。
 
-消费码沿用本文 \id{CONS_*} 记号，对应代码 \id{NEED_*}；AGU 在 ISU 中将访存基址的需求覆盖为 ISS 早期。当前使用情况如表~\ref{tab:idu-consume-time} 所示。
+消费码记为 \id{CONS_*}，对应代码中的 \id{NEED_*}；AGU 在 ISU 中将访存基址的需求覆盖为 ISS 早期。各类操作数的消费时机如表~\ref{tab:idu-consume-time} 所示。
 
 \begin{table}[H]
   \centering
-  \caption{当前消费者需求时机（含 ISU 的 AGU 覆盖）}
+  \caption{消费者需求时机（含 ISU 的 AGU 覆盖）}
   \label{tab:idu-consume-time}
   \begin{tabularx}{0.96\textwidth}{P{3.7cm}C{1.8cm}C{2.2cm}X}
     \toprule
@@ -1170,45 +1164,18 @@ DCache miss replay 和定时器中断也可触发前端重定向；中断恢复�
 
 当前数据请求共享 PERIP 握手口，\code{valid} \code{&&} \code{!ready} 使流水线保持请求，避免重复或丢失访问。
 桥中的四项 FIFO 通过独立 BRAM 写口连续排出，DRAM Load 使用独立读口并合并尚未落地的较老 Store 数据；MMIO 则等待写队列和暂存写排空。
-FENCE 在 ID 等待 LSU 与桥同时空闲；EBREAK 退休后冻结流水线。上述机制取代旧版 LS4 写与 LS1/LS2 读争用的说明。
-
-\paragraph{OV5640 摄像头视频通路（独立工程及集成规划）}
-
-当前 Pango 视频工程的 \code{video_fb_top} 实现摄像头到 DDR3 双缓冲再到 HDMI 的独立链路，未接入流水线 SoC。以下保留缩略图 MMIO、miniTensor 和网页控制的集成方案。
-
-  OV5640 通过 DVP 8 位接口输出图像。
-FPGA 先通过 SCCB 总线完成传感器上电时序和寄存器配置，将输出格式设置为 RGB565；DVP 接收模块对 8 位字节流做确定性配对，恢复 16 位像素，
-并在 HREF 低电平期间复位字节相位，避免行长变化或毛刺造成奇偶字节错位。像素处理时钟由 DVP 时钟二分频得到，
-数据经过三级流水后送入后续处理，以匹配同步存储器和跨时钟域接口的时序。
-
-  原集成方案将视频通路分为缩略图和整帧两条支路，如图~\ref{fig:ov5640-video-path}所示。
-缩略图支路在 1280$\times$720 有效画面中取中心 640$\times$640 窗口，
-按 20$\times$20 像素单元做 4:1 盒式滤波，降采样为 32$\times$32 RGB565 图像，
-并通过双 bank 和异步 FIFO 写入片上 BRAM；方案中由 SoC 通过 MMIO 窗口读取当前帧，
-供 miniTensor 手势识别使用。整帧支路保留完整 1280$\times$720 图像，经 DDR3 双缓冲后由 HDMI 以 720p30 输出，
-用于实时预览和演示。
-
-
-\begin{figure}[htbp]
-  \centering
-  % 适当放大：允许图宽略超正文宽度，居中放置。
-  \makebox[\linewidth][c]{%
-    \includegraphics[width=1.10\linewidth,height=0.95\textheight,keepaspectratio]{figures/module10_ov5640_video.drawio.pdf}%
-  }
-  \caption{原 OV5640 视频集成方案（当前独立视频工程未接入 ARES）}
-  \label{fig:ov5640-video-path}
-\end{figure}
+FENCE 在 ID 等待 LSU 与桥同时空闲；EBREAK 退休后冻结流水线。
 
 \subsection{软件系统介绍}
 \subsubsection{软件整体介绍}
 当前目标端包括 AbstractMachine 裸机运行时与 CoreMark，以及独立的 RT-Thread Nano 自检和 MSH 固件；主机端提供镜像拆分、Verilator 驱动和模块测试脚本。
-当前核生成配置关闭原 NPC 的 DPIC/difftest 钩子。裸机仿真仍可通过独立 DPI 存储器模型运行，退休观察使用显式 \code{retire_*} 接口；RTOS 板级仿真使用推断 BRAM 和实际 UART RTL。
+核生成配置关闭 DPI-C/difftest 仿真钩子。裸机仿真仍可通过独立 DPI 存储器模型运行，退休观察使用显式 \code{retire_*} 接口；RTOS 板级仿真使用推断 BRAM 和实际 UART RTL。
 
 \subsubsection{软件各模块介绍}
 \paragraph{仿真平台}
 
 Verilator~\cite{verilator} 将 RTL 编译为 C++ 模型，测试台负责时钟、复位、镜像和结束条件。\code{rtl/pipeline/test} 提供 smoke、ISA、CoreMark、Cache、乘除法、IRQ、UART、AMP 等入口；波形和日志按对应构建配置生成。
-\code{CONFIG_SIMULATION=false} 关闭原 NPC 仿真插桩，与 Verilator 构建中的独立 DPI 存储器接口是不同开关。
+\code{CONFIG_SIMULATION=false} 关闭核内仿真插桩，与 Verilator 构建中的独立 DPI 存储器接口是不同开关。
 
 \paragraph{软件测试环境}
 
@@ -1216,7 +1183,7 @@ Verilator~\cite{verilator} 将 RTL 编译为 C++ 模型，测试台负责时钟�
 CoreMark 等目标程序由 \code{riscv64-unknown-elf-gcc} 13.2.0 按
 \code{rv32im_zicsr/ilp32} 编译；FPGA 实现使用 Pango PDS 2025.2-SP3。
 测试程序与裸机运行时环境共同编译，
-链接至处理器能够访问的地址空间，再由当前脚本生成 BIN 和 IROM/DRAM HEX；旧 Vivado COE 流程仅用于历史结果。
+链接至处理器能够访问的地址空间，再由脚本生成 BIN 和 IROM/DRAM HEX。
 
 针对赛题的内存空间设计编写了专用的链接脚本以及入口函数，为编译程序提供最基本的
 运行时环境。目标端地址空间与硬件采用相同的 IROM、DRAM 和外设映射，见第二部分的 SoC 地址空间。
@@ -1224,41 +1191,12 @@ CoreMark 等目标程序由 \code{riscv64-unknown-elf-gcc} 13.2.0 按
 \paragraph{硬件仿真环境}
 
 当前硬件仿真由对应顶层、存储模型、时钟/复位和测试台组成；ISA 程序检查 EBREAK 退休及 \code{a0}，CoreMark 检查输出 CRC 和通过标记，模块测试检查缓存、算术、外设与中断协议。
-旧 NPC 的逐指令参考模型和 BPU 差分报告见第三部分。
+前身 Mundus 的逐指令参考模型与 BPU 差分结果见附录~\ref{app:legacy}。
 
 \paragraph{测试程序}
 
 当前测试入口覆盖 \code{pipeline-smoke}、\code{pipeline-isa}、CoreMark 各镜像、DCache 与乘除法单测、多核 mailbox/存储实验及 RTOS/IRQ/UART。
 cpu-tests 包含 36 个程序级回归用例。
-图~\ref{fig:student_top} 和图~\ref{fig:FPGA-sim-cmp} 展示旧版 IO 模拟及板级运行。
-
-\begin{figure}[htbp]
-  \centering
-  \includegraphics[width=0.90\linewidth,height=0.68\textheight,keepaspectratio]{student_top.png}
-  \caption{旧版 student\_top IO}
-  \label{fig:student_top}
-\end{figure}
-
-图~\ref{fig:FPGA-sim-cmp} 记录旧版 60 MHz 配置中 IO 模拟与 FPGA 显示结果的一致性（8.637 s）。
-
-\begin{figure}[htbp]
-  \centering
-  \begin{minipage}{0.48\linewidth}
-    \centering
-    \includegraphics[width=\linewidth,height=0.68\textheight,keepaspectratio]{simulation_io.png}
-    \caption*{(a) 仿真环境 60 MHz 运行情况}
-  \end{minipage}
-  \hfill
-  \begin{minipage}{0.48\linewidth}
-    \centering
-    \includegraphics[width=\linewidth,height=0.68\textheight,keepaspectratio]{FPGA_io.png}
-    \caption*{(b) FPGA 60 MHz 实际运行情况}
-  \end{minipage}
-  \par\medskip
-  \caption{旧版 Mundus FPGA 与仿真 IO 对比（60 MHz 历史配置）}
-  \label{fig:FPGA-sim-cmp}
-\end{figure}
-
 
 \paragraph{工程模块组织}
 当前 ARES 的相关模块组织如下，构建产物位于 \code{build/}。
@@ -1305,39 +1243,11 @@ ARES/
 运行时与镜像 & 链接布局、程序及初始数据 & 入口与 IROM/DRAM 镜像 \\
 仿真驱动 & 镜像、复位、时钟 & 波形、日志与运行状态 \\
 退休观察 & 退休有效、PC、GPR 写回及 EBREAK & 程序结束条件及指令计数 \\
-BPU 差分（历史） & 原 NPC 的预测及更新事件 & 旧版模型匹配率与准确率 \\
+BPU 差分（前身） & RTL 与参考模型的预测及更新事件 & 模型匹配率与预测准确率 \\
 IO 模拟 & LED、SEG、计时控制 & 灯组、数码管和运行时间 \\
-手势/网页方案 & 图像与串口协议 & 手势类别、控制指令及页面状态 \\
 \bottomrule
 \end{tabularx}
 \end{table}
-
-\paragraph{手势识别与网页演示控制模块（原集成方案）}
-
-本节介绍手势识别与网页控制的集成方案，端到端集成待验证。
-
-该方案拟把摄像头前的手势转换为网页演示控制指令，形成从手势识别、串口传输到网页状态机与视觉反馈的闭环。方案中的硬件端在 FPGA 上完成图像采集、固定取景区裁剪和 $32\times32$ 灰度归一化，由 miniTensor 上的轻量 INT8 卷积网络输出手势类别与置信度；固件通过连续多帧一致性和置信度门限抑制抖动，
-再把确认后的手势转换为一行 ASCII 指令，经 115200 8N1 串口发送给上位机。
-硬件端从图像采集到串口发送的通路如图~\ref{fig:gesture-hardware-path}所示。
-
-\begin{figure}[htbp]
-  \centering
-  \includegraphics[width=\linewidth,height=0.42\textheight,keepaspectratio]{figures/gesture_web_hardware_path.pdf}
-  \caption{手势识别与网页控制的硬件方案}
-  \label{fig:gesture-hardware-path}
-\end{figure}
-
-原方案的上位机 Web 控制器采用 Web Serial API 和 Three.js。串口字节流先经过行解析和指令解析，再由冷却/去重逻辑过滤重复手势，进入“基础状态 + 瞬时叠加层”的状态机；状态机只负责逻辑转移，效果层根据状态事件驱动粒子 Logo、全息球、激光扫描、能量波和 HUD 信息层等视觉元素。该分层使协议、状态逻辑和渲染相互独立，便于单元测试和现场调试；无硬件时可用键盘、调试面板或自动演示模式模拟指令。软件端从串口接入到全屏展示的通路如图~\ref{fig:gesture-software-path}所示。
-
-\begin{figure}[htbp]
-  \centering
-  % 适当放大：允许图宽略超正文宽度，居中放置。
-  \makebox[\linewidth][c]{%
-    \includegraphics[width=1.10\linewidth,height=0.62\textheight,keepaspectratio]{figures/gesture_web_software_path.pdf}%
-  }
-  \caption{手势识别与网页控制的软件方案}
-  \label{fig:gesture-software-path}
-\end{figure}
 
 \subsection{系统特色：加速器、多核协作与实时调度}
 \label{subsec:system-features}
@@ -1709,20 +1619,20 @@ ICache 安装一致性 & \code{S_FILL} 与 flush/复位同拍的数据/目录不
 AMP 多核 & 本次 2/4-hart 全加速 MULTITHREAD 聚合测试通过；每 hart 私有 IROM、四路 ICache、DRAM 与加速器 \\
 Pango 板级 & AMP 顶层、文件表和仿真已入库；历史四核 PDS 在 70 MHz 下满足约束，200 MHz 下存在违例；当前 32 KiB/hart DRAM 配置的 PnR 待补 \\
 RTOS / MSH & 本次 RTOS 自检、物理 UART 板级仿真和 MSH 双向串口测试通过；对应 PDS 时序及实板收发待验收 \\
-独立视频工程 & 摄像头/DDR3/HDMI 独立验证已有记录；与 ARES/miniTensor/Web 的闭环集成待完成 \\
-旧版 Mundus & 下文保留 Kintex-7、赛题镜像、分支准确率、资源与功耗的历史记录 \\
+独立视频工程 & 摄像头/DDR3/HDMI 独立验证已有记录；与 ARES/miniTensor/Web 的闭环集成待完成，方案见附录~\ref{app:vision} \\
+前身 Mundus & 附录~\ref{app:legacy} 保留 Kintex-7、赛题镜像、分支准确率、资源与功耗的历史记录 \\
 \bottomrule
 \end{tabularx}
 \end{table}
 
-本次程序与模块测试使用提交 \code{bbdc41c} 中的 RTL 和本地构建的软件镜像。数值、命令、镜像与日志哈希保存在同目录的 \code{results.json}；PDS 部分单独标出历史构建日期和配置。
+程序与模块测试的 RTL 版本、命令、镜像与日志哈希见附录~\ref{app:repro}；PDS 部分单独标出历史构建日期和配置。
 
 
-\subsection{当前 ARES 的验证与性能结果}
+\subsection{ARES 验证与性能结果}
 \label{subsec:ares-current-results}
 
 \subsubsection{测试配置与结果记录}
-本节为 2026 年 11 月 3 日对提交 \code{bbdc41c} 的复测。主机使用 Verilator 5.046，
+本节为 2026 年 11 月 3 日的复测结果。主机使用 Verilator 5.046，
 单核程序顶层为 \code{tb_pipeline_isa}，多核为 \code{tb_pipeline_coremark_amp}。
 CPU 仿真时钟为 100 MHz，CoreMark 数据规模为 2000 B，seeds 为 0/0/0x66，
 ISA/ABI 为 \code{rv32im_zicsr/ilp32}。
@@ -1730,17 +1640,12 @@ ISA/ABI 为 \code{rv32im_zicsr/ilp32}。
 32 KiB 四路 ICache、私有 32 KiB IROM 和 32 KiB 数据窗口。
 单核镜像使用 \code{MEM_STATIC}，MT 使用 \code{MEM_STACK}，各 context 独立运行。
 
-测试使用的生成核 \code{rtl/pipeline/core/vsrc/build/Mundus.sv} 的 SHA-256 为：
-\begin{lstlisting}[language={}]
-2a71b86a9f91797577e3bca1035f7738e48215932981d353edb1fda3572e52f0
-\end{lstlisting}
-同目录 \code{results.json} 保存本次命令、参数、二进制与 ELF 哈希、日志摘要及哈希，
-并单独记录历史 PDS 报告来源。运行日志位于 \code{build/docs-review/}。
+生成核与镜像哈希、复测命令及日志记录见附录~\ref{app:repro}。
 
 \subsubsection{功能验证}
 \begin{table}[H]
 \centering
-\caption{当前 ARES 功能复测结果}
+\caption{ARES 功能复测结果}
 \label{tab:ares-functional-results}
 \begin{tabularx}{\linewidth}{@{}P{2.7cm}X@{}}
 \toprule
@@ -1766,7 +1671,7 @@ MSH & 双向串口命令、参数处理、退格/TAB、连续输入、RX FIFO �
 \code{unit-mtx9}、\code{unit-state9}、\code{unit-list9}、
 \code{pipeline-rtos}、\code{pipeline-rtos-board-sim} 和
 \code{pipeline-rtos-shell-test}。
-其中 \code{pipeline-icache-test} 与 \code{pipeline-reset-pulse} 是本次修复新增的定向回归，修复前分别复现了 ICache 安装/flush 同拍和短复位两项缺陷。
+其中 \code{pipeline-icache-test} 与 \code{pipeline-reset-pulse} 是针对两项缺陷新增的定向回归，修复前分别复现了 ICache 安装/flush 同拍和短复位两项缺陷。
 
 \subsubsection{单核 CoreMark 与加速收益}
 CoreMark~\cite{coremark} 在 \code{start_time()/stop_time()} 间读取 CPU 周期计数器，UART 中的
@@ -1798,15 +1703,7 @@ CRC8 + 状态机 & 24,117,405 & 24,169,678 & 4.146383 & 1.855$\times$ \\
 \code{e714/1fd7/8e3a/988c}，输出 \code{CoreMark} \code{PASS}，退出时 a0=0。
 这组数据记录本项目的基线与加速变体仿真性能；加速变体不作为官方 EEMBC 分数。
 
-\begin{lstlisting}[language={}]
-make pipeline-coremark
-make pipeline-coremark-crc
-make pipeline-coremark-matrix
-make pipeline-coremark-state
-make pipeline-coremark-full
-\end{lstlisting}
-上述运行目标消费已有镜像；从新检出构建时，先执行 \code{make} \code{coremark-image}
-与 \code{make} \code{pipeline-coremark-images}。本次使用镜像的哈希已保存在结果记录中。
+各镜像的复测命令见附录~\ref{app:repro}。
 
 \subsubsection{两核与四核 MULTITHREAD 聚合}
 \code{pipeline-coremark-full-mt} 将总迭代数固定为 200，两核各运行 100 次、
@@ -1839,10 +1736,6 @@ worker 启动、同步及完成等待；它与每 hart 打印一份 MULTITHREAD=
 对 \code{MEM_STACK}）和代码体积选项上均不同，该比值不能直接解释为多核扩展效率；
 多核扩展比以本表两种 MT 配置为对照，同配置单核基准待补测。
 
-\begin{lstlisting}[language={}]
-make pipeline-coremark-full-mt CORES=2
-make pipeline-coremark-full-mt CORES=4
-\end{lstlisting}
 
 两个聚合镜像均已放入 32 KiB IROM。其实际占用是 ELF 的
 \code{.boot} \code{+} \code{.text}，不是跨地址空洞的 BIN 文件大小或 HEX 非零字数：
@@ -1867,7 +1760,7 @@ make pipeline-coremark-full-mt CORES=4
 现存两组 PDS 报告均为 2026 年 11 月 1 日的
 \code{pipeline_amp_board_top} 四核构建，工具为 PDS 2025.2-SP3-EN
 （build 231170），目标为 PG2L200H。两组每 hart 数据 BRAM 都为 256 KiB；
-当前 RTL 已缩减到每 hart 32 KiB，本次硬件实现对照使用原报告的配置。
+当前 RTL 已缩减到每 hart 32 KiB，下表数据对应报告生成时的配置。
 
 \begin{table}[H]
 \centering
@@ -1908,9 +1801,7 @@ DRM grid 与 DRM18K/36K 是报告的不同统计层级，不能直接相加。
 BRAM 经 Load 返回及旁路通路到乘法器输入，且存在一条 recovery 违例。
 因此 200 MHz 构建的关键路径同时涉及核内 Load 返回和加速器，不能仅归因于矩阵阵列。
 
-两组来源分别是 \code{results/pipeline_amp_board_top.rtr/.ror} 与
-\code{results/pipeline_amp_board_top(1).rtr/.ror}，文件哈希与资源摘要已保存在
-\code{results.json}。70 MHz 的满足约束结论属于对应历史网表；当前 32 KiB/hart
+报告来源见附录~\ref{app:repro}。70 MHz 的满足约束结论属于对应历史网表；当前 32 KiB/hart
 DRAM 配置的 PnR 和实板 UART 结果待补。
 
 \begin{figure}[htbp]
@@ -1921,10 +1812,10 @@ DRAM 配置的 PnR 和实板 UART 结果待补。
 \caption{ARES PDS 及实板验证证据（待补充）}
 \end{figure}
 
-\subsubsection{当前待完成项}
+\subsubsection{待完成项}
 \begin{table}[H]
 \centering
-\caption{当前缺口与验证入口}
+\caption{待完成项与验收内容}
 \begin{tabularx}{\linewidth}{@{}P{3.0cm}X@{}}
 \toprule
 项目 & 验收内容 \\
@@ -1937,15 +1828,124 @@ FENCE.I & 增加 ICache 失效及前端清理路径，验证代码更新后的�
 \bottomrule
 \end{tabularx}
 \end{table}
-已修复的短复位与 ICache 安装/flush 两项缺陷，其复现数据与修改方案分别见
-\code{docs/pipeline_reset_analysis.md} 第 11 节和 \code{docs/microarch/pipeline_icache.md}。
+已修复的短复位与 ICache 安装/flush 两项缺陷，修复方式分别见第二部分“总体结构”与第~\ref{subsec:icache-design}~节，复现资料路径见附录~\ref{app:repro}。
 
-\subsection{旧版 Mundus 验证资料与历史性能}
+\clearpage
+\section{总结}
+\subsection{可扩展之处}
+% 模板限制：300 字内。
+后续优先验证 ICache 有效位的上电初始化，再补齐当前配置对应的 Cache/重放、IRQ、AMP 和加速器回归证据，核对目标频率下的 PDS 时序、资源和实板输出。
+后续扩展包括 \code{FENCE.I} 失效、共享 L2 响应顺序修正和 RV32F，以及将附录~\ref{app:vision} 的摄像头缩略图、miniTensor 手势推理与网页控制接入 SoC，形成端到端闭环。
+每组结果应固定 RTL、参数、程序镜像、工具和测量方法，历史准确率及功耗另行归档。
+
+\subsection{心得体会}
+% 模板限制：1000 字内。
+高主频设计需要把计算路径、存储器延迟和流水控制放在同一时序框架内考虑。
+将 BPU 读表流水化后，提前查询和预测保持共同完成请求与响应对齐，维持稳态取指吞吐。
+数据相关处理结合生产者位置和消费者需求，选择旁路或互锁。
+
+将 AGU 提前到 ISS 可以减少部分 load-use 停顿，但同时引入紧邻基址依赖的约束；Store Buffer 可以减少写入占用，却需要正确处理逐字节读转发、写队列排空和外设顺序。
+这些优化说明，局部延迟收益必须在完整程序和统一提交语义下检验。
+
+定向测试的价值在收尾阶段尤为明显。程序回归长期通过时，ICache 仍存在一个只在特定周期暴露的缺陷：数据阵列写入只由回填完成状态决定，目录安装却位于复位和 flush 判断之后，若重定向恰好落在安装当拍，缓存会以旧 tag 指向新数据。
+同样，各流水级 valid 原先不随复位清零，短复位脉冲之后可能退休陈旧指令或写出陈旧 Store。
+两者都是先编写能稳定复现的测试（安装周期注入 flush/复位、脉宽与相位扫描），再修改 RTL，并将测试保留为回归。
+这让我们认识到，协议边界和复位行为需要与功能同等对待，并由针对性的测试台持续守护。
+
+验证结果还需要区分配置和统计口径。
+原生 RV32M 与软件乘除例程具有不同的动态分支行为，预测器及 RAS 收益应在相同代码流和镜像下比较。
+综合功耗估算、仿真周期与板卡运行时间分别记录。
+保留配置、日志和照片，使功能、时序及性能结论能够对应到具体工程状态，是处理器持续演进的重要基础。
+
+\begingroup
+\small
+\setstretch{1.1}
+\begin{thebibliography}{99}
+  \bibitem{bachrach2012chisel}
+  Jonathan Bachrach, Huy Vo, Brian Richards, Yunsup Lee, Andrew Waterman, Rimas Avižienis,
+  John Wawrzynek and Krste Asanović. Chisel: Constructing Hardware in a Scala Embedded Language.
+  In \emph{Proceedings of the 49th Design Automation Conference}, pages 1212--1221, 2012.
+
+  \bibitem{riscv-unpriv}
+  Andrew Waterman and Krste Asanović, editors. \emph{The RISC-V Instruction Set Manual,
+  Volume I: Unprivileged ISA}. Document Version 20191213. RISC-V Foundation, 2019.
+
+  \bibitem{riscv-priv}
+  Andrew Waterman, Krste Asanović and John Hauser, editors. \emph{The RISC-V Instruction Set
+  Manual, Volume II: Privileged Architecture}. Document Version 20211203. RISC-V International, 2021.
+
+  \bibitem{mittal2019survey}
+  Sparsh Mittal. A Survey of Techniques for Dynamic Branch Prediction. \emph{Concurrency and
+  Computation: Practice and Experience}, 31(1):e4666, 2019.
+
+  \bibitem{smith1981study}
+  James E. Smith. A Study of Branch Prediction Strategies. In \emph{Proceedings of the 8th
+  Annual Symposium on Computer Architecture}, pages 135--148. IEEE Computer Society Press, 1981.
+
+  \bibitem{kaeli1991ras}
+  David R. Kaeli and Philip G. Emma. Branch History Table Prediction of Moving Target Branches
+  Due to Subroutine Returns. In \emph{Proceedings of the 18th Annual International Symposium on
+  Computer Architecture}, pages 34--42, 1991.
+
+  \bibitem{hennessy2017ca}
+  John L. Hennessy and David A. Patterson. \emph{Computer Architecture: A Quantitative Approach},
+  6th edition. Morgan Kaufmann, 2017.
+
+  \bibitem{smith1995microarchitecture}
+  James E. Smith and Gurindar S. Sohi. The Microarchitecture of Superscalar Processors.
+  \emph{Proceedings of the IEEE}, 83(12):1609--1624, 1995.
+
+  \bibitem{verilator}
+  Wilson Snyder. Verilator. \url{https://www.veripool.org/verilator/}.
+
+  \bibitem{rtthread}
+  RT-Thread Development Team. RT-Thread Nano. \url{https://github.com/RT-Thread/rtthread-nano}.
+
+  \bibitem{coremark}
+  EEMBC. CoreMark. \url{https://www.eembc.org/coremark/}.
+\end{thebibliography}
+\endgroup
+
+
+\clearpage
+\appendix
+\ctexset{section={name={附录,},number=\Alph{section}}}
+\renewcommand{\thesubsection}{\Alph{section}.\arabic{subsection}}
+\section{复现信息}
+\label{app:repro}
+\subsection{版本与结果记录}
+第三部分的程序与模块复测于 2026 年 11 月 3 日完成，使用提交 \code{bbdc41c} 的 RTL 与本地构建的软件镜像。
+测试所用生成核 \code{rtl/pipeline/core/vsrc/build/Mundus.sv} 的 SHA-256 为：
+\begin{lstlisting}[language={}]
+2a71b86a9f91797577e3bca1035f7738e48215932981d353edb1fda3572e52f0
+\end{lstlisting}
+\code{docs/technical/results.json} 保存复测命令、参数、二进制与 ELF 哈希、日志摘要及哈希；运行日志位于 \code{build/docs-review/}。
+两组 PDS 报告分别为 \code{results/pipeline_amp_board_top.rtr/.ror}（70 MHz）与 \code{results/pipeline_amp_board_top(1).rtr/.ror}（200 MHz），其文件哈希与资源摘要同样记录在 \code{results.json}。
+短复位与 ICache 安装/flush 两项缺陷的复现数据和修改方案分别见 \code{docs/pipeline_reset_analysis.md} 第 11 节和 \code{docs/microarch/pipeline_icache.md}。
+
+\subsection{复测命令}
+单核 CoreMark 各镜像的运行目标如下。它们消费已有镜像；从新检出构建时，先执行 \code{make} \code{coremark-image} 与 \code{make} \code{pipeline-coremark-images}。
+\begin{lstlisting}[language={}]
+make pipeline-coremark
+make pipeline-coremark-crc
+make pipeline-coremark-matrix
+make pipeline-coremark-state
+make pipeline-coremark-full
+\end{lstlisting}
+两核与四核全加速 MULTITHREAD 聚合测试：
+\begin{lstlisting}[language={}]
+make pipeline-coremark-full-mt CORES=2
+make pipeline-coremark-full-mt CORES=4
+\end{lstlisting}
+
+\clearpage
+\section{旧版 Mundus 验证资料与历史性能}
+\label{app:legacy}
 以下日志、准确率表、板卡照片、资源和功耗图来自旧版 Mundus，配置包括 256 项 BTB、Vivado IP、16 KiB IROM，运行频率为 300--316.667 MHz。
 
-\paragraph{仿真结果与分析}
+\subsection{仿真结果与分析}
 
-\subparagraph{功能验证}
+\subsubsection{功能验证}
 
 现有报告记录 RV32I 与 RV32M 逐指令测试通过。图~\ref{fig:rv32m-riscv-tests} 展示旧版 RV32M 测试输出，8 项均为 PASS；对应版本的 RV32I 逐条测试截图尚需补充。
 
@@ -2006,7 +2006,7 @@ withMext 程序镜像。四组程序均执行至 \id{HIT GOOD TRAP} 并正常退
   \label{fig:jyd-mext-log}
 \end{figure}
 
-\subparagraph{分支预测器验证与预测收益分析}
+\subsubsection{分支预测器验证与预测收益分析}
 
 分支预测差分框架分别以纯 Bimodal/BTB 和 Bimodal/BTB+RAS 两种配置运行同一测试
 镜像，并逐事件比较 RTL 与 C++ 参考模型给出的方向和目标。在现有各组报告中，两种配置
@@ -2120,57 +2120,6 @@ RAS 使 src0 的跳转错误由 183 次减少到 163 次，使 src1 的跳转错
 154 次；withMext 的跳转准确率则进一步提高至 99.86\%。由于三者的基础准确率已经
 很高，改进反映到总体准确率上均不足以在保留两位小数时体现。
 
-\begin{figure}[htbp]
-  \centering
-  \begin{minipage}{0.48\linewidth}
-    \centering
-    \includegraphics[width=\linewidth,height=0.68\textheight,keepaspectratio]{src0_branch.png}
-    \caption*{(a) src0，关闭 RAS}
-  \end{minipage}
-  \hfill
-  \begin{minipage}{0.48\linewidth}
-    \centering
-    \includegraphics[width=\linewidth,height=0.68\textheight,keepaspectratio]{src0_ras_branch.png}
-    \caption*{(b) src0，开启 RAS}
-  \end{minipage}
-  \caption{旧版 Mundus：src0 RV32M 中 RAS 对分支预测结果的影响}
-  \label{fig:src0-ras-comparison}
-\end{figure}
-
-\begin{figure}[htbp]
-  \centering
-  \begin{minipage}{0.48\linewidth}
-    \centering
-    \includegraphics[width=\linewidth,height=0.68\textheight,keepaspectratio]{src1_branch.png}
-    \caption*{(a) src1，关闭 RAS}
-  \end{minipage}
-  \hfill
-  \begin{minipage}{0.48\linewidth}
-    \centering
-    \includegraphics[width=\linewidth,height=0.68\textheight,keepaspectratio]{src1_ras_branch.png}
-    \caption*{(b) src1，开启 RAS}
-  \end{minipage}
-  \caption{旧版 Mundus：src1 RV32M 中 RAS 对分支预测结果的影响}
-  \label{fig:src1-ras-comparison}
-\end{figure}
-
-\begin{figure}[htbp]
-  \centering
-  \begin{minipage}{0.48\linewidth}
-    \centering
-    \includegraphics[width=\linewidth,height=0.68\textheight,keepaspectratio]{withMext3_branch.png}
-    \caption*{(a) withMext，关闭 RAS}
-  \end{minipage}
-  \hfill
-  \begin{minipage}{0.48\linewidth}
-    \centering
-    \includegraphics[width=\linewidth,height=0.68\textheight,keepaspectratio]{withMext3_ras_branch.png}
-    \caption*{(b) withMext，开启 RAS}
-  \end{minipage}
-  \caption{旧版 Mundus：withMext RV32M 中 RAS 对分支预测结果的影响}
-  \label{fig:withmext3-ras-comparison}
-\end{figure}
-
 综合来看，该组历史测试中原生 RV32M 指令通过消除软乘除例程，简化了程序的动态控制流，使旧版
 Bimodal/BTB 相比软件乘除代码流更容易获得较高准确率；RAS 则是在相同代码流上进一步
 针对函数返回目标进行优化，不改变条件分支的 Bimodal 方向预测。其收益取决于返回指令
@@ -2179,20 +2128,20 @@ Bimodal/BTB 相比软件乘除代码流更容易获得较高准确率；RAS 则�
 较小。这一结果说明，RAS 对调用返回密集型负载具有明确价值，而将其设计为可选配置，
 可以让资源或时序更敏感的场景继续使用结构更简单的 Bimodal/BTB。
 
-\paragraph{FPGA 验证}
+\subsection{FPGA 验证}
 
-\subparagraph{硬件平台说明}
+\subsubsection{硬件平台说明}
 
 验证平台为竞业达 FPGA 试验箱的数字孪生平台，目标器件为 Xilinx Kintex-7，
 旧版工程使用 Vivado 2023.2 完成综合、实现和 bitstream 生成；当前 ARES 主线为 Pango/PDS。
 
-\subparagraph{运行流程说明}
+\subsubsection{运行流程说明}
 
 旧版 FPGA 验证流程包括：生成对应版本的 SystemVerilog；将处理器和 SoC 文件加入 Vivado 工程；
 更新 IROM/DRAM 初始化文件；生成或更新 IP 输出产物；执行综合、实现和时序检查；生成
 bitstream；在数字孪生平台加载工程；最后观察 LED、数码管和计数结果。
 
-\subparagraph{测试用例说明}
+\subsubsection{测试用例说明}
 
 赛方以 \id{irom.coe} 和 \id{dram.coe} 提供测试镜像。IROM 镜像包含启动代码、
 指令测试和控制流程，DRAM 镜像提供初始数据。区域赛测试依次覆盖 RV32I/RV32IM、
@@ -2205,9 +2154,9 @@ CSR/trap 和性能程序，LED 用于显示各测试项状态，数码管显示�
   \label{fig:irom-coe-example}
 \end{figure}
 
-\paragraph{FPGA 验证结果及分析}
+\subsection{FPGA 验证结果及分析}
 
-\subparagraph{FPGA 上板验证结果}
+\subsubsection{FPGA 上板验证结果}
 
 集成于官方 SoC 上的九级流水处理器在上板测试中正常运行。多次验证结果表明
 RV32I 的 37 条指令、RV32M 的 8 条指令、Zicsr 的 6 条指令及特权相关指令
@@ -2254,7 +2203,7 @@ RV32I 的 37 条指令、RV32M 的 8 条指令、Zicsr 的 6 条指令及特权�
   \label{fig:with_FPGA}
 \end{figure}
 
-\subparagraph{资源使用及面积、功耗分析}
+\subsubsection{资源使用及面积、功耗分析}
 
 根据资源和面积报告可知，由于使用了 BRAM 代替了 IROM 和 DRAM，节省了大量的 LUTRAM 使用和面
 积占用，故该旧版处理器设计使用的资源较少，LUT、FF 分别占旧 Kintex-7 器件资源的 3\% 和 2\%。
@@ -2283,76 +2232,90 @@ RV32I 的 37 条指令、RV32M 的 8 条指令、Zicsr 的 6 条指令及特权�
   \label{fig:power}
 \end{figure}
 
+\subsection{IO 模拟与板级运行一致性}
+
+图~\ref{fig:student_top} 和图~\ref{fig:FPGA-sim-cmp} 展示旧版 IO 模拟及板级运行。
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.90\linewidth,height=0.68\textheight,keepaspectratio]{student_top.png}
+  \caption{旧版 student\_top IO}
+  \label{fig:student_top}
+\end{figure}
+
+图~\ref{fig:FPGA-sim-cmp} 记录旧版 60 MHz 配置中 IO 模拟与 FPGA 显示结果的一致性（8.637 s）。
+
+\begin{figure}[htbp]
+  \centering
+  \begin{minipage}{0.48\linewidth}
+    \centering
+    \includegraphics[width=\linewidth,height=0.68\textheight,keepaspectratio]{simulation_io.png}
+    \caption*{(a) 仿真环境 60 MHz 运行情况}
+  \end{minipage}
+  \hfill
+  \begin{minipage}{0.48\linewidth}
+    \centering
+    \includegraphics[width=\linewidth,height=0.68\textheight,keepaspectratio]{FPGA_io.png}
+    \caption*{(b) FPGA 60 MHz 实际运行情况}
+  \end{minipage}
+  \par\medskip
+  \caption{旧版 Mundus FPGA 与仿真 IO 对比（60 MHz 历史配置）}
+  \label{fig:FPGA-sim-cmp}
+\end{figure}
+
 \clearpage
-\section{总结}
-\subsection{可扩展之处}
-% 模板限制：300 字内。
-后续优先验证 ICache 有效位的上电初始化，再补齐当前配置对应的 Cache/重放、IRQ、AMP 和加速器回归证据，核对目标频率下的 PDS 时序、资源和实板输出。
-后续扩展包括 \code{FENCE.I} 失效、共享 L2 响应顺序修正、视频/miniTensor/Web 闭环和 RV32F。
-每组结果应固定 RTL、参数、程序镜像、工具和测量方法，历史准确率及功耗另行归档。
+\section{视频采集与手势控制集成方案}
+\label{app:vision}
+OV5640 $\rightarrow$ DDR3 $\rightarrow$ HDMI 链路已在独立的 Pango 视频工程 \code{video_fb_top} 中实现；缩略图 MMIO、miniTensor 手势推理及网页控制尚未接入 ARES，端到端闭环待验证。本附录记录该集成方案。
 
-\subsection{心得体会}
-% 模板限制：1000 字内。
-高主频设计需要把计算路径、存储器延迟和流水控制放在同一时序框架内考虑。
-将 BPU 读表流水化后，提前查询和预测保持共同完成请求与响应对齐，维持稳态取指吞吐。
-数据相关处理结合生产者位置和消费者需求，选择旁路或互锁。
+\subsection{OV5640 摄像头视频通路}
 
-将 AGU 提前到 ISS 可以减少部分 load-use 停顿，但同时引入紧邻基址依赖的约束；Store Buffer 可以减少写入占用，却需要正确处理逐字节读转发、写队列排空和外设顺序。
-这些优化说明，局部延迟收益必须在完整程序和统一提交语义下检验。
+  OV5640 通过 DVP 8 位接口输出图像。
+FPGA 先通过 SCCB 总线完成传感器上电时序和寄存器配置，将输出格式设置为 RGB565；DVP 接收模块对 8 位字节流做确定性配对，恢复 16 位像素，
+并在 HREF 低电平期间复位字节相位，避免行长变化或毛刺造成奇偶字节错位。像素处理时钟由 DVP 时钟二分频得到，
+数据经过三级流水后送入后续处理，以匹配同步存储器和跨时钟域接口的时序。
 
-验证结果还需要区分配置和统计口径。
-原生 RV32M 与软件乘除例程具有不同的动态分支行为，预测器及 RAS 收益应在相同代码流和镜像下比较。
-综合功耗估算、仿真周期与板卡运行时间分别记录。
-保留配置、日志和照片，使功能、时序及性能结论能够对应到具体工程状态，是处理器持续演进的重要基础。
+该方案将视频通路分为缩略图和整帧两条支路，如图~\ref{fig:ov5640-video-path}所示。
+缩略图支路在 1280$\times$720 有效画面中取中心 640$\times$640 窗口，
+按 20$\times$20 像素单元做 4:1 盒式滤波，降采样为 32$\times$32 RGB565 图像，
+并通过双 bank 和异步 FIFO 写入片上 BRAM；方案中由 SoC 通过 MMIO 窗口读取当前帧，
+供 miniTensor 手势识别使用。整帧支路保留完整 1280$\times$720 图像，经 DDR3 双缓冲后由 HDMI 以 720p30 输出，
+用于实时预览和演示。
 
-\begingroup
-\small
-\setstretch{1.1}
-\begin{thebibliography}{99}
-  \bibitem{bachrach2012chisel}
-  Jonathan Bachrach, Huy Vo, Brian Richards, Yunsup Lee, Andrew Waterman, Rimas Avižienis,
-  John Wawrzynek and Krste Asanović. Chisel: Constructing Hardware in a Scala Embedded Language.
-  In \emph{Proceedings of the 49th Design Automation Conference}, pages 1212--1221, 2012.
 
-  \bibitem{riscv-unpriv}
-  Andrew Waterman and Krste Asanović, editors. \emph{The RISC-V Instruction Set Manual,
-  Volume I: Unprivileged ISA}. Document Version 20191213. RISC-V Foundation, 2019.
+\begin{figure}[htbp]
+  \centering
+  % 适当放大：允许图宽略超正文宽度，居中放置。
+  \makebox[\linewidth][c]{%
+    \includegraphics[width=1.10\linewidth,height=0.95\textheight,keepaspectratio]{figures/module10_ov5640_video.drawio.pdf}%
+  }
+  \caption{OV5640 视频集成方案}
+  \label{fig:ov5640-video-path}
+\end{figure}
 
-  \bibitem{riscv-priv}
-  Andrew Waterman, Krste Asanović and John Hauser, editors. \emph{The RISC-V Instruction Set
-  Manual, Volume II: Privileged Architecture}. Document Version 20211203. RISC-V International, 2021.
+\subsection{手势识别与网页演示控制}
 
-  \bibitem{mittal2019survey}
-  Sparsh Mittal. A Survey of Techniques for Dynamic Branch Prediction. \emph{Concurrency and
-  Computation: Practice and Experience}, 31(1):e4666, 2019.
+该方案拟把摄像头前的手势转换为网页演示控制指令，形成从手势识别、串口传输到网页状态机与视觉反馈的闭环。方案中的硬件端在 FPGA 上完成图像采集、固定取景区裁剪和 $32\times32$ 灰度归一化，由 miniTensor 上的轻量 INT8 卷积网络输出手势类别与置信度；固件通过连续多帧一致性和置信度门限抑制抖动，
+再把确认后的手势转换为一行 ASCII 指令，经 115200 8N1 串口发送给上位机。
+硬件端从图像采集到串口发送的通路如图~\ref{fig:gesture-hardware-path}所示。
 
-  \bibitem{smith1981study}
-  James E. Smith. A Study of Branch Prediction Strategies. In \emph{Proceedings of the 8th
-  Annual Symposium on Computer Architecture}, pages 135--148. IEEE Computer Society Press, 1981.
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth,height=0.42\textheight,keepaspectratio]{figures/gesture_web_hardware_path.pdf}
+  \caption{手势识别与网页控制的硬件方案}
+  \label{fig:gesture-hardware-path}
+\end{figure}
 
-  \bibitem{kaeli1991ras}
-  David R. Kaeli and Philip G. Emma. Branch History Table Prediction of Moving Target Branches
-  Due to Subroutine Returns. In \emph{Proceedings of the 18th Annual International Symposium on
-  Computer Architecture}, pages 34--42, 1991.
+方案中的上位机 Web 控制器采用 Web Serial API 和 Three.js。串口字节流先经过行解析和指令解析，再由冷却/去重逻辑过滤重复手势，进入“基础状态 + 瞬时叠加层”的状态机；状态机只负责逻辑转移，效果层根据状态事件驱动粒子 Logo、全息球、激光扫描、能量波和 HUD 信息层等视觉元素。该分层使协议、状态逻辑和渲染相互独立，便于单元测试和现场调试；无硬件时可用键盘、调试面板或自动演示模式模拟指令。软件端从串口接入到全屏展示的通路如图~\ref{fig:gesture-software-path}所示。
 
-  \bibitem{hennessy2017ca}
-  John L. Hennessy and David A. Patterson. \emph{Computer Architecture: A Quantitative Approach},
-  6th edition. Morgan Kaufmann, 2017.
-
-  \bibitem{smith1995microarchitecture}
-  James E. Smith and Gurindar S. Sohi. The Microarchitecture of Superscalar Processors.
-  \emph{Proceedings of the IEEE}, 83(12):1609--1624, 1995.
-
-  \bibitem{verilator}
-  Wilson Snyder. Verilator. \url{https://www.veripool.org/verilator/}.
-
-  \bibitem{rtthread}
-  RT-Thread Development Team. RT-Thread Nano. \url{https://github.com/RT-Thread/rtthread-nano}.
-
-  \bibitem{coremark}
-  EEMBC. CoreMark. \url{https://www.eembc.org/coremark/}.
-\end{thebibliography}
-\endgroup
-
+\begin{figure}[htbp]
+  \centering
+  % 适当放大：允许图宽略超正文宽度，居中放置。
+  \makebox[\linewidth][c]{%
+    \includegraphics[width=1.10\linewidth,height=0.62\textheight,keepaspectratio]{figures/gesture_web_software_path.pdf}%
+  }
+  \caption{手势识别与网页控制的软件方案}
+  \label{fig:gesture-software-path}
+\end{figure}
 
 \end{document}
