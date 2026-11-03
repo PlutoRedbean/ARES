@@ -489,9 +489,9 @@ HZU 根据分支结果协调重定向，ISU 根据数据就绪状态决定旁路
 % ===== 新增：应用与加速器总体 =====
 \paragraph{平台与口径}
 
-本报告包含两条验证线。第二、三部分前半的处理器微架构、Cache、CoreMark 与 PDS 结果来自 Mundus 九级核；本部分新增的 miniTensor 与两个应用在 ARES-L 五级应用基线上完成。两者共享 RV32IM 指令集、uncached 数据视图和同一套 miniTensor RTL；miniTensor 通过 CV-X-IF 兼容 shim 接入，DMA 直接从 scratch/BRAM 取数。应用指标均在 ARES-L 基线上实测；Mundus 侧的 CV-X-IF 端口与 512 KiB 数据窗口是后续移植项。
+本报告包含两条验证线。第二、三部分前半的处理器微架构、Cache、CoreMark 与 PDS 结果来自 Mundus 九级核；本部分新增的 miniTensor 与两个应用在 ARES-L 五级应用基线上完成。两者共享 RV32IM 指令集、uncached 数据视图和同一套 miniTensor RTL；miniTensor 通过 MMIO 接入，DMA 直接从 scratch/BRAM 取数。应用指标均在 ARES-L 基线上实测；Mundus 侧的 512 KiB 数据窗口是后续移植项。
 
-图~\ref{fig:app-overview} 给出应用与加速器的总体关系：CPU 经 MMIO 窗口把命令交给 shim，shim 与 DMA 共用统一缓冲，两个应用分别从 UART 和摄像头进入同一套软件栈。miniTensor 位于 SoC 中心，而不是某个应用私有的外设。
+图~\ref{fig:app-overview} 给出应用与加速器的总体关系：CPU 经 MMIO 窗口把命令写入 miniTensor 的命令队列，命令执行与 DMA 共用统一缓冲，两个应用分别从 UART 和摄像头进入同一套软件栈。miniTensor 位于 SoC 中心，而不是某个应用私有的外设。
 
 \begin{figure}[htbp]
 \centering
@@ -507,7 +507,7 @@ HZU 根据分支结果协调重定向，ISU 根据数据就绪状态决定旁路
 \draw[grp=aresPurple] (4.25,5.55) rectangle (10.45,8.95);
 \node[gtitle=aresPurple] at (4.25,8.95) {miniTensor INT8 协处理器};
 \node[blk=aresPurple, text width=2.25cm, minimum height=1.1cm] (host) at (5.60,8.00)
-  {CV-X-IF shim\\命令 FIFO 64 项};
+  {MMIO 命令适配\\命令 FIFO 64 项};
 \node[blk=aresPurple, text width=2.25cm, minimum height=1.1cm] (core) at (5.60,6.70)
   {4×4 阵列 + 向量单元\\\sub{INT8 卷积 / GEMV}};
 \node[blk=aresPurple, text width=2.25cm, minimum height=1.1cm] (ub) at (8.85,8.00)
@@ -2093,11 +2093,11 @@ FENCE 在 ID 等待 LSU 与桥同时空闲；EBREAK 退休后冻结流水线。
 
 \subparagraph{定位与约束}
 
-miniTensor 是挂在 CPU 的 CV-X-IF 通道上的执行单元，而不是总线上的从设备。CPU 只通过 \code{0xE0000000} 的 8 个 MMIO 寄存器写入指令字和两个操作数，shim 将其合成为 issue、register、commit、result 四步事务；数据由 DMA 在统一缓冲与 scratch/DDR 之间搬运。这样做的三个约束是：无 FPU，全整数；无数据 Cache，CPU 与 DMA 必须看到同一物理视图；miniTensor 窗口只有 4 KiB，命令必须极简。
+miniTensor 以 MMIO 方式接入 SoC。CPU 通过 \code{0xE0000000} 的 8 个 MMIO 寄存器写入指令字和两个操作数，命令适配器将其打包后写入命令队列；数据由 DMA 在统一缓冲与 scratch/DDR 之间搬运。这样做的三个约束是：无 FPU，全整数；无数据 Cache，CPU 与 DMA 必须看到同一物理视图；miniTensor 窗口只有 4 KiB，命令必须极简。
 
 \subparagraph{总体架构}
 
-图~\ref{fig:mt-arch} 给出 miniTensor 的模块关系。命令路径由 CV-X-IF shim、64×168 bit 命令 FIFO 和 \code{mt_fsm} 组成；数据路径由 \code{vpu_dma}、\code{mt_dma_l2_bridge}、\code{unified_buffer} 和计算单元组成。计算单元包括 4×4 输出驻留阵列、128 bit 向量单元和 epilogue。表~\ref{tab:mt-modules} 列出子模块职责。
+图~\ref{fig:mt-arch} 给出 miniTensor 的模块关系。命令路径由 MMIO 命令适配器、64×168 bit 命令 FIFO 和 \code{mt_fsm} 组成；数据路径由 \code{vpu_dma}、\code{mt_dma_l2_bridge}、\code{unified_buffer} 和计算单元组成。计算单元包括 4×4 输出驻留阵列、128 bit 向量单元和 epilogue。表~\ref{tab:mt-modules} 列出子模块职责。
 
 \begin{figure}[htbp]
 \centering
@@ -2114,7 +2114,7 @@ miniTensor 是挂在 CPU 的 CV-X-IF 通道上的执行单元，而不是总线�
 \draw[grp=aresTeal] (3.65,5.50) rectangle (7.85,8.95);
 \node[gtitle=aresTeal] at (3.65,8.95) {主机适配};
 \node[blk=aresTeal, text width=2.35cm, minimum height=1.05cm] (shim) at (5.75,8.05)
-  {CV-X-IF shim\\\sub{issue → register}\\\sub{commit → result}};
+  {MMIO 命令适配\\\sub{打包 · 宏指令展开}};
 \node[blk=aresTeal, text width=2.35cm, minimum height=1.05cm] (fifo) at (5.75,6.35)
   {命令 FIFO\\\sub{64 × 168 bit}};
 \draw[dat] (mmio.east) -- (3.35,6.15) |- (shim.west);
@@ -2170,7 +2170,7 @@ miniTensor 是挂在 CPU 的 CV-X-IF 通道上的执行单元，而不是总线�
 
 % ---------------- annotation ----------------
 \node[note, anchor=north, align=center] at (5.75,0.55)
-  {一条命令在飞；队列吸收 MMIO 写延迟\\宏指令把外层循环搬进 shim};
+  {一条命令在飞；队列吸收 MMIO 写延迟\\宏指令把外层循环搬进命令适配器};
 \end{tikzpicture}
 \caption{miniTensor 的模块关系：主机适配、命令队列、统一缓冲、4×4 阵列、向量单元、epilogue 与 DMA}
 \label{fig:mt-arch}
@@ -2185,20 +2185,18 @@ miniTensor 是挂在 CPU 的 CV-X-IF 通道上的执行单元，而不是总线�
 \toprule
 子模块 & 主要文件 & 职责 \\
 \midrule
-主机适配 & \code{mt_cvxif_shim.sv}, \code{mt_cmd_fifo.sv} & MMIO 到 CV-X-IF 事务；宏指令翻译；64 项命令队列与 FULL 背压 \\
+主机适配 & \code{mt_cmd_fifo.sv} & MMIO 命令打包；宏指令翻译；64 项命令队列与 FULL 背压 \\
 张量控制 & \code{tensor_controller.sv}, \code{tensor_gemm_core.sv} & 从 UB 读 A/B/C tile，启动 4×4×4 GEMM，写回 C 行 \\
 阵列 & \code{tensor_systolic_array.sv}, \code{tensor_pe.sv} & 16 个 INT8 PE；A 向右、B 向下传播；32 bit 累加 \\
 向量单元 & \code{vpu_vector_controller.sv}, \code{vpu_vector_alu.sv} & 128 bit 打包 INT8 的 ADD8/MAX8/RELU8；32×128 bit 寄存器堆 \\
 epilogue & \code{tensor_epilogue_controller.sv}, \code{tensor_epilogue_core.sv} & int32 加 bias、乘 mult、右移、加 zero point、ReLU、打包 16×INT8 \\
 统一缓冲 & \code{unified_buffer.sv} & 256×128 bit（4 KiB）；同步读、字节写使能；DMA 与计算分时复用 \\
 DMA & \code{vpu_dma.sv}, \code{mt_dma_l2_bridge.sv} & 单笔 128 bit；内存↔UB；L2 master 读写 \\
-顶层 & \code{mini_tensor_top.sv}, \code{mt_fsm.sv} & 单命令串行；issue/register/commit/dispatch/result \\
+顶层 & \code{mini_tensor_top.sv}, \code{mt_fsm.sv} & 单命令串行；命令接收、派发与完成状态 \\
 \bottomrule
 \end{tabularx}
 \end{tighttable}
 \end{table}
-
-shim 的一个关键细节是 \code{commit_valid} 从 register 阶段一直保持到 result 返回，而不是只打一拍。miniTensor 只在 \code{S_WAIT_COMMIT} 采样 commit；若一拍的 commit 早于 register 到达，会被静默丢弃，命令永远挂起且没有超时。保持 commit 直到 result 到达，使 register/commit 的先后关系不再敏感。
 
 \subparagraph{计算通路与行式数据组织}
 
@@ -2273,7 +2271,7 @@ y=\mathrm{clip}\left(\frac{(c+b)\cdot m}{2^{s}}+z_p,\,-128,\,127\right)
 
 \subparagraph{指令模型}
 
-所有 miniTensor 指令的 opcode 都是 custom-0（\code{0x0B}）。操作数不走指令字的 \code{rs1/rs2} 字段，而走 CV-X-IF 寄存器通道；指令字只保留 funct7、funct3 和 rd。表~\ref{tab:mt-instr} 给出普通指令与三个宏指令的编码。
+所有 miniTensor 指令的 opcode 都是 custom-0（\code{0x0B}）。操作数不放在指令字的 \code{rs1/rs2} 字段，而由 CPU 写入 MMIO 的 RS1/RS2 寄存器；指令字只保留 funct7、funct3 和 rd。表~\ref{tab:mt-instr} 给出普通指令与三个宏指令的编码。
 
 \begin{table}[H]
 \centering
@@ -2292,22 +2290,22 @@ y=\mathrm{clip}\left(\frac{(c+b)\cdot m}{2^{s}}+z_p,\,-128,\,127\right)
 \code{VEC_MAX8} & \code{0x02} & \code{001} & 同上 & 逐字节取最大 \\
 \code{VEC_RELU8} & \code{0x02} & \code{010} & rs1=A 行，rs2=目标行 & 逐字节 ReLU \\
 \code{BURST} & 任意 & 任意 & rd=重复次数，BSTEP=行步长 & 同一指令重复下发 \\
-\code{GEMM2D} & \code{0x09} & \code{000} & nu/nj 在指令的 rs1/rs2 字段 & shim 展开为 $u\times j$ 个 GEMM \\
+\code{GEMM2D} & \code{0x09} & \code{000} & nu/nj 在指令的 rs1/rs2 字段 & 适配器展开为 $u\times j$ 个 GEMM \\
 \code{CONVGROUP} & \code{0x0A} & \code{000} & 同上，另有 \code{MT_LO} & 先 LOAD，再展开 GEMM 网格 \\
 \bottomrule
 \end{tabularx}
 \end{tighttable}
 \end{table}
 
-三个宏指令把软件外层循环搬进 shim，但张量本身只看到它已经验证过的普通指令：
+三个宏指令把软件外层循环搬进命令适配器，但张量本身只看到它已经验证过的普通指令：
 
 \begin{enumerate}[label=(\arabic*)]
-\item \code{BURST} 把指令字的 rd 字段当作重复次数；shim 在每次 result 后把 rs1/rs2 加上 \code{MT_BSTEP} 里的行步长再发一次，只有最后一次置 DONE。
-\item \code{GEMM2D(nu,nj)} 把形状放在指令字未用的 rs1/rs2 字段（各 5 bit），shim 用第二对计数器展开“u 走 tile 列、j 走输出组”的二维网格；A 行、权重行和 C 行分别按 a/b/c/d 四个步长推进。
-\item \code{CONVGROUP(nu,nj)} 是 \code{LOAD} 与 \code{GEMM2D} 的合并：shim 先从 \code{MT_LO} 给出的地址装 4 行激活，再展开同一网格；一条 push 完成原来两条命令的工作。
+\item \code{BURST} 把指令字的 rd 字段当作重复次数；命令适配器在每次命令完成后把 rs1/rs2 加上 \code{MT_BSTEP} 里的行步长再发一次，只有最后一次置 DONE。
+\item \code{GEMM2D(nu,nj)} 把形状放在指令字未用的 rs1/rs2 字段（各 5 bit），命令适配器用第二对计数器展开“u 走 tile 列、j 走输出组”的二维网格；A 行、权重行和 C 行分别按 a/b/c/d 四个步长推进。
+\item \code{CONVGROUP(nu,nj)} 是 \code{LOAD} 与 \code{GEMM2D} 的合并：命令适配器先从 \code{MT_LO} 给出的地址装 4 行激活，再展开同一网格；一条 push 完成原来两条命令的工作。
 \end{enumerate}
 
-图~\ref{fig:mt-cmd} 给出命令下发、排队、commit 与 result 的时序关系。FIFO 满时状态字给出 FULL 位，CPU 只等一个槽位而不是等整条队列排空；每批 63 条命令 drain 一次，把 MMIO 写延迟摊薄。
+图~\ref{fig:mt-cmd} 给出命令下发、排队、派发与完成的时序关系。FIFO 满时状态字给出 FULL 位，CPU 只等一个槽位而不是等整条队列排空；每批 63 条命令 drain 一次，把 MMIO 写延迟摊薄。
 
 \begin{figure}[htbp]
 \centering
@@ -2319,9 +2317,9 @@ y=\mathrm{clip}\left(\frac{(c+b)\cdot m}{2^{s}}+z_p,\,-128,\,127\right)
 \node[blk=aresTeal, text width=2.0cm, minimum height=1.0cm] (fifo) at (3.90,4.60)
   {命令 FIFO\\\sub{64 × 168 bit}};
 \node[blk=aresPurple, text width=2.0cm, minimum height=1.0cm] (shim) at (6.60,4.60)
-  {CV-X-IF shim\\\sub{issue → register}};
+  {命令适配器\\\sub{宏指令展开}};
 \node[blk=aresPurple, text width=2.0cm, minimum height=1.0cm] (commit) at (9.30,4.60)
-  {commit\\\sub{+2 / +3 拍等待}};
+  {mt\_fsm 派发\\\sub{单命令串行}};
 \node[blk=aresPurple, text width=2.1cm, minimum height=1.0cm] (tensor) at (12.00,4.60)
   {tensor / VPU / DMA\\\sub{8--10 拍 / 行}};
 \foreach \a/\b in {cpu/fifo,fifo/shim,shim/commit,commit/tensor}
@@ -2329,25 +2327,25 @@ y=\mathrm{clip}\left(\frac{(c+b)\cdot m}{2^{s}}+z_p,\,-128,\,127\right)
 
 % result loop
 \draw[dat] (tensor.south) -- (12.00,3.65) -- (6.60,3.65) -- (shim.south);
-\node[note, anchor=south, text=aresRed] at (9.30,3.65) {result / 下一条命令};
+\node[note, anchor=south, text=aresRed] at (9.30,3.65) {完成 / 下一条命令};
 
 % command forms
 \node[blk=aresGray, text width=2.2cm, minimum height=0.55cm] (flat) at (1.35,2.35) {普通命令};
 \node[note, anchor=west, text width=10.8cm, align=left] at (2.60,2.35)
-  {一次 issue → 一次 result；LOAD/STORE/GEMM/EPILOGUE/VECTOR 都属于这一类。};
+  {一次下发对应一次完成；LOAD/STORE/GEMM/EPILOGUE/VECTOR 都属于这一类。};
 \node[blk=aresGray, text width=2.2cm, minimum height=0.55cm] (burst) at (1.35,1.45) {BURST};
 \node[note, anchor=west, text width=10.8cm, align=left] at (2.60,1.45)
-  {rd 字段给出重复次数；每次 result 后 rs1/rs2 加 BSTEP 再 issue，只有最后一次置 DONE。};
+  {rd 字段给出重复次数；每次完成后 rs1/rs2 加 BSTEP 再下发，只有最后一次置 DONE。};
 \node[blk=aresGray, text width=2.2cm, minimum height=0.55cm] (grid) at (1.35,0.55) {2D / CONVGROUP};
 \node[note, anchor=west, text width=10.8cm, align=left] at (2.60,0.55)
-  {形状 nu×nj 放在指令的 rs1/rs2 字段；shim 展开为 u×j 个普通 GEMM；CONVGROUP 先做一次 LOAD。};
+  {形状 nu×nj 放在指令的 rs1/rs2 字段；命令适配器展开为 u×j 个普通 GEMM；CONVGROUP 先做一次 LOAD。};
 
 % bottom note
 \node[note, anchor=north, align=center, text width=12.5cm] at (6.40,-0.20)
   {FIFO 满时 STATUS.FULL=1，CPU 只等一个槽位；每批 63 条命令 drain 一次。\\
-   宏指令在 shim 内翻译，tensor 只看到 0x02/0x03/0x04/0x05/0x06 六类普通命令。};
+   宏指令在命令适配器内翻译，tensor 只看到 0x02/0x03/0x04/0x05/0x06 六类普通命令。};
 \end{tikzpicture}
-\caption{命令下发、队列、commit 与 result 的时序；BURST、GEMM2D、CONVGROUP 在 shim 内展开}
+\caption{命令下发、队列、派发与完成的时序；BURST、GEMM2D、CONVGROUP 在命令适配器内展开}
 \label{fig:mt-cmd}
 \end{figure}
 
@@ -2994,7 +2992,7 @@ Nano 以机器定时器中断驱动抢占和线程切换。下面分别说明这
 性能与验证结果见第~\ref{subsec:ares-current-results}~节。
 
 % ===== 新增：两类加速方式的定位 =====
-从加速方式看，ARES 同时使用核内自定义指令与协处理器两条路径。CRC8 与三类 MMIO 引擎面向控制密集、数据量小的固定算法；miniTensor 面向卷积、GEMV 等张量负载。两者共享 uncached 数据视图和 MMIO 语义，但接口不同：前者进入流水线，后者经 CV-X-IF shim 与 DMA 工作。
+从加速方式看，ARES 同时使用核内自定义指令与协处理器两条路径。CRC8 与三类 MMIO 引擎面向控制密集、数据量小的固定算法；miniTensor 面向卷积、GEMV 等张量负载。两者共享 uncached 数据视图和 MMIO 语义，但接口不同：前者进入流水线，后者经 MMIO 命令队列与 DMA 工作。
 
 \subsubsection{CRC8 与三个 MMIO 引擎的软硬件协同}
 \label{subsec:accelerator-cooperation}
@@ -3795,7 +3793,7 @@ b5 的增量（b5$-$b4）为 +6,276 LUT、+5,067 FF、+48 APM、+4.5 DRM；其�
 后续扩展包括 \code{FENCE.I} 失效、共享 L2 响应顺序修正和 RV32F，以及将附录~\ref{app:vision} 的摄像头缩略图、miniTensor 手势推理与网页控制接入 SoC，形成端到端闭环。
 
 % ===== 新增：应用侧可扩展之处 =====
-应用侧的下一步是把命令表回放、8×8 阵列/50 MHz 与多模态输入纳入同一数据流；在模型侧引入 QAT 与更大的词表，在不改变 miniTensor 数据流的前提下恢复 INT8 激活的文本质量；并把 ARES-L 上的两个应用移植到 Mundus 主线，完成 CV-X-IF 与 MMIO 两套接口的统一。
+应用侧的下一步是把命令表回放、8×8 阵列/50 MHz 与多模态输入纳入同一数据流；在模型侧引入 QAT 与更大的词表，在不改变 miniTensor 数据流的前提下恢复 INT8 激活的文本质量；并把 ARES-L 上的两个应用移植到 Mundus 主线。
 
 \subsection{心得体会}
 % 模板限制：1000 字内。
@@ -3819,7 +3817,7 @@ b5 的增量（b5$-$b4）为 +6,276 LUT、+5,067 FF、+48 APM、+4.5 DRM；其�
 % ===== 新增：应用联调心得 =====
 应用联调中最有价值的是五个可复现的 bug：补丁按 0..255 原始字节喂进 int8 引擎，大于 127 的值变成负数；相机固件复制了一份推理序列，与 golden 版本不一致；裕度循环从 best=0 起，第 0 类获胜时裕度恒为 0；取景框竖直偏移写成 80 而非 120，绿框与 ROI 错位 40 px；剪刀通道标准差仅 0.8，裕度天生约 6，门限 8 永远过不去。每个都先写最小复现再修改，测试留在仓库。
 
-性能优化同理：基线 17,184 条命令中 92\% 的帧时间花在 CPU 逐条写命令；把 pad/pool 改成词宽拷贝后，帧时间从 4.81 M 降到 2.00 M，收益超过前面所有 RTL 工作之和。宏指令则跨 shim 与 tensor 两层，出错点常藏在“操作数在路上被改写”的细节里；0x0A 第一次整网失败后回滚，第二次先写单条 LOAD、单条 GEMM2D、单条合并命令的单元测试，三条全过，整网随之通过。
+性能优化同理：基线 17,184 条命令中 92\% 的帧时间花在 CPU 逐条写命令；把 pad/pool 改成词宽拷贝后，帧时间从 4.81 M 降到 2.00 M，收益超过前面所有 RTL 工作之和。宏指令则跨命令适配器与 tensor 两层，出错点常藏在“操作数在路上被改写”的细节里；0x0A 第一次整网失败后回滚，第二次先写单条 LOAD、单条 GEMM2D、单条合并命令的单元测试，三条全过，整网随之通过。
 
 \begingroup
 \small
