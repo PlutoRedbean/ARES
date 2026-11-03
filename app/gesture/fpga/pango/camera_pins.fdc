@@ -1,0 +1,35 @@
+# ---------------------------------------------------------------------------
+# camera_pins.fdc - OV5640 DVP pins for board_gesture.
+#
+# The data-pin locations below are the ones this carrier board has been proven
+# with (MES-FMC-LPC-IO 40-pin, Bank L6, 2.5 V).  The pixel clock, VSYNC and HREF
+# locations depend on the camera adapter cable in use and are deliberately left
+# as a template: fill them in from the module's pinout before the first build.
+# Unverified pin assignments can damage the camera module, so they are not
+# guessed here.
+# ---------------------------------------------------------------------------
+
+create_clock -name cmos1_pclk -period 11.905 -waveform {0.000 5.9524} [get_ports {cmos1_pclk}]
+set_clock_groups -asynchronous \
+    -group [get_clocks {sys_clk}] \
+    -group [get_clocks {cmos1_pclk}]
+set_false_path -from [get_ports {cmos1_vsync cmos1_href}]
+set_false_path -from [get_ports {cmos1_data[*]}]
+
+# --------------------------------------------------------------- DVP data
+# Data pins proven on the current carrier (2.5 V bank).
+# define_attribute {p:cmos1_data[7]} {PAP_IO_LOC} {V14}
+# define_attribute {p:cmos1_data[6]} {PAP_IO_LOC} {V18}
+# define_attribute {p:cmos1_data[5]} {PAP_IO_LOC} {Y21}
+# define_attribute {p:cmos1_data[4]} {PAP_IO_LOC} {T15}
+# define_attribute {p:cmos1_data[3]} {PAP_IO_LOC} {W25}
+# define_attribute {p:cmos1_data[2]} {PAP_IO_LOC} {Y26}
+# define_attribute {p:cmos1_data[1]} {PAP_IO_LOC} {U20}
+# define_attribute {p:cmos1_data[0]} {PAP_IO_LOC} {T14}
+
+# ------------------------------------------------------------------ TODO
+# define_attribute {p:cmos1_pclk}  {PAP_IO_LOC} {<from the camera adapter>}
+# define_attribute {p:cmos1_vsync} {PAP_IO_LOC} {<from the camera adapter>}
+# define_attribute {p:cmos1_href}  {PAP_IO_LOC} {<from the camera adapter>}
+# and the matching PAP_IO_DIRECTION / PAP_IO_VCCIO 2.5 / PAP_IO_STANDARD
+# LVCMOS25 attributes for every port above.

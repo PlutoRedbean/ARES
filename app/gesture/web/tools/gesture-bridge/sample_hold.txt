@@ -1,0 +1,38 @@
+# 长按验证样例：石头保持 2 秒（0.2 s -> FIST，1.2 s -> ULTIMATE）
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: rock     scores  11 -15   0  margin 11  shown rock
+hand: rock     scores  11 -15   0  margin 11  shown rock
+hand: rock     scores  11 -15   0  margin 11  shown rock
+hand: rock     scores  11 -15   0  margin 11  shown rock
+hand: rock     scores  11 -15   0  margin 11  shown rock
+hand: rock     scores  11 -15   0  margin 11  shown rock
+hand: rock     scores  11 -15   0  margin 11  shown rock
+hand: rock     scores  11 -15   0  margin 11  shown rock
+hand: rock     scores  11 -15   0  margin 11  shown rock
+hand: rock     scores  11 -15   0  margin 11  shown rock
+hand: rock     scores  11 -15   0  margin 11  shown rock
+hand: rock     scores  11 -15   0  margin 11  shown rock
+hand: rock     scores  11 -15   0  margin 11  shown rock
+hand: rock     scores  11 -15   0  margin 11  shown rock
+hand: rock     scores  11 -15   0  margin 11  shown rock
+hand: rock     scores  11 -15   0  margin 11  shown rock
+hand: rock     scores  11 -15   0  margin 11  shown rock
+hand: rock     scores  11 -15   0  margin 11  shown rock
+hand: rock     scores  11 -15   0  margin 11  shown rock
+hand: rock     scores  11 -15   0  margin 11  shown rock
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)

@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#05070d" />
+    <meta name="description" content="ARES 全息手势交互页：Web Serial 串口指令驱动 Three.js 全息特效" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>ARES · 全息手势交互</title>
+  </head>
+  <body>
+    <canvas id="stage" aria-label="ARES 全息舞台"></canvas>
+    <div class="screen-vignette" aria-hidden="true"></div>
+    <div class="scanlines" aria-hidden="true"></div>
+
+    <header class="hud hud-top" id="hud">
+      <div class="brand">
+        <img class="brand-logo" src="/ares-mark.svg" alt="" width="42" height="42" />
+        <div class="brand-text">
+          <div class="brand-title">ARES</div>
+          <div class="brand-sub">WAR CORE · BASE CORE</div>
+        </div>
+      </div>
+      <div class="top-actions">
+        <div class="serial-pill" id="serial-pill" data-state="disconnected" title="串口未连接">
+          <span class="dot"></span>
+          <span id="serial-label">串口未连接</span>
+        </div>
+        <button class="chip-btn" id="btn-connect" type="button">连接串口</button>
+        <button class="chip-btn" id="btn-fullscreen" type="button">全屏</button>
+        <button class="chip-btn" id="btn-mute" type="button">静音</button>
+        <button class="chip-btn" id="btn-debug" type="button">调试</button>
+      </div>
+    </header>
+
+    <aside class="hud-state" id="hud-state" aria-live="polite">
+      <div class="panel-label">GESTURE</div>
+      <div class="gesture-glyph" id="gesture-glyph">◇</div>
+      <div class="gesture-name" id="gesture-name">等待指令</div>
+      <div class="hold" id="hold-panel" aria-hidden="true">
+        <div class="hold-head" id="hold-state">蓄力</div>
+        <div class="hold-track">
+          <div class="hold-fill" id="hold-fill"></div>
+          <span class="hold-mark" id="hold-mark-short"></span>
+          <span class="hold-mark long" id="hold-mark-long"></span>
+        </div>
+        <div class="hold-hint" id="hold-hint">0.0s / 1.2s</div>
+      </div>
+      <div class="state-grid">
+        <div><span>STATE</span><b id="base-state">IDLE</b></div>
+        <div><span>OVERLAY</span><b id="overlay-state">—</b></div>
+        <div><span>MODE</span><b id="mode-state">—</b></div>
+        <div><span>PORT</span><b id="port-state">—</b></div>
+      </div>
+    </aside>
+
+    <aside class="hud-modes" id="hud-modes">
+      <div class="panel-label">MODES</div>
+      <ul id="mode-list">
+        <li data-mode="MODE_PLANET"><span>01</span> PLANET</li>
+        <li data-mode="MODE_DNA"><span>02</span> DNA</li>
+        <li data-mode="MODE_SOC"><span>03</span> SOC</li>
+      </ul>
+      <div class="mode-hint">V 字手势循环切换</div>
+    </aside>
+
+    <footer class="hud hud-bottom">
+      <div class="hint">
+        <span class="key">1</span>START <span class="key">2</span>FIST <span class="key">3</span>POINT
+        <span class="key">4</span>MODE <span class="key">5</span>CONFIRM
+        <span class="key">6</span>ULTIMATE <span class="key">0</span>RESET
+      </div>
+      <div class="metrics">
+        <span id="fps">-- FPS</span>
+        <span id="particles">12000 P</span>
+      </div>
+    </footer>
+
+    <div class="confirm-panel" id="confirm-panel" aria-hidden="true">
+      <div class="confirm-bar top"></div>
+      <div class="confirm-label"><span>CONFIRMED</span> // 已确认</div>
+      <div class="confirm-bar bottom"></div>
+    </div>
+
+    <div class="flash" id="flash" aria-hidden="true"></div>
+    <div class="toast" id="toast" role="status"></div>
+
+    <section class="start-screen" id="start-screen">
+      <div class="start-inner">
+        <div class="start-kicker">ARES BASE CORE · REAL-TIME HOLOGRAPHY</div>
+        <img class="start-logo" src="/ares-logo.svg" alt="ARES · 战神核心" width="640" height="180" />
+        <div class="start-tagline">WAR CORE · 战神核心</div>
+        <div class="start-sub">串口手势 · 全息交互</div>
+        <p class="start-desc">
+          Web Serial 读取板端 ASCII 指令，驱动六种程序化全息特效。<br />
+          无需后端进程，浏览器就是唯一状态权威。
+        </p>
+        <button id="btn-start" class="start-btn" type="button">
+          <span class="start-btn-glow"></span>
+          <span class="start-btn-text">启动演示</span>
+          <span class="start-btn-sub">FULLSCREEN · AUDIO · SERIAL</span>
+        </button>
+        <div class="start-actions">
+          <button id="btn-start-plain" class="link-btn" type="button">仅浏览（键盘调试）</button>
+          <span class="action-sep">·</span>
+          <button id="btn-start-low" class="link-btn" type="button">性能优先（低画质）</button>
+        </div>
+        <div class="start-meta">
+          <span>CHROME / EDGE</span><span>115200 8N1</span><span>WEB SERIAL</span>
+        </div>
+        <p class="start-note" id="start-note">
+          首次连接会弹出串口选择框，请选择 USB-TTL 对应的 COM 口；若被串口助手占用，请先关闭。
+        </p>
+      </div>
+    </section>
+
+    <div id="debug-root"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

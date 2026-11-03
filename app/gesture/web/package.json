@@ -1,0 +1,24 @@
+{
+  "name": "ares-holo",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "ARES 全息手势交互页：Web Serial -> 状态机 -> Three.js 全息演出",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "three": "^0.180.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.180.0",
+    "typescript": "^5.8.0",
+    "vite": "^7.1.0",
+    "vitest": "^3.2.0"
+  }
+}

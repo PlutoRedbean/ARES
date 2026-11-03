@@ -1,0 +1,9 @@
+build/
+*.o
+*.elf
+*.bin
+*.hex
+*.log
+web/node_modules/
+web/dist/
+__pycache__/
