@@ -2373,8 +2373,8 @@ QA & 检索式知识库 & 10,475 条 & 638,076 B & 留出模板 94\% \\
   \draw[dat] (\a) -- (\b);
 
 % ---------- distribution ----------
-\draw[dat] (image.south) -- (12.45,5.15);
-\draw[dat] (12.45,5.15) -- (3.30,5.15);
+\draw[aresInk] (image.south) -- (12.45,5.15);
+\draw[aresInk] (12.45,5.15) -- (3.30,5.15);
 \draw[dat] (3.30,5.15) -- (3.30,3.95);
 \draw[dat] (6.90,5.15) -- (6.90,3.95);
 \draw[dat] (12.45,5.15) -- (12.45,3.95);
@@ -2390,9 +2390,9 @@ QA & 检索式知识库 & 10,475 条 & 638,076 B & 留出模板 94\% \\
 % ---------- UART ----------
 \node[blk=aresGreen, text width=8.4cm, minimum height=0.9cm] (uart) at (6.90,1.55)
   {UART 115200 8N1 · 行协议 · \texttt{!reset} / \texttt{!help} · 对话与问答};
-\draw[dat] (cpu.south) -- (3.30,2.00) -- (3.30,1.55) -- (uart.west);
-\draw[dat] (mt.south) -- (6.90,2.00) -- (uart.north);
-\draw[dat] (qa.south) -- (12.45,2.00) -- (12.45,1.55) -- (uart.east);
+\draw[dat] (cpu.south) -- (3.30,2.00);
+\draw[dat] (mt.south) -- (6.90,2.00);
+\draw[dat] (qa.south) -- (12.45,1.55) -- (12.90,1.55) -- (uart.east);
 
 % ---------- notes ----------
 \node[note, anchor=north, align=center, text width=2.4cm] at (1.25,5.65)
@@ -2611,8 +2611,8 @@ MMIO 请求与计算任务分开：引擎接受寄存器访问，返回端在下
 \node[blk=aresTeal, minimum width=2.0cm, minimum height=1.3cm] (drv) at (4.55,1.75) {同名驱动\\\sub{构建时替换入口}\\\sub{原定义改名 *\_orig}};
 \draw[dat] (cm.east|-0,1.75) -- (drv.west);
 \node[blk, minimum width=2.0cm] (ref) at (4.55,-0.35) {软件参考\\\sub{*\_orig}};
-\draw[dat] (drv.south) -- node[note, right, align=left]{参数不适用} (ref.north);
-\node[note, anchor=north, align=center] at (4.55,-0.80) {排序、移除/恢复、\\CRC 遍历仍由 C 完成};
+\draw[dat] (drv.south) -- node[note, left=4pt, align=right]{参数不适用} (ref.north);
+\node[note, anchor=north east, align=right, text width=3.4cm] at (5.55,-0.80) {排序、移除/恢复、\\CRC 遍历仍由 C 完成};
 
 % ---- CRC8 instruction branch ----
 \node[blk=aresAmber, minimum width=1.75cm] (ins) at (7.10,2.75) {CRC8 指令\\\sub{custom-0}};
@@ -2625,13 +2625,13 @@ MMIO 请求与计算任务分开：引擎接受寄存器访问，返回端在下
 
 % ---- MMIO branch ----
 \node[blk=aresGreen, minimum width=2.1cm] (mm) at (7.35,0.85) {volatile MMIO\\\sub{LSU · PERIP，不缓存}};
-\draw[dat] (drv.east|-0,1.35) -- (5.90,1.35) |- (mm.west);
+\draw[dat] (drv.east|-0,1.35) -- (7.35,1.35) -- (mm.north);
 \node[blk=aresPurple, minimum width=1.35cm, minimum height=1.75cm] (dec) at (9.55,0.85) {外设桥\\页译码\\\sub{4 KiB/页}};
 \draw[dat] (mm.east) -- (dec.west);
 \foreach \n/\a/\y in {矩阵 mtx9/0xA0001000/1.55, 状态机 state9/0xA0002000/0.85, 链表 list9/0xA0003000/0.15}{
   \node[blk=aresPurple, minimum width=2.65cm, anchor=west] at (10.75,\y) {\n\ \sub{\a}};
   \draw[dat] (dec.east|-0,\y) -- (10.75,\y);}
-\node[note, anchor=north, align=center] at (12.15,-0.25) {私有数组 · 内部状态机\\无 DMA，不共享缓存};
+\node[note, anchor=north east, align=right, text width=2.6cm] at (14.20,-0.45) {私有数组 · 内部状态机\\无 DMA，不共享缓存};
 
 % ---- four steps ----
 \begin{scope}[shift={(5.95,-0.55)}]
@@ -2965,14 +2965,14 @@ C handler 返回后，\code{trap.S} 先把返回 PC 写入当前帧。
     (s#1) at (0.75,\sy) {\hspace{4.2mm}#3};
   \badge{0.98,\sy}{#1}{#2}}
 \st{1}{aresRed}{定时器到新毫秒置 pending，直至软件 ACK}
-\st{2}{aresRed}{MIE · MTIE · MTIP 均有效：停发射，排空后端与桥}
+\st{2}{aresRed}{MIE · MTIE · MTIP 均有效：停发射，排空后端}
 \st{3}{aresRed}{mepc ← 末条退休 pc\_next，mcause ← 0x80000007}
 \st{4}{aresTeal}{trap.S：A 栈分配 128 B，保存 GPR、mepc、mstatus}
 \st{5}{aresTeal}{C handler：ACK pending，按 elapsed 补 tick}
 \st{6}{aresTeal}{调度器：只登记 from / to 并置切换标志}
 \st{7}{aresTeal}{trap 尾部：A.sp 存入 TCB\_A，装载 TCB\_B.sp}
 \st{8}{aresTeal}{恢复 B 帧，释放 128 B，MRET 进入线程 B}
-\foreach \a/\b in {1/2,2/3,3/4,4/5,5/6,6/7,7/8} \draw[dat] (s\a.south-|1.70,0) -- (s\b.north-|1.70,0);
+\foreach \a/\b in {1/2,2/3,3/4,4/5,5/6,6/7,7/8} \draw[dat] (s\a.south-|0.78,0) -- (s\b.north-|0.78,0);
 % group labels
 \draw[aresRed!70, line width=1pt] (0.55,4.85) -- (0.55,2.80);
 \node[font=\scriptsize\bfseries, text=aresRed!80!black, rotate=90] at (0.30,3.82) {硬件};
@@ -2991,13 +2991,11 @@ C handler 返回后，\code{trap.S} 先把返回 PC 写入当前帧。
   \node[note, anchor=west] at (#1+1.92,1.86) {0x00};}
 \stackframe{8.20}{线程 A 栈帧}{aresBlue}
 \stackframe{11.20}{线程 B 栈帧}{aresGreen}
-\node[regb, minimum width=1.9cm, fill=aresBlue!6] (ta) at (9.15,0.85) {TCB\_A.sp};
-\node[regb, minimum width=1.9cm, fill=aresGreen!6] (tb) at (12.15,0.85) {TCB\_B.sp};
-\draw[dat] (ta.north) -- (9.15,1.68);
-\draw[dat] (tb.north) -- (12.15,1.68);
+\node[regb, minimum width=1.9cm, fill=aresBlue!6] (ta) at (9.15,0.65) {TCB\_A.sp};
+\node[regb, minimum width=1.9cm, fill=aresGreen!6] (tb) at (12.15,0.65) {TCB\_B.sp};
 \draw[dat, aresTeal!80!black] (s4.east) -- node[note, above, text=aresTeal!80!black]{保存} (8.20,0|-s4.east);
-\draw[dat, aresTeal!80!black] (s7.east) -| node[note, pos=0.25, above, text=aresTeal!80!black]{写回 sp} (ta.south);
-\draw[dat, aresTeal!80!black] (tb.south) |- node[note, pos=0.75, above, text=aresTeal!80!black]{装载 sp，恢复现场} (s8.east);
+\draw[dat, aresTeal!80!black] (9.15,1.86) -- node[note, right, text=aresTeal!80!black]{写回 sp} (ta.north);
+\draw[dat, aresTeal!80!black] (tb.north) -- node[note, right, text=aresTeal!80!black]{装载 sp} (12.15,1.86);
 
 % ---- other entries ----
 \node[blk, align=left, anchor=north west] at (8.20,-0.95)
