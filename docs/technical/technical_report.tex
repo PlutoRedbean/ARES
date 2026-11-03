@@ -1040,12 +1040,9 @@ IROM 仍接收当前地址 $P$。下一拍 BPU 对 $Q$ 的预测与已经更新�
 可以继续计算再下一地址。这样一拍预测延迟被流水隐藏，稳态仍可每周期接受一条取指
 请求。
 
-完成一拍流水化后，预测到 PC 寄存器的组合路径仍然较长，其主要经过：BTB/Bimodal
-读出寄存器 $\rightarrow$ valid/tag 命中比较、counter 方向判断与返回类型判断
-$\rightarrow$ RAS 栈顶目标覆盖
-$\rightarrow$ 当前响应与暂存预测选择
-$\rightarrow$ 预测目标与 $\mathrm{PC}+4$ 选择
-$\rightarrow$ PC 寄存器输入。该路径虽然不再包含预测表阵列的读取，但仍包含 tag 比较、
+完成一拍流水化后，预测到 PC 寄存器的组合路径仍然较长：从 BTB/Bimodal 读出寄存器出发，
+依次经过 valid/tag 命中比较、counter 方向与返回类型判断，RAS 栈顶目标覆盖，当前响应与暂存预测的选择，
+以及预测目标与 $\mathrm{PC}+4$ 的选择，最后进入 PC 寄存器。该路径虽然不再包含预测表阵列的读取，但仍包含 tag 比较、
 RAS 选择、多级选择和 32 bit 加法，仍是前端综合与布局布线时需要重点观察的关键路径。
 
 \Needspace{4\baselineskip}
@@ -1096,7 +1093,7 @@ Redirect & 重置 PC，清元数据与前端队列、旧预测暂存；\code{iro
 \noindent\textbf{接入位置与设计目标}\par
 
 ICache 位于 IFU 与只读 IROM 之间，提供每次一条 32 bit 指令的请求/响应接口。其目标是将前端的取指节奏与底层同步存储器解耦，并利用流水化命中路径维持单发射所需的每拍一条取指吞吐。
-连接关系为 IFU $\rightarrow$ \code{pipeline_icache} $\rightarrow$ \code{pipeline_irom_passthrough} $\rightarrow$ \code{IROM_BMEM32}。ICache 以整行缓存指令，回填适配器将一行拆为连续的 32 bit IROM 读取，内部结构见图~\ref{fig:icache-architecture}。
+IFU 经 \code{pipeline_icache} 和 \code{pipeline_irom_passthrough} 访问 \code{IROM_BMEM32}。ICache 以整行缓存指令，回填适配器将一行拆为连续的 32 bit IROM 读取，内部结构见图~\ref{fig:icache-architecture}。
 
 \code{USE_ICACHE=1} 选择缓存路径，\code{USE_ICACHE=0} 仅保留一拍直通适配器，两者向 IFU 提供相同的握手信号。\code{ICACHE_PIPE_HITS=1} 允许命中流水重叠，置 0 则保留串行请求节奏，用于对照取指吞吐的影响。
 AMP 在每个 \code{student_top} 内例化同一主线四路缓存；各 hart 拥有私有缓存和私有 32 KiB IROM，执行相同的只读代码镜像。
@@ -2096,7 +2093,7 @@ FENCE 在 ID 等待 LSU 与桥同时空闲；EBREAK 退休后冻结流水线。
 
 \subparagraph{定位与约束}
 
-miniTensor 是挂在 CPU 的 CV-X-IF 通道上的执行单元，而不是总线上的从设备。CPU 只通过 \code{0xE0000000} 的 8 个 MMIO 寄存器写入指令字和两个操作数，shim 将其合成为 issue→register→commit→result 事务；数据由 DMA 在统一缓冲与 scratch/DDR 之间搬运。这样做的三个约束是：无 FPU，全整数；无数据 Cache，CPU 与 DMA 必须看到同一物理视图；miniTensor 窗口只有 4 KiB，命令必须极简。
+miniTensor 是挂在 CPU 的 CV-X-IF 通道上的执行单元，而不是总线上的从设备。CPU 只通过 \code{0xE0000000} 的 8 个 MMIO 寄存器写入指令字和两个操作数，shim 将其合成为 issue、register、commit、result 四步事务；数据由 DMA 在统一缓冲与 scratch/DDR 之间搬运。这样做的三个约束是：无 FPU，全整数；无数据 Cache，CPU 与 DMA 必须看到同一物理视图；miniTensor 窗口只有 4 KiB，命令必须极简。
 
 \subparagraph{总体架构}
 
@@ -2287,8 +2284,8 @@ y=\mathrm{clip}\left(\frac{(c+b)\cdot m}{2^{s}}+z_p,\,-128,\,127\right)
 \toprule
 指令 & funct7 & funct3 & 操作数 & 语义 \\
 \midrule
-\code{LOAD} & \code{0x03} & \code{000} & rs1=内存地址，rs2=行/行数 & 内存 → UB \\
-\code{STORE} & \code{0x04} & \code{000} & rs1=内存地址，rs2=行/行数 & UB → 内存 \\
+\code{LOAD} & \code{0x03} & \code{000} & rs1=内存地址，rs2=行/行数 & 内存到 UB \\
+\code{STORE} & \code{0x04} & \code{000} & rs1=内存地址，rs2=行/行数 & UB 到内存 \\
 \code{GEMM} & \code{0x05} & \code{000} & rs1=A 行/B 行，rs2=C 行/accumulate & C = A×B（或累加） \\
 \code{EPILOGUE} & \code{0x06} & \code{000} & rs1=C 行/bias 行，rs2=输出行/配置行 & requant + pack \\
 \code{VEC_ADD8} & \code{0x02} & \code{000} & rs1=A 行/B 行，rs2=目标行 & 16×INT8 相加 \\
@@ -2451,7 +2448,7 @@ B7b & 基线：CPU 逐条 push & 17,184 & 7.27 M & 7.7\% \\
 P1a & tap 解码外提、A 四行合并 & 14,272 & 6.22 M & --- \\
 P1b & GEMM 突发（BURST） & 6,720 & 4.85 M & --- \\
 P1d & pad/pool 词宽化（纯 C） & 6,032 & 2.00 M & 26\% \\
-P1e & 命令队列 8 → 64 & 6,032 & 1.87 M & --- \\
+P1e & 命令队列 8 项扩至 64 项 & 6,032 & 1.87 M & --- \\
 P1f & 二维 GEMM 突发（GEMM2D） & 3,120 & 1.42 M & 36\% \\
 P1g & LOAD 与二维突发合并（CONVGROUP） & 1,936 & 1.35 M & --- \\
 P1h & 状态字加 FULL，满才等 & 1,936 & 1.23 M & 41\% \\
@@ -2679,7 +2676,7 @@ Qwen2.5-0.5B-Instruct~\cite{qwen2025} 有 24 层、$d=896$、494M 参数，FP16 
 \toprule
 代号 & 类型 & 参数 & 镜像 & 定位 \\
 \midrule
-A0 & char-GRU（Emb64→GRU96→Linear65） & 56,480 & 62 KB & 打通链路；CPU 17、miniTensor 103 char/s \\
+A0 & char-GRU（64 维嵌入、96 维 GRU、65 类输出） & 56,480 & 62 KB & 打通链路；CPU 17、miniTensor 103 char/s \\
 H112 & 词级 seq2seq GRU（V198/E48/H112/rank24） & 140,742 & 152,056 B & 源码部署形态 \\
 H88 & 词级 seq2seq GRU（轻量版） & 107,000 & 118,168 B & 适配 128 KB 加载上限 \\
 QA & CPU 知识库（检索式） & 10,475 条 & 638,076 B & 留出模板 94\% \\
@@ -2842,7 +2839,7 @@ OV5640 以 720p 输出，取中心 640×480，按 2:1 抽成 320×240 灰度，�
 
 \paragraph{模型与训练}
 
-网络拓扑参照经典卷积网络~\cite{lecun1998gradient}：conv3x3 4→8 + ReLU + 2×2 pool、conv3x3 8→16 + ReLU + 2×2 pool、conv3x3 16→16 + ReLU、1×1 head 16→8，最后 global average pool 取前 3 类。参数量 3,920，单帧约 745K MAC。训练用 287 帧捕获补丁（石头 68、布 109、剪刀 110），按 70/30 划分，增强包括旋转、翻转、平移、亮度/对比度和随机遮挡。
+网络拓扑参照经典卷积网络~\cite{lecun1998gradient}：前两层 conv3x3 分别把通道从 4 扩到 8、从 8 扩到 16，各接 ReLU 与 2×2 pool；第三层 conv3x3 保持 16 通道并接 ReLU；1×1 head 输出 8 通道，最后 global average pool 取前 3 类。参数量 3,920，单帧约 745K MAC。训练用 287 帧捕获补丁（石头 68、布 109、剪刀 110），按 70/30 划分，增强包括旋转、翻转、平移、亮度/对比度和随机遮挡。
 
 \begin{table}[H]
 \centering
@@ -2967,7 +2964,7 @@ OV5640 以 720p 输出，取中心 640×480，按 2:1 抽成 320×240 灰度，�
 
 上位机是端到端演示层，有两种输入：Web Serial~\cite{webserial} 直接读板端 ASCII 指令；或由 \code{gesture-bridge} 独占 COM9，把板端的 \mbox{\texttt{hand: rock/paper/scissors}} 翻译成 \code{FIST/START/MODE}，经 SSE 推给页面。桥接放在 Python 侧，是因为一个 COM 口只能被一个进程打开，同时保留板端的 \code{scores/margin} 调试行。
 
-页面管线为 LineParser → parseCommandLine → CommandBus → StateMachine → EffectDirector → Three.js~\cite{threejs}。LineParser 负责拆行、去空白、长度与 ASCII 校验；CommandBus 做去重与冷却；StateMachine 采用“基础状态 + 瞬时叠加层”，基础状态为 \code{IDLE/READY/COMPRESS/TRACK/MODE_*}，叠加层为 \code{BOOT/CONFIRM/ULTIMATE}；EffectDirector 把状态事件翻译成粒子 Logo、全息球、激光扫描和能量波。协议为 115200 8N1、ASCII 行，支持 \code{START/FIST/POINT/MODE/CONFIRM/ULTIMATE/RESET/IDLE}，冷却 300 ms--5 s。
+页面管线依次由 LineParser、parseCommandLine、CommandBus、StateMachine、EffectDirector 和 Three.js~\cite{threejs} 处理。LineParser 负责拆行、去空白、长度与 ASCII 校验；CommandBus 做去重与冷却；StateMachine 采用“基础状态 + 瞬时叠加层”，基础状态为 \code{IDLE/READY/COMPRESS/TRACK/MODE_*}，叠加层为 \code{BOOT/CONFIRM/ULTIMATE}；EffectDirector 把状态事件翻译成粒子 Logo、全息球、激光扫描和能量波。协议为 115200 8N1、ASCII 行，支持 \code{START/FIST/POINT/MODE/CONFIRM/ULTIMATE/RESET/IDLE}，冷却 300 ms--5 s。
 
 桥接判定为连续 3 行同手势、800 ms 冷却、1200 ms 无手势回待机；短按 0.2 s 进状态，长按 0.9 s 放第二招。页面侧 33 个单元测试、15/15 浏览器端到端（假串口注入）通过，生产包约 608 kB（gzip 157 kB），在 RTX 5060 Laptop / 2560×1600 / HIGH 下实测 240 FPS。
 
@@ -3789,7 +3786,7 @@ b5 的增量（b5$-$b4）为 +6,276 LUT、+5,067 FF、+48 APM、+4.5 DRM；其�
 
 \subsubsection{演示层}
 
-上位机 33 个单元测试、15/15 浏览器端到端通过，生产包约 608 kB（gzip 157 kB）；在 RTX 5060 Laptop / 2560×1600 / HIGH 下实测 240 FPS。手势到页面的端到端链路为：板端 10 Hz 串口 → gesture-bridge → SSE → EventSource → 状态机 → Three.js，指令到达后约 0.2--0.3 s 页面切换。
+上位机 33 个单元测试、15/15 浏览器端到端通过，生产包约 608 kB（gzip 157 kB）；在 RTX 5060 Laptop / 2560×1600 / HIGH 下实测 240 FPS。手势到页面的链路中，板端以 10 Hz 经串口输出识别结果，gesture-bridge 通过 SSE 推送给浏览器，EventSource 接收后交给状态机，再由 Three.js 渲染；指令到达后约 0.2--0.3 s 页面切换。
 \clearpage
 \section{总结}
 \subsection{可扩展之处}
@@ -3933,7 +3930,7 @@ make pipeline-coremark-full-mt CORES=4
 \clearpage
 \section{视频采集与手势控制集成方案}
 \label{app:vision}
-OV5640 $\rightarrow$ DDR3 $\rightarrow$ HDMI 链路已在独立的 Pango 视频工程 \code{video_fb_top} 中实现；缩略图 MMIO、miniTensor 手势推理及网页控制尚未接入 ARES，端到端闭环待验证。本附录记录该集成方案。
+OV5640 采集、DDR3 缓存与 HDMI 输出链路已在独立的 Pango 视频工程 \code{video_fb_top} 中实现；缩略图 MMIO、miniTensor 手势推理及网页控制尚未接入 ARES，端到端闭环待验证。本附录记录该集成方案。
 
 \subsection{OV5640 摄像头视频通路}
 
