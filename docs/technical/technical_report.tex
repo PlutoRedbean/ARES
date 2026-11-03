@@ -255,14 +255,14 @@ AMP 提供私有数据窗口与共享 mailbox，RT-Thread Nano 支持单核运�
 
 \subsection{主要技术特点}
 % 模板限制：400 字内。
-前端将预测表读取流水化，提前查询候选下一 PC，并保存停顿期间的预测及取指元数据。
-后端以温度计码统一表达生产者结果时刻和消费者需求时刻，选择最新且就绪的旁路结果。
-AGU 在 ISS 提前计算访存地址，三阶段 LSU 区分 DCache 命中快路径和外部返回慢路径，外设桥用四项写队列及逐字节转发协调访存。
-乘法器采用四级部分积流水，除法器采用 radix-4 迭代 RTL；存储包装使用可综合 BRAM。CRC8 指令与三类 MMIO 引擎支持软硬件协同加速。
-
-% ===== 新增：协处理器技术特点 =====
-协处理器侧以 4×4 INT8 阵列、128 bit 行式统一缓冲、向量单元与定点 epilogue，把卷积和 GEMV 统一为同一条 \code{GEMM} 命令流。
-
+\begin{itemize}
+\item \textbf{零气泡取指前端}：BPU 读表寄存一拍，由提前查询与预测保持隐藏；配合流水化 ICache，命中时每拍取指一条。
+\item \textbf{温度计码旁路网络}：温度计码统一刻画结果产生与操作数需求的时机，两级旁路只在真正来不及时停顿。
+\item \textbf{前移一级的访存通路}：AGU 与 DCache 查表前移到 ISS，Load 命中在 EX2 即可旁路，miss 只停两拍；写队列逐字节转发。
+\item \textbf{可扩展多核 AMP}：每 hart 私有 IROM、ICache、BRAM 与加速器，AGU 按 hart\_id 重定位数据，同一镜像跑满 2/4 核；共享 mailbox 同步并汇总，四核吞吐达两核的 1.99 倍。
+\item \textbf{软硬件协同加速}：CRC8 指令与三类 MMIO 引擎替换 CoreMark 热点，单核提速 5.99 倍；四核板上 120 MHz 实测 56.26 CoreMark/MHz。
+\item \textbf{一条命令流跑两类模型}：miniTensor 把 GEMV 映射为 1×1 卷积，语言模型与手势 CNN 共用 \code{GEMM} 命令流，手势每帧周期降至约 1/5.5。
+\end{itemize}
 
 \subsection{主要性能指标}
 以下分 CPU、CoreMark 与应用三部分列出主要性能指标，测试方法与完整数据见第三部分。
