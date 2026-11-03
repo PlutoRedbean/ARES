@@ -295,6 +295,55 @@ QA & 10,475 条 / 638,076 B / 94\% & 检索式，20 char/s 输出 \\
 \end{figure}
 
 
+\subsection{赛题任务完成情况与指标}
+\label{subsec:task-status}
+本作品参加选题一“基于紫光同创 RISC-V 指令集 CPU 设计”。表~\ref{tab:task-status} 按选题指南的基础任务与高阶任务逐项对照，表~\ref{tab:task-metrics} 按“性能测评标准”给出指标。状态分为“完成”“部分完成”“待补”三类，“部分完成”和“待补”在说明列中写出缺口。
+
+\begin{table}[H]
+\centering
+\caption{选题一任务完成情况}
+\label{tab:task-status}
+\begin{tighttable}
+\begin{tabularx}{\linewidth}{@{}P{2.0cm}P{3.3cm}XC{1.4cm}@{}}
+\toprule
+任务 & 赛题要求 & 本作品实现与证据 & 状态 \\
+\midrule
+\multicolumn{4}{@{}l}{\textbf{基础任务}} \\
+处理器内核构建 & 支持 RV32I 基础整数指令集 & RV32I 全部指令，另加 RV32M、Zicsr 与 custom-0 CRC8；36 个 cpu-tests 全部通过（表~\ref{tab:ares-functional-results}） & 完成 \\
+流水线架构设计 & 不少于 3 级流水，处理数据冲突与分支跳转 & 九级顺序单发射；温度计码时机表达、两级旁路与互锁处理数据冒险，HZU 统一重定向处理控制冒险 & 完成 \\
+外设系统集成 & 集成 UART、GPIO 等基础外设 & UART TX/RX（含 RX FIFO）、开关、按键、数码管、LED、毫秒计时器与机器定时器中断；MSH 双向串口测试通过 & 完成 \\
+\midrule
+\multicolumn{4}{@{}l}{\textbf{高阶任务}} \\
+存储系统优化 & 2 路组相联指令与数据 Cache，优化总线突发传输 & ICache 四路组相联（单核 4 KiB，AMP 32 KiB/hart），DCache 两路组相联 8 KiB、写直达；外设桥四项写队列与逐字节转发；1520 项 DCache 与 2875 次 ICache 响应核对通过 & 完成 \\
+高级控制逻辑 & 动态分支预测器（如 BTB），完整的异常/中断机制 & 16 项 BTB、2 bit Bimodal、8 项 RAS；ECALL/MRET 与精确机器定时器中断；可启动 RT-Thread Nano，自检输出 \code{ARES} \code{RTOS} \code{PASS}，验证时间片抢占、tick 补偿与延时唤醒 & 完成 \\
+AI 加速 & 构建边缘 AI 加速单元，移植 YOLO 或轻量大模型，结合传感器或显示设备 & 自研 miniTensor INT8 协处理器；由 Qwen2.5 蒸馏的 H112 对话模型经 UART 运行；OV5640 手势 CNN 驱动网页全息页面；手势 INT8 287 帧 100\%，板端 8/8 & 完成 \\
+\bottomrule
+\end{tabularx}
+\end{tighttable}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{按选题一测评标准整理的指标}
+\label{tab:task-metrics}
+\begin{tighttable}
+\begin{tabularx}{\linewidth}{@{}P{2.3cm}P{3.0cm}XC{1.4cm}@{}}
+\toprule
+指标 & 赛题口径 & 本作品结果 & 状态 \\
+\midrule
+执行效率 & CoreMark/MHz & 未修改 CoreMark 1.0：2.235012；热点加速变体（非官方分数）：单核 13.384075，四核聚合 56.029283（第~\ref{subsec:ares-current-results}~节） & 完成 \\
+时钟频率 & 满足时钟约束的最高工作频率 & 四核 AMP（每 hart 256 KiB）70 MHz 约束满足，setup WNS +0.945 ns，按 WNS 推算约 75 MHz；200 MHz 违例。当前 32 KiB/hart 及单核配置的 PnR 待补 & 部分完成 \\
+资源效率 & CoreMark / LUTs & 需要与跑分配置一致的单核 post-route LUT 数；现有 PDS 报告为四核 CLMA/CLMS 统计，不能直接换算 & 待补 \\
+测试环境 & riscv32-unknown-elf-gcc；CoreMark v1.0 & \code{riscv64-unknown-elf-gcc} 13.2.0 按 \code{rv32im_zicsr/ilp32} 编译；EEMBC CoreMark 1.0 源码 & 完成 \\
+运行时长 & CoreMark 运行时间不低于 10 s & 现有结果为 100 次迭代、100 MHz 仿真，基线约 0.45 s。100 MHz 下需约 2,240 次（基线）或 13,400 次（全加速）迭代 & 待补 \\
+模型资源与时序 & 模型整体资源、时序、主频 & CPU+miniTensor：CLMA 10,229（35\%）、FF 24,404、DRM 261、APM 62；27 MHz 约束 WNS +12.85 ns，推算上限约 41.9 MHz。相机整机 WNS $-3.83$ ns & 部分完成 \\
+AI 处理效率 & 延迟与识别率 & 手势：每帧约 1.31 M 周期，27 MHz 下 48.5 ms；INT8 287 帧 100\%，板端 8/8；页面响应约 0.2--0.3 s。语言模型：char-GRU 103 char/s（CPU 为 17）；QA 94\%（880/936） & 完成 \\
+流水线效率分析 & 用 ILA 波形分析 CoreMark 关键算法的流水线效率 & 已有 Verilator 周期统计与分支预测分析；板上在线逻辑分析波形尚未采集 & 待补 \\
+\bottomrule
+\end{tabularx}
+\end{tighttable}
+\end{table}
+
 \clearpage
 \section{系统组成及功能说明}
 \subsection{整体介绍}
