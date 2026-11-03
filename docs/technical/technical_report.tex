@@ -3461,16 +3461,6 @@ b5 整机 & CLMA 35\%、DRM 63\%、APM 9\%；27 MHz WNS +12.85 ns \\
 \renewcommand{\thesubsection}{\Alph{section}.\arabic{subsection}}
 \section{复现信息}
 \label{app:repro}
-\subsection{版本与结果记录}
-第三部分的程序与模块复测于 2026 年 11 月 3 日完成，使用提交 \code{bbdc41c} 的 RTL 与本地构建的软件镜像。
-测试所用生成核 \code{rtl/pipeline/core/vsrc/build/Mundus.sv} 的 SHA-256 为：
-\begin{lstlisting}[language={}]
-2a71b86a9f91797577e3bca1035f7738e48215932981d353edb1fda3572e52f0
-\end{lstlisting}
-\code{docs/technical/results.json} 保存复测命令、参数、二进制与 ELF 哈希、日志摘要及哈希；运行日志位于 \code{build/docs-review/}。
-70 MHz PDS 报告为 \code{results/pipeline_amp_board_top.rtr/.ror}，其文件哈希与资源摘要同样记录在 \code{results.json}。
-短复位与 ICache 安装/flush 两项缺陷的复现数据和修改方案分别见 \code{docs/pipeline_reset_analysis.md} 第 11 节和 \code{docs/microarch/pipeline_icache.md}。
-
 \subsection{复测命令}
 单核 CoreMark 各镜像的运行目标如下。它们消费已有镜像；从新检出构建时，先执行 \code{make} \code{coremark-image} 与 \code{make} \code{pipeline-coremark-images}。
 \begin{lstlisting}[language={}]
