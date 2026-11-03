@@ -7,7 +7,7 @@
 | 路径 | 说明 |
 | --- | --- |
 | `technical_report.tex` | 唯一的报告源文件（core + 应用/加速器，TikZ 图全部内联） |
-| `technical_report.pdf` | 合并报告 PDF（74 页） |
+| `technical_report.pdf` | 合并报告 PDF（76 页） |
 | `results.json` | core 组原有结果，未改动 |
 | `application_results.json` | 应用与加速器结果（本部分新增） |
 | `figures/` | 只放图片/PDF 素材，不再放 `.tex` |
@@ -42,6 +42,8 @@ xelatex -interaction=nonstopmode -halt-on-error technical_report.tex
 - 附录 D：应用与加速器复现信息。
 
 报告正文保留 5 张新增核心图（总体架构、miniTensor 架构、GEMV 映射、LLM 路径、手势链路）和 1 组网页截图；core 原有 13 张图与正文内联小图也在同一个文件里，共 20 个 `tikzpicture`。`figures/architecture_sheet.pdf` 是 10 张图的扩展集合，部分图未放进正文。
+
+正文中的手势应用按 8 类词表设计，当前板端只演示/验证了石头、布、剪刀 3 类；其余 5 类已定义、待补样本。
 
 ## 口径
 

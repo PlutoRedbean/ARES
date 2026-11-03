@@ -2343,10 +2343,54 @@ QA & 检索式知识库 & 10,475 条 & 638,076 B & 留出模板 94\% \\
 
 串口采用 115200 8N1 行协议；H112 的 20 token/s 是 50 ms/token 的输出节流，不是模型算力。上电先位流后固件；128 KB loader 装 H88，512 KiB 窗口装 H112 与 QA。这里的优势不是“把 0.5B 搬上板”，而是把 Qwen 的能力压到 152 KB、常驻片上，并用同一套权重跑出 CPU 与加速器两条可对比的路径。
 
+这套设计的好处很直接：权重常驻片上，不靠 DDR 流式加载，首字延迟更稳定；同一套权重有 CPU 和 miniTensor 两条路，质量优先/吞吐优先可以切换；QA 检索兜底，开放问题不会跑飞。表~\ref{tab:h112-demo} 是板端对话节选。
+
+\begin{table}[H]
+\centering
+\caption{H112 板端对话节选}
+\label{tab:h112-demo}
+\begin{tabularx}{\linewidth}{@{}P{4.2cm}X@{}}
+\toprule
+输入 & H112 回复 \\
+\midrule
+hello & hello! how are you? \\
+what is fpga & it is a programmable chip used for hardware design. \\
+what is a cpu & a cpu is a central processing unit. \\
+my name is alice & hello alice! nice to meet you, alice. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+
 \subsubsection{应用二：手势识别}
 \label{par:gesture}
 
 OV5640 输出 720p，取中心 640×480，按 2:1 抽成 320×240 灰度，写入 \mbox{\texttt{0xD010\_0000}}；固件放一个 13×11 格的固定取景框（约 240×165 px），把框内区域 letterbox 到 32×32，量化后送入 miniTensor 的四层 CNN；每帧做 argmax、裕度门限和 3 帧确认，结果经 UART 以 10 Hz 输出。图~\ref{fig:gesture-flow} 给出从摄像头到网页的完整链路。
+
+我们把手势词表设计成 8 类，当前演示只用了其中 3 类（石头/布/剪刀）。分类头本来就是 1×1 的 16→8，现在只用了 3 个通道，剩下 5 个通道正好留给扩展手势；扩到 8 类不需要改 RTL，只换权重和补样本。表~\ref{tab:gesture-vocab} 是这 8 类的词表。
+
+\begin{table}[H]
+\centering
+\caption{手势词表（8 类，当前演示 3 类）}
+\label{tab:gesture-vocab}
+\begin{tighttable}
+\begin{tabularx}{\linewidth}{@{}P{2.2cm}P{3.2cm}P{3.8cm}X@{}}
+\toprule
+手势 & 动作 & 页面动作 & 状态 \\
+\midrule
+石头 & 握拳 & 蓄力、确认 & 已演示 \\
+布 & 张开手掌 & 启动、确认 & 已演示 \\
+剪刀 & 剪刀手 & 模式切换 & 已演示 \\
+OK & 拇指食指成环 & 确认、选择 & 已定义，待补样本 \\
+点赞 & 竖拇指 & 点赞、继续 & 已定义，待补样本 \\
+指向 & 食指前指 & 激光、指向 & 已定义，待补样本 \\
+停止 & 手掌前推 & 停止、复位 & 已定义，待补样本 \\
+捏合 & 拇指食指捏合 & 缩放、选择 & 已定义，待补样本 \\
+\bottomrule
+\end{tabularx}
+\end{tighttable}
+\end{table}
+
 
 \begin{figure}[htbp]
 \centering
@@ -2396,7 +2440,7 @@ OV5640 输出 720p，取中心 640×480，按 2:1 抽成 320×240 灰度，写�
 \label{fig:gesture-flow}
 \end{figure}
 
-网络为 conv3x3 4→8、8→16、16→16，接 1×1 head 16→8；3,920 参数、约 745K MAC。287 帧（石头 68 / 布 109 / 剪刀 110）上 INT8 全量 100\%，浮点增强 92\%，板端 8/8 与离线一致。每帧 1,936 条命令、约 1.31 M 周期：100 MHz 仿真 13.1 ms，27 MHz 板级 48.5 ms；串口 10 Hz，连续 3 帧确认使界面约 0.2 s 更新。\begin{table}[H]
+网络为 conv3x3 4→8、8→16、16→16，接 1×1 head 16→8；3,920 参数、约 745K MAC。当前演示的 3 类采集了 287 帧（石头 68 / 布 109 / 剪刀 110），INT8 全量 100\%，浮点增强 92\%，板端 8/8 与离线一致。每帧 1,936 条命令、约 1.31 M 周期：100 MHz 仿真 13.1 ms，27 MHz 板级 48.5 ms；串口 10 Hz，连续 3 帧确认使界面约 0.2 s 更新。\begin{table}[H]
 \centering
 \caption{手势数据集与精度}
 \label{tab:gesture-results}
@@ -2413,7 +2457,7 @@ OV5640 输出 720p，取中心 640×480，按 2:1 抽成 320×240 灰度，写�
 \end{tabularx}
 \end{table}
 
-它的好处是“小阵列 + INT8 也能在 10 Hz 下跑完整 CNN，并与检测器共用同一加速器”。
+它的好处是“小阵列 + INT8 也能在 10 Hz 下跑完整 CNN，并与检测器共用同一加速器”。从设计上看，固定取景框加 letterbox 让手离镜头远近、位置偏一点都能识别；裕度门限加连续 3 帧确认抑制抖动，没有对比度时直接报 none，避免乱报；8 类词表只换分类头，RTL 和 10 Hz 链路不变。也就是说，它不是一个“只能做石头剪刀布”的演示，而是一个可扩展到 8 类的交互入口；受演示时间限制，当前只把 3 类做到板端，其余 5 类补样本即可。
 
 \subsubsection{演示层：上位机}
 \label{par:web}
@@ -3167,7 +3211,7 @@ A0 CPU / miniTensor & 17 / 103 char/s；0/40 golden；INT8 文本质量下降 \\
 H112 & 140,742 参数 / 152,056 B；20 token/s 输出节流 \\
 H88 & 107,000 参数 / 118,168 B；128 KB loader \\
 QA & 10,475 条 / 638,076 B；留出模板 94\%（880/936） \\
-手势 & 287 帧 INT8 100\%；板端 8/8；10 Hz；约 0.2 s 更新 \\
+手势 & 词表 8 类，当前演示 3 类；287 帧 INT8 100\%、板端 8/8；10 Hz；约 0.2 s 更新 \\
 每帧命令 / 周期 & 1,936 条 / 约 1.31 M（100 MHz 13.1 ms；27 MHz 48.5 ms） \\
 b5 整机 & CLMA 35\%、DRM 63\%、APM 9\%；27 MHz WNS +12.85 ns \\
 网页 & 33 单测、15/15 端到端；约 608 kB；240 FPS \\
