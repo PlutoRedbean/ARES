@@ -384,7 +384,7 @@ AI 加速 & 构建边缘 AI 加速单元，移植 YOLO 或轻量大模型，结�
 
 \begin{table}[H]
 \centering
-\caption{按选题一测评标准整理的指标}
+\caption{选题一测评标准指标}
 \label{tab:task-metrics}
 \begin{tighttable}
 \begin{tabularx}{\linewidth}{@{}P{2.3cm}P{3.0cm}XC{1.4cm}@{}}
@@ -394,7 +394,7 @@ AI 加速 & 构建边缘 AI 加速单元，移植 YOLO 或轻量大模型，结�
 执行效率 & CoreMark/MHz & 未加速 CoreMark 1.0：2.235012；加速后 CoreMark：单核 13.384075，四核聚合 56.029283（第~\ref{subsec:ares-current-results}~节）；板上 120 MHz 四核聚合实测 56.261253 & 完成 \\
 时钟频率 & 满足时钟约束的最高工作频率 & 120 MHz 约束已满足 & 完成 \\
 资源效率 & CoreMark / LUTs & 需要与跑分配置一致的单核 post-route LUT 数；现有 PDS 报告为四核 CLMA/CLMS 统计，不能直接换算 & 待补 \\
-测试环境 & riscv32-unknown-elf-gcc；CoreMark v1.0 & \code{riscv64-unknown-elf-gcc} 13.2.0 按 \code{rv32im_zicsr/ilp32} 编译；EEMBC CoreMark 1.0 源码；120 MHz 板上镜像为 GCC 14.2.0 & 完成 \\
+测试环境 & riscv32-unknown-elf-gcc；CoreMark v1.0 & \code{riscv32-unknown-elf-gcc} 13.2.0 按 \code{rv32im_zicsr/ilp32} 编译；EEMBC CoreMark 1.0 源码；120 MHz 板上镜像为 GCC 14.2.0 & 完成 \\
 运行时长 & CoreMark 运行时间不低于 10 s & 板上 120 MHz 四核 MULTITHREAD：每 hart 17,500 次、共 70,000 次迭代，运行 10.368 s（表~\ref{tab:ares-board-coremark}） & 完成 \\
 模型资源与时序 & 模型整体资源、时序、主频 & CPU+miniTensor：CLMA 10,229（35\%）、FF 24,404、DRM 261、APM 62；27 MHz 约束 WNS +12.85 ns，推算上限约 41.9 MHz & 完成 \\
 AI 处理效率 & 延迟与识别率 & 手势（3 类演示/8 类词表）：每帧约 1.31 M 周期，27 MHz 下 48.5 ms；INT8 287 帧 100\%，板端 8/8；页面响应约 0.2--0.3 s。语言模型：char-GRU 103 char/s（CPU 为 17）；QA 94\%（880/936） & 完成 \\
@@ -2288,7 +2288,7 @@ Verilator~\cite{verilator} 将 RTL 编译为 C++ 模型，测试台负责时钟�
 \paragraph{软件测试环境}
 
 主机环境为 Ubuntu 24.04.3 LTS、Verilator 5.046 和 Chisel 7.0.0-M2；
-CoreMark 等目标程序由 \code{riscv64-unknown-elf-gcc} 13.2.0 按
+CoreMark 等目标程序由 \code{riscv32-unknown-elf-gcc} 13.2.0 按
 \code{rv32im_zicsr/ilp32} 编译；FPGA 实现使用 Pango PDS 2025.2-SP3。
 测试程序与裸机运行时环境共同编译，
 链接至处理器能够访问的地址空间，再由脚本生成 BIN 和 IROM/DRAM HEX。
@@ -3513,22 +3513,5 @@ FPGA 先通过 SCCB 总线完成传感器上电时序和寄存器配置，将输
   \caption{手势识别与网页控制的软件方案}
   \label{fig:gesture-software-path}
 \end{figure}
-
-
-\section{应用与加速器复现信息}
-\label{app:app-repro}
-
-应用代码、模型、权重、287 帧数据集与上位机源码分别在 \code{5-stage-baseline/} 与 \code{ares-web-controller/}。主要复现命令：
-
-\begin{singlespace}
-\begin{lstlisting}[language={},numbers=none]
-cd 5-stage-baseline && make yolo        # golden diff 0
-cd 5-stage-baseline/yolo_gesture && make test
-cd 5-stage-baseline/llm && bash tools/run_a0.sh
-cd ares-web-controller && npm test
-\end{lstlisting}
-\end{singlespace}
-
-口径：H112 152,056 B 用 512 KiB 窗口，H88 118,168 B 用 128 KB loader；20 token/s 是输出节流，QA 的 5 tok/s 是 4 字符/token 的显示口径。
 
 \end{document}
