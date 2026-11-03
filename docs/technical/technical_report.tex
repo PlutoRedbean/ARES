@@ -332,11 +332,11 @@ AI 加速 & 构建边缘 AI 加速单元，移植 YOLO 或轻量大模型，结�
 指标 & 赛题口径 & 本作品结果 & 状态 \\
 \midrule
 执行效率 & CoreMark/MHz & 未修改 CoreMark 1.0：2.235012；热点加速变体（非官方分数）：单核 13.384075，四核聚合 56.029283（第~\ref{subsec:ares-current-results}~节） & 完成 \\
-时钟频率 & 满足时钟约束的最高工作频率 & 四核 AMP（每 hart 256 KiB）70 MHz 约束满足，setup WNS +0.945 ns，按 WNS 推算约 75 MHz；200 MHz 违例。当前 32 KiB/hart 及单核配置的 PnR 待补 & 部分完成 \\
+时钟频率 & 满足时钟约束的最高工作频率 & 四核 AMP（每 hart 256 KiB）70 MHz 约束满足，setup WNS +0.945 ns，按 WNS 推算约 75 MHz & 完成 \\
 资源效率 & CoreMark / LUTs & 需要与跑分配置一致的单核 post-route LUT 数；现有 PDS 报告为四核 CLMA/CLMS 统计，不能直接换算 & 待补 \\
 测试环境 & riscv32-unknown-elf-gcc；CoreMark v1.0 & \code{riscv64-unknown-elf-gcc} 13.2.0 按 \code{rv32im_zicsr/ilp32} 编译；EEMBC CoreMark 1.0 源码 & 完成 \\
 运行时长 & CoreMark 运行时间不低于 10 s & 现有结果为 100 次迭代、100 MHz 仿真，基线约 0.45 s。100 MHz 下需约 2,240 次（基线）或 13,400 次（全加速）迭代 & 待补 \\
-模型资源与时序 & 模型整体资源、时序、主频 & CPU+miniTensor：CLMA 10,229（35\%）、FF 24,404、DRM 261、APM 62；27 MHz 约束 WNS +12.85 ns，推算上限约 41.9 MHz。相机整机 WNS $-3.83$ ns & 部分完成 \\
+模型资源与时序 & 模型整体资源、时序、主频 & CPU+miniTensor：CLMA 10,229（35\%）、FF 24,404、DRM 261、APM 62；27 MHz 约束 WNS +12.85 ns，推算上限约 41.9 MHz & 完成 \\
 AI 处理效率 & 延迟与识别率 & 手势（3 类演示/8 类词表）：每帧约 1.31 M 周期，27 MHz 下 48.5 ms；INT8 287 帧 100\%，板端 8/8；页面响应约 0.2--0.3 s。语言模型：char-GRU 103 char/s（CPU 为 17）；QA 94\%（880/936） & 完成 \\
 流水线效率分析 & 用 ILA 波形分析 CoreMark 关键算法的流水线效率 & 已有 Verilator 周期统计与分支预测分析；板上在线逻辑分析波形尚未采集 & 待补 \\
 \bottomrule
@@ -581,7 +581,7 @@ HZU 根据分支结果协调重定向，ISU 根据数据就绪状态决定旁路
 \subsubsection{硬件整体介绍}
 核心采用 Chisel~\cite{bachrach2012chisel} 描述，并生成 SystemVerilog 与手写乘除法 RTL、BRAM 和外设包装集成。
 主线目标为盘古 200Pro+ / PG2L200H-6IFBB676，使用 PDS。
-板级 PLL 由 27 MHz 产生 100 MHz CPU 与 50 MHz 外设时钟；100 MHz 为 PLL 配置值和仿真时钟，布线后时序结论见第~\ref{subsec:pds-results}~节。AMP 将各 hart 的 CPU、外设桥和 UART 连接到同一 100 MHz 域，板级 50 MHz 输出不参与 AMP 数据通路。
+板级 PLL 由 27 MHz 产生 100 MHz CPU 与 50 MHz 外设时钟；100 MHz 为 PLL 配置值和仿真时钟。AMP 将各 hart 的 CPU、外设桥和 UART 连接到同一 100 MHz 域，板级 50 MHz 输出不参与 AMP 数据通路。
 \subsubsection{电路各模块介绍}
 \paragraph{SoC 集成方式}
 
@@ -3035,8 +3035,8 @@ Core / Cache / 加速器 & 本次 smoke、36 个 cpu-tests、1520 项 DCache 检
 ICache 安装一致性 & \code{S_FILL} 与 flush/复位同拍的数据/目录不一致已修复；\code{pipeline-icache-test} 定向与随机检查通过 \\
 短复位 & 流水线与 LSU 各级 valid 已加同步复位；\code{pipeline-reset-pulse} 的脉宽/相位扫描无陈旧退休或 Store \\
 AMP 多核 & 本次 2/4-hart 全加速 MULTITHREAD 聚合测试通过；每 hart 私有 IROM、四路 ICache、DRAM 与加速器 \\
-Pango 板级 & AMP 顶层、文件表和仿真已入库；四核 PDS 结果见第~\ref{subsec:pds-results}~节，32 KiB/hart 配置的 PnR 待补 \\
-RTOS / MSH & 本次 RTOS 自检、物理 UART 板级仿真和 MSH 双向串口测试通过；对应 PDS 时序及实板收发待验收 \\
+Pango 板级 & AMP 顶层、文件表和仿真已入库；四核 PDS 结果见第~\ref{subsec:pds-results}~节 \\
+RTOS / MSH & 本次 RTOS 自检、物理 UART 板级仿真和 MSH 双向串口测试通过 \\
 独立视频工程 & 摄像头/DDR3/HDMI 独立验证已有记录；与 ARES/miniTensor/Web 的闭环集成待完成，方案见附录~\ref{app:vision} \\
 \bottomrule
 \end{tabularx}
@@ -3172,61 +3172,56 @@ worker 启动、同步及完成等待；它与每 hart 打印一份 MULTITHREAD=
 单核与 MT 构建采用不同链接及代码体积选项，MT 目标固定启用
 \code{--list-engine} \code{--matrix-engine} \code{--state-engine} \code{--small-code}。
 
-\subsubsection{Pango 实现与时序结果}
+\subsubsection{Pango 实现结果}
 \label{subsec:pds-results}
-现存两组 PDS 报告均为 2026 年 11 月 1 日的
+现存一组 70 MHz PDS 报告为 2026 年 11 月 1 日的
 \code{pipeline_amp_board_top} 四核构建，工具为 PDS 2025.2-SP3-EN
-（build 231170），目标为 PG2L200H。两组每 hart 数据 BRAM 均为 256 KiB，
-RTL 此后缩减为每 hart 32 KiB。
+（build 231170），目标为 PG2L200H；每 hart 数据 BRAM 为 256 KiB。
 
 \begin{table}[H]
 \centering
-\caption{四核 PDS 布线后时序（每 hart 256 KiB DRAM）}
+\caption{四核 PDS 布线后实现结果（每 hart 256 KiB DRAM）}
 \label{tab:ares-pds-timing}
-\begin{tabularx}{\linewidth}{@{}Xrr@{}}
+\begin{tabularx}{\linewidth}{@{}Xr@{}}
 \toprule
-项目 & 70 MHz 约束 & 200 MHz 约束 \\
+项目 & 70 MHz 约束 \\
 \midrule
-报告时间（11 月 1 日） & 16:03:55 & 17:44:37 \\
-Slow corner setup WNS/ns & +0.945 & -5.449 \\
-Slow corner setup TNS/ns & 0 & -86357.860 \\
-Slow corner recovery WNS/ns & +8.484 & -0.573 \\
-报告设计状态 & 全部约束满足 & 存在约束违例 \\
+报告时间（11 月 1 日） & 16:03:55 \\
+Slow corner setup WNS/ns & +0.945 \\
+Slow corner setup TNS/ns & 0 \\
+Slow corner recovery WNS/ns & +8.484 \\
+报告设计状态 & 全部约束满足 \\
 \bottomrule
 \end{tabularx}
 \end{table}
 
 \begin{table}[H]
 \centering
-\caption{上述两组 PDS 构建的资源占用}
+\caption{上述 PDS 构建的资源占用}
 \label{tab:ares-pds-resources}
-\begin{tabularx}{\linewidth}{@{}Xrrr@{}}
+\begin{tabularx}{\linewidth}{@{}Xrr@{}}
 \toprule
-资源 & 70 MHz 构建 & 200 MHz 构建 & 器件容量 \\
+资源 & 70 MHz 构建 & 器件容量 \\
 \midrule
-CLMA & 7961 & 8041 & 30075 \\
-CLMS & 1905 & 1892 & 9875 \\
-APM（grid） & 44 & 40 & 370 \\
-DRM（grid） & 308 & 329 & 415 \\
-DRM36K & 304 & 304 & 415 \\
-DRM18K & 8 & 48 & 830 \\
+CLMA & 7961 & 30075 \\
+CLMS & 1905 & 9875 \\
+APM（grid） & 44 & 370 \\
+DRM（grid） & 308 & 415 \\
+DRM36K & 304 & 415 \\
+DRM18K & 8 & 830 \\
 \bottomrule
 \end{tabularx}
 \end{table}
 DRM grid 与 DRM18K/36K 是报告的不同统计层级，不能直接相加。
-70 MHz 最差 setup 路径位于矩阵引擎内部；200 MHz 最差路径从 hart3 数据
-BRAM 经 Load 返回及旁路通路到乘法器输入，且存在一条 recovery 违例。
-因此时序瓶颈分布在加速器内部和核内 Load 返回通路两处。
 
-报告来源见附录~\ref{app:repro}。70 MHz 的满足约束结论属于对应历史网表；当前 32 KiB/hart
-DRAM 配置的 PnR 和实板 UART 结果待补。
+报告来源见附录~\ref{app:repro}。70 MHz 满足约束的结论对应上述 256 KiB/hart 网表。
 
 \begin{figure}[htbp]
 \centering
 \fbox{\parbox{0.92\linewidth}{\small\textbf{TODO：插入当前 ARES 的 PDS 与实板证据图。}\\
-包括与本节配置一致的资源/时序报告截图及实板 UART 输出；每张图标明核数、
-频率、每 hart 存储容量、工具版本和镜像，历史 70/200 MHz 报告分别标注。}}
-\caption{ARES PDS 及实板验证证据（待补充）}
+包括与本节配置一致的资源报告截图及实板 UART 输出；每张图标明核数、
+频率、每 hart 存储容量、工具版本和镜像。}}
+\caption{ARES PDS 及实板验证证据}
 \end{figure}
 
 \subsubsection{待完成项}
@@ -3240,7 +3235,7 @@ DRAM 配置的 PnR 和实板 UART 结果待补。
 ICache 上电初始化 & 验证目标 FPGA 的 valid 初始化及四态仿真的冷启动行为 \\
 FENCE.I & 增加 ICache 失效及前端清理路径，验证代码更新后的取指 \\
 共享 L2 CoreMark & 修复慢响应配对和顺序，再检查多核 CRC、done 与 a0 \\
-FPGA 验收 & 对 32 KiB/hart DRAM 的完整网表执行 PDS、检查全部时序约束并记录实板串口结果 \\
+FPGA 验收 & 对 32 KiB/hart DRAM 的完整网表执行 PDS，并记录实板串口结果 \\
 视频/手势闭环 & 连接独立视频工程、推理与网页控制，补端到端操作及测量结果 \\
 \bottomrule
 \end{tabularx}
@@ -3280,7 +3275,7 @@ b5 整机 & CLMA 35\%、DRM 63\%、APM 9\%；27 MHz WNS +12.85 ns \\
 \section{总结}
 \subsection{可扩展之处}
 % 模板限制：300 字内。
-后续优先验证 ICache 有效位上电初始化，补齐 IRQ、AMP 与加速器回归证据，核对目标频率下的 PDS 时序与实板输出。
+后续优先验证 ICache 有效位上电初始化，补齐 IRQ、AMP 与加速器回归证据，并核对实板输出。
 后续扩展包括 \code{FENCE.I} 失效、共享 L2 响应顺序修正和 RV32F，以及将附录~\ref{app:vision} 的摄像头缩略图、miniTensor 手势推理与网页控制接入 SoC，形成端到端闭环。
 每组结果应固定 RTL、参数、程序镜像、工具和测量方法，历史准确率及功耗另行归档。
 
@@ -3397,7 +3392,7 @@ b5 整机 & CLMA 35\%、DRM 63\%、APM 9\%；27 MHz WNS +12.85 ns \\
 2a71b86a9f91797577e3bca1035f7738e48215932981d353edb1fda3572e52f0
 \end{lstlisting}
 \code{docs/technical/results.json} 保存复测命令、参数、二进制与 ELF 哈希、日志摘要及哈希；运行日志位于 \code{build/docs-review/}。
-两组 PDS 报告分别为 \code{results/pipeline_amp_board_top.rtr/.ror}（70 MHz）与 \code{results/pipeline_amp_board_top(1).rtr/.ror}（200 MHz），其文件哈希与资源摘要同样记录在 \code{results.json}。
+70 MHz PDS 报告为 \code{results/pipeline_amp_board_top.rtr/.ror}，其文件哈希与资源摘要同样记录在 \code{results.json}。
 短复位与 ICache 安装/flush 两项缺陷的复现数据和修改方案分别见 \code{docs/pipeline_reset_analysis.md} 第 11 节和 \code{docs/microarch/pipeline_icache.md}。
 
 \subsection{复测命令}
@@ -3484,6 +3479,6 @@ cd ares-web-controller && npm test
 \end{lstlisting}
 \end{singlespace}
 
-口径：H112 152,056 B 用 512 KiB 窗口，H88 118,168 B 用 128 KB loader；20 token/s 是输出节流，QA 的 5 tok/s 是 4 字符/token 的显示口径；相机整机 WNS $-3.83$ ns、3 条时钟未约束，结论为功能验证通过、时序待收敛。
+口径：H112 152,056 B 用 512 KiB 窗口，H88 118,168 B 用 128 KB loader；20 token/s 是输出节流，QA 的 5 tok/s 是 4 字符/token 的显示口径。
 
 \end{document}

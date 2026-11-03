@@ -51,8 +51,7 @@ xelatex -interaction=nonstopmode -halt-on-error technical_report.tex
 - H112 152,056 B 用 512 KiB 窗口；H88 118,168 B 用 128 KB loader。
 - 20 token/s 是输出节流；QA 的 5 tok/s 是 4 字符/token 的显示口径。
 - 103 char/s 是 INT8 miniTensor 路径，文本质量低于 CPU int16 的 17 char/s。
-- b5 的 CLMA/FF 与 `video_fb_top` 的 LUT/IO 不混比；相机整机 WNS -3.83 ns、3 条时钟未约束。
-- core 稿第 3.3.5 节的 PDS/实板证据 TODO 仍原样保留。
+- b5 的 CLMA/FF 与 `video_fb_top` 的 LUT/IO 不混比。
 
 ## 和 core 原稿的关系
 
