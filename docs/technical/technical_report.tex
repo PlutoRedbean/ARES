@@ -221,7 +221,7 @@ ARES 是以 Mundus 32 位顺序单发射处理器为核心的嵌入式 SoC，主
 流水线由取指请求、取指响应、ID、ISS、EX1--EX4 和 WB 共九级组成；取指侧使用请求/响应握手、两项在途元数据队列和八项前端队列，取指延迟随 Cache 命中与回填变化。
 默认配置采用 16 项 Bimodal/BTB、8 项 RAS、四路 ICache、8 KiB 两路 DCache，以及外设桥中的四项写队列。
 SoC 提供单核和 2/4-hart AMP 配置，并集成矩阵、状态机和链表 MMIO 加速器；单核可运行 RT-Thread Nano 与 MSH。
-验证采用 Verilator 程序回归、模块定向测试与板级仿真，实现使用 PDS。在 100 MHz 仿真时钟下，未修改的 CoreMark 基线为 2.235012 CoreMark/MHz；以 CRC8 指令和三类引擎替换热点函数后，单核全加速为 13.384075 CoreMark/MHz，四核全加速 MULTITHREAD 聚合为 56.029283 CoreMark/MHz。
+验证采用 Verilator 程序回归、模块定向测试与板级仿真，实现使用 PDS。在 100 MHz 仿真时钟下，未修改的 CoreMark 基线为 2.235012 CoreMark/MHz；以 CRC8 指令和三类引擎替换热点函数后，单核全加速为 13.384075 CoreMark/MHz，四核全加速 MULTITHREAD 聚合为 56.029283 CoreMark/MHz。盘古板卡上四核 AMP 在 120 MHz 下实测聚合 56.261253 CoreMark/MHz，运行 10.37 s，CRC 校验通过。
 
 % ===== 新增：应用与加速器摘要 =====
 作品同时集成自研 miniTensor INT8 协处理器：4×4 阵列、行式 UB、向量单元与定点 \mbox{epilogue}，把卷积和 GEMV 统一到同一条命令流。应用侧以 Qwen2.5-0.5B-Instruct 构建语料、把能力压缩到 152,056 B 的 H112，char-GRU 由 17 提升到 103 char/s；手势 287 帧 INT8 100\%、板端 8/8，并驱动 Three.js 全息页面。
@@ -274,7 +274,7 @@ AGU 在 ISS 提前计算访存地址，三阶段 LSU 区分 DCache 命中快路�
 \midrule
 处理器与扩展 & Mundus，顺序单发射；RV32IM、Zicsr、基础机器模式与 CRC8 \\
 FPGA / 工具链 & PG2L200H-6IFBB676 / Pango PDS \\
-板级时钟 & 27 MHz 输入，PLL 配置 CPU 100 MHz / 外设 50 MHz；PDS 实现结果见第~\ref{subsec:pds-results}~节 \\
+板级时钟 & 27 MHz 输入，RTL 默认 PLL 配置 CPU 100 MHz / 外设 50 MHz；四核 AMP 板级构建以 120 MHz 满足约束并上板运行，见第~\ref{subsec:pds-results}~节 \\
 预测器与前端 & 16 项 BTB、2 bit Bimodal、8 项 RAS；8 项前端队列 \\
 存储层次 & 单核默认 4 KiB 四路 ICache、8 KiB 两路 DCache \\
 系统配置 & 单核；2/4-hart 私有存储 AMP；共享 L2 实验版 \\
@@ -380,11 +380,11 @@ AI 加速 & 构建边缘 AI 加速单元，移植 YOLO 或轻量大模型，结�
 \toprule
 指标 & 赛题口径 & 本作品结果 & 状态 \\
 \midrule
-执行效率 & CoreMark/MHz & 未修改 CoreMark 1.0：2.235012；热点加速变体（非官方分数）：单核 13.384075，四核聚合 56.029283（第~\ref{subsec:ares-current-results}~节） & 完成 \\
-时钟频率 & 满足时钟约束的最高工作频率 & 四核 AMP（每 hart 256 KiB）70 MHz 约束满足，setup WNS +0.945 ns，按 WNS 推算约 75 MHz；200 MHz 违例。当前 32 KiB/hart 及单核配置的 PnR 待补 & 部分完成 \\
+执行效率 & CoreMark/MHz & 未修改 CoreMark 1.0：2.235012；热点加速变体（非官方分数）：单核 13.384075，四核聚合 56.029283（第~\ref{subsec:ares-current-results}~节）；板上 120 MHz 四核聚合实测 56.261253 & 完成 \\
+时钟频率 & 满足时钟约束的最高工作频率 & 120 MHz 约束已满足 & 完成 \\
 资源效率 & CoreMark / LUTs & 需要与跑分配置一致的单核 post-route LUT 数；现有 PDS 报告为四核 CLMA/CLMS 统计，不能直接换算 & 待补 \\
-测试环境 & riscv32-unknown-elf-gcc；CoreMark v1.0 & \code{riscv64-unknown-elf-gcc} 13.2.0 按 \code{rv32im_zicsr/ilp32} 编译；EEMBC CoreMark 1.0 源码 & 完成 \\
-运行时长 & CoreMark 运行时间不低于 10 s & 现有结果为 100 次迭代、100 MHz 仿真，基线约 0.45 s。100 MHz 下需约 2,240 次（基线）或 13,400 次（全加速）迭代 & 待补 \\
+测试环境 & riscv32-unknown-elf-gcc；CoreMark v1.0 & \code{riscv64-unknown-elf-gcc} 13.2.0 按 \code{rv32im_zicsr/ilp32} 编译；EEMBC CoreMark 1.0 源码；120 MHz 板上镜像为 GCC 14.2.0 & 完成 \\
+运行时长 & CoreMark 运行时间不低于 10 s & 板上 120 MHz 四核 MULTITHREAD：每 hart 17,500 次、共 70,000 次迭代，运行 10.368 s（表~\ref{tab:ares-board-coremark}） & 完成 \\
 模型资源与时序 & 模型整体资源、时序、主频 & CPU+miniTensor：CLMA 10,229（35\%）、FF 24,404、DRM 261、APM 62；27 MHz 约束 WNS +12.85 ns，推算上限约 41.9 MHz。相机整机 WNS $-3.83$ ns & 部分完成 \\
 AI 处理效率 & 延迟与识别率 & 手势：每帧约 1.31 M 周期，27 MHz 下 48.5 ms；INT8 287 帧 100\%，板端 8/8；页面响应约 0.2--0.3 s。语言模型：char-GRU 103 char/s（CPU 为 17）；QA 94\%（880/936） & 完成 \\
 流水线效率分析 & 用 ILA 波形分析 CoreMark 关键算法的流水线效率 & 已有 Verilator 周期统计与分支预测分析；板上在线逻辑分析波形尚未采集 & 待补 \\
@@ -3133,7 +3133,7 @@ Core / Cache / 加速器 & 本次 smoke、36 个 cpu-tests、1520 项 DCache 检
 ICache 安装一致性 & \code{S_FILL} 与 flush/复位同拍的数据/目录不一致已修复；\code{pipeline-icache-test} 定向与随机检查通过 \\
 短复位 & 流水线与 LSU 各级 valid 已加同步复位；\code{pipeline-reset-pulse} 的脉宽/相位扫描无陈旧退休或 Store \\
 AMP 多核 & 本次 2/4-hart 全加速 MULTITHREAD 聚合测试通过；每 hart 私有 IROM、四路 ICache、DRAM 与加速器 \\
-Pango 板级 & AMP 顶层、文件表和仿真已入库；四核 PDS 结果见第~\ref{subsec:pds-results}~节，32 KiB/hart 配置的 PnR 待补 \\
+Pango 板级 & AMP 顶层、文件表和仿真已入库；四核 AMP 以 120 MHz 满足约束并在板上通过 CoreMark，见第~\ref{subsec:pds-results}~节；对应 PDS 报告待归档 \\
 RTOS / MSH & 本次 RTOS 自检、物理 UART 板级仿真和 MSH 双向串口测试通过；对应 PDS 时序及实板收发待验收 \\
 独立视频工程 & 摄像头/DDR3/HDMI 独立验证已有记录；与 ARES/miniTensor/Web 的闭环集成待完成，方案见附录~\ref{app:vision} \\
 \bottomrule
@@ -3316,15 +3316,41 @@ DRM grid 与 DRM18K/36K 是报告的不同统计层级，不能直接相加。
 BRAM 经 Load 返回及旁路通路到乘法器输入，且存在一条 recovery 违例。
 因此时序瓶颈分布在加速器内部和核内 Load 返回通路两处。
 
-报告来源见附录~\ref{app:repro}。70 MHz 的满足约束结论属于对应历史网表；当前 32 KiB/hart
-DRAM 配置的 PnR 和实板 UART 结果待补。
+报告来源见附录~\ref{app:repro}。上述 70/200 MHz 结论属于 256 KiB/hart 的历史网表。
+
+此后四核 AMP 板级构建以 120 MHz 约束完成实现并满足时序，在盘古板卡上运行四核全加速 MULTITHREAD CoreMark。
+每 hart 迭代 17,500 次，hart0 汇总输出单份报告，结果见表~\ref{tab:ares-board-coremark}，串口输出见图~\ref{fig:board-coremark}。
+
+\begin{table}[H]
+\centering
+\caption{板上 120 MHz 四核 MULTITHREAD CoreMark 结果}
+\label{tab:ares-board-coremark}
+\begin{tabularx}{\linewidth}{@{}P{4.2cm}X@{}}
+\toprule
+项目 & 结果 \\
+\midrule
+CPU 时钟 & 120 MHz \\
+并行方式 & \code{ares-mt-mbox}，4 hart \\
+迭代数 & 每 hart 17,500，共 70,000 \\
+Total ticks & 1,244,195,521 \\
+运行时间 & 10.368296 s \\
+Iterations/Sec & 6751.350457 \\
+聚合 CoreMark/MHz & 56.261253 \\
+编译器 & GCC 14.2.0 \\
+CRC（4 个 context 一致） & \code{seedcrc=0xe9f5}，\code{crclist=0xe714}，\code{crcmatrix=0x1fd7}，\code{crcstate=0x8e3a}，\code{crcfinal=0xd340} \\
+校验 & \code{CoreMark} \code{PASS} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+板上聚合分数与表~\ref{tab:ares-mt-coremark} 中 100 MHz 仿真的四核结果 56.029283 接近；\code{crcfinal} 随每 context 迭代数变化，17,500 次对应 \code{0xd340}。
+该结果同样属于热点加速变体，不作为 EEMBC 官方分数。120 MHz 构建的 PDS 资源与时序报告待归档。
 
 \begin{figure}[htbp]
 \centering
-\fbox{\parbox{0.92\linewidth}{\small\textbf{TODO：插入当前 ARES 的 PDS 与实板证据图。}\\
-包括与本节配置一致的资源/时序报告截图及实板 UART 输出；每张图标明核数、
-频率、每 hart 存储容量、工具版本和镜像，历史 70/200 MHz 报告分别标注。}}
-\caption{ARES PDS 及实板验证证据（待补充）}
+\includegraphics[width=0.45\linewidth]{board_coremark_mt_120m.png}
+\caption{板上 120 MHz 四核 MULTITHREAD CoreMark 串口输出}
+\label{fig:board-coremark}
 \end{figure}
 
 \subsubsection{待完成项}
@@ -3338,7 +3364,7 @@ DRAM 配置的 PnR 和实板 UART 结果待补。
 ICache 上电初始化 & 验证目标 FPGA 的 valid 初始化及四态仿真的冷启动行为 \\
 FENCE.I & 增加 ICache 失效及前端清理路径，验证代码更新后的取指 \\
 共享 L2 CoreMark & 修复慢响应配对和顺序，再检查多核 CRC、done 与 a0 \\
-FPGA 验收 & 对 32 KiB/hart DRAM 的完整网表执行 PDS、检查全部时序约束并记录实板串口结果 \\
+FPGA 验收 & 归档 120 MHz 四核构建的 PDS 资源与时序报告，补单核配置的 PnR 与实板结果 \\
 视频/手势闭环 & 连接独立视频工程、推理与网页控制，补端到端操作及测量结果 \\
 \bottomrule
 \end{tabularx}
@@ -3378,7 +3404,7 @@ b5 整机 & CLMA 35\%、DRM 63\%、APM 9\%；27 MHz WNS +12.85 ns \\
 \section{总结}
 \subsection{可扩展之处}
 % 模板限制：300 字内。
-后续优先验证 ICache 有效位上电初始化，补齐 IRQ、AMP 与加速器回归证据，核对目标频率下的 PDS 时序与实板输出。
+后续优先验证 ICache 有效位上电初始化，补齐 IRQ、AMP 与加速器回归证据，归档 120 MHz 构建的 PDS 时序报告。
 后续扩展包括 \code{FENCE.I} 失效、共享 L2 响应顺序修正和 RV32F，以及将附录~\ref{app:vision} 的摄像头缩略图、miniTensor 手势推理与网页控制接入 SoC，形成端到端闭环。
 每组结果应固定 RTL、参数、程序镜像、工具和测量方法，历史准确率及功耗另行归档。
 
