@@ -596,21 +596,21 @@ HZU 根据分支结果协调重定向，ISU 根据数据就绪状态决定旁路
 \begin{tikzpicture}[ares, x=1cm, y=1cm]
 % ================= SoC row =================
 \node[blk=aresBlue, text width=3.0cm, minimum height=1.45cm] (cpu) at (1.8,7.7)
-  {Mundus 九级核\\\sub{RV32IM · L1I · uncached}};
+  {Mundus 九级核};
 \node[blk=aresTeal, text width=3.0cm, minimum height=1.0cm] (mmio) at (1.8,6.15)
-  {MMIO 窗口\\\sub{0xE0000000}\\\sub{8 个寄存器}};
+  {MMIO 窗口};
 \draw[dat] (cpu) -- (mmio);
 
 \draw[grp=aresPurple] (4.25,5.55) rectangle (10.45,8.95);
 \node[gtitle=aresPurple] at (4.25,8.95) {miniTensor INT8 协处理器};
 \node[blk=aresPurple, text width=2.25cm, minimum height=1.1cm] (host) at (5.60,8.00)
-  {MMIO 命令适配\\命令 FIFO 64 项};
+  {命令 FIFO};
 \node[blk=aresPurple, text width=2.25cm, minimum height=1.1cm] (core) at (5.60,6.70)
-  {4×4 阵列 + 向量单元\\\sub{INT8 卷积 / GEMV}};
+  {4×4 阵列\\向量单元};
 \node[blk=aresPurple, text width=2.25cm, minimum height=1.1cm] (ub) at (8.85,8.00)
-  {UB 256 × 128 bit\\epilogue};
+  {Unified Buffer};
 \node[blk=aresPurple, text width=2.25cm, minimum height=1.1cm] (dma) at (8.85,6.70)
-  {DMA + L2 bridge\\\sub{128 bit}};
+  {DMA};
 \draw[dat] (mmio.east) -- (3.35,6.15) |- (host.west);
 \draw[dat] (host) -- (core);
 \draw[dat] (core) -- (ub);
@@ -618,50 +618,49 @@ HZU 根据分支结果协调重定向，ISU 根据数据就绪状态决定旁路
 \draw[dat] (core) -- (dma);
 
 \node[mem=aresGreen, text width=2.2cm, minimum height=1.05cm] (scratch) at (12.85,8.00)
-  {scratch / BRAM\\\sub{64 KiB / 512 KiB}};
+  {BRAM};
 \node[mem=aresGreen, text width=2.2cm, minimum height=1.05cm] (ddr) at (12.85,6.70)
-  {DDR3 / 摄像头\\\sub{0xD010\_0000}};
+  {DDR3};
 \draw[dat] (dma.east) -- (11.55,6.70);
 \draw[dat] (11.55,6.70) |- (scratch.west);
 \draw[dat] (11.55,6.70) |- (ddr.west);
 
 % ================= shared software =================
 \node[blk=aresGray, text width=13.4cm, minimum height=0.42cm, fill=aresGray!14] (stack) at (7.2,4.95)
-  {共用软件栈：裸机运行时 · UART/printf · mt.c 驱动 · 量化/打包/golden 工具链};
+  {共用软件栈：运行时 · miniTensor 驱动 · 量化工具链};
 \draw[ctl] (stack.north) -- (7.2,5.55);
 
 % ================= applications =================
 \draw[grp=aresTeal] (0.05,0.25) rectangle (4.60,4.35);
 \node[gtitle=aresTeal] at (0.05,4.35) {应用一：语言模型};
 \node[blk=aresTeal, text width=2.0cm, minimum height=1.0cm] (qwen) at (2.35,3.45)
-  {Qwen 语料\\\sub{473 行教师语料}};
+  {Qwen 语料};
 \node[blk=aresTeal, text width=2.0cm, minimum height=1.0cm] (h112) at (2.35,2.30)
-  {H112 镜像\\\sub{152,056 B}};
+  {H112 模型};
 \node[blk=aresTeal, text width=2.0cm, minimum height=1.0cm] (uart1) at (2.35,1.15)
-  {UART 对话\\\sub{20 token/s 节流}};
+  {UART 对话};
 \draw[dat] (qwen) -- (h112);
 \draw[dat] (h112) -- (uart1);
-\node[note, anchor=west, text=aresTeal!80!black] at (3.40,1.75) {GEMV\\1×1 卷积};
 
 \draw[grp=aresAmber] (4.90,0.25) rectangle (9.45,4.35);
 \node[gtitle=aresAmber] at (4.90,4.35) {应用二：手势识别};
 \node[blk=aresAmber, text width=2.0cm, minimum height=1.0cm] (cam) at (7.20,3.45)
-  {OV5640\\\sub{720p30}};
+  {OV5640 摄像头};
 \node[blk=aresAmber, text width=2.0cm, minimum height=1.0cm] (cnn) at (7.20,2.30)
-  {4 层 INT8 CNN\\\sub{32×32 · ROI 13×11}};
+  {INT8 CNN};
 \node[blk=aresAmber, text width=2.0cm, minimum height=1.0cm] (uart2) at (7.20,1.15)
-  {UART 10 Hz\\\sub{3 帧确认}};
+  {UART 输出};
 \draw[dat] (cam) -- (cnn);
 \draw[dat] (cnn) -- (uart2);
 
 \draw[grp=aresBlue] (9.75,0.25) rectangle (14.40,4.35);
 \node[gtitle=aresBlue] at (9.75,4.35) {演示层：上位机};
 \node[blk=aresBlue, text width=2.0cm, minimum height=1.0cm] (bridge) at (12.05,3.45)
-  {gesture-bridge\\\sub{COM9 → SSE}};
+  {gesture-bridge};
 \node[blk=aresBlue, text width=2.0cm, minimum height=1.0cm] (fsm) at (12.05,2.30)
-  {状态机\\\sub{基础 + 叠加}};
+  {状态机};
 \node[blk=aresBlue, text width=2.0cm, minimum height=1.0cm] (three) at (12.05,1.15)
-  {Three.js\\\sub{全息页面}};
+  {Three.js 页面};
 \draw[dat] (bridge) -- (fsm);
 \draw[dat] (fsm) -- (three);
 
@@ -669,10 +668,8 @@ HZU 根据分支结果协调重定向，ISU 根据数据就绪状态决定旁路
 \draw[ctl] (qwen.north) -- (qwen.north |- stack.south);
 \draw[ctl] (cam.north) -- (cam.north |- stack.south);
 \draw[ctl] (uart2.east) -- (9.60,1.15) -- (9.60,3.45) -- (bridge.west);
-\node[note, anchor=north, align=center] at (7.2,0.0)
-  {同一套 miniTensor、驱动与量化工具链；应用差异只在模型与后处理};
 \end{tikzpicture}
-\caption{应用与加速器总体架构（同一 CPU、同一 miniTensor、两条应用路径）}
+\caption{应用与加速器总体架构}
 \label{fig:app-overview}
 \end{figure}
 
@@ -934,11 +931,11 @@ ARES 核参数集中在 \code{gen/configs/scsrc/autoconf.scala}，由 \code{make
 \begin{tikzpicture}[ares]
 % ---- prediction ----
 \node[blk=aresBlue, minimum width=2.30cm, minimum height=9mm] (bpu) at (1.25,2.85)
-  {BPU\\\sub{BTB 128 · Bimodal · RAS 8}\\\sub{读表结果寄存一拍}};
-\node[blk=aresBlue, minimum width=2.00cm] (hold) at (1.25,1.65) {响应 / 暂存选择\\\sub{predHold}};
-\draw[dat] (bpu) -- node[sig, right]{taken, target} (hold);
+  {BPU\\\sub{BTB · Bimodal · RAS}};
+\node[blk=aresBlue, minimum width=2.00cm] (hold) at (1.25,1.65) {predHold};
+\draw[dat] (bpu) -- (hold);
 \draw[ctl] (1.25,3.85) -- (bpu.north);
-\node[note, text=aresRed, anchor=west] at (1.32,3.72) {HZU：BPU 更新};
+\node[note, text=aresRed, anchor=west] at (1.32,3.72) {更新};
 % next-PC mux
 \draw[fill=white] (2.65,0.30) -- (3.00,0.50) -- (3.00,1.85) -- (2.65,2.05) -- cycle;
 \node[note, rotate=90] at (2.825,1.18) {next PC};
@@ -949,52 +946,48 @@ ARES 核参数集中在 \code{gen/configs/scsrc/autoconf.scala}，由 \code{make
 \draw[dat] (3.00,1.18) -- (pc.west);
 \fill (3.30,1.18) circle (0.9pt);
 \draw[dat] (3.30,1.18) |- (bpu.east);
-\node[note, anchor=west, align=left] at (3.35,2.30) {提前查询\\下一 PC};
 
 % ---- request gate ----
-\node[blk=aresBlue, minimum width=2.0cm] (gate) at (5.55,2.85) {取指许可\\\sub{fqCount+metaCount < 8}};
-\draw[dat] (gate.south) -- node[sig, right, pos=0.45]{req\_valid} (5.55,1.18);
+\node[blk=aresBlue, minimum width=2.0cm] (gate) at (5.55,2.85) {取指许可};
+\draw[dat] (gate.south) -- (5.55,1.18);
 
 % ---- ICache / passthrough ----
 \node[blk=aresPurple, minimum width=1.8cm, minimum height=13mm] (ic) at (7.40,1.18)
-  {ICache\\或直通适配器\\\sub{→ IROM}};
-\draw[dat] (pc.east) -- node[sig, below, pos=0.62]{req\_addr} (ic.west);
-\draw[ctl] (7.95,2.25) node[sig, text=aresRed, above]{flush} -- (7.95,1.83);
+  {ICache};
+\draw[dat] (pc.east) -- (ic.west);
 
 % ---- metadata queue ----
 \node[regb, minimum width=2.3cm, fill=aresBlue!6] (meta) at (8.60,-0.45)
-  {取指元数据 ×2\\\sub{PC · 顺序 PC · 预测}};
+  {取指元数据 ×2};
 \fill (4.75,1.18) circle (0.9pt);
-\draw[dat] (4.75,1.18) |- node[note, pos=0.25, left]{入队} (meta.west);
+\draw[dat] (4.75,1.18) |- (meta.west);
 
 % ---- pairing ----
 \node[blk=aresBlue, minimum width=0.95cm] (pair) at (10.30,1.18) {配对};
-\draw[dat] (ic.east) -- node[sig, above]{rsp\_data} (pair.west);
-\draw[dat] (meta.east) -| node[note, pos=0.75, right]{出队} (pair.south);
+\draw[dat] (ic.east) -- (pair.west);
+\draw[dat] (meta.east) -| (pair.south);
 
 % ---- fetch queue ----
 \foreach \k in {0,...,7}
   \draw[draw=aresBlue!80!black, fill=aresBlue!10] (11.15+\k*0.25,0.88) rectangle ++(0.25,0.60);
 \node[note, anchor=south] at (11.95,1.48) {前端队列 ×8};
 \draw[dat] (pair.east) -- (11.15,1.18);
-\node[blk=aresTeal, minimum width=1.05cm] (ifid) at (13.70,1.18) {IF/ID\\\sub{→ IDU}};
+\node[blk=aresTeal, minimum width=1.05cm] (ifid) at (13.70,1.18) {IF/ID};
 \draw[dat] (13.15,1.18) -- (ifid.west);
 
 % ---- occupancy feedback ----
 \draw[->, draw=aresGray, dashed] (13.00,1.48) |- (gate.east);
-\node[note, anchor=south] at (9.70,2.85) {已返回 + 在途请求共同预留空间};
 
 % ---- redirect ----
 \draw[ctl, -] (0.60,-1.25) -- (12.15,-1.25);
 \node[note, text=aresRed, anchor=north west] at (0.55,-1.30)
-  {redirect：切换 PC，清空取指元数据、前端队列与 predHold，并 flush 在途取指事务};
+  {redirect};
 \draw[ctl] (0.60,-1.25) -- (0.60,1.27);
 \draw[ctl] (2.40,-1.25) -- (2.40,0.55) -- (2.65,0.55);
-\node[sig, text=aresRed, anchor=east] at (2.35,0.30) {redirect PC};
 \draw[ctl] (8.60,-1.25) -- (meta.south);
 \draw[ctl] (12.15,-1.25) -- (12.15,0.88);
 \end{tikzpicture}
-\caption{前端取指结构：提前查询、请求许可与两级队列}
+\caption{前端取指结构}
 \label{fig:frontend-architecture}
 \end{figure}
 
@@ -2628,39 +2621,36 @@ MMIO 请求与计算任务分开：引擎接受寄存器访问，返回端在下
   font=\tiny\bfseries, inner sep=0pt, minimum size=3.3mm] at (#1,#2) {#3};}
 % ---- software side ----
 \node[blk, minimum width=2.75cm, align=center] (cm) at (1.40,1.75)
-  {\textbf{CoreMark 热点函数}\\\sub{crcu8 · crcu16}\\\sub{crc16 · crcu32}\\\sub{core\_bench\_matrix}\\\sub{core\_bench\_state}\\\sub{链表查找 · 反转 · 前移}};
-\node[blk=aresTeal, minimum width=2.0cm, minimum height=1.3cm] (drv) at (4.55,1.75) {同名驱动\\\sub{构建时替换入口}\\\sub{原定义改名 *\_orig}};
+  {\textbf{CoreMark 热点函数}\\\sub{CRC · 矩阵}\\\sub{状态机 · 链表}};
+\node[blk=aresTeal, minimum width=2.0cm, minimum height=1.3cm] (drv) at (4.55,1.75) {同名驱动};
 \draw[dat] (cm.east|-0,1.75) -- (drv.west);
-\node[blk, minimum width=2.0cm] (ref) at (4.55,-0.35) {软件参考\\\sub{*\_orig}};
-\draw[dat] (drv.south) -- node[note, left=4pt, align=right]{参数不适用} (ref.north);
-\node[note, anchor=north east, align=right, text width=3.4cm] at (5.55,-0.80) {排序、移除/恢复、\\CRC 遍历仍由 C 完成};
+\node[blk, minimum width=2.0cm] (ref) at (4.55,-0.35) {软件参考};
+\draw[dat] (drv.south) -- (ref.north);
 
 % ---- CRC8 instruction branch ----
-\node[blk=aresAmber, minimum width=1.75cm] (ins) at (7.10,2.75) {CRC8 指令\\\sub{custom-0}};
-\node[blk=aresAmber, minimum width=1.25cm] (e1) at (8.95,2.75) {EX1\\\sub{低 4 位}};
-\node[blk=aresAmber, minimum width=1.25cm] (e2) at (10.45,2.75) {EX2\\\sub{高 4 位}};
-\node[blk=aresGreen, minimum width=1.6cm] (wbk) at (12.20,2.75) {写回 rd\\\sub{16 bit CRC}};
+\node[blk=aresAmber, minimum width=1.75cm] (ins) at (7.10,2.75) {CRC8 指令};
+\node[blk=aresAmber, minimum width=1.25cm] (e1) at (8.95,2.75) {EX1};
+\node[blk=aresAmber, minimum width=1.25cm] (e2) at (10.45,2.75) {EX2};
+\node[blk=aresGreen, minimum width=1.6cm] (wbk) at (12.20,2.75) {写回 rd};
 \draw[dat] (drv.east|-0,2.15) -- (5.90,2.15) |- (ins.west);
 \draw[dat] (ins) -- (e1); \draw[dat] (e1) -- (e2); \draw[dat] (e2) -- (wbk);
-\node[note, anchor=north] at (9.70,2.30) {沿用 EX2 生产时机与旁路};
 
 % ---- MMIO branch ----
-\node[blk=aresGreen, minimum width=2.1cm] (mm) at (7.35,0.85) {volatile MMIO\\\sub{LSU · PERIP，不缓存}};
+\node[blk=aresGreen, minimum width=2.1cm] (mm) at (7.35,0.85) {MMIO 访问};
 \draw[dat] (drv.east|-0,1.35) -- (7.35,1.35) -- (mm.north);
-\node[blk=aresPurple, minimum width=1.35cm, minimum height=1.75cm] (dec) at (9.55,0.85) {外设桥\\页译码\\\sub{4 KiB/页}};
+\node[blk=aresPurple, minimum width=1.35cm, minimum height=1.75cm] (dec) at (9.55,0.85) {外设桥};
 \draw[dat] (mm.east) -- (dec.west);
-\foreach \n/\a/\y in {矩阵 mtx9/0xA0001000/1.55, 状态机 state9/0xA0002000/0.85, 链表 list9/0xA0003000/0.15}{
-  \node[blk=aresPurple, minimum width=2.65cm, anchor=west] at (10.75,\y) {\n\ \sub{\a}};
+\foreach \n/\y in {矩阵引擎/1.55, 状态机引擎/0.85, 链表引擎/0.15}{
+  \node[blk=aresPurple, minimum width=2.0cm, anchor=west] at (10.75,\y) {\n};
   \draw[dat] (dec.east|-0,\y) -- (10.75,\y);}
-\node[note, anchor=north east, align=right, text width=2.6cm] at (14.20,-0.45) {私有数组 · 内部状态机\\无 DMA，不共享缓存};
 
 % ---- four steps ----
-\begin{scope}[shift={(5.95,-0.55)}]
-\foreach \k/\t/\x/\y in {1/装载数据与参数/0/0, 2/CTRL 置位启动/2.65/0, 3/轮询 STATUS.done/0/-0.48, 4/读回结果或影子/2.65/-0.48}{
-  \stepc{\x+0.18}{\y}{\k}
-  \node[note, text=aresInk, anchor=west] at (\x+0.38,\y) {\t};}
+\begin{scope}[shift={(6.00,-0.60)}]
+\foreach \k/\t/\x in {1/写参数/0, 2/启动/1.45, 3/轮询/2.65, 4/读结果/3.85}{
+  \stepc{\x+0.18}{0}{\k}
+  \node[note, text=aresInk, anchor=west] at (\x+0.38,0) {\t};}
 \end{scope}
-\draw[aresLine, rounded corners=2pt] (5.80,-0.30) rectangle (10.55,-1.27);
+\draw[aresLine, rounded corners=2pt] (5.85,-0.30) rectangle (11.15,-0.90);
 \end{tikzpicture}
 \caption{CRC8 指令与 MMIO 引擎的调用关系}
 \label{fig:accelerator-call-flow}
