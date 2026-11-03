@@ -62,7 +62,7 @@
 \graphicspath{{docs/technical/figures/}{technical/figures/}{figures/}}
 \renewcommand{\refname}{参考文献}
 \renewcommand{\contentsname}{目录}
-\newcommand{\cpuname}{Mundus}
+\newcommand{\cpuname}{Mundus 九级核}
 \renewcommand{\code}[1]{{\small\ttfamily\urlstyle{tt}\expandafter\nolinkurl\expandafter{\detokenize{#1}}}}
 \newcommand{\id}[1]{{\urlstyle{rm}\expandafter\nolinkurl\expandafter{\detokenize{#1}}}}
 \newcommand{\done}{\textcolor{green!45!black}{$\checkmark$}}
@@ -167,7 +167,7 @@
 \vspace{8pt}
 \section*{摘要}
 % 模板限制：800 字内。
-ARES 是以 Mundus 32 位顺序单发射处理器为核心的嵌入式 SoC，主线 FPGA 目标为盘古 200Pro+ 的 PG2L200H-6IFBB676。
+ARES 是以 Mundus 九级核（32 位顺序单发射）为核心的嵌入式 SoC，主线 FPGA 目标为盘古 200Pro+ 的 PG2L200H-6IFBB676。
 处理器实现 RV32I 整数数据通路、RV32M、Zicsr、ECALL/MRET、机器定时器中断及 custom-0 CRC8。
 流水线由取指请求、取指响应、ID、ISS、EX1--EX4 和 WB 共九级组成；取指侧使用请求/响应握手、两项在途元数据队列和八项前端队列，取指延迟随 Cache 命中与回填变化。
 默认配置采用 16 项 Bimodal/BTB、8 项 RAS、四路 ICache、8 KiB 两路 DCache，以及外设桥中的四项写队列。
@@ -266,7 +266,7 @@ b5 整机 & CLMA 35\%、DRM 63\%、APM 9\% & 27 MHz WNS +12.85 ns \\
 
 \subsection{设计流程}
 % 模板限制：200 字内。
-以 Chisel 生成 Mundus RTL，集成存储、外设与加速器；ELF 拆分为 IROM/DRAM HEX，经 Verilator、模块测试与板级仿真核对后，用 PDS 完成综合、布局布线、时序检查与位流生成。
+以 Chisel 生成 Mundus 九级核的 RTL，集成存储、外设与加速器；ELF 拆分为 IROM/DRAM HEX，经 Verilator、模块测试与板级仿真核对后，用 PDS 完成综合、布局布线、时序检查与位流生成。
 应用侧按训练、量化打包、整数 golden、Verilator、PDS 上板五步推进，任一步不一致即回到量化打包，见图~\ref{fig:app-flow}。
 
 \begin{figure}[htbp]
@@ -310,7 +310,7 @@ b5 整机 & CLMA 35\%、DRM 63\%、APM 9\% & 27 MHz WNS +12.85 ns \\
 \midrule
 \multicolumn{4}{@{}l}{\textbf{基础任务}} \\
 处理器内核构建 & 支持 RV32I 基础整数指令集 & RV32I 全部指令，另加 RV32M、Zicsr 与 custom-0 CRC8；36 个 cpu-tests 全部通过（表~\ref{tab:ares-functional-results}） & 完成 \\
-流水线架构设计 & 不少于 3 级流水，处理数据冲突与分支跳转 & 九级顺序单发射；温度计码时机表达、两级旁路与互锁处理数据冒险，HZU 统一重定向处理控制冒险 & 完成 \\
+流水线架构设计 & 不少于 3 级流水，处理数据冲突与分支跳转 & Mundus 九级核，顺序单发射；温度计码时机表达、两级旁路与互锁处理数据冒险，HZU 统一重定向处理控制冒险 & 完成 \\
 外设系统集成 & 集成 UART、GPIO 等基础外设 & UART TX/RX（含 RX FIFO）、开关、按键、数码管、LED、毫秒计时器与机器定时器中断；MSH 双向串口测试通过 & 完成 \\
 \midrule
 \multicolumn{4}{@{}l}{\textbf{高阶任务}} \\
@@ -347,7 +347,7 @@ AI 处理效率 & 延迟与识别率 & 手势（3 类演示/8 类词表）：每
 \clearpage
 \section{系统组成及功能说明}
 \subsection{整体介绍}
-ARES 以 Mundus 处理器为核心，前端经 IROM 请求/响应接口连接 ICache 或直通适配器，后端经含 DCache 的 LSU 和 PERIP 接口访问数据存储及外设。
+ARES 以 Mundus 九级核为核心，前端经 IROM 请求/响应接口连接 ICache 或直通适配器，后端经含 DCache 的 LSU 和 PERIP 接口访问数据存储及外设。
 处理器内部由前端预测和取指、译码、发射与寄存器读取、执行、LSU、乘除法及写回单元构成，模块关系见图~\ref{fig:core-overview}。
 HZU 根据分支结果协调重定向，ISU 根据数据就绪状态决定旁路与互锁，WB 保持顺序提交。
 图~\ref{fig:soc-framework} 表示单核 SoC 的连接概览。AMP 为每 hart 例化 \code{student_top}、私有 IROM/ICache/数据 BRAM 和加速器，另连共享 uncached mailbox。
@@ -358,7 +358,7 @@ HZU 根据分支结果协调重定向，ISU 根据数据就绪状态决定旁路
 \begin{tikzpicture}[>=Latex,node distance=9mm,
  box/.style={draw,align=center,minimum height=9mm,font=\small},
  core/.style={box,text width=3.0cm},other/.style={box,text width=2.3cm}]
-\node[core] (cpu) {Mundus 处理器核\\Core\_cpu};
+\node[core] (cpu) {Mundus 九级核\\Core\_cpu};
 \node[other,right=17mm of cpu] (irom) {ICache / 直通\\IROM 32 KiB};
 \node[other,below=12mm of cpu] (bridge) {PERIP 互连与译码};
 \node[other,left=8mm of bridge] (dram) {DRAM\\256 KiB};
@@ -473,7 +473,7 @@ HZU 根据分支结果协调重定向，ISU 根据数据就绪状态决定旁路
 
 % ---------------- SoC side ----------------
 \draw[aresLine, dashed] (-0.05,-2.45) -- (14.40,-2.45);
-\node[note, anchor=south east] at (14.40,-2.45) {Mundus 核};
+\node[note, anchor=south east] at (14.40,-2.45) {Mundus 九级核};
 \node[note, anchor=north east] at (14.40,-2.45) {SoC};
 \node[blk=aresPurple, minimum width=2.60cm] (ic) at (1.30,-3.20) {ICache / 直通\\\sub{IROM 32 KiB}};
 \node[blk=aresPurple, minimum width=4.40cm] (br) at (10.05,-3.20) {PERIP 外设桥\\\sub{写队列 · 数据 BRAM · MMIO · 加速器}};
@@ -482,7 +482,7 @@ HZU 根据分支结果协调重定向，ISU 根据数据就绪状态决定旁路
 \draw[dat] (9.50,-2.10) -- node[sig, left]{req} (9.50,-2.85);
 \draw[dat] (10.60,-2.85) -- node[sig, right]{rdata} (10.60,-2.10);
 \end{tikzpicture}
-\caption{Mundus 核内模块关系}
+\caption{Mundus 九级核内模块关系}
 \label{fig:core-overview}
 \end{figure}
 
@@ -585,17 +585,17 @@ HZU 根据分支结果协调重定向，ISU 根据数据就绪状态决定旁路
 \subsubsection{电路各模块介绍}
 \paragraph{SoC 集成方式}
 
-\code{Mundus} 经手写 \code{myCPU} 包装接入 \code{student_top}，其中 \code{Core_cpu} 是实例名。
+Mundus 九级核经手写 \code{myCPU} 包装接入 \code{student_top}，其中 \code{Core_cpu} 是实例名。
 单核板级顶层为 \code{pipeline_board_top}，AMP 板级顶层为 \code{pipeline_amp_board_top}；RTOS 与 MSH 另有独立板级顶层和镜像。
 
 \paragraph{核心接口}
 
-以下使用 Chisel Bundle 信号名，方向均相对 Mundus 核；\code{myCPU} 包装将点号展开为下划线。
+以下使用 Chisel Bundle 信号名，方向均相对 Mundus 九级核；\code{myCPU} 包装将点号展开为下划线。
 IROM 的请求与响应分别握手；PERIP 请求在 \code{valid} \code{&&} \code{ready} 时接受，读结果由 \code{rvalid} 标记，读响应没有独立 ready。\code{wen} 表示读写属性。
 
 \begin{table}[H]
 \centering
-\caption{Mundus 核接口}
+\caption{Mundus 九级核接口}
 \label{tab:core-interface}
 \begin{tabularx}{\linewidth}{@{}P{5.5cm}C{1.2cm}C{1.7cm}X@{}}
 \toprule
@@ -723,7 +723,7 @@ AMP 板级仅引出 hart0 UART TX，RX 接空闲；独立 MSH 板级顶层另接
 
 \paragraph{总体结构}
 
-\cpuname{} 采用顺序、单发射、单提交结构，每周期最多接收并提交一条指令。
+\cpuname{}采用顺序、单发射、单提交结构，每周期最多接收并提交一条指令。
 流水线按取指请求、取指响应、ID、ISS、EX1、EX2、EX3、EX4 和 WB 划分，共九级；表~\ref{tab:current-stages} 列出各级职责，图~\ref{fig:current-pipeline} 给出各级与 LSU、长操作通路的对应关系。IF1/IF2 分别表示取指请求和响应，二者通过握手和队列衔接。
 
 \begin{table}[H]
@@ -809,7 +809,7 @@ Load 在 EX1 按 DCache 命中预测生产时机，EX2 以寄存的命中结果�
 % commit marker
 \node[note, text=aresGreen!70!black, anchor=north] at (8*\cw,-2.40) {▲ 提交点};
 \end{tikzpicture}
-\caption{Mundus 九级流水线：各级职责、LSU 与长操作通路}
+\caption{Mundus 九级核的流水线：各级职责、LSU 与长操作通路}
 \label{fig:current-pipeline}
 \end{figure}
 
@@ -3017,7 +3017,7 @@ MSH 为独立配置，使用 4 KiB shell 栈，通过 UART RX FIFO 与控制台�
 
 \subsection{工程成果}
 \subsubsection{电路成果}
-已具备 Mundus 核、I/DCache、片上存储与外设、CRC8 和三类 MMIO 引擎、单核及 2/4-hart AMP 顶层。AMP 为每 hart 私有 IROM、四路 ICache 与数据 BRAM，通过 uncached mailbox 协作。
+已具备 Mundus 九级核、I/DCache、片上存储与外设、CRC8 和三类 MMIO 引擎、单核及 2/4-hart AMP 顶层。AMP 为每 hart 私有 IROM、四路 ICache 与数据 BRAM，通过 uncached mailbox 协作。
 共享 L2 实验线 \code{pipeline_mc_soc_top} 的 CoreMark 读响应顺序问题待解决。
 待实现项包括 RV32F、\code{FENCE.I} 缓存失效及完整特权/调试支持。
 \subsubsection{软件成果}
