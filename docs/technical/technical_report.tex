@@ -407,7 +407,7 @@ HZU 根据分支结果协调重定向，ISU 根据数据就绪状态决定旁路
 \begin{scope}[every node/.append style={minimum width=2.25cm}]
 \node[mem=aresTeal] (gpr) at (5.90,3.00) {GPR\ \sub{32×32 同步读}};
 \node[blk=aresTeal] (byp) at (5.90,1.95) {相关检测 · 一级旁路\\\sub{where · mask}};
-\node[blk=aresTeal] (agu) at (5.90,0.85) {AGU\\\sub{rs1+imm · AMP 偏移}};
+\node[blk=aresTeal] (agu) at (5.90,0.85) {AGU\\\sub{rs1+imm}\\\sub{加 AMP 偏移}};
 \end{scope}
 
 % ---------------- EXU ----------------
@@ -1145,12 +1145,12 @@ AMP 在每个 \code{student_top} 内例化同一主线四路缓存；各 hart �
 
 % ---- install (S_FILL) ----
 \draw[aresPurple!80!black, line width=0.7pt] (rbuf.north) -- (9.15,1.25) -- (3.75,1.25);
-\draw[->, draw=aresPurple!80!black] (8.35,1.25) -- (data.south);
+\draw[->, draw=aresPurple!80!black] (8.30,1.25) -- (data.south);
 \draw[->, draw=aresPurple!80!black] (3.75,1.25) -- (3.75,1.60);
 \node[note, text=aresPurple!80!black, fill=white, inner sep=1pt] at (6.10,1.25) {S\_FILL：整行与 tag/valid/age 同拍安装};
 
 % ---- FSM ----
-\node[blk, anchor=north east, align=center] (fsm) at (13.65,4.05)
+\node[blk, anchor=north east, align=center] (fsm) at (14.15,4.05)
   {\textbf{控制状态机}\\\sub{IDLE · LOOK · RESP}\\\sub{REFILL → FILL → RELOOK}};
 \end{tikzpicture}
 \caption{四路 ICache 内部结构}
@@ -1403,16 +1403,14 @@ R、I、S、B、U、J 和 CSR 格式生成立即数。集中式译码表同时�
 
 % ---------------- bypass bus ----------------
 \def\by{0.62}
-\draw[fwd, line width=0.9pt, -] (1.90,\by) -- (14.10,\by);
-\foreach \x/\y in {5.50/-0.90, 7.95/-0.90, 9.95/-0.90, 11.55/-0.90, 14.10/-0.90}{
+\draw[fwd, line width=0.9pt, -] (1.90,\by) -- (13.90,\by);
+\foreach \x/\y in {5.60/-0.90, 7.95/-0.90, 9.95/-0.90, 11.55/-0.90, 13.90/-0.90}{
   \draw[aresAmber!90!black] (\x,\y) -- (\x,\by);
   \fill[aresAmber!90!black] (\x,\by) circle (1pt);}
 \draw[fwd] (1.90,\by) -- (1.90,-0.33);
 \draw[fwd] (3.40,\by) -- (3.40,-0.33);
 \fill[aresAmber!90!black] (3.40,\by) circle (1pt);
 \node[note, text=aresAmber!80!black, anchor=south] at (8.80,\by) {旁路源：EX1 · EX2 · EX3 · EX4 · WB（优先选最年轻的就绪结果）};
-\node[note, anchor=west] at (1.96,-0.08) {一级旁路};
-\node[note, anchor=west] at (3.46,-0.08) {二级旁路};
 
 % ---------------- interlock note ----------------
 \node[note, text=aresRed, anchor=north west, align=left] at (-0.05,-4.80)
@@ -1664,36 +1662,35 @@ DCache 通过 EX2 提前提供命中结果，缩短 Load-use 延迟。LS1 在 LS
   \node[pbar, minimum height=1.40cm, anchor=north] at (\x,2.95) {};
 
 % ---- row A: core-side stage registers ----
-\node[blk=aresTeal, minimum width=2.3cm] (agu) at (1.30,2.35) {AGU\\\sub{rs1+imm，加 AMP 偏移}};
-\node[blk=aresGreen, minimum width=2.3cm] (l1) at (4.40,2.35) {LS1 请求\\\sub{地址 · 宽度 · 符号 · wdata}};
+\node[blk=aresTeal, minimum width=2.3cm] (agu) at (1.30,2.35) {AGU\\\sub{rs1+imm · AMP 偏移}};
+\node[blk=aresGreen, minimum width=2.3cm] (l1) at (4.40,2.35) {LS1 请求\\\sub{地址 · 宽度 · wdata}};
 \node[blk=aresGreen, minimum width=2.3cm] (l2) at (7.50,2.35) {LS2 快路径 \sub{→ EX2}\\\sub{命中数据移位 · 扩展}};
 \node[blk=aresGreen, minimum width=2.3cm] (l3) at (10.60,2.35) {LS3 选择\\\sub{命中沿用 / 否则慢数据}};
 \draw[dat] (agu) -- (l1); \draw[dat] (l1) -- (l2); \draw[dat] (l2) -- (l3);
 \draw[dat] (l3.east) -- ++(0.40,0) node[note, anchor=west]{EX3};
 
 % ---- row B: DCache, slow-response buffer ----
-\node[mem=aresGreen, minimum width=4.55cm, minimum height=7mm] (dc) at (6.05,1.05)
+\node[mem=aresGreen, minimum width=4.55cm, minimum height=7mm] (dc) at (6.35,1.05)
   {DCache\ \sub{ISS 读阵列 → LS1 比较 → LS2 响应}};
 \draw[dat] (agu.south) |- (dc.west);
-\draw[dat] (4.40,1.83) -- node[sig, right, pos=0.5]{接受} (4.40,1.40);
-\draw[dat] (7.50,1.40) -- node[sig, right, pos=0.5]{hit · data} (7.50,1.83);
+\draw[dat] (4.40,2.05) -- node[sig, right, pos=0.5]{接受} (4.40,1.40);
+\draw[dat] (7.50,1.40) -- node[sig, right, pos=0.5]{hit · data} (7.50,2.05);
 \node[regb, fill=aresGreen!8, minimum width=1.4cm] (sb) at (10.95,1.00) {慢响应缓冲\\\sub{2 项，按序}};
 \draw[dat] (sb.north) -- (sb.north|-l3.south);
-\draw[draw=aresPurple!80!black, ->] (9.70,1.83) |- (dc.east);
-\node[note, text=aresPurple!80!black, anchor=north] at (9.05,1.00) {回填};
+\draw[draw=aresPurple!80!black, ->] (9.70,2.05) |- (dc.east);
+\node[note, text=aresPurple!80!black, anchor=north, fill=white, inner sep=1pt] at (9.05,1.00) {回填};
 
 % ---- row C: peripheral bridge ----
 \node[blk=aresPurple, minimum width=8.6cm] (br) at (7.30,-0.45)
   {PERIP 外设桥\ \sub{读请求被接受后固定两拍返回 rvalid；读响应无 ready}};
-\draw[dat, preaction={draw=white, line width=3pt, -}] (3.62,1.83) -- (3.62,-0.07);
-\draw[ctl, preaction={draw=white, line width=3pt, -, solid}] (3.35,-0.07) -- (3.35,1.83);
-\node[sig, anchor=north east, align=right] at (3.30,0.75) {valid · addr\\wen · wdata};
-\node[sig, anchor=north west, text=aresRed] at (3.66,0.55) {ready};
+\draw[dat, preaction={draw=white, line width=3pt, -}] (3.35,2.05) -- (3.35,-0.07);
+\draw[ctl, preaction={draw=white, line width=3pt, -, solid}] (3.62,-0.07) -- (3.62,2.05);
 \draw[dat] (sb.south|-br.north) -- node[sig, right]{rdata} (sb.south);
 
 % ---- notes ----
 \node[note, anchor=north west, align=left] at (0.10,-0.95)
-  {valid \& !ready 冻结 EX1 及更年轻级，直到同一请求握手。Load 命中时桥读仍完成，LS3 丢弃慢数据；\\
+  {实线：valid · addr / wen · wdata；红虚线：ready。\\
+valid \& !ready 冻结 EX1 及更年轻级，直到同一请求握手。Load 命中时桥读仍完成，LS3 丢弃慢数据；\\
    Store 在 LS1 写直达入桥，LS2 命中时同步更新 DCache 副本；慢响应缓冲容纳流水冻结后仍返回的两个读。};
 \end{tikzpicture}
 \caption{三阶段 LSU 与快慢响应路径}
@@ -2178,7 +2175,7 @@ UB 每行 128 bit，正好 16 个 INT8 或 4 个 INT32；A/B tile 各占一行�
   \node[cell=aresBlue, minimum width=0.80cm, minimum height=0.32cm, inner sep=0pt]
     (x\i) at (1.0,5.95-\i*0.36) {$x_{\i}$};
 \draw[decorate,decoration={brace,amplitude=3pt,mirror},aresBlue]
-  (1.50,6.10) -- (1.50,5.10) node[midway,right=3pt,note,text=aresBlue!80!black] {4 个一组};
+  (1.50,6.10) -- (1.50,4.68) node[midway,right=3pt,note,text=aresBlue!80!black] {4 个一组};
 
 \node[note, anchor=south] at (3.95,6.45) {A tile};
 \foreach \r in {0,1,2,3}
@@ -2188,8 +2185,6 @@ UB 每行 128 bit，正好 16 个 INT8 或 4 个 INT32；A/B tile 各占一行�
 \foreach \c in {0,1,2,3}
   \node[cell=aresBlue, minimum width=0.42cm, minimum height=0.38cm, inner sep=0pt]
     at (3.20+\c*0.50,5.95) {};
-\node[note, text=aresBlue!80!black] at (3.45,5.95) {$x_{4t}$};
-\node[note, text=aresBlue!80!black] at (4.95,5.95) {$x_{4t+3}$};
 
 \node[note, anchor=south] at (6.85,6.45) {B tile};
 \foreach \r in {0,1,2,3}
@@ -2205,16 +2200,14 @@ UB 每行 128 bit，正好 16 个 INT8 或 4 个 INT32；A/B tile 各占一行�
 \foreach \c in {0,1,2,3}
   \node[cell=aresPurple, minimum width=0.42cm, minimum height=0.38cm, inner sep=0pt]
     at (9.00+\c*0.50,5.95) {};
-\node[note, text=aresPurple!80!black] at (9.25,5.95) {$y_{0}$};
-\node[note, text=aresPurple!80!black] at (10.75,5.95) {$y_{3}$};
 
-\node[note, scale=1.15] at (5.35,5.75) {$\times$};
-\node[note, scale=1.15] at (8.25,5.75) {$=$};
-\draw[dat] (1.90,5.95) -- (2.90,5.95);
-\draw[dat] (4.80,5.75) -- (5.05,5.75);
-\draw[dat] (5.65,5.75) -- (5.90,5.75);
-\draw[dat] (7.70,5.75) -- (7.95,5.75);
-\draw[dat] (8.55,5.75) -- (8.80,5.75);
+\node[note, scale=1.15] at (5.35,5.95) {$\times$};
+\node[note, scale=1.15] at (8.25,5.95) {$=$};
+\draw[dat] (1.42,5.95) -- (2.97,5.95);
+\draw[dat] (4.93,5.95) -- (5.20,5.95);
+\draw[dat] (5.50,5.95) -- (5.87,5.95);
+\draw[dat] (7.83,5.95) -- (8.10,5.95);
+\draw[dat] (8.40,5.95) -- (8.77,5.95);
 
 \end{tikzpicture}
 \caption{GEMV 到 4×4 阵列的映射：A 行 0 放 4 个输入元素，行 1--3 补零，C 只取行 0 并沿 $t$ 累加；$1\times1$ 卷积即 GEMV}
