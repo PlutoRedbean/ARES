@@ -219,7 +219,7 @@
 ARES 是以 Mundus 九级核（32 位顺序单发射）为核心的嵌入式 SoC，主线 FPGA 目标为盘古 200Pro+ 的 PG2L200H-6IFBB676。
 处理器实现 RV32I 整数数据通路、RV32M、Zicsr、ECALL/MRET、机器定时器中断及 custom-0 CRC8。
 流水线由取指请求、取指响应、ID、ISS、EX1--EX4 和 WB 共九级组成；取指侧使用请求/响应握手、两项在途元数据队列和八项前端队列，取指延迟随 Cache 命中与回填变化。
-默认配置采用 16 项 Bimodal/BTB、8 项 RAS、四路 ICache、8 KiB 两路 DCache，以及外设桥中的四项写队列。
+默认配置采用 128 项 Bimodal/BTB、8 项 RAS、四路 ICache、8 KiB 两路 DCache，以及外设桥中的四项写队列。
 SoC 提供单核和 2/4-hart AMP 配置，并集成矩阵、状态机和链表 MMIO 加速器；单核可运行 RT-Thread Nano 与 MSH。
 验证采用 Verilator 程序回归、模块定向测试与板级仿真，实现使用 PDS。在 100 MHz 仿真时钟下，未修改的 CoreMark 基线为 2.235012 CoreMark/MHz；以 CRC8 指令和三类引擎替换热点函数后，单核全加速为 13.384075 CoreMark/MHz，四核全加速 MULTITHREAD 聚合为 56.029283 CoreMark/MHz。盘古板卡上四核 AMP 在 120 MHz 下实测聚合 56.261253 CoreMark/MHz，运行 10.37 s，CRC 校验通过。
 
@@ -279,7 +279,7 @@ AMP 提供私有数据窗口与共享 mailbox，RT-Thread Nano 支持单核运�
 处理器 & Mundus 九级核，顺序单发射；RV32IM、Zicsr、机器模式定时器中断与 custom-0 CRC8 \\
 工作频率 & 四核 AMP 板级构建 120 MHz 约束满足并上板运行（第~\ref{subsec:pds-results}~节）；RTL 默认 PLL 由 27 MHz 生成 CPU 100 MHz / 外设 50 MHz \\
 功能验证 & 36 个 cpu-tests、1520 项 DCache 检查及乘除法、三类加速引擎定向测试通过 \\
-分支预测与前端 & 16 项 BTB、2 bit Bimodal、8 项 RAS；8 项前端队列 \\
+分支预测与前端 & 128 项 BTB、2 bit Bimodal、8 项 RAS；8 项前端队列 \\
 存储层次 & 单核 4 KiB 四路 ICache、8 KiB 两路写直达 DCache；外设桥四项写队列 \\
 系统配置 & 单核（运行 RT-Thread Nano）；2/4-hart 私有存储 AMP；共享 L2 实验版 \\
 FPGA / 工具链 & PG2L200H-6IFBB676 / Pango PDS \\
@@ -439,7 +439,7 @@ HZU 根据分支结果协调重定向，ISU 根据数据就绪状态决定旁路
 
 % prediction column
 \node[box=dgBlue, minimum width=2.50cm, minimum height=0.85cm] (pc) at (2.15,16.05) {PC};
-\node[box=dgKhaki, minimum width=2.50cm, minimum height=0.95cm] (btb) at (2.15,14.55) {BTB\\(16 entries)};
+\node[box=dgKhaki, minimum width=2.50cm, minimum height=0.95cm] (btb) at (2.15,14.55) {BTB\\(128 entries)};
 \node[box=dgKhaki, minimum width=2.50cm, minimum height=0.95cm] (bim) at (2.15,13.25) {Bimodal BPU\\(2-bit)};
 \node[box=dgKhaki, minimum width=2.50cm, minimum height=0.95cm] (ras) at (2.15,11.95) {Return Address\\Stack (RAS, 8)};
 \draw[fat] (btb.north) -- node[lab, right]{Pred} (pc.south);
@@ -746,7 +746,7 @@ IROM 的请求与响应分别握手；PERIP 请求在 \code{valid} \code{&&} \co
 \toprule
 项目 & 参数及适用配置 \\
 \midrule
-BPU / 前端 & BTB 索引 4 bit，共 16 项；Bimodal 2 bit；RAS 深度 8；前端队列 8 项；在途元数据 2 项 \\
+BPU / 前端 & BTB 索引 7 bit，共 128 项；Bimodal 2 bit；RAS 深度 8；前端队列 8 项；在途元数据 2 项 \\
 单核 ICache & \code{student_top} 默认 32 组 $\times$ 4 路 $\times$ 32 B = 4 KiB \\
 AMP ICache & \code{pipeline_amp_top} 默认 64 组 $\times$ 4 路 $\times$ 64 B = 16 KiB/hart；每 hart 内部 IROM 为 32 KiB \\
 AMP 板级 ICache & \code{pipeline_amp_board_top} 覆盖为 128 组 $\times$ 4 路 $\times$ 64 B = 32 KiB/hart \\
@@ -947,7 +947,7 @@ ARES 核参数集中在 \code{gen/configs/scsrc/autoconf.scala}，由 \code{make
 \begin{tikzpicture}[ares]
 % ---- prediction ----
 \node[blk=aresBlue, minimum width=2.30cm, minimum height=9mm] (bpu) at (1.25,2.85)
-  {BPU\\\sub{BTB 16 · Bimodal · RAS 8}\\\sub{读表结果寄存一拍}};
+  {BPU\\\sub{BTB 128 · Bimodal · RAS 8}\\\sub{读表结果寄存一拍}};
 \node[blk=aresBlue, minimum width=2.00cm] (hold) at (1.25,1.65) {响应 / 暂存选择\\\sub{predHold}};
 \draw[dat] (bpu) -- node[sig, right]{taken, target} (hold);
 \draw[ctl] (1.25,3.85) -- (bpu.north);
@@ -1089,17 +1089,17 @@ BTB 中保存的历史目标；若 RAS 为空，则退回普通 Bimodal 与 BTB 
 \medskip
 \noindent\textbf{BTB 表项与命中更新}\par
 
-BTB 采用直接映射结构，默认配置 \id{BTB_WIDTH=4}，共有 $2^4=16$ 个表项。
+BTB 采用直接映射结构，默认配置 \id{BTB_WIDTH=7}，共有 $2^7=128$ 个表项。
 每个表项包含 \id{valid}、\id{tag}、历史跳转目标 \id{target}、Bimodal 的 2 bit
 \id{counter} 以及返回指令标志 \id{is_return}，相关阵列被约束为 Distributed RAM。
-取指 PC 按 4 字节对齐，\id{PC[5:2]} 用作索引，\id{PC[31:6]} 用作 tag；索引
+取指 PC 按 4 字节对齐，\id{PC[8:2]} 用作索引，\id{PC[31:9]} 用作 tag；索引
 选出候选表项后，再由 valid 和 tag 比较确认其是否属于当前 PC，基本结构如图
 ~\ref{fig:bimodal-btb} 所示。
 
 \begin{figure}[htbp]
   \centering
   \includegraphics[width=0.96\linewidth,height=0.68\textheight,keepaspectratio]{btb.png}
-  \caption{Bimodal、BTB 与 RAS 原理图（默认 16 项 BTB、8 项 RAS）}
+  \caption{Bimodal、BTB 与 RAS 原理图（默认 128 项 BTB、8 项 RAS）}
   \label{fig:bimodal-btb}
 \end{figure}
 
