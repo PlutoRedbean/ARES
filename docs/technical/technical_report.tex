@@ -92,7 +92,7 @@ SoC 提供单核和 2/4-hart AMP 配置，并集成矩阵、状态机和链表 M
 \subsection{功能与特性}
 % 模板限制：400 字内。
 处理器支持 RV32I 整数运算、移位、比较、访存和控制流，扩展 RV32M 乘除法、Zicsr 寄存器读改写及基础机器模式异常处理。
-核心按顺序单发射、单提交运行，配合重定向、数据旁路、互锁和 DCache miss replay 处理相关性。
+核心按顺序单发射、单提交运行，配合重定向、数据旁路和互锁处理相关性，并保留 DCache miss replay 作为保护路径。
 IROM 取指和 PERIP 数据接口均具有握手控制；SoC 集成片上存储、UART、计时器、显示 IO 和 CoreMark 加速器。
 AMP 提供私有数据窗口与共享 mailbox，RT-Thread Nano 支持单核运行。
 
@@ -341,7 +341,7 @@ AMP 板级仅引出 hart0 UART TX，RX 接空闲；独立 MSH 板级顶层另接
 ID & 译码、立即数、控制信号和源寄存器地址；提前发起同步 GPR 读取 \\
 ISS & 同步 GPR 数据对齐、相关检查与旁路、提前 AGU；向 DCache 发起查表 \\
 EX1 & ALU、BRU、CSR、CRC8 第一阶段、启动乘除法；向 LSU 的 LS1 提交访存地址和 Store 数据 \\
-EX2 & DCache 命中结果及 CRC8 第二阶段；确认 cacheable Load miss 和相关指令 replay；消费 HZU 寄存后的重定向 \\
+EX2 & DCache 命中结果及 CRC8 第二阶段；按寄存的命中结果修正 Load 就绪时机；消费 HZU 寄存后的重定向 \\
 EX3 & 选择外部返回的慢路径 Load 数据，已命中结果继续传递 \\
 EX4 & 传递执行结果、寄存器写回和退休元数据至 WB \\
 WB & 选择普通/乘除法结果，GPR 写回与顺序退休；EBREAK 触发停机 \\
@@ -736,7 +736,7 @@ ISU 负责 RegisterFile 旁路修正、数据相关检查和发射。ISU 的 int
 
 \subparagraph{执行单元 EXU}
 
-EXU 由 EX1--EX4 四个阶段组成：EX1 完成 ALU、BRU、CSR、CRC8 第一阶段并发出 LSU/乘除法请求；EX2 接收 DCache 命中数据、完成 CRC8 并判断 Load miss replay；EX3 接收慢路径 Load；EX4 向 WB 传递结果和退休信息。
+EXU 由 EX1--EX4 四个阶段组成：EX1 完成 ALU、BRU、CSR、CRC8 第一阶段并发出 LSU/乘除法请求；EX2 接收 DCache 命中数据、完成 CRC8 并修正 Load 就绪时机；EX3 接收慢路径 Load；EX4 向 WB 传递结果和退休信息。
 
 ALU 支持 32 位加减、按位逻辑、移位及有符号/无符号比较。
 BRU 在 EX1 处理六类条件分支和 JAL/JALR，JALR 目标最低位清零；HZU 将结果寄存一拍后协调重定向。
@@ -921,15 +921,16 @@ PERIP 没有读响应 ready，已经发出的读不会因为核停顿而停止�
 
 \Needspace{4\baselineskip}
 \medskip
-\noindent\textbf{Load 命中预测与 miss replay}\par
+\noindent\textbf{Load 命中预测与就绪时机修正}\par
 
 为避免 DCache tag 比较直接串回 ISS/GPR 使能路径，Load 在 EX1 的生产时机按 EX2 命中预测。相关网络据此允许满足条件的后继指令继续推进；EX2 再用寄存的 \code{cache_hit} 修正结果可用时机：命中为 \code{WHEN_ABS_EX2}，miss 为 \code{WHEN_ABS_EX3}。图~\ref{fig:dcache-replay-timing} 给出紧邻消费者在命中与未命中时的停顿周期。
 
-若 EX2 是可缓存窗口内的 miss Load，且较年轻 EX1 指令的任一实际使用源操作数依赖该 EX2 Load，EXU 产生 \code{load_miss_replay}，以该消费者 PC 重定向。
-被重放的消费者与更年轻前端内容被丢弃，较老 Load 沿慢路径继续完成；消费者重新取指后按新的生产时机取得正确操作数。即使消费者不是立即发起访存的指令，相关源检查也同时覆盖 rs1 和 rs2。
-地址基址另受 ISS 早期 AGU 需求约束。
+命中预测只决定 Load 自身何时可被旁路，紧邻消费者不会因此提前带走未确认的数据。Load 位于 EX1 时相对生产码为 \id{00011}，而所有实际使用的源操作数需求均为 \id{NEED_ISS_LATE} 或 \id{NEED_ISS_EARLY}，按位相与非零，消费者先在 ISS 停顿一拍。
+下一拍 Load 进入 EX2，ISU 看到的已是按 \code{cache_hit} 修正后的时机：命中时相对码为 \id{00001}，消费者发射并经旁路取得数据，共停顿一拍；miss 时相对码为 \id{00011}，消费者再停顿一拍，待 Load 在 EX3 选出慢路径数据后发射，共停顿两拍。
+修正发生在消费者离开 ISS 之前，因此预测错误只增加停顿，不需要撤销已发射的指令。地址基址另受 ISS 早期 AGU 需求约束。
 
-MMIO 通过慢路径完成，不参与该 replay。更老分支的纠正目标优先于年轻消费者的 replay；中断只在排空满足后进入，避免以消费者重放地址代替真实中断恢复 PC。
+EXU 仍保留 \code{load_miss_replay} 作为保护路径：若 EX2 是可缓存窗口内的 miss Load，且 EX1 中较年轻指令的 rs1 或 rs2 实际依赖该 Load，则以该消费者 PC 重定向，丢弃消费者与更年轻的前端内容，较老 Load 沿慢路径继续完成。
+按当前生产/消费时机编码，上述 ISS 互锁已覆盖这一条件，普通写后读相关不会触发该路径；\code{PipelineStats} 单独统计其触发次数，可用于在仿真中核对。MMIO Load 通过慢路径完成，不参与该保护路径。
 
 \begin{figure}[htbp]
 \centering
@@ -1113,7 +1114,7 @@ IDU 给出的 \id{PROD_ABS_*} 以生产者自身的流水过程为绝对时间�
 普通指令的 \id{CONS_ISS_LATE}（\id{11110}）按位相与为 0，因此可以直接旁路。\id{LW}
 的绝对码为 \id{00001}，当它位于 EX1 时得到 \id{00011}，即 \id{PROD_REL_EX1}；与
 \id{CONS_ISS_LATE} 按位相与的结果非零，因此后继指令停顿一周期。下一周期 \id{LW}
-进入 EX2，相对码在命中时变为 \id{00001}，此时即可旁路；miss 时改为 EX3 就绪，若年轻消费者已使用预测结果则 replay。类似地，AGU 基址使用
+进入 EX2，相对码在命中时变为 \id{00001}，此时即可旁路；miss 时改为 \id{00011}，消费者再停顿一周期，待 EX3 慢路径数据可用后发射。类似地，AGU 基址使用
 \id{CONS_ISS_EARLY}，即使紧邻的普通 ALU 生产者已经得到 \id{PROD_REL_ISS_LATE}，两者
 按位相与仍非零，所以互锁逻辑会准确插入一个周期停顿。
 
