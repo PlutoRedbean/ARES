@@ -1,0 +1,126 @@
+{
+  "schema": 1,
+  "measured_on": "2026-11-03",
+  "platform": "ARES-L 5-stage application baseline (Mundus mainline port pending)",
+  "clocks_hz": {
+    "board": 27000000,
+    "simulation": 100000000
+  },
+  "minitensor": {
+    "array": "4x4 INT8, 32-bit accumulate",
+    "ub": "256 x 128 bit (4 KiB)",
+    "command_fifo_depth": 64,
+    "gemm_cycles": "8-10",
+    "per_frame_commands": 1936,
+    "per_frame_cycles": 1310000,
+    "busy_percent": 39,
+    "baseline": {
+      "per_frame_commands": 17184,
+      "per_frame_cycles": 7270000,
+      "busy_percent": 7.7
+    }
+  },
+  "llm": {
+    "corpus_source": "Qwen2.5-0.5B-Instruct",
+    "teacher_train_lines": 473,
+    "teacher_val_lines": 164,
+    "synthetic_dialogues": 20000,
+    "h112": {
+      "type": "word-level seq2seq GRU, V198/E48/H112/rank24",
+      "params": 140742,
+      "image_bytes": 152056,
+      "output_throttle_tokens_per_s": 20
+    },
+    "h88": {
+      "type": "word-level seq2seq GRU, lightweight",
+      "params": 107000,
+      "image_bytes": 118168,
+      "loader_limit_kb": 128
+    },
+    "a0": {
+      "type": "char-GRU, Emb64/GRU96/Linear65",
+      "params": 56480,
+      "cpu_char_s": 17,
+      "minitensor_char_s": 103,
+      "golden_mismatch": "0/40"
+    },
+    "qa": {
+      "type": "retrieval knowledge base",
+      "entries": 10475,
+      "image_bytes": 638076,
+      "heldout_templates": "880/936",
+      "accuracy_percent": 94,
+      "output_chars_per_s": 20
+    }
+  },
+  "gesture": {
+    "dataset_frames": 287,
+    "classes": {
+      "rock": 68,
+      "paper": 109,
+      "scissors": 110
+    },
+    "knn3_accuracy_percent": 100,
+    "float_clean_percent": 100,
+    "float_augmented_percent": 92,
+    "int8_accuracy_percent": 100,
+    "board_consistency": "8/8",
+    "output_rate_hz": 10,
+    "update_s": 0.2,
+    "params": 3920,
+    "mac_per_frame": 745472,
+    "firmware_bytes": 72224,
+    "commands_per_frame": 1936,
+    "cycles_per_frame": 1310000,
+    "bitstream": {
+      "file": "s3h_video_fb_top.sbit",
+      "bytes": 9188552,
+      "sha256_prefix": "141344AD702160D0"
+    }
+  },
+  "web": {
+    "unit_tests": 33,
+    "e2e": "15/15",
+    "bundle_kb": 608,
+    "gzip_kb": 157,
+    "fps": 240,
+    "gpu": "RTX 5060 Laptop, 2560x1600, HIGH"
+  },
+  "pds": {
+    "b5": {
+      "CLMA": "10229/30075",
+      "CLMA_percent": 35,
+      "FF": 24404,
+      "FF_percent": 11,
+      "DRM": "261/415",
+      "DRM_percent": 63,
+      "APM": "62/740",
+      "APM_percent": 9,
+      "wns_ns_at_27mhz": 12.85,
+      "estimated_fmax_mhz": 41.9
+    },
+    "b5_minus_b4": {
+      "LUT": 6276,
+      "FF": 5067,
+      "APM": 48,
+      "DRM": 4.5
+    },
+    "video_fb_top": {
+      "CLMA_percent": 36,
+      "LUT_percent": 20,
+      "DRM_percent": 26,
+      "IO": 144,
+      "IO_percent": 36,
+      "wns_ns": -3.83,
+      "unconstrained_clocks": 3
+    }
+  },
+  "caveats": [
+    "H112 152,056 B uses the 512 KiB window; H88 118,168 B uses the 128 KB loader.",
+    "20 token/s is a 50 ms/token output throttle, not model throughput.",
+    "5 tok/s for QA is a display estimate at 4 chars/token, not BPE throughput.",
+    "103 char/s is the INT8 miniTensor path; text quality is lower than the int16 CPU path at 17 char/s.",
+    "1.31 M cycles is the final-image figure; P1h recorded 1.23 M under a different image/measurement boundary.",
+    "video_fb_top timing is not converged (WNS -3.83 ns, 3 unconstrained clocks); functional verification passed."
+  ]
+}
