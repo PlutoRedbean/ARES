@@ -7,7 +7,7 @@
 | 路径 | 说明 |
 | --- | --- |
 | `technical_report.tex` | 唯一的报告源文件（core + 应用/加速器，TikZ 图全部内联） |
-| `technical_report.pdf` | 合并报告 PDF（65 页） |
+| `technical_report.pdf` | 合并报告 PDF（70 页） |
 | `results.json` | core 组原有结果，未改动 |
 | `application_results.json` | 应用与加速器结果（本部分新增） |
 | `figures/` | 只放图片/PDF 素材，不再放 `.tex` |
