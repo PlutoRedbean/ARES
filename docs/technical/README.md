@@ -7,7 +7,7 @@
 | 路径 | 说明 |
 | --- | --- |
 | `technical_report.tex` | 唯一的报告源文件（core + 应用/加速器，TikZ 图全部内联） |
-| `technical_report.pdf` | 合并报告 PDF（74 页） |
+| `technical_report.pdf` | 合并报告 PDF（65 页） |
 | `results.json` | core 组原有结果，未改动 |
 | `application_results.json` | 应用与加速器结果（本部分新增） |
 | `figures/` | 只放图片/PDF 素材，不再放 `.tex` |
@@ -31,10 +31,9 @@ xelatex -interaction=nonstopmode -halt-on-error technical_report.tex
 
 ## 单文件里有什么
 
-- 摘要、1.1--1.6：miniTensor、两个应用、指标表、创新点、流程。
+- 摘要、1.1--1.5：miniTensor、两个应用、指标表、创新点。
 - 2.1：平台与口径、应用与加速器总体架构。
 - 2.2.3：自研 miniTensor 全节。
-- 2.3.1：两个应用共用的软件栈。
 - 2.3.3：语言模型部署。
 - 2.3.4：手势识别。
 - 2.3.5：演示层（串口桥接、SSE、Three.js）。
@@ -42,7 +41,9 @@ xelatex -interaction=nonstopmode -halt-on-error technical_report.tex
 - 4.1/4.2：应用侧扩展方向、五个 bug 与优化心得。
 - 附录 C：应用与加速器复现信息（原附录 B 旧版 Mundus 资料已删除）。
 
-所有 TikZ 图（core 原有 13 张 + 新增 12 张，以及正文内联小图，共 27 个 `tikzpicture`）都在 `technical_report.tex` 里，图片素材仍从 `figures/` 读取。
+报告正文保留 5 张新增核心图（总体架构、miniTensor 架构、GEMV 映射、LLM 路径、手势链路）和 1 组网页截图；core 原有 13 张图与正文内联小图也在同一个文件里，共 20 个 `tikzpicture`。`figures/architecture_sheet.pdf` 是 10 张图的扩展集合，部分图未放进正文。
+
+正文中的手势应用按 8 类词表设计，当前板端只演示/验证了石头、布、剪刀 3 类；其余 5 类已定义、待补样本。
 
 ## 口径
 
@@ -56,3 +57,19 @@ xelatex -interaction=nonstopmode -halt-on-error technical_report.tex
 ## 和 core 原稿的关系
 
 主报告是在 core 原稿上插入应用/加速器内容得到的；插入前正文没有被删除或改写。新增图表会让 core 原有图表号整体后移，正文引用都走 `\label/\ref`。
+## 图纸索引
+
+`figures/diagrams/` 里是 10 张图的 PNG；正文只放了其中 5 张核心图，其余留在扩展图纸里。
+
+| PNG | 内容 | 正文位置 |
+| --- | --- | --- |
+| `01_app_overview.png` | 应用与加速器总体架构 | 图 4 |
+| `02_mt_arch.png` | miniTensor 架构 | 图 15 |
+| `03_mt_dataflow.png` | 行式 UB 与 4×4 数据通路 | 扩展 |
+| `04_mt_cmd_timing.png` | 命令 issue/commit/result | 扩展 |
+| `05_mt_gemv.png` | GEMV 映射为 1×1 卷积 | 图 16 |
+| `06_app_stack.png` | 两个应用共用软件栈 | 扩展 |
+| `07_llm_flow.png` | Qwen → H112 → 两条路径 | 图 18 |
+| `08_gesture_flow.png` | 手势识别链路 | 图 19 |
+| `09_gesture_fsm.png` | 手势判决状态机 | 扩展 |
+| `10_gesture_tile.png` | 手势 UB 分配与 tile 调度 | 扩展 |

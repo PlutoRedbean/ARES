@@ -1,5 +1,4 @@
-% 本文件由 build_full.py 从 technical_report_core.tex 生成。
-% 原有正文来自 core 组，未改写；新增内容见 application/ 下的片段。
+% 单文件合并报告：core 原文 + 应用与加速器部分；TikZ 图全部内联。
 % 编译：xelatex -interaction=nonstopmode -halt-on-error technical_report.tex
 % !TeX program = xelatex
 % 统一入口；章节结构及版式依据同目录的《技术文档模板.docx》。
@@ -158,6 +157,7 @@
 % secondary line inside a block
 \newcommand{\sub}[1]{{\color{aresGray}#1}}
 
+
 \lstset{basicstyle=\ttfamily\fontsize{9}{12}\selectfont,breaklines=true,columns=fullflexible,numbers=none,frame=none}
 
 \begin{document}
@@ -175,7 +175,8 @@ SoC 提供单核和 2/4-hart AMP 配置，并集成矩阵、状态机和链表 M
 验证采用 Verilator 程序回归、模块定向测试与板级仿真，实现使用 PDS。在 100 MHz 仿真时钟下，未修改的 CoreMark 基线为 2.235012 CoreMark/MHz；以 CRC8 指令和三类引擎替换热点函数后，单核全加速为 13.384075 CoreMark/MHz，四核全加速 MULTITHREAD 聚合为 56.029283 CoreMark/MHz。
 
 % ===== 新增：应用与加速器摘要 =====
-作品另集成自研 miniTensor INT8 协处理器：4×4 阵列、256×128 bit 统一缓冲、向量单元与定点 epilogue；同一阵列既跑手势 CNN，也把语言模型 GEMV 映射为 1×1 卷积；char-GRU 由 17 提升到 103 char/s；应用侧用 Qwen2.5-0.5B-Instruct 构建语料、把能力压缩到 152,056 B 的 H112，手势 287 帧 INT8 100\%、板端 8/8，并驱动 Three.js 全息页面。
+作品同时集成自研 miniTensor INT8 协处理器：4×4 阵列、行式 UB、向量单元与定点 \mbox{epilogue}，把卷积和 GEMV 统一到同一条命令流。应用侧以 Qwen2.5-0.5B-Instruct 构建语料、把能力压缩到 152,056 B 的 H112，char-GRU 由 17 提升到 103 char/s；手势 287 帧 INT8 100\%、板端 8/8，并驱动 Three.js 全息页面。
+
 
 \clearpage
 {\setstretch{1.1}\tableofcontents}
@@ -190,7 +191,7 @@ IROM 取指和 PERIP 数据接口均具有握手控制；SoC 集成片上存储�
 AMP 提供私有数据窗口与共享 mailbox，RT-Thread Nano 支持单核运行。
 
 % ===== 新增：应用功能 =====
-在处理器之外，作品给出两条可演示的应用路径：一是经 UART 的端侧对话与知识问答，H112 常驻片上，A0 用于 CPU 与加速器对照；二是 OV5640 手势识别，识别结果经串口驱动浏览器全息页面。两条路径共用同一套 miniTensor、驱动与量化工具链，并都能在无操作系统、无外部加速卡的条件下独立运行。
+在处理器之外，作品给出两条应用路径：经 UART 的端侧对话与知识问答，以及 OV5640 手势识别；两者共用同一套 miniTensor、驱动与量化工具链，并驱动浏览器全息演示。
 
 
 \subsection{应用领域}
@@ -198,8 +199,9 @@ AMP 提供私有数据窗口与共享 mailbox，RT-Thread Nano 支持单核运�
 作品面向三类场景。
 一是嵌入式控制：单核配合机器定时器中断运行 RT-Thread Nano，提供时间片抢占、延时唤醒和串口命令行，可作为小型实时控制器的处理器平台。
 二是专用计算加速：CRC8 自定义指令与矩阵、状态机、链表 MMIO 引擎给出“热点函数替换、保留软件参考实现”的加速方法，可迁移到校验、滤波、协议解析等固定算法。
+
 % ===== 新增：端侧智能交互 =====
-三是端侧智能交互：在无操作系统、无外部加速卡的条件下完成小模型对话、知识问答与手势控制，可用于展陈互动与无障碍辅助。
+三是端侧智能交互：无操作系统、无外部加速卡即可完成小模型对话、知识问答与手势控制，可用于展陈互动与无障碍辅助。
 
 
 \subsection{主要技术特点}
@@ -210,7 +212,7 @@ AGU 在 ISS 提前计算访存地址，三阶段 LSU 区分 DCache 命中快路�
 乘法器采用四级部分积流水，除法器采用 radix-4 迭代 RTL；存储包装使用可综合 BRAM。CRC8 指令与三类 MMIO 引擎支持软硬件协同加速。
 
 % ===== 新增：协处理器技术特点 =====
-协处理器侧以 4×4 INT8 输出驻留阵列为核，配合 128 bit 行式统一缓冲、向量单元和定点 epilogue，把卷积与 GEMV 统一为同一条 \code{GEMM} 命令流；命令经 64 项队列突发下发。
+协处理器侧以 4×4 INT8 阵列、128 bit 行式统一缓冲、向量单元与定点 epilogue，把卷积和 GEMV 统一为同一条 \code{GEMM} 命令流。
 
 
 \subsection{主要配置}
@@ -232,24 +234,22 @@ FPGA / 工具链 & PG2L200H-6IFBB676 / Pango PDS \\
 \end{table}
 
 % ===== 新增：应用与加速器主要性能指标 =====
-除处理器配置外，两个应用与 miniTensor 的主要指标如下。表中把 100 MHz 仿真时钟与 27 MHz 板级时钟分开标注，周期到时间的换算按 27 MHz 计算。
+除处理器配置外，两个应用与 miniTensor 的主要指标如下。
 
 \begin{table}[H]
 \centering
 \caption{应用与加速器主要性能指标}
 \label{tab:app-metrics}
-\begin{tabularx}{\linewidth}{@{}P{2.7cm}X P{4.3cm}@{}}
+\begin{tabularx}{\linewidth}{@{}P{2.5cm}X P{4.4cm}@{}}
 \toprule
 项目 & 指标 & 口径 \\
 \midrule
-miniTensor & 4×4 INT8，32 bit 累加；UB 256×128 bit & 16 PE，8--10 周期/GEMM \\
-命令与周期 & 1,936 条/帧；约 1.31 M 周期 & 手势帧；100 MHz 仿真 13.1 ms，27 MHz 板级 48.5 ms \\
-资源增量 & +6,276 LUT / +5,067 FF / +48 APM / +4.5 DRM & b5$-$b4 post-route 同阶段差分 \\
-时序 & 27 MHz 约束 WNS +12.85 ns & 反推关键路径 23.9 ns，推算上限约 41.9 MHz \\
+miniTensor & 4×4 INT8、32 bit 累加；UB 256×128 bit & 16 PE，8--10 周期/GEMM \\
+手势帧 & 1,936 条命令；约 1.31 M 周期 & 100 MHz 仿真 13.1 ms；27 MHz 板级 48.5 ms \\
 H112 & 140,742 参数 / 152,056 B & 20 token/s 输出节流 \\
-A0 & 56,480 参数；17 char/s（CPU）/ 103 char/s（miniTensor） & 0/40 golden \\
-QA & 10,475 条 / 638,076 B / 94\% & 检索式，20 char/s 输出 \\
+A0 & 17 char/s（CPU）/ 103 char/s（miniTensor） & 0/40 golden \\
 手势 & 287 帧 INT8 100\%；板端 8/8；10 Hz & 3 帧确认，约 0.2 s 更新 \\
+b5 整机 & CLMA 35\%、DRM 63\%、APM 9\% & 27 MHz WNS +12.85 ns \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -489,9 +489,7 @@ HZU 根据分支结果协调重定向，ISU 根据数据就绪状态决定旁路
 % ===== 新增：应用与加速器总体 =====
 \paragraph{平台与口径}
 
-本报告包含两条验证线。第二、三部分前半的处理器微架构、Cache、CoreMark 与 PDS 结果来自 Mundus 九级核；本部分新增的 miniTensor 与两个应用在 ARES-L 五级应用基线上完成。两者共享 RV32IM 指令集、uncached 数据视图和同一套 miniTensor RTL；miniTensor 通过 MMIO 接入，DMA 直接从 scratch/BRAM 取数。应用指标均在 ARES-L 基线上实测；Mundus 侧的 512 KiB 数据窗口是后续移植项。
-
-图~\ref{fig:app-overview} 给出应用与加速器的总体关系：CPU 经 MMIO 窗口把命令写入 miniTensor 的命令队列，命令执行与 DMA 共用统一缓冲，两个应用分别从 UART 和摄像头进入同一套软件栈。miniTensor 位于 SoC 中心，而不是某个应用私有的外设。
+应用与加速器部分统一以 ARES-L 五级应用基线为口径：CPU 是 ARES-L 五级顺序核，数据按 uncached 视图访问，miniTensor 通过 MMIO 接入。本部分提到的 CPU 都指这一基线。图~\ref{fig:app-overview} 给出总体关系：CPU 经 MMIO 窗口把命令写入 miniTensor 的命令队列，DMA 在 UB 与 scratch/BRAM 间搬数，两个应用共用一套软件栈。
 
 \begin{figure}[htbp]
 \centering
@@ -499,7 +497,7 @@ HZU 根据分支结果协调重定向，ISU 根据数据就绪状态决定旁路
 \begin{tikzpicture}[ares, x=1cm, y=1cm]
 % ================= SoC row =================
 \node[blk=aresBlue, text width=3.0cm, minimum height=1.45cm] (cpu) at (1.8,7.7)
-  {ARES-L 五级核 / Mundus 九级核\\\sub{RV32IM · L1I · 无数据 Cache}};
+  {ARES-L 五级核\\\sub{RV32IM · L1I · 无数据 Cache}};
 \node[blk=aresTeal, text width=3.0cm, minimum height=1.0cm] (mmio) at (1.8,6.15)
   {MMIO 窗口\\\sub{0xE0000000}\\\sub{8 个寄存器}};
 \draw[dat] (cpu) -- (mmio);
@@ -2091,13 +2089,7 @@ FENCE 在 ID 等待 LSU 与桥同时空闲；EBREAK 退休后冻结流水线。
 \paragraph{自研 miniTensor 加速器}
 \label{par:minitensor}
 
-\subparagraph{定位与约束}
-
-miniTensor 以 MMIO 方式接入 SoC。CPU 通过 \code{0xE0000000} 的 8 个 MMIO 寄存器写入指令字和两个操作数，命令适配器将其打包后写入命令队列；数据由 DMA 在统一缓冲与 scratch/DDR 之间搬运。这样做的三个约束是：无 FPU，全整数；无数据 Cache，CPU 与 DMA 必须看到同一物理视图；miniTensor 窗口只有 4 KiB，命令必须极简。
-
-\subparagraph{总体架构}
-
-图~\ref{fig:mt-arch} 给出 miniTensor 的模块关系。命令路径由 MMIO 命令适配器、64×168 bit 命令 FIFO 和 \code{mt_fsm} 组成；数据路径由 \code{vpu_dma}、\code{mt_dma_l2_bridge}、\code{unified_buffer} 和计算单元组成。计算单元包括 4×4 输出驻留阵列、128 bit 向量单元和 epilogue。表~\ref{tab:mt-modules} 列出子模块职责。
+miniTensor 以 MMIO 方式接入 SoC：CPU 通过 \code{0xE0000000} 的 8 个 MMIO 寄存器写指令和两个操作数，命令适配器将其打包后写入命令队列，DMA 在统一缓冲与 scratch/BRAM 之间搬数。三个限制决定了它的结构：无 FPU，全整数；无数据 Cache，CPU 与 DMA 必须看到同一物理视图；窗口只有 4 KiB，命令就得尽量简单。图~\ref{fig:mt-arch} 给出命令适配器、64 项命令队列、4×4 阵列、向量单元、epilogue、UB 与 DMA 的关系。
 
 \begin{figure}[htbp]
 \centering
@@ -2105,7 +2097,7 @@ miniTensor 以 MMIO 方式接入 SoC。CPU 通过 \code{0xE0000000} 的 8 个 MM
 \begin{tikzpicture}[ares, x=1cm, y=1cm]
 % ---------------- CPU side ----------------
 \node[blk=aresBlue, text width=2.8cm, minimum height=1.3cm] (cpu) at (1.7,7.7)
-  {ARES-L / Mundus\\\sub{RV32IM · uncached}};
+  {ARES-L 五级核\\\sub{RV32IM · uncached}};
 \node[blk=aresTeal, text width=2.9cm, minimum height=1.05cm] (mmio) at (1.7,6.15)
   {MMIO 寄存器组\\\sub{INSTR RS1 RS2 KICK\\STATUS BSTEP LO}};
 \draw[dat] (cpu) -- (mmio);
@@ -2176,354 +2168,87 @@ miniTensor 以 MMIO 方式接入 SoC。CPU 通过 \code{0xE0000000} 的 8 个 MM
 \label{fig:mt-arch}
 \end{figure}
 
-\begin{table}[H]
-\centering
-\caption{miniTensor 子模块与职责}
-\label{tab:mt-modules}
-\begin{tighttable}
-\begin{tabularx}{\linewidth}{@{}P{2.5cm}P{4.4cm}X@{}}
-\toprule
-子模块 & 主要文件 & 职责 \\
-\midrule
-主机适配 & \code{mt_cmd_fifo.sv} & MMIO 命令打包；宏指令翻译；64 项命令队列与 FULL 背压 \\
-张量控制 & \code{tensor_controller.sv}, \code{tensor_gemm_core.sv} & 从 UB 读 A/B/C tile，启动 4×4×4 GEMM，写回 C 行 \\
-阵列 & \code{tensor_systolic_array.sv}, \code{tensor_pe.sv} & 16 个 INT8 PE；A 向右、B 向下传播；32 bit 累加 \\
-向量单元 & \code{vpu_vector_controller.sv}, \code{vpu_vector_alu.sv} & 128 bit 打包 INT8 的 ADD8/MAX8/RELU8；32×128 bit 寄存器堆 \\
-epilogue & \code{tensor_epilogue_controller.sv}, \code{tensor_epilogue_core.sv} & int32 加 bias、乘 mult、右移、加 zero point、ReLU、打包 16×INT8 \\
-统一缓冲 & \code{unified_buffer.sv} & 256×128 bit（4 KiB）；同步读、字节写使能；DMA 与计算分时复用 \\
-DMA & \code{vpu_dma.sv}, \code{mt_dma_l2_bridge.sv} & 单笔 128 bit；内存↔UB；L2 master 读写 \\
-顶层 & \code{mini_tensor_top.sv}, \code{mt_fsm.sv} & 单命令串行；命令接收、派发与完成状态 \\
-\bottomrule
-\end{tabularx}
-\end{tighttable}
-\end{table}
-
-\subparagraph{计算通路与行式数据组织}
-
-统一缓冲以 128 bit 为一行，一行正好 16 个 INT8 或 4 个 INT32。A tile、B tile 各占一行，C tile 占四行；阵列按行取 A、按列取 B，4 拍把 $k=0,\ldots,3$ 的乘积累加到 16 个 32 bit 累加器。\code{accumulate} 位为 0 时用 C 行初始化，为 1 时在旧值上累加。图~\ref{fig:mt-dataflow} 给出行式组织与阵列、epilogue 的连接。
+UB 每行 128 bit，正好 16 个 INT8 或 4 个 INT32；A/B tile 各占一行，C tile 占四行，4 拍把 $k=0,\ldots,3$ 的乘积累加到 16 个 32 bit 累加器，\code{accumulate} 位选择初始化或累加。所有指令为 custom-0：\code{BURST} 用 rd 当重复次数，\code{GEMM2D} 用 nu×nj 展开二维网格，\code{CONVGROUP} 把 LOAD 与网格合成一条。图~\ref{fig:mt-gemv} 给出 GEMV 映射：A 行 0 放 $x[4t..4t{+}3]$、行 1--3 补零，B 放 [组][k 组][4k][4out] 权重，\mbox{C 只取行 0}，沿 $t$ 累加。这样一来，$1\times1$ 卷积就是 GEMV，不需要第二套数据通路，代价是阵列利用率约 1/4。
 
 \begin{figure}[htbp]
 \centering
-% Row-based UB organisation and the 4x4 INT8 datapath.
 \begin{tikzpicture}[ares, x=1cm, y=1cm]
-% ---------- A / B rows ----------
-\node[note, anchor=south] at (2.60,6.85) {A/B tile：各 1 行 = 16 INT8 = 128 bit};
-\foreach \i in {0,...,15}
-  \node[cell=aresBlue, minimum width=0.23cm, minimum height=0.36cm, inner sep=0pt]
-    (a\i) at (0.95+\i*0.235,6.30) {};
-\node[note, anchor=east] at (0.80,6.30) {A};
-\foreach \i in {0,...,15}
-  \node[cell=aresGreen, minimum width=0.23cm, minimum height=0.36cm, inner sep=0pt]
-    (b\i) at (0.95+\i*0.235,5.50) {};
-\node[note, anchor=east] at (0.80,5.50) {B};
-
-% ---------- array ----------
-\foreach \r in {0,1,2,3}
-  \foreach \c in {0,1,2,3}
-    \node[cell=aresAmber, minimum width=0.50cm, minimum height=0.50cm, inner sep=0pt]
-      (pe\r\c) at (6.15+\c*0.54,6.00-\r*0.54) {};
-\node[note, anchor=west] at (4.65,4.05) {4×4 阵列};
-\draw[dat] (4.90,6.30) -- (6.15,6.30) |- (pe00.west);
-\draw[dat] (4.90,5.50) -- (5.75,5.50) |- (pe00.north);
-
-% ---------- C rows ----------
-\foreach \r in {0,1,2,3}
-  \foreach \c in {0,1,2,3}
-    \node[cell=aresPurple, minimum width=0.42cm, minimum height=0.38cm, inner sep=0pt]
-      (c\r\c) at (9.55+\c*0.46,6.00-\r*0.50) {};
-\foreach \r in {0,1,2,3}
-  \node[note, anchor=east] at (9.25,6.00-\r*0.50) {C\r};
-\draw[dat] (8.40,6.27) -- (9.15,6.27);
-\draw[dat] (8.40,5.73) -- (9.15,5.73);
-\node[note, anchor=north] at (10.25,4.20) {4 行 × 4 × INT32};
-
-% ---------- epilogue / VPU ----------
-\node[blk=aresPurple, text width=2.2cm, minimum width=2.4cm, minimum height=1.25cm] (epi) at (12.55,5.20)
-  {epilogue\\\sub{bias · requant}\\\sub{pack}};
-\draw[dat] (11.55,6.00) -- (12.55,6.00) -- (epi.north);
-\draw[dat] (11.55,4.50) -- (12.55,4.50) -- (epi.south);
-\node[note, anchor=north, align=center, text width=2.2cm] at (12.55,4.00) {1 行 = 16 INT8};
-
-\node[blk=aresPurple, text width=2.2cm, minimum width=2.4cm, minimum height=1.0cm] (vpu) at (12.55,2.80)
-  {VPU\\\sub{ADD8 / MAX8 / RELU8}};
-\draw[dat] (epi.south) -- (vpu.north);
-\node[note, anchor=north, align=center, text width=2.4cm] at (12.55,1.90)
-  {残差与 leaky ReLU 复用 UB 行};
-
-% ---------- equation ----------
-\node[note, anchor=north, align=center, text width=8.0cm] at (7.00,1.55)
-  {$C_{ij}=\sum_{k=0}^{3}A_{ik}B_{kj}$；accumulate=0 时以 C 行初始化，=1 时累加。\\
-   一次 4×4×4 GEMM 共 64 MAC，核内 8--10 个周期完成。};
-\end{tikzpicture}
-\caption{统一缓冲的行式组织与 4×4 INT8 数据通路（A/B 各一行，C 四行，epilogue 输出一行）}
-\label{fig:mt-dataflow}
-\end{figure}
-
-一次 4×4×4 GEMM 共 64 MAC，核内 8--10 个周期完成。GEMM 核是非流水实现，16 个 PE 在 4 个 k 步上顺序累加，因此峰值利用率受状态机限制；计入 DMA 与命令开销后，手势网络实测约 0.6 MAC/cycle。行宽取 128 bit 的原因有三个：与 DMA/L2 的单拍位宽一致；一个 4×4 INT8 tile 正好 16 B；C 行 4 个 INT32 也正好 16 B，读写都不会跨行。
-
-向量单元有 16 个独立 byte lane，支持 \code{ADD8}、\code{MAX8} 和 \code{RELU8}。它不参与卷积主通路，而是承担残差相加、leaky ReLU 和逐元素比较等后处理；这样这些操作不需要另开一套张量命令。
-
-epilogue 从 UB 读 4 行 C、4 行 bias 和 1 行配置，按
-\begin{equation}
-y=\mathrm{clip}\left(\frac{(c+b)\cdot m}{2^{s}}+z_p,\,-128,\,127\right)
-\end{equation}
-逐元素计算并打包成 1 行 16 个 INT8。配置行中 \code{[15:0]} 为有符号乘数，\code{[20:16]} 为右移位数，\code{[28:21]} 为有符号 zero point，\code{[29]} 为使能 ReLU。乘加在 48 bit 中间值上完成，最后饱和到 INT8；这套定点格式同时服务手势 CNN 与 GRU 的输出层。
-
-\subparagraph{指令模型}
-
-所有 miniTensor 指令的 opcode 都是 custom-0（\code{0x0B}）。操作数不放在指令字的 \code{rs1/rs2} 字段，而由 CPU 写入 MMIO 的 RS1/RS2 寄存器；指令字只保留 funct7、funct3 和 rd。表~\ref{tab:mt-instr} 给出普通指令与三个宏指令的编码。
-
-\begin{table}[H]
-\centering
-\caption{miniTensor 指令与宏指令}
-\label{tab:mt-instr}
-\begin{tighttable}
-\begin{tabularx}{\linewidth}{@{}P{2.2cm}C{1.1cm}C{0.9cm}X P{3.7cm}@{}}
-\toprule
-指令 & funct7 & funct3 & 操作数 & 语义 \\
-\midrule
-\code{LOAD} & \code{0x03} & \code{000} & rs1=内存地址，rs2=行/行数 & 内存到 UB \\
-\code{STORE} & \code{0x04} & \code{000} & rs1=内存地址，rs2=行/行数 & UB 到内存 \\
-\code{GEMM} & \code{0x05} & \code{000} & rs1=A 行/B 行，rs2=C 行/accumulate & C = A×B（或累加） \\
-\code{EPILOGUE} & \code{0x06} & \code{000} & rs1=C 行/bias 行，rs2=输出行/配置行 & requant + pack \\
-\code{VEC_ADD8} & \code{0x02} & \code{000} & rs1=A 行/B 行，rs2=目标行 & 16×INT8 相加 \\
-\code{VEC_MAX8} & \code{0x02} & \code{001} & 同上 & 逐字节取最大 \\
-\code{VEC_RELU8} & \code{0x02} & \code{010} & rs1=A 行，rs2=目标行 & 逐字节 ReLU \\
-\code{BURST} & 任意 & 任意 & rd=重复次数，BSTEP=行步长 & 同一指令重复下发 \\
-\code{GEMM2D} & \code{0x09} & \code{000} & nu/nj 在指令的 rs1/rs2 字段 & 适配器展开为 $u\times j$ 个 GEMM \\
-\code{CONVGROUP} & \code{0x0A} & \code{000} & 同上，另有 \code{MT_LO} & 先 LOAD，再展开 GEMM 网格 \\
-\bottomrule
-\end{tabularx}
-\end{tighttable}
-\end{table}
-
-三个宏指令把软件外层循环搬进命令适配器，但张量本身只看到它已经验证过的普通指令：
-
-\begin{enumerate}[label=(\arabic*)]
-\item \code{BURST} 把指令字的 rd 字段当作重复次数；命令适配器在每次命令完成后把 rs1/rs2 加上 \code{MT_BSTEP} 里的行步长再发一次，只有最后一次置 DONE。
-\item \code{GEMM2D(nu,nj)} 把形状放在指令字未用的 rs1/rs2 字段（各 5 bit），命令适配器用第二对计数器展开“u 走 tile 列、j 走输出组”的二维网格；A 行、权重行和 C 行分别按 a/b/c/d 四个步长推进。
-\item \code{CONVGROUP(nu,nj)} 是 \code{LOAD} 与 \code{GEMM2D} 的合并：命令适配器先从 \code{MT_LO} 给出的地址装 4 行激活，再展开同一网格；一条 push 完成原来两条命令的工作。
-\end{enumerate}
-
-图~\ref{fig:mt-cmd} 给出命令下发、排队、派发与完成的时序关系。FIFO 满时状态字给出 FULL 位，CPU 只等一个槽位而不是等整条队列排空；每批 63 条命令 drain 一次，把 MMIO 写延迟摊薄。
-
-\begin{figure}[htbp]
-\centering
-% Command issue, queueing and execution sequence.
-\begin{tikzpicture}[ares, x=1cm, y=1cm]
-% main chain
-\node[blk=aresTeal, text width=2.0cm, minimum height=1.0cm] (cpu) at (1.20,4.60)
-  {CPU\\\sub{写操作数 + KICK}};
-\node[blk=aresTeal, text width=2.0cm, minimum height=1.0cm] (fifo) at (3.90,4.60)
-  {命令 FIFO\\\sub{64 × 168 bit}};
-\node[blk=aresPurple, text width=2.0cm, minimum height=1.0cm] (shim) at (6.60,4.60)
-  {命令适配器\\\sub{宏指令展开}};
-\node[blk=aresPurple, text width=2.0cm, minimum height=1.0cm] (commit) at (9.30,4.60)
-  {mt\_fsm 派发\\\sub{单命令串行}};
-\node[blk=aresPurple, text width=2.1cm, minimum height=1.0cm] (tensor) at (12.00,4.60)
-  {tensor / VPU / DMA\\\sub{8--10 拍 / 行}};
-\foreach \a/\b in {cpu/fifo,fifo/shim,shim/commit,commit/tensor}
-  \draw[dat] (\a) -- (\b);
-
-% result loop
-\draw[dat] (tensor.south) -- (12.00,3.65) -- (6.60,3.65) -- (shim.south);
-\node[note, anchor=south, text=aresRed] at (9.30,3.65) {完成 / 下一条命令};
-
-% command forms
-\node[blk=aresGray, text width=2.2cm, minimum height=0.55cm] (flat) at (1.35,2.35) {普通命令};
-\node[note, anchor=west, text width=10.8cm, align=left] at (2.60,2.35)
-  {一次下发对应一次完成；LOAD/STORE/GEMM/EPILOGUE/VECTOR 都属于这一类。};
-\node[blk=aresGray, text width=2.2cm, minimum height=0.55cm] (burst) at (1.35,1.45) {BURST};
-\node[note, anchor=west, text width=10.8cm, align=left] at (2.60,1.45)
-  {rd 字段给出重复次数；每次完成后 rs1/rs2 加 BSTEP 再下发，只有最后一次置 DONE。};
-\node[blk=aresGray, text width=2.2cm, minimum height=0.55cm] (grid) at (1.35,0.55) {2D / CONVGROUP};
-\node[note, anchor=west, text width=10.8cm, align=left] at (2.60,0.55)
-  {形状 nu×nj 放在指令的 rs1/rs2 字段；命令适配器展开为 u×j 个普通 GEMM；CONVGROUP 先做一次 LOAD。};
-
-% bottom note
-\node[note, anchor=north, align=center, text width=12.5cm] at (6.40,-0.20)
-  {FIFO 满时 STATUS.FULL=1，CPU 只等一个槽位；每批 63 条命令 drain 一次。\\
-   宏指令在命令适配器内翻译，tensor 只看到 0x02/0x03/0x04/0x05/0x06 六类普通命令。};
-\end{tikzpicture}
-\caption{命令下发、队列、派发与完成的时序；BURST、GEMM2D、CONVGROUP 在命令适配器内展开}
-\label{fig:mt-cmd}
-\end{figure}
-
-宏指令的设计有两条踩过的坑。第一，形状不能放进 rs1 的高 16 位：张量会检查 \code{rs1[31:16]==0}，放进去会被判非法；因此形状改放在指令字的 rs1/rs2 字段。第二，\code{MT_BSTEP} 是全局寄存器，epilogue 会把它改成 $(4,0,1)$，下一个 tap 的 GEMM 必须重新装载 $(1,1,4,\text{ntiles4})$，否则整行结果会错位。这两条都写进了最小单元测试。
-
-\subparagraph{从卷积到 GEMV：同一阵列的两类负载}
-
-手势 CNN 把激活放在 A、权重放在 B，按输出通道分组做卷积；语言模型的 GEMV 则把输入向量按 4 个一组切开，A tile 的行 0 放 $x[4t..4t{+}3]$，行 1--3 补零，B tile 放 $4\times4$ 的权重块，C tile 只取行 0 的 4 个部分和，沿 $t$ 累加。这样，一个 $1\times1$ 卷积在单空间位置就是 $y=Wx$，不需要为 GEMV 增加第二套数据通路。
-
-\begin{figure}[htbp]
-\centering
-% GEMV mapped onto the 4x4 INT8 array as a 1x1 convolution.
-\begin{tikzpicture}[ares, x=1cm, y=1cm]
-% ---------- x vector ----------
-\node[note, anchor=south] at (1.0,6.75) {输入 $x$};
+\node[note, anchor=south] at (1.0,6.45) {输入 $x$};
 \foreach \i in {0,...,7}
-  \node[cell=aresBlue, minimum width=0.80cm, minimum height=0.34cm, inner sep=0pt]
-    (x\i) at (1.0,6.20-\i*0.36) {$x_{\i}$};
+  \node[cell=aresBlue, minimum width=0.80cm, minimum height=0.32cm, inner sep=0pt]
+    (x\i) at (1.0,5.95-\i*0.36) {$x_{\i}$};
 \draw[decorate,decoration={brace,amplitude=3pt,mirror},aresBlue]
-  (1.50,6.35) -- (1.50,5.35) node[midway,right=3pt,note,text=aresBlue!80!black] {4 个一组};
+  (1.50,6.10) -- (1.50,5.10) node[midway,right=3pt,note,text=aresBlue!80!black] {4 个一组};
 
-% ---------- A tile ----------
-\node[note, anchor=south] at (4.25,6.75) {A tile};
+\node[note, anchor=south] at (3.95,6.45) {A tile};
 \foreach \r in {0,1,2,3}
   \foreach \c in {0,1,2,3}
     \node[cell=aresGray, minimum width=0.42cm, minimum height=0.38cm, inner sep=0pt]
-      (a\r\c) at (3.60+\c*0.46,6.20-\r*0.46) {};
+      (a\r\c) at (3.20+\c*0.50,5.95-\r*0.50) {};
 \foreach \c in {0,1,2,3}
   \node[cell=aresBlue, minimum width=0.42cm, minimum height=0.38cm, inner sep=0pt]
-    at (3.60+\c*0.46,6.20) {};
-\node[note, text=aresBlue!80!black] at (3.83,6.20) {$x_{4t}$};
-\node[note, text=aresBlue!80!black] at (4.75,6.20) {$x_{4t+3}$};
+    at (3.20+\c*0.50,5.95) {};
+\node[note, text=aresBlue!80!black] at (3.45,5.95) {$x_{4t}$};
+\node[note, text=aresBlue!80!black] at (4.95,5.95) {$x_{4t+3}$};
 
-% ---------- B tile ----------
-\node[note, anchor=south] at (7.10,6.75) {B tile};
+\node[note, anchor=south] at (6.85,6.45) {B tile};
 \foreach \r in {0,1,2,3}
   \foreach \c in {0,1,2,3}
     \node[cell=aresGreen, minimum width=0.42cm, minimum height=0.38cm, inner sep=0pt]
-      (b\r\c) at (6.45+\c*0.46,6.20-\r*0.46) {};
+      (b\r\c) at (6.10+\c*0.50,5.95-\r*0.50) {};
 
-% ---------- C tile ----------
-\node[note, anchor=south] at (9.95,6.75) {C tile};
+\node[note, anchor=south] at (9.75,6.45) {C tile};
 \foreach \r in {0,1,2,3}
   \foreach \c in {0,1,2,3}
     \node[cell=aresGray, minimum width=0.42cm, minimum height=0.38cm, inner sep=0pt]
-      (c\r\c) at (9.30+\c*0.46,6.20-\r*0.46) {};
+      (c\r\c) at (9.00+\c*0.50,5.95-\r*0.50) {};
 \foreach \c in {0,1,2,3}
   \node[cell=aresPurple, minimum width=0.42cm, minimum height=0.38cm, inner sep=0pt]
-    at (9.30+\c*0.46,6.20) {};
-\node[note, text=aresPurple!80!black] at (9.53,6.20) {$y_0$};
-\node[note, text=aresPurple!80!black] at (10.45,6.20) {$y_3$};
+    at (9.00+\c*0.50,5.95) {};
+\node[note, text=aresPurple!80!black] at (9.25,5.95) {$y_{0}$};
+\node[note, text=aresPurple!80!black] at (10.75,5.95) {$y_{3}$};
 
-% ---------- operators ----------
-\node[note, scale=1.15] at (5.65,5.97) {$\times$};
-\node[note, scale=1.15] at (8.50,5.97) {$=$};
-\draw[dat] (5.10,6.20) -- (5.40,6.20);
-\draw[dat] (5.90,6.20) -- (6.20,6.20);
-\draw[dat] (7.95,6.20) -- (8.25,6.20);
-\draw[dat] (8.80,6.20) -- (9.05,6.20);
+\node[note, scale=1.15] at (5.35,5.75) {$\times$};
+\node[note, scale=1.15] at (8.25,5.75) {$=$};
+\draw[dat] (1.90,5.95) -- (2.90,5.95);
+\draw[dat] (4.80,5.75) -- (5.05,5.75);
+\draw[dat] (5.65,5.75) -- (5.90,5.75);
+\draw[dat] (7.70,5.75) -- (7.95,5.75);
+\draw[dat] (8.55,5.75) -- (8.80,5.75);
 
-% ---------- accumulate ----------
-
-% ---------- right note ----------
-\node[blk=aresGray, text width=2.2cm, minimum height=2.6cm, align=left] (note) at (12.60,6.00)
-  {\textbf{为什么可行}\\[2pt]
-   $1\times1$ 卷积在单空间位置就是 $y=Wx$。\\[2pt]
-   A 只有 1 行有效，阵列利用率约 1/4；换得同一套数据通路与 $6\times$ 吞吐。};
-\node[note, anchor=north, align=center, text width=2.3cm] at (12.60,4.55)
-  {每个输出组一条\\\texttt{MT\_GEMM} 突发};
-
-% ---------- bottom ----------
-\node[note, anchor=north, align=center, text width=10.8cm] at (6.30,4.55)
-  {A 行 0 放 $x[4t..4t{+}3]$，行 1--3 补零；B 为 4×4 权重块；C 只取行 0 的 4 个部分和。};
-\node[note, anchor=north, align=center, text width=10.8cm] at (6.30,3.55)
-  {一次 4×4 GEMM 产生 4 个输出通道的部分和；沿 $k$ 累加后写回 C 行 0。\\
-   32 个 C tile 缓冲后按 4 行一组存回内存。};
 \end{tikzpicture}
-\caption{GEMV 到 4×4 阵列的映射：A 行 0 放 4 个输入元素，行 1--3 补零，C 只取行 0}
+\caption{GEMV 到 4×4 阵列的映射：A 行 0 放 4 个输入元素，行 1--3 补零，C 只取行 0 并沿 $t$ 累加；$1\times1$ 卷积即 GEMV}
 \label{fig:mt-gemv}
 \end{figure}
 
-代价是 A 只有 1 行有效，阵列利用率约 1/4；换来的是同一套 UB、DMA、epilogue 和命令流，以及相对 CPU 手写 GEMV 的约 6 倍吞吐。后文语言模型一节给出两条路径的逐项对比。
-
-\subparagraph{性能演进}
-
-基线版本的每帧 17,184 条命令、约 7.27 M 周期，加速器 busy 只有 7.7\%；92\% 的帧时间花在 CPU 逐条写命令上。优化顺序是“先把软件循环搬进硬件，再减少命令数，最后消除等待”：
+基线每帧 17,184 条命令、约 7.27 M 周期，加速器 busy 只有 7.7\%；把外层循环搬进命令适配器后降到 1,936 条、约 1.31 M 周期，busy 升到 39\%。b5 post-route：CLMA 10,229/30,075（35\%）、FF 24,404（11\%）、DRM 261/415（63\%）、APM 62/740（9\%）；b5$-$b4 为 +6,276 LUT、+5,067 FF、+48 APM、+4.5 DRM；27 MHz WNS +12.85 ns，推算上限约 41.9 MHz。验证采用命令级单测、逐层整数 golden 与板端串口：手势 287 帧 INT8 100\%、板端 8/8，A0 40 token 0/40。它的优势可以概括为“同一阵列覆盖两类负载、命令化把循环搬进硬件、资源增量可控”。表~\ref{tab:mt-perf} 给出关键几级优化：命令数从 17,184 降到 1,936，周期从 7.27 M 降到约 1.31 M。
 
 \begin{table}[H]
 \centering
 \caption{miniTensor 的性能演进（手势网络，golden 均为 0 字节差异）}
 \label{tab:mt-perf}
 \begin{tighttable}
-\begin{tabularx}{\linewidth}{@{}P{1.4cm}P{6.2cm}rrr@{}}
+\begin{tabularx}{\linewidth}{@{}P{1.6cm}P{5.6cm}rr@{}}
 \toprule
-版本 & 关键改动 & 命令/帧 & 周期/帧 & busy \\
+版本 & 关键改动 & 命令/帧 & 周期/帧 \\
 \midrule
-B7b & 基线：CPU 逐条 push & 17,184 & 7.27 M & 7.7\% \\
-P1a & tap 解码外提、A 四行合并 & 14,272 & 6.22 M & --- \\
-P1b & GEMM 突发（BURST） & 6,720 & 4.85 M & --- \\
-P1d & pad/pool 词宽化（纯 C） & 6,032 & 2.00 M & 26\% \\
-P1e & 命令队列 8 项扩至 64 项 & 6,032 & 1.87 M & --- \\
-P1f & 二维 GEMM 突发（GEMM2D） & 3,120 & 1.42 M & 36\% \\
-P1g & LOAD 与二维突发合并（CONVGROUP） & 1,936 & 1.35 M & --- \\
-P1h & 状态字加 FULL，满才等 & 1,936 & 1.23 M & 41\% \\
-最终 & 最终镜像，含收尾统计 & 1,936 & 约 1.31 M & 39\% \\
+B7b & 基线：CPU 逐条 push & 17,184 & 7.27 M \\
+P1b & GEMM 突发（BURST） & 6,720 & 4.85 M \\
+P1d & pad/pool 词宽化（纯 C） & 6,032 & 2.00 M \\
+P1f & 二维 GEMM 突发（GEMM2D） & 3,120 & 1.42 M \\
+P1g & LOAD 与二维突发合并（CONVGROUP） & 1,936 & 1.35 M \\
+P1h & 状态字加 FULL，满才等 & 1,936 & 1.23 M \\
 \bottomrule
 \end{tabularx}
 \end{tighttable}
 \end{table}
 
-表~\ref{tab:mt-perf} 中 1.23 M 与 1.31 M 是同一工作负载在不同镜像、不同统计边界下的记录，差异不在模型或输入；正文对外统一使用约 1.31 M。相对基线，命令数降到约 1/9，周期降到约 1/5.5，busy 从 7.7\% 升到 39\%。
 
-P1d 的收益说明“先测量再优化”：把 \code{net_pad} 的逐字节拷贝改成 32 bit 词宽、把 \code{net_pool_k} 的四个通道各算一次地址改成按像素取字，帧时间从 4.81 M 降到 2.00 M，超过前面所有 RTL 工作之和。
-
-\subparagraph{资源与时序}
-
-表~\ref{tab:mt-resource} 是 b5 配置的 post-route 结果。b5 为 CPU + miniTensor + 512 KiB 数据窗口，b4 为同一流程的 CPU-only 配置；差分只用于估计 miniTensor 的增量，不与第三部分前半的四核 70/200 MHz 报告混比。
-
-\begin{table}[H]
-\centering
-\caption{b5（CPU + miniTensor + 512 KiB 窗口）post-route 资源与增量}
-\label{tab:mt-resource}
-\begin{tighttable}
-\begin{tabularx}{\linewidth}{@{}P{1.8cm}P{4.4cm}P{3.2cm}X@{}}
-\toprule
-资源 & b5 整机 & b5$-$b4 差分 & 说明 \\
-\midrule
-CLMA & 10,229 / 30,075（35\%） & +6,276 LUT & 组合逻辑 \\
-FF & 24,404（11\%） & +5,067 & 触发器 \\
-DRM & 261 / 415（63\%） & +4.5 & 其中 256 块用于 512 KiB BRAM 窗口 \\
-APM & 62 / 740（9\%） & +48 & 乘法器 \\
-\bottomrule
-\end{tabularx}
-\end{tighttable}
-\end{table}
-
-27 MHz 约束下慢角 setup WNS 为 +12.85 ns，反推关键路径约 23.9 ns，对应推算上限约 41.9 MHz。板级演示按 27 MHz 运行。
-
-相机整机 \code{video_fb_top} 是另一套配置：CLMA 36\%、LUT 20\%、DRM 26\%、IO 36\%（144 个 IO）。它的 WNS 为 $-3.83$ ns，且仍有 3 条时钟未约束，功能已验证通过，时序尚待收敛。两套配置的资源统计层级不同（b5 为 CLMA/FF，相机整机为 LUT/IO）。
-
-\subparagraph{验证}
-
-验证分三层：命令级单元测试、逐层整数 golden、板端串口。命令级先覆盖单条 \code{LOAD}、单条 \code{GEMM2D}、单条 \code{CONVGROUP}，确认宏指令展开后的操作数没有被改写；逐层 golden 用 Python 整数参考与 C/RTL 逐字节比较，手势 287 帧 INT8 全量 100\%，板端 8/8 与离线一致；LLM 的 A0 路径 40 token 贪心流 0/40 mismatch。两个应用共用同一个 miniTensor，说明同一套命令与数据通路可以覆盖卷积和 GEMV 两类负载。
 
 \subsection{软件系统介绍}
 \subsubsection{软件整体介绍}
 目标端包括 AbstractMachine 裸机运行时与 CoreMark，以及独立的 RT-Thread Nano 自检和 MSH 固件；主机端提供镜像拆分、Verilator 驱动和模块测试脚本。
 核生成配置关闭 DPI-C/difftest 仿真钩子。裸机仿真仍可通过独立 DPI 存储器模型运行，退休观察使用显式 \code{retire_*} 接口；RTOS 板级仿真使用推断 BRAM 和实际 UART RTL。
-
-% ===== 新增：两个应用共用的软件栈 =====
-两个应用共用一套裸机软件栈，差异只在模型与后处理。图~\ref{fig:app-stack} 自下而上分为硬件、运行时、驱动层、模型与后处理、应用层；底部的工具链负责训练、量化打包、整数 golden、Verilator 与 PDS。驱动层把 miniTensor 的 push/drain/burst 封装成 \code{mt_push}/\code{mt_drain}，\code{net_conv} 负责卷积的 tile/DMA 调度，\code{llm_mt_model} 负责 GRU 的 GEMV 映射。
-
-\begin{figure}[htbp]
-\centering
-% Shared software stack of the two applications.
-\begin{tikzpicture}[ares, x=1cm, y=1cm]
-\node[blk=aresBlue, text width=13.2cm, minimum height=0.75cm] (app) at (7.20,6.15)
-  {\textbf{应用层}：串口对话（H112 / A0 / QA） · 手势识别 · 上位机全息页面};
-\node[blk=aresTeal, text width=13.2cm, minimum height=0.75cm] (model) at (7.20,5.05)
-  {\textbf{模型与后处理}：GRU 整数推理 · CNN 卷积/池化 · argmax/裕度/3 帧确认 · 量化与打包};
-\node[blk=aresPurple, text width=13.2cm, minimum height=0.75cm] (drv) at (7.20,3.95)
-  {\textbf{驱动层}：\texttt{mt.c} push/drain/burst · \texttt{net\_conv} · \texttt{llm\_mt\_model} · UART 行协议};
-\node[blk=aresGreen, text width=13.2cm, minimum height=0.75cm] (rt) at (7.20,2.85)
-  {\textbf{运行时}：startup / linker · UART / printf · mcycle 计时 · 裸机异常与中断};
-\node[blk=aresGray, text width=13.2cm, minimum height=0.75cm] (hw) at (7.20,1.75)
-  {\textbf{硬件}：ARES-L 五级核 · miniTensor（阵列/VPU/UB/DMA） · OV5640 采集 · UART};
-\node[blk=aresAmber, text width=13.2cm, minimum height=0.65cm] (tool) at (7.20,0.55)
-  {\textbf{工具链}：PyTorch / NumPy 训练 · export/pack · 整数 golden · Verilator · PDS / 串口};
-\foreach \a/\b in {app/model,model/drv,drv/rt,rt/hw}
-  \draw[dat] (\a.south) -- (\b.north);
-\draw[dat] (hw.south) -- (tool.north);
-\draw[dat] (tool.north) -- (hw.south);
-\node[note, anchor=north, align=center] at (7.20,-0.05)
-  {同一套驱动与量化工具链同时服务 LLM 与手势；应用差异只在模型与后处理};
-\end{tikzpicture}
-\caption{两个应用共用的软件栈：同一套运行时、驱动与量化工具链}
-\label{fig:app-stack}
-\end{figure}
 
 \subsubsection{软件各模块介绍}
 \paragraph{仿真平台}
@@ -2605,9 +2330,29 @@ IO 模拟 & LED、SEG、计时控制 & 灯组、数码管和运行时间 \\
 \subsubsection{应用一：语言模型部署}
 \label{par:llm}
 
-\paragraph{为什么是 Qwen，为什么必须压缩}
+Qwen2.5-0.5B-Instruct~\cite{qwen2025} 有 24 层、$d=896$、494M 参数，FP16 权重约 1 GB、INT8 仍约 494 MB；片上窗口只有 512 KiB。把 0.5B 搬到 DDR 需要 64--128 lane 的 GEMV 和 BPE 词表，是另一条路线；我们选择把能力压到 $10^5$ 参数级、让它常驻片上：Qwen 提供语料与语言能力，板上运行 H112。
 
-Qwen2.5-0.5B-Instruct~\cite{qwen2025} 有 24 层、$d=896$、494M 参数，FP16 权重约 1 GB，INT8 仍约 494 MB；而 b5 位流的数据窗口为 512 KiB。把 0.5B 搬到 DDR 需要 64--128 lane 的 GEMV 和 BPE 词表，是另一条路线。我们选择把能力压到 $10^5$ 参数级、让它常驻片上：Qwen 提供语料与语言能力，板上运行 H112。图~\ref{fig:llm-flow} 给出从语料到两条执行路径的关系。
+四个形态各管一件事（表~\ref{tab:llm-models}）：H112 140,742 参数 / 152,056 B，是当前部署；H88 107,000 / 118,168 B，适配 128 KB loader；A0 56,480，用来做 CPU 与加速器的同模型对照；QA 10,475 条 / 638,076 B，留出模板 94\%。A0 的 CPU 路径用 int16 Q15、17 char/s；miniTensor 把 GEMV 映射为 1×1 卷积，int8、103 char/s @27 MHz、0/40 golden。6 倍提升主要来自“把 GEMV 变成阵列友好的形状”，代价是 INT8 激活的文本质量，下一步做 QAT。图~\ref{fig:llm-flow} 给出从 Qwen 语料到两条执行路径。
+
+\begin{table}[H]
+\centering
+\caption{语言模型与知识库的四个形态}
+\label{tab:llm-models}
+\begin{tighttable}
+\begin{tabularx}{\linewidth}{@{}P{1.2cm}P{4.0cm}C{1.5cm}C{2.3cm}P{3.8cm}@{}}
+\toprule
+代号 & 类型 & 参数 & 镜像 & 定位 \\
+\midrule
+A0 & char-GRU（64 维嵌入、96 维 GRU、65 类输出） & 56,480 & 62 KB & CPU/加速器同模型对照 \\
+H112 & 词级 seq2seq GRU（V198/E48/H112/rank24） & 140,742 & 152,056 B & 当前部署 \\
+H88 & 词级 seq2seq GRU（轻量版） & 107,000 & 118,168 B & 128 KB loader \\
+QA & 检索式知识库 & 10,475 条 & 638,076 B & 留出模板 94\% \\
+\bottomrule
+\end{tabularx}
+\end{tighttable}
+\end{table}
+
+
 
 \begin{figure}[htbp]
 \centering
@@ -2661,129 +2406,56 @@ Qwen2.5-0.5B-Instruct~\cite{qwen2025} 有 24 层、$d=896$、494M 参数，FP16 
 \label{fig:llm-flow}
 \end{figure}
 
-\paragraph{模型谱系}
+串口采用 115200 8N1 行协议；H112 的 20 token/s 是 50 ms/token 的输出节流，不是模型算力。上电先位流后固件；128 KB loader 装 H88，512 KiB 窗口装 H112 与 QA。这里的优势不是“把 0.5B 搬上板”，而是把 Qwen 的能力压到 152 KB、常驻片上，并用同一套权重跑出 CPU 与加速器两条可对比的路径。
 
-表~\ref{tab:llm-models} 列出四个可部署形态。H112 与 H88 都是词级 seq2seq GRU~\cite{cho2014learning}，差别在隐层维度、词表和镜像大小；A0 是字符级 GRU，用来做 CPU 与加速器的同模型对照；QA 是检索式知识库，不是生成模型，用来证明部署完成度。
-
-\begin{table}[H]
-\centering
-\caption{语言模型与知识库的四个形态}
-\label{tab:llm-models}
-\begin{tighttable}
-\begin{tabularx}{\linewidth}{@{}P{1.0cm}P{4.3cm}C{1.4cm}C{2.2cm}P{4.0cm}@{}}
-\toprule
-代号 & 类型 & 参数 & 镜像 & 定位 \\
-\midrule
-A0 & char-GRU（64 维嵌入、96 维 GRU、65 类输出） & 56,480 & 62 KB & 打通链路；CPU 17、miniTensor 103 char/s \\
-H112 & 词级 seq2seq GRU（V198/E48/H112/rank24） & 140,742 & 152,056 B & 源码部署形态 \\
-H88 & 词级 seq2seq GRU（轻量版） & 107,000 & 118,168 B & 适配 128 KB 加载上限 \\
-QA & CPU 知识库（检索式） & 10,475 条 & 638,076 B & 留出模板 94\% \\
-\bottomrule
-\end{tabularx}
-\end{tighttable}
-\end{table}
-
-H88（118,168 B）可装入早期 128 KB loader；H112（152,056 B）与 QA 需要 b5 的 512 KiB 窗口，这是 b5 位流把数据窗口扩大的直接原因。
-
-\paragraph{从 Qwen 到 152 KB：语料、量化、整数化}
-
-教师语料由 Qwen2.5-0.5B-Instruct 生成：473 行训练对话、164 行验证对话；另用约 2 万段合成对话扩充。分词为词级，词表 198。Qwen 只作为教师模型，板上运行的是压缩后的小模型。
-
-量化与整数化沿用整数推理的常规做法~\cite{jacob2018quantization}，分四层（图~\ref{fig:llm-quant}）：权重 int8，按行或按输出通道保留 scale；A0 的 CPU 路径用 int16 Q15 激活，H112 的部署路径用 int8 激活；sigmoid/tanh 用 256 项 LUT，LUT 索引由 Q15 预激活右移 11 位得到；累加与 bias 用 int32，输出头用 rank-24 分解，把 $198\times112$ 的线性层压到 $198\times24$ 与 $24\times112$ 两次小矩阵乘。所有舍入规则在 Python 与 C 中保持逐位一致。
-
-\begin{figure}[htbp]
-\centering
-% Quantisation and packing flow for the deployed GRU.
-\begin{tikzpicture}[ares, x=1cm, y=1cm]
-\node[blk=aresTeal, minimum width=2.1cm, minimum height=1.2cm] (w) at (1.2,4.6)
-  {浮点权重 $W$\\\sub{PyTorch checkpoint}};
-\node[blk=aresTeal, minimum width=2.2cm, minimum height=1.2cm] (row) at (4.0,4.6)
-  {逐行 / 逐输出通道\\\sub{$s=\max|W|/127$}};
-\node[blk=aresTeal, minimum width=2.2cm, minimum height=1.2cm] (q) at (6.9,4.6)
-  {INT8 权重 + Q15 scale\\\sub{$q=\mathrm{round}(W/s)$}};
-\node[blk=aresPurple, minimum width=2.6cm, minimum height=1.2cm] (pack) at (10.1,4.6)
-  {按阵列打包\\\sub{[组][k 组][4k][4out]}};
-\node[blk=aresPurple, minimum width=2.4cm, minimum height=1.2cm] (hdr) at (13.0,4.6)
-  {C 头文件 +\\Python 整数 golden};
-\draw[dat] (w) -- (row);
-\draw[dat] (row) -- (q);
-\draw[dat] (q) -- (pack);
-\draw[dat] (pack) -- (hdr);
-
-% activation path
-\node[blk=aresAmber, minimum width=2.2cm, minimum height=1.0cm] (act) at (2.4,2.4)
-  {int16 Q15 激活\\\sub{$x\cdot32768$}};
-\node[blk=aresAmber, minimum width=2.2cm, minimum height=1.0cm] (idx) at (5.5,2.4)
-  {索引\\\sub{$x\gg11$ → [-128,127]}};
-\node[blk=aresAmber, minimum width=2.2cm, minimum height=1.0cm] (lut) at (8.6,2.4)
-  {256 项 LUT\\\sub{sigmoid / tanh}};
-\node[blk=aresAmber, minimum width=2.2cm, minimum height=1.0cm] (gate) at (11.7,2.4)
-  {int32 累加\\\sub{门控与状态更新}};
-\draw[dat] (act) -- (idx);
-\draw[dat] (idx) -- (lut);
-\draw[dat] (lut) -- (gate);
-
-% notes
-\node[note, anchor=north, align=center] at (7.0,1.55)
-  {权重与激活分离量化：权重 int8、累加 int32、门控查表；\\所有舍入规则在 Python 与 C 中逐位一致};
-\node[note, anchor=west, align=left] at (0.2,0.55) {校验：A0 的 40 token 贪心流 0/40 mismatch；H112 用同一导出脚本生成板端 golden};
-\end{tikzpicture}
-\caption{权重量化、阵列打包与激活整数化流程}
-\label{fig:llm-quant}
-\end{figure}
-
-校验采用 Python/C 双实现：A0 的 40 token 贪心流在 Python 整数参考与 C 实现之间 0/40 mismatch；H112 用同一导出脚本生成 C 头文件与板端 golden，再在板端做多轮对话验证。两个应用的权重、LUT 和 golden 都随源码保存在仓库内，修改模型后可由脚本重建。
-
-\paragraph{两条执行路径}
-
-CPU 路径是手写 GEMV：int16 Q15 激活，按输出通道 int8 权重，逐行点积；质量优先，实测 17 char/s。miniTensor 路径把 GEMV 映射成 1×1 卷积：A tile 行 0 放 $x[4t..4t{+}3]$、其余补零，权重按 [输出组][k 组][4k][4out] 打包，每个输出组一条 \code{MT_GEMM} 突发，$k$ 组之间累加；32 个 C tile 缓冲后按 4 行一组存回。实测 103 char/s @27 MHz，0/40 golden。
+这套设计的好处很直接：权重常驻片上，不靠 DDR 流式加载，首字延迟更稳定；同一套权重有 CPU 和 miniTensor 两条路，质量优先/吞吐优先可以切换；QA 检索兜底，开放问题不会跑飞。表~\ref{tab:h112-demo} 是板端对话节选。
 
 \begin{table}[H]
 \centering
-\caption{A0 的 CPU 与 miniTensor 两条路径}
-\label{tab:llm-paths}
-\begin{tabularx}{\linewidth}{@{}P{2.0cm}P{4.4cm}P{3.0cm}P{3.3cm}@{}}
-\toprule
-路径 & 激活 / 权重 & 吞吐 & 质量与 golden \\
-\midrule
-CPU & int16 Q15 / int8 per-row & 17 char/s & 与浮点 17/40 相同；0/40 \\
-miniTensor & int8 / int8 per-row & 103 char/s @27 MHz & 贪心文本退化；0/40 \\
-\bottomrule
-\end{tabularx}
-\end{table}
-
-6 倍提升来自“把 GEMV 变成阵列友好的形状”，而不是提高时钟或换更大的阵列；代价是 INT8 激活的文本质量。下一步做 QAT，数据流不变。
-
-\paragraph{交互与部署}
-
-串口采用 115200 8N1、ASCII 行协议，支持 \code{!reset} 与 \code{!help}。H112 的 20 token/s 由固件在每 token 后延时 50 ms 决定，是输出节流速率；QA 以 20 char/s 输出。上电顺序为先位流、后固件。
-
-\begin{table}[H]
-\centering
-\caption{H112 板端对话样例（节选）}
-\label{tab:h112-examples}
-\begin{tabularx}{\linewidth}{@{}P{4.6cm}X@{}}
+\caption{H112 板端对话节选}
+\label{tab:h112-demo}
+\begin{tabularx}{\linewidth}{@{}P{4.2cm}X@{}}
 \toprule
 输入 & H112 回复 \\
 \midrule
 hello & hello! how are you? \\
 what is fpga & it is a programmable chip used for hardware design. \\
 what is a cpu & a cpu is a central processing unit. \\
-what is weather & it is cold today. \\
-i am sad & that sounds hard. \\
 my name is alice & hello alice! nice to meet you, alice. \\
 \bottomrule
 \end{tabularx}
 \end{table}
 
-QA 知识库覆盖 10,475 条 CPU/体系结构条目，先做精确 key/overlap 查找，再用哈希词袋与 bigram 分类器兜底；留出模板准确率 94\%（880/936），未命中时输出固定兜底句。它证明的是“部署完成度”，不是生成能力。
 
 \subsubsection{应用二：手势识别}
 \label{par:gesture}
 
-\paragraph{链路}
+OV5640 输出 720p，取中心 640×480，按 2:1 抽成 320×240 灰度，写入 \mbox{\texttt{0xD010\_0000}}；固件放一个 13×11 格的固定取景框（约 240×165 px），把框内区域 letterbox 到 32×32，量化后送入 miniTensor 的四层 CNN；每帧做 argmax、裕度门限和 3 帧确认，结果经 UART 以 10 Hz 输出。图~\ref{fig:gesture-flow} 给出从摄像头到网页的完整链路。
 
-OV5640 以 720p 输出，取中心 640×480，按 2:1 抽成 320×240 灰度，写入 \mbox{\texttt{0xD010\_0000}}；固件在画面中放一个 13×11 格的固定取景框（约 240×165 px），把框内区域 letterbox 到 32×32，量化后送入 miniTensor 的四层 CNN；每帧做 argmax、裕度门限和 3 帧确认，结果经 UART 以 10 Hz 输出。图~\ref{fig:gesture-flow} 给出从摄像头到网页的完整链路。
+我们把手势词表设计成 8 类，当前演示只用了其中 3 类（石头/布/剪刀）。分类头本来就是 1×1 的 16→8，现在只用了 3 个通道，剩下 5 个通道正好留给扩展手势；扩到 8 类不需要改 RTL，只换权重和补样本。表~\ref{tab:gesture-vocab} 是这 8 类的词表。
+
+\begin{table}[H]
+\centering
+\caption{手势词表（8 类，当前演示 3 类）}
+\label{tab:gesture-vocab}
+\begin{tighttable}
+\begin{tabularx}{\linewidth}{@{}P{2.2cm}P{3.2cm}P{3.8cm}X@{}}
+\toprule
+手势 & 动作 & 页面动作 & 状态 \\
+\midrule
+石头 & 握拳 & 蓄力、确认 & 已演示 \\
+布 & 张开手掌 & 启动、确认 & 已演示 \\
+剪刀 & 剪刀手 & 模式切换 & 已演示 \\
+OK & 拇指食指成环 & 确认、选择 & 已定义，待补样本 \\
+点赞 & 竖拇指 & 点赞、继续 & 已定义，待补样本 \\
+指向 & 食指前指 & 激光、指向 & 已定义，待补样本 \\
+停止 & 手掌前推 & 停止、复位 & 已定义，待补样本 \\
+捏合 & 拇指食指捏合 & 缩放、选择 & 已定义，待补样本 \\
+\bottomrule
+\end{tabularx}
+\end{tighttable}
+\end{table}
+
 
 \begin{figure}[htbp]
 \centering
@@ -2833,138 +2505,31 @@ OV5640 以 720p 输出，取中心 640×480，按 2:1 抽成 320×240 灰度，�
 \label{fig:gesture-flow}
 \end{figure}
 
-固定取景框的作用是让手大致填满画面；letterbox 保持长宽比，避免把手拉扁。输入 32×32×4：灰度复制到前 3 个通道，第 4 通道置 0；输入量化乘数为 194。
-
-\paragraph{模型与训练}
-
-网络拓扑参照经典卷积网络~\cite{lecun1998gradient}：前两层 conv3x3 分别把通道从 4 扩到 8、从 8 扩到 16，各接 ReLU 与 2×2 pool；第三层 conv3x3 保持 16 通道并接 ReLU；1×1 head 输出 8 通道，最后 global average pool 取前 3 类。参数量 3,920，单帧约 745K MAC。训练用 287 帧捕获补丁（石头 68、布 109、剪刀 110），按 70/30 划分，增强包括旋转、翻转、平移、亮度/对比度和随机遮挡。
+网络为 conv3x3 4→8、8→16、16→16，接 1×1 head 16→8；3,920 参数、约 745K MAC。当前演示的 3 类采集了 287 帧（石头 68 / 布 109 / 剪刀 110），INT8 全量 100\%，浮点增强 92\%，板端 8/8 与离线一致。每帧 1,936 条命令、约 1.31 M 周期：100 MHz 仿真 13.1 ms，27 MHz 板级 48.5 ms；串口 10 Hz，连续 3 帧确认使界面约 0.2 s 更新。
 
 \begin{table}[H]
 \centering
 \caption{手势数据集与精度}
 \label{tab:gesture-results}
-\begin{tabularx}{\linewidth}{@{}P{5.0cm}X@{}}
+\begin{tabularx}{\linewidth}{@{}P{4.2cm}X@{}}
 \toprule
 项目 & 结果 \\
 \midrule
 数据集 & 287 帧（石头 68 / 布 109 / 剪刀 110） \\
-3-NN 留出集（最简分类器） & 100\%（随机 33\%） \\
+3-NN 留出集 & 100\%（随机 33\%） \\
 浮点网络 & 干净 100\%，增强后 92\% \\
-打包后 INT8（全部 287 帧） & 100\% \\
-板端 8 张打包图像 & 8/8 与离线一致 \\
-参数量 / MAC & 3,920 / 约 745K \\
-固件 & 72,224 B \\
+打包后 INT8 & 全部 287 帧 100\% \\
+板端 & 8/8 与离线逐字节一致 \\
 \bottomrule
 \end{tabularx}
 \end{table}
 
-\paragraph{决策逻辑}
+它的好处是“小阵列 + INT8 也能在 10 Hz 下跑完整 CNN，并与检测器共用同一加速器”。从设计上看，固定取景框加 letterbox 让手离镜头远近、位置偏一点都能识别；裕度门限加连续 3 帧确认抑制抖动，没有对比度时直接报 none，避免乱报；8 类词表只换分类头，RTL 和 10 Hz 链路不变。也就是说，它不是一个“只能做石头剪刀布”的演示，而是一个可扩展到 8 类的交互入口；受演示时间限制，当前只把 3 类做到板端，其余 5 类补样本即可。
 
-每帧先取最高分 $s_0$ 与次高分 $s_1$，裕度 $m=s_0-s_1$；只有 $m\ge4$ 且连续 3 帧同类才输出，否则维持上一结果或报 \code{none}。框内没有对比度时直接报 \code{none}，不猜。剪刀通道的标准差只有 0.8，裕度天然约 6，所以门限取 4 而不是 8；取 8 会让剪刀永远无法确认。图~\ref{fig:gesture-fsm} 给出状态转移。
-
-\begin{figure}[htbp]
-\centering
-% Gesture decision state machine.
-\begin{tikzpicture}[ares, x=1cm, y=1cm]
-\node[blk=aresGray, minimum width=2.3cm, minimum height=1.2cm] (idle) at (1.35,3.0)
-  {等待帧\\\sub{无对比度 → none}};
-\node[blk=aresAmber, minimum width=2.3cm, minimum height=1.2cm] (cand) at (4.65,3.0)
-  {候选\\\sub{argmax · margin $\ge$ 4}};
-\node[blk=aresAmber, minimum width=2.3cm, minimum height=1.2cm] (cnt) at (7.95,3.0)
-  {计数\\\sub{同类连续 3 帧}};
-\node[blk=aresGreen, minimum width=2.3cm, minimum height=1.2cm] (out) at (11.25,3.0)
-  {输出\\\sub{rock / paper / scissors}};
-\draw[dat] (idle) -- (cand);
-\draw[dat] (cand) -- (cnt);
-\draw[dat] (cnt) -- (out);
-\draw[dat] (out.south) -- (11.25,1.45) -- (4.65,1.45) -- (cand.south);
-\node[note, anchor=south] at (7.95,1.45) {下一帧重新判决};
-\draw[ctl] (cand.north) -- (4.65,4.35) -- (1.35,4.35) -- (idle.north);
-\node[note, anchor=south, text=aresRed] at (4.65,4.35) {margin $<$ 4 或类别跳变};
-\node[note, anchor=north, align=center] at (6.3,0.55)
-  {裕度门限取 4：剪刀通道标准差仅 0.8，裕度天然约 6；\\门限取 8 会使剪刀永远无法确认};
-\end{tikzpicture}
-\caption{手势判决状态机：argmax、裕度门限、连续 3 帧确认与无对比度直接 none}
-\label{fig:gesture-fsm}
-\end{figure}
-
-\paragraph{加速器映射}
-
-激活布局为 NHWC 的 \code{[g][h][w][4]}，一个像素一个 32 bit 字，4 个通道共享同一地址。A 取激活、B 取权重，卷积不需要显式 im2col：A tile 的 4 行对应 4 个相邻像素，B tile 是 [组][tap][4k][4out] 的权重块。一条 \code{CONVGROUP(nu=4, nj=njt)} 完成“装 4 行激活 + $u\times j$ 个 GEMM”的工作，权重在一个 tile 内常驻 UB\_WT 的 144 行，C 占 64 行，bias 16 行，A/OUT/SKIP 各 4/8/8 行。
-
-\begin{figure}[htbp]
-\centering
-% UB row allocation and the per-row convolution schedule.
-\begin{tikzpicture}[ares, x=1cm, y=1cm]
-% ---------- UB map (equal-height schematic) ----------
-\draw[grp=aresPurple] (0.20,0.55) rectangle (3.95,8.05);
-\node[gtitle=aresPurple] at (0.20,8.05) {UB 行分配（256 行）};
-\node[mem=aresGreen, text width=3.1cm, minimum height=0.72cm] (wt) at (2.05,7.25)
-  {WT 0--143\\\sub{权重行，144 行常驻}};
-\node[mem=aresPurple, text width=3.1cm, minimum height=0.72cm] (crow) at (2.05,6.35)
-  {C 148--211\\\sub{32 个 C tile，64 行}};
-\node[mem=aresAmber, text width=3.1cm, minimum height=0.72cm] (bias) at (2.05,5.45)
-  {BIAS 216--231\\\sub{16 行}};
-\node[mem=aresBlue, text width=3.1cm, minimum height=0.72cm] (cfg) at (2.05,4.55)
-  {CFG 232\\\sub{量化配置 1 行}};
-\node[mem=aresTeal, text width=3.1cm, minimum height=0.72cm] (arow) at (2.05,3.65)
-  {A 236--239\\\sub{4 个激活行}};
-\node[mem=aresRed, text width=3.1cm, minimum height=0.72cm] (out) at (2.05,2.75)
-  {OUT 240--247\\\sub{8 行输出}};
-\node[mem=aresGray, text width=3.1cm, minimum height=0.72cm] (skip) at (2.05,1.85)
-  {SKIP 248--255\\\sub{8 行残差}};
-\node[note, anchor=north, align=center, text width=3.4cm] at (2.05,1.25)
-  {行 = 128 bit};
-
-% ---------- memory layout ----------
-\node[note, anchor=south] at (7.10,7.35) {内存布局 [g][h][w][4]：一个像素一个 32 bit 字};
-\foreach \g in {0,1,2,3}
-  \foreach \p in {0,...,7}
-    \node[cell=aresBlue, minimum width=0.28cm, minimum height=0.28cm, inner sep=0pt]
-      at (4.85+\p*0.31,6.75-\g*0.34) {};
-\draw[decorate,decoration={brace,amplitude=3pt},aresBlue]
-  (4.70,6.95) -- (4.70,5.55) node[midway,left=3pt,note,text=aresBlue!80!black] {h};
-
-% ---------- A tile / convgroup ----------
-\node[blk=aresBlue, text width=2.4cm, minimum height=0.95cm] (atile) at (10.20,6.45)
-  {A tile = 4 个相邻像素\\\sub{4 个 UB 行，每行 16 B}};
-\draw[dat] (7.90,6.45) -- (8.95,6.45);
-
-\node[blk=aresPurple, text width=3.1cm, minimum height=1.0cm] (cg) at (10.20,4.95)
-  {\texttt{CONVGROUP}\\\sub{nu=4, nj=njt；LOAD 4 行 + $u\times j$ GEMM}};
-\draw[dat] (atile.south) -- (cg.north);
-
-% ---------- weights / epilogue ----------
-\node[blk=aresGreen, text width=2.9cm, minimum height=0.95cm] (weight) at (10.20,3.45)
-  {权重按 [组][tap][4k][4out] 常驻 UB\_WT\\\sub{一个 tile 内不重复搬}};
-\node[blk=aresAmber, text width=2.9cm, minimum height=0.95cm] (epi) at (10.20,1.95)
-  {每输出行一次 epilogue\\\sub{bias · requant · pack}};
-\draw[dat] (cg.south) -- (weight.north);
-\draw[dat] (weight.south) -- (epi.north);
-
-% ---------- note ----------
-\node[note, anchor=north, align=center, text width=11.5cm] at (7.20,0.45)
-  {每帧 1,936 条命令 / 约 1.31 M 周期；池化、padding 与量化由 CPU 完成。\\
-   DMA、阵列、VPU 与 epilogue 共用 UB，单时钟域，无 CDC。};
-\end{tikzpicture}
-\caption{手势卷积的 UB 行分配与逐行 tile/DMA 调度}
-\label{fig:gesture-tile}
-\end{figure}
-
-池化、padding 和输入量化由 CPU 完成，卷积、残差、epilogue 由 miniTensor 完成；两者通过同一个 uncached 窗口交换数据，不需要 Cache 维护。每帧 1,936 条命令、约 1.31 M 周期；100 MHz 仿真约 13.1 ms，27 MHz 板级约 48.5 ms，加速器 busy 约 39\%。
-
-\paragraph{板端验证}
-
-板端 8 张打包图像与离线结果逐字节一致（8/8）；串口以 10 Hz 输出，连续 3 帧确认使界面约 0.2 s 更新。手势位流为 \mbox{\texttt{s3h\_video\_fb\_top.sbit}}（sha256 前 16 位 \code{141344AD702160D0}），固件 72,224 B。相机整机的 PDS 时序尚待收敛（WNS $-3.83$ ns）。
-
-\subsubsection{演示层：上位机与端到端闭环}
+\subsubsection{演示层：上位机}
 \label{par:web}
 
-上位机是端到端演示层，有两种输入：Web Serial~\cite{webserial} 直接读板端 ASCII 指令；或由 \code{gesture-bridge} 独占 COM9，把板端的 \mbox{\texttt{hand: rock/paper/scissors}} 翻译成 \code{FIST/START/MODE}，经 SSE 推给页面。桥接放在 Python 侧，是因为一个 COM 口只能被一个进程打开，同时保留板端的 \code{scores/margin} 调试行。
-
-页面管线依次由 LineParser、parseCommandLine、CommandBus、StateMachine、EffectDirector 和 Three.js~\cite{threejs} 处理。LineParser 负责拆行、去空白、长度与 ASCII 校验；CommandBus 做去重与冷却；StateMachine 采用“基础状态 + 瞬时叠加层”，基础状态为 \code{IDLE/READY/COMPRESS/TRACK/MODE_*}，叠加层为 \code{BOOT/CONFIRM/ULTIMATE}；EffectDirector 把状态事件翻译成粒子 Logo、全息球、激光扫描和能量波。协议为 115200 8N1、ASCII 行，支持 \code{START/FIST/POINT/MODE/CONFIRM/ULTIMATE/RESET/IDLE}，冷却 300 ms--5 s。
-
-桥接判定为连续 3 行同手势、800 ms 冷却、1200 ms 无手势回待机；短按 0.2 s 进状态，长按 0.9 s 放第二招。页面侧 33 个单元测试、15/15 浏览器端到端（假串口注入）通过，生产包约 608 kB（gzip 157 kB），在 RTX 5060 Laptop / 2560×1600 / HIGH 下实测 240 FPS。
+上位机把串口输出翻译成页面状态：gesture-bridge 独占 COM9，把板端手势行映射为 \texttt{FIST/START/MODE}，经 SSE 推给页面；页面依次经 LineParser、CommandBus、StateMachine 和 EffectDirector 处理，由 Three.js 驱动全息效果。33 个单元测试、15/15 浏览器端到端通过，生产包约 608 kB；RTX 5060 Laptop / 2560×1600 / HIGH 下实测 240 FPS。图~\ref{fig:web-shots} 为生产构建实拍。
 
 \begin{figure}[htbp]
 \centering
@@ -2982,6 +2547,7 @@ OV5640 以 720p 输出，取中心 640×480，按 2:1 抽成 320×240 灰度，�
 \caption{手势经串口桥接驱动网页全息效果（生产构建实拍）}
 \label{fig:web-shots}
 \end{figure}
+
 \subsection{系统特色：加速器、多核协作与实时调度}
 \label{subsec:system-features}
 
@@ -3468,28 +3034,6 @@ MSH 为独立配置，使用 4 KiB shell 栈，通过 UART RX FIFO 与控制台�
 已具备 CoreMark 及加速镜像构建、ELF/BIN/HEX 转换、单核和 AMP 测试入口，以及独立 RT-Thread Nano 自检/MSH 固件。
 
 
-% ===== 新增：应用软件成果 =====
-应用侧已形成可复现的软件交付：H112 固件 152,056 B、H88 固件 118,168 B、QA 固件 638,076 B、手势固件 72,224 B，上位机生产包约 608 kB（gzip 157 kB）。模型、权重、287 帧数据集、串口桥接与构建脚本均在仓库内，可按附录~\ref{app:app-repro}~命令重建。
-
-\begin{table}[H]
-\centering
-\caption{应用侧主要软件产物}
-\label{tab:app-artifacts}
-\begin{tabularx}{\linewidth}{@{}P{4.2cm}C{2.2cm}X@{}}
-\toprule
-产物 & 大小 & 说明 \\
-\midrule
-H112 固件 & 152,056 B & 词级 seq2seq GRU，512 KiB 窗口 \\
-H88 固件 & 118,168 B & 轻量词级 GRU，128 KB loader \\
-QA 固件 & 638,076 B & 10,475 条知识库 + 分类兜底 \\
-A0 固件 & 80.5 KB & char-GRU，CPU/miniTensor 对照 \\
-手势固件 & 72,224 B & 四层 INT8 CNN + 跟踪/判决 \\
-上位机生产包 & 约 608 kB & gzip 157 kB，33 个单测 \\
-手势数据集 & 287 帧 & 68/109/110，随仓库保存 \\
-\bottomrule
-\end{tabularx}
-\end{table}
-
 \begin{table}[H]
 \centering
 \caption{实现与验证状态}
@@ -3684,7 +3228,8 @@ DRM grid 与 DRM18K/36K 是报告的不同统计层级，不能直接相加。
 BRAM 经 Load 返回及旁路通路到乘法器输入，且存在一条 recovery 违例。
 因此时序瓶颈分布在加速器内部和核内 Load 返回通路两处。
 
-报告来源见附录~\ref{app:repro}。
+报告来源见附录~\ref{app:repro}。70 MHz 的满足约束结论属于对应历史网表；当前 32 KiB/hart
+DRAM 配置的 PnR 和实板 UART 结果待补。
 
 \begin{figure}[htbp]
 \centering
@@ -3715,85 +3260,42 @@ FPGA 验收 & 对 32 KiB/hart DRAM 的完整网表执行 PDS、检查全部时�
 \subsection{应用与加速器特性成果}
 \label{subsec:app-results}
 
-前两节给出处理器与 CoreMark 的结果；本节汇总 miniTensor 与两个应用的实测指标。所有应用数据均在 ARES-L 五级应用基线上取得，时钟口径按 27 MHz 板级 / 100 MHz 仿真分别标注。
-
-\subsubsection{语言模型}
+两个应用的最终指标如表~\ref{tab:app-results}。所有应用数据均在 ARES-L 五级应用基线上取得，时钟口径按 27 MHz 板级 / 100 MHz 仿真分别标注。
 
 \begin{table}[H]
 \centering
-\caption{语言模型与知识库的部署结果}
-\label{tab:llm-results}
+\caption{两个应用的最终指标}
+\label{tab:app-results}
 \begin{tighttable}
-\begin{tabularx}{\linewidth}{@{}P{1.7cm}P{3.0cm}P{4.2cm}X@{}}
-\toprule
-模型 & 形态 & 参数 / 镜像 & 吞吐与说明 \\
-\midrule
-A0-CPU & char-GRU，int16 & 56,480 / 80.5 KB & 17 char/s；与浮点 17/40 相同；0/40 \\
-A0-MT & char-GRU，int8 & 56,480 / 62 KB & 103 char/s @27 MHz；0/40 \\
-H112 & 词级 seq2seq & 140,742 / 152,056 B & 20 token/s 输出节流；多轮对话通过 \\
-H88 & 词级 seq2seq & 107,000 / 118,168 B & 128 KB loader；板端对话通过 \\
-QA & 检索式知识库 & 10,475 条 / 638,076 B & 94\%（880/936）；20 char/s \\
-\bottomrule
-\end{tabularx}
-\end{tighttable}
-\end{table}
-
-A0 的 6 倍提升与文本质量下降是一组取舍：CPU 的 int16 路径保留更多语言质量，miniTensor 的 int8 路径把吞吐推到 103 char/s，但贪心文本退化。
-
-\subsubsection{手势识别}
-
-\begin{table}[H]
-\centering
-\caption{手势识别结果}
-\label{tab:gesture-final}
 \begin{tabularx}{\linewidth}{@{}P{4.0cm}X@{}}
 \toprule
 项目 & 结果 \\
 \midrule
-数据集 & 287 帧（石头 68 / 布 109 / 剪刀 110） \\
-3-NN 留出集 & 100\%（随机 33\%） \\
-浮点网络 & 干净 100\%，增强后 92\% \\
-打包后 INT8 & 全部 287 帧 100\% \\
-板端 & 8/8 与离线逐字节一致 \\
-端到端 & 串口 10 Hz；3 帧确认约 0.2 s 更新 \\
-每帧命令 / 周期 & 1,936 条 / 约 1.31 M（100 MHz 仿真 13.1 ms；27 MHz 板级 48.5 ms） \\
-固件 / 位流 & 72,224 B / \mbox{\texttt{s3h\_video\_fb\_top.sbit}} \\
-\bottomrule
-\end{tabularx}
-\end{table}
-
-\subsubsection{加速器与整机资源}
-
-\begin{table}[H]
-\centering
-\caption{两套整机的资源与口径（post-route，PDS 2025.2-SP3）}
-\label{tab:app-resource-final}
-\begin{tighttable}
-\begin{tabularx}{\linewidth}{@{}P{3.4cm}P{3.9cm}P{2.6cm}P{3.5cm}@{}}
-\toprule
-配置 & 资源占用 & 时序 & 说明 \\
-\midrule
-b5（CPU+miniTensor） & \makecell[l]{CLMA 10,229/30,075（35\%）\\FF 24,404（11\%）\\DRM 261/415（63\%）\\APM 62/740（9\%）} & 27 MHz WNS +12.85 ns & 推算上限约 41.9 MHz；b5$-$b4 增量见正文 \\
-video\_fb\_top（相机整机） & \makecell[l]{CLMA 36\%；LUT 20\%\\DRM 26\%；IO 144（36\%）} & WNS $-3.83$ ns & 3 条时钟未约束；功能通过、时序待收敛 \\
+A0 CPU / miniTensor & 17 / 103 char/s；0/40 golden；INT8 文本质量下降 \\
+H112 & 140,742 参数 / 152,056 B；20 token/s 输出节流 \\
+H88 & 107,000 参数 / 118,168 B；128 KB loader \\
+QA & 10,475 条 / 638,076 B；留出模板 94\%（880/936） \\
+手势 & 词表 8 类，当前演示 3 类；287 帧 INT8 100\%、板端 8/8；10 Hz；约 0.2 s 更新 \\
+每帧命令 / 周期 & 1,936 条 / 约 1.31 M（100 MHz 13.1 ms；27 MHz 48.5 ms） \\
+b5 整机 & CLMA 35\%、DRM 63\%、APM 9\%；27 MHz WNS +12.85 ns \\
+网页 & 33 单测、15/15 端到端；约 608 kB；240 FPS \\
 \bottomrule
 \end{tabularx}
 \end{tighttable}
 \end{table}
 
-b5 的增量（b5$-$b4）为 +6,276 LUT、+5,067 FF、+48 APM、+4.5 DRM；其中 256 块 DRM 用于 512 KiB 数据窗口。
+优势可以归结为三点：同一颗自研 CPU 通过 MMIO 接一个 miniTensor，就能同时覆盖语言模型与手势 CNN；同一 4×4 阵列既能做卷积，也能把 GEMV 映射为 1×1 卷积；两个应用共用驱动与量化工具链，指标可逐字节/逐 token 对拍。
 
-\subsubsection{演示层}
-
-上位机 33 个单元测试、15/15 浏览器端到端通过，生产包约 608 kB（gzip 157 kB）；在 RTX 5060 Laptop / 2560×1600 / HIGH 下实测 240 FPS。手势到页面的链路中，板端以 10 Hz 经串口输出识别结果，gesture-bridge 通过 SSE 推送给浏览器，EventSource 接收后交给状态机，再由 Three.js 渲染；指令到达后约 0.2--0.3 s 页面切换。
 \clearpage
 \section{总结}
 \subsection{可扩展之处}
 % 模板限制：300 字内。
 后续优先验证 ICache 有效位上电初始化，补齐 IRQ、AMP 与加速器回归证据，核对目标频率下的 PDS 时序与实板输出。
 后续扩展包括 \code{FENCE.I} 失效、共享 L2 响应顺序修正和 RV32F，以及将附录~\ref{app:vision} 的摄像头缩略图、miniTensor 手势推理与网页控制接入 SoC，形成端到端闭环。
+每组结果应固定 RTL、参数、程序镜像、工具和测量方法，历史准确率及功耗另行归档。
 
 % ===== 新增：应用侧可扩展之处 =====
-应用侧的下一步是把命令表回放、8×8 阵列/50 MHz 与多模态输入纳入同一数据流；在模型侧引入 QAT 与更大的词表，在不改变 miniTensor 数据流的前提下恢复 INT8 激活的文本质量；并把 ARES-L 上的两个应用移植到 Mundus 主线。
+下一步把命令表回放、8×8 阵列/50 MHz、QAT 与多模态输入纳入同一数据流，并继续在 ARES-L 五级应用基线上部署这两个应用。
 
 \subsection{心得体会}
 % 模板限制：1000 字内。
@@ -3815,9 +3317,7 @@ b5 的增量（b5$-$b4）为 +6,276 LUT、+5,067 FF、+48 APM、+4.5 DRM；其�
 保留配置、日志和照片，使功能、时序及性能结论能够对应到具体工程状态，是处理器持续演进的重要基础。
 
 % ===== 新增：应用联调心得 =====
-应用联调中最有价值的是五个可复现的 bug：补丁按 0..255 原始字节喂进 int8 引擎，大于 127 的值变成负数；相机固件复制了一份推理序列，与 golden 版本不一致；裕度循环从 best=0 起，第 0 类获胜时裕度恒为 0；取景框竖直偏移写成 80 而非 120，绿框与 ROI 错位 40 px；剪刀通道标准差仅 0.8，裕度天生约 6，门限 8 永远过不去。每个都先写最小复现再修改，测试留在仓库。
-
-性能优化同理：基线 17,184 条命令中 92\% 的帧时间花在 CPU 逐条写命令；把 pad/pool 改成词宽拷贝后，帧时间从 4.81 M 降到 2.00 M，收益超过前面所有 RTL 工作之和。宏指令则跨命令适配器与 tensor 两层，出错点常藏在“操作数在路上被改写”的细节里；0x0A 第一次整网失败后回滚，第二次先写单条 LOAD、单条 GEMM2D、单条合并命令的单元测试，三条全过，整网随之通过。
+应用联调最有价值的是五个可复现 bug 和“先测量再优化”：补丁按 0..255 原始字节喂进 int8 引擎、相机固件复制推理序列、裕度循环从 best=0 起、取景框偏移写成 80、剪刀裕度天生约 6；pad/pool 词宽化把帧时间从 4.81 M 降到 2.00 M。宏指令先写单条 LOAD、单条 GEMM2D、单条 CONVGROUP 的单元测试，再上整网。
 
 \begingroup
 \small
@@ -3980,64 +3480,21 @@ FPGA 先通过 SCCB 总线完成传感器上电时序和寄存器配置，将输
   \label{fig:gesture-software-path}
 \end{figure}
 
-\clearpage
+
 \section{应用与加速器复现信息}
 \label{app:app-repro}
 
-\subsection{目录与命令}
-
-应用与加速器部分位于 \code{5-stage-baseline/} 与 \code{ares-web-controller/}。前者包含 RTL、固件、模型、数据与位流；后者包含上位机源码、生产包与手势桥接。主要复现命令如下。
+应用代码、模型、权重、287 帧数据集与上位机源码分别在 \code{5-stage-baseline/} 与 \code{ares-web-controller/}。主要复现命令：
 
 \begin{singlespace}
 \begin{lstlisting}[language={},numbers=none]
-# SoC 仿真与手势检测器
-cd 5-stage-baseline
-make lint
-make sim
-make yolo            # 必须 golden diff 0
-
-# 手势模型、跟踪器与固件
-cd 5-stage-baseline/yolo_gesture
-make test            # 287 帧 INT8 100%，跟踪器 5/5
-make fw              # build/fw/cam_board.bin，72,224 B
-
-# A0 的 CPU / miniTensor 两条路径
-cd 5-stage-baseline/llm
-bash tools/run_a0.sh
-
-# H112 / H88 / QA 固件
-cd 5-stage-baseline/llm/lm_soc
-bash tools/build_fw_seq.sh
-bash tools/build_fw_cpu.sh
-
-# 上位机
-cd ares-web-controller
-npm test
-npm run build
-python tools/gesture-bridge/gesture_bridge.py --self-test
+cd 5-stage-baseline && make yolo        # golden diff 0
+cd 5-stage-baseline/yolo_gesture && make test
+cd 5-stage-baseline/llm && bash tools/run_a0.sh
+cd ares-web-controller && npm test
 \end{lstlisting}
 \end{singlespace}
 
-\subsection{关键产物}
-
-\begin{table}[H]
-\centering
-\caption{应用与加速器的关键产物}
-\label{tab:app-repro-artifacts}
-\begin{tabularx}{\linewidth}{@{}P{4.6cm}P{4.2cm}X@{}}
-\toprule
-产物 & 值 & 说明 \\
-\midrule
-\code{s3h_video_fb_top.sbit} & 9,188,552 B & sha256 前 16 位 \code{141344AD702160D0}，手势整机 \\
-\code{p3a_single_cam.sbit} & 9,188,552 B & sha256 前 16 位 \code{5212779E8A14002E}，单相机配置 \\
-H112 固件 & 152,056 B & 词级 seq2seq GRU，512 KiB 窗口 \\
-H88 固件 & 118,168 B & 轻量词级 GRU，128 KB loader \\
-QA 固件 & 638,076 B & 10,475 条知识库 \\
-手势固件 & 72,224 B & 四层 INT8 CNN + 判决 \\
-上位机生产包 & 约 608 kB & gzip 157 kB \\
-手势数据集 & 287 帧 & 68/109/110，\code{data/dataset.npz} \\
-\bottomrule
-\end{tabularx}
-\end{table}
+口径：H112 152,056 B 用 512 KiB 窗口，H88 118,168 B 用 128 KB loader；20 token/s 是输出节流，QA 的 5 tok/s 是 4 字符/token 的显示口径；相机整机 WNS $-3.83$ ns、3 条时钟未约束，结论为功能验证通过、时序待收敛。
 
 \end{document}

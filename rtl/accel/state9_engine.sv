@@ -82,6 +82,8 @@ module state9_engine (
     logic [15:0] crco_q;
 
     logic [11:0] p_q;
+    logic [7:0]  scan_cur_q;
+    logic        scan_cur_valid;
     logic        token_active;
     logic [2:0]  token_state;
     logic        scan_done;
@@ -247,7 +249,8 @@ module state9_engine (
     logic        to_invalid;
 
     always_comb begin
-        cur      = rd_byte;
+        cur      = (state_q == ST_SCAN1 || state_q == ST_SCAN2)
+                   ? scan_cur_q : rd_byte;
         is_digit = (cur >= 8'h30) && (cur <= 8'h39);
         is_pm    = (cur == 8'h2B) || (cur == 8'h2D);
         is_dot   = (cur == 8'h2E);
@@ -411,12 +414,14 @@ module state9_engine (
                         busy_q       <= 1'b1;
                         done_q       <= 1'b0;
                         crco_q       <= crcin_q;
-                        p_q          <= 12'h0;
-                        token_active <= 1'b0;
-                        token_state  <= CORE_START;
-                        scan_done    <= 1'b0;
-                        corr_p       <= 12'h0;
-                        crc_idx      <= 7'h0;
+                        p_q           <= 12'h0;
+                        scan_cur_q    <= 8'h0;
+                        scan_cur_valid<= 1'b0;
+                        token_active  <= 1'b0;
+                        token_state   <= CORE_START;
+                        scan_done     <= 1'b0;
+                        corr_p        <= 12'h0;
+                        crc_idx       <= 7'h0;
                         for (start_i = 0; start_i < 8; start_i = start_i + 1) begin
                             final_q[start_i] <= 32'h0;
                             track_q[start_i] <= 32'h0;
@@ -426,44 +431,71 @@ module state9_engine (
 
                 ST_SCAN1, ST_SCAN2: begin
                     if (scan_done) begin
-                        scan_done <= 1'b0;
-                        p_q       <= 12'h0;
-                        corr_p    <= 12'h0;
+                        scan_done     <= 1'b0;
+                        p_q           <= 12'h0;
+                        scan_cur_q    <= 8'h0;
+                        scan_cur_valid<= 1'b0;
+                        corr_p        <= 12'h0;
                         if (state_q == ST_SCAN1)
                             state_q <= ST_CORRUPT;
                         else
                             state_q <= ST_UNDO;
-                    end else if ({1'b0, p_q} >= blk_lim) begin
+                    end else if (!scan_cur_valid) begin
+                        // Fill: p_q is the next address; capture its byte and
+                        // advance to the subsequent address.
+                        scan_cur_q     <= rd_byte;
+                        scan_cur_valid <= 1'b1;
+                        p_q            <= p_q + 12'd1;
+                    end else if ({1'b0, p_q} > blk_lim) begin
+                        // Processed the last byte of the block.  The original
+                        // scanner finalized the active token on the following
+                        // cycle; that is this cycle.
                         if (token_active)
                             final_q[token_state] <= final_q[token_state] + 32'd1;
-                        token_active <= 1'b0;
-                        scan_done    <= 1'b1;
-                    end else if (!token_active) begin
-                        if (cur == 8'h00) begin
-                            scan_done <= 1'b1;
-                        end else begin
-                            token_active <= 1'b1;
-                            token_state  <= CORE_START;
-                        end
+                        token_active  <= 1'b0;
+                        scan_done     <= 1'b1;
+                        scan_cur_valid<= 1'b0;
                     end else begin
-                        if (cur == 8'h00) begin
-                            final_q[token_state] <= final_q[token_state] + 32'd1;
-                            token_active <= 1'b0;
-                            scan_done    <= 1'b1;
-                        end else if (cur == 8'h2C) begin
-                            final_q[token_state] <= final_q[token_state] + 32'd1;
-                            token_active <= 1'b0;
-                            p_q          <= p_q + 12'd1;
-                        end else begin
-                            p_q <= p_q + 12'd1;
-                            for (track_i = 0; track_i < 8; track_i = track_i + 1)
-                                track_q[track_i] <= track_q[track_i] +
-                                    {31'b0, track_inc[track_i]};
-                            token_state <= next_state;
-                            if (to_invalid) begin
-                                final_q[CORE_INVALID] <= final_q[CORE_INVALID] + 32'd1;
-                                token_active <= 1'b0;
+                        // Process the byte captured at p_q-1 while loading the
+                        // next byte at p_q.  Throughput remains one byte/cycle.
+                        if (!token_active) begin
+                            // Activation bubble: keep this byte and p_q in
+                            // place.  The next cycle processes it with the DFA
+                            // in CORE_START, matching the original scanner.
+                            if (scan_cur_q == 8'h00) begin
+                                scan_done     <= 1'b1;
+                                scan_cur_valid<= 1'b0;
+                            end else begin
+                                token_active <= 1'b1;
+                                token_state  <= CORE_START;
                             end
+                        end else begin
+                            if (scan_cur_q == 8'h00) begin
+                                final_q[token_state] <= final_q[token_state] + 32'd1;
+                                token_active  <= 1'b0;
+                                scan_done     <= 1'b1;
+                                scan_cur_valid<= 1'b0;
+                            end else if (scan_cur_q == 8'h2C) begin
+                                final_q[token_state] <= final_q[token_state] + 32'd1;
+                                token_active <= 1'b0;
+                            end else begin
+                                for (track_i = 0; track_i < 8; track_i = track_i + 1)
+                                    track_q[track_i] <= track_q[track_i] +
+                                        {31'b0, track_inc[track_i]};
+                                token_state <= next_state;
+                                if (to_invalid) begin
+                                    final_q[CORE_INVALID] <= final_q[CORE_INVALID] + 32'd1;
+                                    token_active <= 1'b0;
+                                end
+                            end
+
+                            // Advance to the next byte.  Avoid reading past
+                            // the 1 KiB array at the last block byte.
+                            p_q <= p_q + 12'd1;
+                            if ({1'b0, p_q} < blk_lim)
+                                scan_cur_q <= rd_byte;
+                            else
+                                scan_cur_q <= 8'h0;
                         end
                     end
                 end
@@ -472,11 +504,13 @@ module state9_engine (
                     if ({1'b0, corr_p} >= blk_lim) begin
                         corr_p <= 12'h0;
                         if (state_q == ST_CORRUPT) begin
-                            state_q <= ST_SCAN2;
-                            p_q     <= 12'h0;
-                            token_active <= 1'b0;
-                            token_state  <= CORE_START;
-                            scan_done    <= 1'b0;
+                            state_q       <= ST_SCAN2;
+                            p_q           <= 12'h0;
+                            scan_cur_q    <= 8'h0;
+                            scan_cur_valid<= 1'b0;
+                            token_active  <= 1'b0;
+                            token_state   <= CORE_START;
+                            scan_done     <= 1'b0;
                         end else begin
                             state_q <= ST_CRC;
                             crc_idx <= 7'h0;
