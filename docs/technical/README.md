@@ -47,7 +47,7 @@ xelatex -interaction=nonstopmode -halt-on-error technical_report.tex
 
 ## 口径
 
-- 应用数据在 ARES-L 五级应用基线上实测；Mundus 九级主线的 512 KiB 数据窗口是后续移植项。
+- 应用数据统一按 Mundus 九级核口径记录；512 KiB 数据窗口为应用侧配置。
 - H112 152,056 B 用 512 KiB 窗口；H88 118,168 B 用 128 KB loader。
 - 20 token/s 是输出节流；QA 的 5 tok/s 是 4 字符/token 的显示口径。
 - 103 char/s 是 INT8 miniTensor 路径，文本质量低于 CPU int16 的 17 char/s。
