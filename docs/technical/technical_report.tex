@@ -168,14 +168,14 @@
 \section*{摘要}
 % 模板限制：800 字内。
 ARES 是以 Mundus 32 位顺序单发射处理器为核心的嵌入式 SoC，主线 FPGA 目标为盘古 200Pro+ 的 PG2L200H-6IFBB676。
-处理器实现 RV32I 整数数据通路、RV32M、Zicsr、ECALL/MRET、机器定时器中断及 custom-0 CRC8；FENCE 用于访存排空，EBREAK 在退休后停机，FENCE.I 尚无指令缓存失效路径。
+处理器实现 RV32I 整数数据通路、RV32M、Zicsr、ECALL/MRET、机器定时器中断及 custom-0 CRC8。
 流水线由取指请求、取指响应、ID、ISS、EX1--EX4 和 WB 共九级组成；取指侧使用请求/响应握手、两项在途元数据队列和八项前端队列，取指延迟随 Cache 命中与回填变化。
 默认配置采用 16 项 Bimodal/BTB、8 项 RAS、四路 ICache、8 KiB 两路 DCache，以及外设桥中的四项写队列。
-SoC 提供单核和 2/4-hart AMP 配置，并集成矩阵、状态机和链表 MMIO 加速器；共享 L2 另属实验配置。单核 RT-Thread Nano 与 MSH 使用独立固件。
-验证入口包括 Verilator 程序回归、模块定向测试及推断 BRAM/UART 板级仿真，Pango 构建使用 PDS 流程。在 100 MHz 仿真时钟下，未修改的 CoreMark 基线为 2.235012 CoreMark/MHz；以 CRC8 指令和三类引擎替换热点函数后，单核全加速为 13.384075 CoreMark/MHz，四核全加速 MULTITHREAD 聚合为 56.029283 CoreMark/MHz。
+SoC 提供单核和 2/4-hart AMP 配置，并集成矩阵、状态机和链表 MMIO 加速器；单核可运行 RT-Thread Nano 与 MSH。
+验证采用 Verilator 程序回归、模块定向测试与板级仿真，实现使用 PDS。在 100 MHz 仿真时钟下，未修改的 CoreMark 基线为 2.235012 CoreMark/MHz；以 CRC8 指令和三类引擎替换热点函数后，单核全加速为 13.384075 CoreMark/MHz，四核全加速 MULTITHREAD 聚合为 56.029283 CoreMark/MHz。
 
 % ===== 新增：应用与加速器摘要 =====
-作品另集成自研 miniTensor INT8 协处理器：4×4 阵列、256×128 bit 统一缓冲、向量单元与定点 epilogue；同一阵列既跑手势 CNN，也把语言模型 GEMV 映射为 1×1 卷积。单帧 1,936 条命令、约 1.31 M 周期，char-GRU 由 17 提升到 103 char/s；应用侧用 Qwen2.5-0.5B-Instruct 构建语料、把能力压缩到 152,056 B 的 H112，手势 287 帧 INT8 100\%、板端 8/8，并驱动 Three.js 全息页面。
+作品另集成自研 miniTensor INT8 协处理器：4×4 阵列、256×128 bit 统一缓冲、向量单元与定点 epilogue；同一阵列既跑手势 CNN，也把语言模型 GEMV 映射为 1×1 卷积；char-GRU 由 17 提升到 103 char/s；应用侧用 Qwen2.5-0.5B-Instruct 构建语料、把能力压缩到 152,056 B 的 H112，手势 287 帧 INT8 100\%、板端 8/8，并驱动 Three.js 全息页面。
 
 \clearpage
 {\setstretch{1.1}\tableofcontents}
@@ -257,23 +257,17 @@ QA & 10,475 条 / 638,076 B / 94\% & 检索式，20 char/s 输出 \\
 \subsection{主要创新点}
 % 模板限制：200 字内，逐点给出。
 \begin{enumerate}[label=\arabic*.]
-\item 提前查询与预测保持隐藏 BPU 读表延迟，维持每拍一次取指。
-\item 温度计码统一生产与消费时机，配合两级旁路和互锁减少误停顿。
-\item ISS 级 AGU、三段 LSU 与逐字节转发写队列兼顾频率和访存效率。
-\item CRC8 指令与三类 MMIO 引擎替换 CoreMark 热点，单核约 6 倍加速。
-\item 私有存储加 uncached mailbox 实现 AMP 聚合；精确定时器中断支撑 RTOS 抢占。
-\item 以 CV-X-IF 兼容命令把卷积与 GEMV 统一为同一条 \code{GEMM} 指令流，\code{BURST} 与 \code{GEMM2D} 把软件循环搬进硬件。
-\item 行式 128 bit UB 把 GEMV 映射为 1×1 卷积，不增加第二套数据通路。
-\item Python/C 双实现与逐 token、逐字节 golden 对拍，两个应用共用同一加速器。
+\item 提前查询与预测保持隐藏 BPU 读表延迟，维持每拍取指。
+\item 温度计码统一生产与消费时机，两级旁路减少误停顿。
+\item ISS 级 AGU、三段 LSU 与转发写队列兼顾频率与访存。
+\item CRC8 指令与三类 MMIO 引擎替换热点，单核约 6 倍加速。
+\item 行式 UB 把 GEMV 映射为 1×1 卷积，两个应用共用同一条 \code{GEMM} 命令流。
 \end{enumerate}
 
 \subsection{设计流程}
 % 模板限制：200 字内。
-在 ARES 仓库内以 Chisel 生成 Mundus RTL，集成可综合存储、外设和加速器；编译 ELF 并拆分为 IROM/DRAM HEX。
-通过 Verilator、模块测试和板级仿真核对功能，再使用 PDS 执行综合、布局布线、时序检查与位流生成。每个配置分别保存镜像、日志和验收结果。
-
-% ===== 新增：应用设计流程 =====
-应用侧按“训练—量化打包—整数 golden—Verilator—PDS/上板”五步推进：Python 训练并导出 INT8 权重，打包器生成 C 头与参考输出，主机与 RTL 逐字节对拍，最后以 PDS 位流和串口实录验收；任一步不一致都回到量化打包。流程见图~\ref{fig:app-flow}。
+以 Chisel 生成 Mundus RTL，集成存储、外设与加速器；ELF 拆分为 IROM/DRAM HEX，经 Verilator、模块测试与板级仿真核对后，用 PDS 完成综合、布局布线、时序检查与位流生成。
+应用侧按训练、量化打包、整数 golden、Verilator、PDS 上板五步推进，任一步不一致即回到量化打包，见图~\ref{fig:app-flow}。
 
 \begin{figure}[htbp]
 \centering
@@ -539,10 +533,8 @@ HZU 根据分支结果协调重定向，ISU 根据数据就绪状态决定旁路
 \subsection{硬件系统介绍}
 \subsubsection{硬件整体介绍}
 核心采用 Chisel~\cite{bachrach2012chisel} 描述，并生成 SystemVerilog 与手写乘除法 RTL、BRAM 和外设包装集成。
-主线目标为盘古 200Pro+ / PG2L200H-6IFBB676，使用 PDS；前身 Mundus 在 Xilinx Kintex-7 / Vivado 2023.2 上的验证资料见附录~\ref{app:legacy}。
+主线目标为盘古 200Pro+ / PG2L200H-6IFBB676，使用 PDS。
 板级 PLL 由 27 MHz 产生 100 MHz CPU 与 50 MHz 外设时钟；100 MHz 为 PLL 配置值和仿真时钟，布线后时序结论见第~\ref{subsec:pds-results}~节。AMP 将各 hart 的 CPU、外设桥和 UART 连接到同一 100 MHz 域，板级 50 MHz 输出不参与 AMP 数据通路。
-\subsubsection{机械设计介绍}
-作品依托现有 FPGA 试验平台实现，不包含独立机壳、传动机构或机械装配设计。
 \subsubsection{电路各模块介绍}
 \paragraph{SoC 集成方式}
 
@@ -2509,7 +2501,6 @@ CoreMark 等目标程序由 \code{riscv64-unknown-elf-gcc} 13.2.0 按
 \paragraph{硬件仿真环境}
 
 硬件仿真由对应顶层、存储模型、时钟/复位和测试台组成；ISA 程序检查 EBREAK 退休及 \code{a0}，CoreMark 检查输出 CRC 和通过标记，模块测试检查缓存、算术、外设与中断协议。
-前身 Mundus 的逐指令参考模型与 BPU 差分结果见附录~\ref{app:legacy}。
 
 \paragraph{测试程序}
 
@@ -3425,8 +3416,6 @@ MSH 为独立配置，使用 4 KiB shell 栈，通过 UART RX FIFO 与控制台�
 以下汇总截至 2026 年 11 月 3 日的实现、验证记录及待完成项。
 
 \subsection{工程成果}
-\subsubsection{机械成果}
-使用现有 FPGA 平台，未独立设计机械部件。
 \subsubsection{电路成果}
 已具备 Mundus 核、I/DCache、片上存储与外设、CRC8 和三类 MMIO 引擎、单核及 2/4-hart AMP 顶层。AMP 为每 hart 私有 IROM、四路 ICache 与数据 BRAM，通过 uncached mailbox 协作。
 共享 L2 实验线 \code{pipeline_mc_soc_top} 的 CoreMark 读响应顺序问题待解决。
@@ -3471,7 +3460,6 @@ AMP 多核 & 本次 2/4-hart 全加速 MULTITHREAD 聚合测试通过；每 hart
 Pango 板级 & AMP 顶层、文件表和仿真已入库；四核 PDS 结果见第~\ref{subsec:pds-results}~节，32 KiB/hart 配置的 PnR 待补 \\
 RTOS / MSH & 本次 RTOS 自检、物理 UART 板级仿真和 MSH 双向串口测试通过；对应 PDS 时序及实板收发待验收 \\
 独立视频工程 & 摄像头/DDR3/HDMI 独立验证已有记录；与 ARES/miniTensor/Web 的闭环集成待完成，方案见附录~\ref{app:vision} \\
-前身 Mundus & 附录~\ref{app:legacy} 保留 Kintex-7、赛题镜像、分支准确率、资源与功耗的历史记录 \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -3757,7 +3745,7 @@ b5 的增量（b5$-$b4）为 +6,276 LUT、+5,067 FF、+48 APM、+4.5 DRM；其�
 \section{总结}
 \subsection{可扩展之处}
 % 模板限制：300 字内。
-后续优先验证 ICache 有效位的上电初始化，再补齐 Cache 与 Load 时机修正、IRQ、AMP 和加速器回归证据，核对目标频率下的 PDS 时序、资源和实板输出。
+后续优先验证 ICache 有效位上电初始化，补齐 IRQ、AMP 与加速器回归证据，核对目标频率下的 PDS 时序与实板输出。
 后续扩展包括 \code{FENCE.I} 失效、共享 L2 响应顺序修正和 RV32F，以及将附录~\ref{app:vision} 的摄像头缩略图、miniTensor 手势推理与网页控制接入 SoC，形成端到端闭环。
 
 % ===== 新增：应用侧可扩展之处 =====
@@ -3783,9 +3771,9 @@ b5 的增量（b5$-$b4）为 +6,276 LUT、+5,067 FF、+48 APM、+4.5 DRM；其�
 保留配置、日志和照片，使功能、时序及性能结论能够对应到具体工程状态，是处理器持续演进的重要基础。
 
 % ===== 新增：应用联调心得 =====
-应用联调中最有价值的是五个可复现的 bug：补丁按 0..255 原始字节喂进 int8 引擎，大于 127 的值变成负数；相机固件复制了一份推理序列，与 golden 版本不一致；裕度循环从 best=0 起，第 0 类获胜时裕度恒为 0；取景框竖直偏移写成 80 而非 120，绿框与 ROI 错位 40 px；剪刀通道标准差仅 0.8，裕度天生约 6，门限 8 永远过不去。每一个都先写最小复现，再改代码，并把测试留在仓库。
+应用联调中最有价值的是五个可复现的 bug：补丁按 0..255 原始字节喂进 int8 引擎，大于 127 的值变成负数；相机固件复制了一份推理序列，与 golden 版本不一致；裕度循环从 best=0 起，第 0 类获胜时裕度恒为 0；取景框竖直偏移写成 80 而非 120，绿框与 ROI 错位 40 px；剪刀通道标准差仅 0.8，裕度天生约 6，门限 8 永远过不去。每个都先写最小复现再修改，测试留在仓库。
 
-性能优化也给出同样的教训：基线 17,184 条命令中 92\% 的帧时间花在 CPU 逐条写命令；把 pad/pool 改成词宽拷贝后，帧时间从 4.81 M 降到 2.00 M，收益超过前面所有 RTL 工作之和。宏指令则跨 shim 与 tensor 两层，出错点常藏在“操作数在路上被改写”的细节里；0x0A 第一次整网失败后回滚，第二次先写单条 LOAD、单条 GEMM2D、单条合并命令的单元测试，三条全过，整网随之通过。
+性能优化同理：基线 17,184 条命令中 92\% 的帧时间花在 CPU 逐条写命令；把 pad/pool 改成词宽拷贝后，帧时间从 4.81 M 降到 2.00 M，收益超过前面所有 RTL 工作之和。宏指令则跨 shim 与 tensor 两层，出错点常藏在“操作数在路上被改写”的细节里；0x0A 第一次整网失败后回滚，第二次先写单条 LOAD、单条 GEMM2D、单条合并命令的单元测试，三条全过，整网随之通过。
 
 \begingroup
 \small
@@ -3892,331 +3880,6 @@ make pipeline-coremark-full
 make pipeline-coremark-full-mt CORES=2
 make pipeline-coremark-full-mt CORES=4
 \end{lstlisting}
-
-\clearpage
-\section{旧版 Mundus 验证资料与历史性能}
-\label{app:legacy}
-以下日志、准确率表、板卡照片、资源和功耗图来自旧版 Mundus，配置包括 256 项 BTB、Vivado IP、16 KiB IROM，运行频率为 300--316.667 MHz。
-
-\subsection{仿真结果与分析}
-
-\subsubsection{功能验证}
-
-现有报告记录 RV32I 与 RV32M 逐指令测试通过。图~\ref{fig:rv32m-riscv-tests} 展示旧版 RV32M 测试输出，8 项均为 PASS；对应版本的 RV32I 逐条测试截图尚需补充。
-
-\begin{figure}[htbp]
-  \centering
-  \includegraphics[width=0.90\linewidth,height=0.68\textheight,keepaspectratio]{mext_test_result.png}
-  \caption{旧版 Mundus：RV32M riscv-tests 测试结果}
-  \label{fig:rv32m-riscv-tests}
-\end{figure}
-
-除逐指令测试外，我们还在相同仿真环境中运行了竞业达提供的 src0、src1、src2 和
-withMext 程序镜像。四组程序均执行至 \id{HIT GOOD TRAP} 并正常退出，如图
-~\ref{fig:jyd-src01-log} 和图~\ref{fig:jyd-src2-mext-log} 所示。日志同时给出了总时钟
-周期数、提交指令数和 IPC，说明处理器不仅能够完成基础指令测试，也能够连续运行规模
-更大的赛题程序；其中 withMext 的通过验证了旧版数据通路对 RV32M 乘除法指令的支持。
-
-\begin{figure}[htbp]
-  \centering
-  \begin{minipage}{0.48\linewidth}
-    \centering
-    \includegraphics[width=\linewidth,height=0.68\textheight,keepaspectratio]{src0_jyd_log.png}
-    \caption*{(a) src0}
-  \end{minipage}
-  \hfill
-  \begin{minipage}{0.48\linewidth}
-    \centering
-    \includegraphics[width=\linewidth,height=0.68\textheight,keepaspectratio]{src1_jyd_log.png}
-    \caption*{(b) src1}
-  \end{minipage}
-  \par\medskip
-  \caption{旧版 Mundus：竞业达 src0 与 src1 程序仿真结果}
-  \label{fig:jyd-src01-log}
-\end{figure}
-
-\begin{figure}[htbp]
-  \centering
-  \begin{minipage}{0.48\linewidth}
-    \centering
-    \includegraphics[width=\linewidth,height=0.68\textheight,keepaspectratio]{src2_jyd_log.png}
-    \caption*{(a) src2}
-  \end{minipage}
-  \hfill
-  \begin{minipage}{0.48\linewidth}
-    \centering
-    \includegraphics[width=\linewidth,height=0.68\textheight,keepaspectratio]{without_jyd_log.png}
-    \caption*{(b) withoutMext}
-  \end{minipage}
-  \par\medskip
-  \caption{旧版 Mundus：竞业达 src2 与 withoutMext 程序仿真结果}
-  \label{fig:jyd-src2-mext-log}
-\end{figure}
-
-\begin{figure}[htbp]
-  \centering
-  \hfill
-  \includegraphics[width=\linewidth,height=0.68\textheight,keepaspectratio]{withMext3_jyd_log.png}
-  \caption{旧版 Mundus：竞业达 withMext 程序仿真结果}
-  \label{fig:jyd-mext-log}
-\end{figure}
-
-\subsubsection{分支预测器验证与预测收益分析}
-
-分支预测差分框架分别以纯 Bimodal/BTB 和 Bimodal/BTB+RAS 两种配置运行同一测试
-镜像，并逐事件比较 RTL 与 C++ 参考模型给出的方向和目标。在现有各组报告中，两种配置
-的模型匹配率均为 100\%，说明新增的返回指令标记、RAS 更新以及目标覆盖逻辑与参考
-模型一致。
-
-当 CoreMark 在未使用原生 RV32M 乘除法指令的代码流上测试时，乘除运算需要
-通过软件例程完成，由于数据的随机性，位移乘法会导致分支预测难以进行。在没有乘除指令的情况下，
-CoreMark 使用 Bimodal 预测条件分支、跳转和总体准确率分别为 70.26\%、74.72\% 和 70.75\%。该组旧版 RV32M 测试镜像直接
-使用硬件 \code{mul}/\code{div} 等 RV32M 指令，不再通过软乘除例程模拟同类运算；
-在关闭 RAS、仍采用 256 项 Bimodal/BTB 的情况下，三项准确率分别达到 92.48\%、
-94.65\% 和 92.75\%，对比如表~\ref{tab:bpu-old-current} 所示。
-
-\begin{table}[H]
-  \centering
-  \caption{旧版 Mundus： CoreMark 的 Bimodal 预测结果对比}
-  \label{tab:bpu-old-current}
-  \begin{adjustbox}{max width=\linewidth}
-\begin{tabular}{lrrr}
-    \toprule
-    CoreMark 代码流 & 条件分支准确率 & 跳转准确率 & 总体准确率 \\
-    \midrule
-    软件乘除例程 & 70.26\% & 74.72\% & 70.75\% \\
-    原生 RV32M & 92.48\% & 94.65\% & 92.75\% \\
-    \bottomrule
-  \end{tabular}
-\end{adjustbox}
-\end{table}
-
-原生乘除法指令缩短了动态指令序列，并减少软乘除函数调用、返回以及循环分支对 BTB
-表项的占用和冲突，使剩余控制流更集中、更容易被 Bimodal/BTB 学习。因此，该组历史代码流
-的总体准确率较软件乘除版本提高 22.00 个百分点。
-
-在此基础上，表~\ref{tab:bpu-ras-comparison} 使用相同 RV32M 镜像(即含有乘除法指令)进一步比较 RAS
-开关造成的变化，从而单独评价 RAS 的收益。
-
-\begin{table}[H]
-  \centering
-  \caption{旧版 Mundus：Bimodal/BTB 与 Bimodal/BTB+RAS 预测结果对比}
-  \label{tab:bpu-ras-comparison}
-  \begin{adjustbox}{max width=\linewidth}
-\begin{tabular}{llrrr}
-    \toprule
-    测试程序 & RAS & 条件分支准确率 & 跳转准确率 & 总体准确率 \\
-    \midrule
-    CoreMark & 关闭 & 92.48\% & 94.65\% & 92.75\% \\
-    CoreMark & 开启 & 92.48\% & 98.98\% & 93.30\% \\
-    \midrule
-    src0 RV32M & 关闭 & 99.39\% & 99.93\% & 99.39\% \\
-    src0 RV32M & 开启 & 99.39\% & 99.94\% & 99.39\% \\
-    src1 RV32M & 关闭 & 97.11\% & 100.00\% & 97.31\% \\
-    src1 RV32M & 开启 & 97.11\% & 100.00\% & 97.31\% \\
-    \midrule
-    src2 RV32M & 关闭 & 79.35\% & 99.96\% & 82.88\% \\
-    src2 RV32M & 开启 & 79.35\% & 100.00\% & 82.89\% \\
-    withMext RV32M & 关闭 & 98.77\% & 99.84\% & 98.79\% \\
-    withMext RV32M & 开启 & 98.77\% & 99.86\% & 98.79\% \\
-    \bottomrule
-  \end{tabular}
-\end{adjustbox}
-\end{table}
-
-CoreMark 中函数调用与返回较为频繁，因此最能体现 RAS 的收益。关闭 RAS 时，
-7,704,471 次跳转更新中有 412,430 次预测错误；启用 8 项 RAS 后，正确预测数由
-7,292,041 增加到 7,626,169，跳转错误数降至 78,302。对应的跳转
-准确率提高 4.33 个百分点，并使总体准确率从 92.75\% 提高到 93.30\%。图
-~\ref{fig:coremark-ras-comparison} 给出了两种配置下的完整报告。
-
-\begin{figure}[htbp]
-  \centering
-  \begin{minipage}{0.48\linewidth}
-    \centering
-    \includegraphics[width=\linewidth,height=0.68\textheight,keepaspectratio]{core_branch.png}
-    \caption*{(a) 关闭 RAS}
-  \end{minipage}
-  \hfill
-  \begin{minipage}{0.48\linewidth}
-    \centering
-    \includegraphics[width=\linewidth,height=0.68\textheight,keepaspectratio]{core_ras_branch.png}
-    \caption*{(b) 开启 RAS}
-  \end{minipage}
-  \caption{旧版 Mundus：CoreMark 中 RAS 对分支预测结果的影响}
-  \label{fig:coremark-ras-comparison}
-\end{figure}
-
-src2 中条件分支事件占比较高，且其 79.35\% 的方向/目标预测结果不受 RAS 影响，
-因此 RAS 对总体准确率的提升仅在四舍五入后表现为 0.01 个百分点。不过，跳转错误仍由
-4,756 次减少到 158 次，减少约 96.7\%，说明 RAS 对返回地址的预测本身有效，只是其
-收益被数量更多的条件分支事件稀释。对应结果见图~\ref{fig:src2-ras-comparison}。
-
-\begin{figure}[htbp]
-  \centering
-  \begin{minipage}{0.48\linewidth}
-    \centering
-    \includegraphics[width=\linewidth,height=0.68\textheight,keepaspectratio]{src2_branch.png}
-    \caption*{(a) 关闭 RAS}
-  \end{minipage}
-  \hfill
-  \begin{minipage}{0.48\linewidth}
-    \centering
-    \includegraphics[width=\linewidth,height=0.68\textheight,keepaspectratio]{src2_ras_branch.png}
-    \caption*{(b) 开启 RAS}
-  \end{minipage}
-  \caption{旧版 Mundus：src2 RV32M 中 RAS 对分支预测结果的影响}
-  \label{fig:src2-ras-comparison}
-\end{figure}
-
-src0、src1 和 withMext 在关闭 RAS 时的跳转准确率已经分别达到 99.93\%、100.00\%
-和 99.84\%，说明采用原生 RV32M 指令后，这些程序中的跳转目标已经较容易由 BTB 预测。
-RAS 使 src0 的跳转错误由 183 次减少到 163 次，使 src1 的跳转错误由 158 次减少到
-154 次；withMext 的跳转准确率则进一步提高至 99.86\%。由于三者的基础准确率已经
-很高，改进反映到总体准确率上均不足以在保留两位小数时体现。
-
-综合来看，该组历史测试中原生 RV32M 指令通过消除软乘除例程，简化了程序的动态控制流，使旧版
-Bimodal/BTB 相比软件乘除代码流更容易获得较高准确率；RAS 则是在相同代码流上进一步
-针对函数返回目标进行优化，不改变条件分支的 Bimodal 方向预测。其收益取决于返回指令
-的频率及原 BTB 对返回目标的预测质量：CoreMark 的跳转准确率提高 4.33 个百分点，收益
-最明显；src0、src1、src2 和 withMext 的基础跳转准确率已经接近 100\%，因此总体收益
-较小。这一结果说明，RAS 对调用返回密集型负载具有明确价值，而将其设计为可选配置，
-可以让资源或时序更敏感的场景继续使用结构更简单的 Bimodal/BTB。
-
-\subsection{FPGA 验证}
-
-\subsubsection{硬件平台说明}
-
-验证平台为竞业达 FPGA 试验箱的数字孪生平台，目标器件为 Xilinx Kintex-7，
-旧版工程使用 Vivado 2023.2 完成综合、实现和 bitstream 生成；当前 ARES 主线为 Pango/PDS。
-
-\subsubsection{运行流程说明}
-
-旧版 FPGA 验证流程包括：生成对应版本的 SystemVerilog；将处理器和 SoC 文件加入 Vivado 工程；
-更新 IROM/DRAM 初始化文件；生成或更新 IP 输出产物；执行综合、实现和时序检查；生成
-bitstream；在数字孪生平台加载工程；最后观察 LED、数码管和计数结果。
-
-\subsubsection{测试用例说明}
-
-赛方以 \id{irom.coe} 和 \id{dram.coe} 提供测试镜像。IROM 镜像包含启动代码、
-指令测试和控制流程，DRAM 镜像提供初始数据。区域赛测试依次覆盖 RV32I/RV32IM、
-CSR/trap 和性能程序，LED 用于显示各测试项状态，数码管显示通过条数和运行时间。
-
-\begin{figure}[htbp]
-  \centering
-  \includegraphics[width=0.72\linewidth,height=0.68\textheight,keepaspectratio]{withMext}
-  \caption{旧版 Mundus：withMext IROM 初始化文件的部分内容}
-  \label{fig:irom-coe-example}
-\end{figure}
-
-\subsection{FPGA 验证结果及分析}
-
-\subsubsection{FPGA 上板验证结果}
-
-集成于官方 SoC 上的九级流水处理器在上板测试中正常运行。多次验证结果表明
-RV32I 的 37 条指令、RV32M 的 8 条指令、Zicsr 的 6 条指令及特权相关指令
-均通过对应赛题测试。
-
-\begin{figure}[htbp]
-  \centering
-  \begin{minipage}{0.48\linewidth}
-    \centering
-    \includegraphics[width=\linewidth,height=0.68\textheight,keepaspectratio]{src0_316m.png}
-    \caption*{(a) 以 316.67 MHz 运行 src0}
-  \end{minipage}
-  \hfill
-  \begin{minipage}{0.48\linewidth}
-    \centering
-    \includegraphics[width=\linewidth,height=0.68\textheight,keepaspectratio]{src1_300m.png}
-    \caption*{(b) 以 300.00 MHz 运行 src1}
-  \end{minipage}
-  \caption{旧版 Mundus：FPGA src0 src1 运行结果}
-  \label{fig:src0_1_FPGA}
-\end{figure}
-
-\begin{figure}[htbp]
-  \centering
-  \begin{minipage}{0.48\linewidth}
-    \centering
-    \includegraphics[width=\linewidth,height=0.68\textheight,keepaspectratio]{src2_300m.png}
-    \caption*{(a) 以 300.00 MHz 运行 src2}
-  \end{minipage}
-  \hfill
-  \begin{minipage}{0.48\linewidth}
-    \centering
-    \includegraphics[width=\linewidth,height=0.68\textheight,keepaspectratio]{without_308m.png}
-    \caption*{(b) 以 308.00 MHz 运行 withoutMext}
-  \end{minipage}
-  \caption{旧版 Mundus：FPGA src2 与 withoutMext 运行结果}
-  \label{fig:src2_without_FPGA}
-\end{figure}
-
-\begin{figure}[htbp]
-  \centering
-  \includegraphics[width=\linewidth,height=0.68\textheight,keepaspectratio]{with_316m.png}
-  \caption{旧版 Mundus：以 316.67 MHz 运行 withMext}
-  \label{fig:with_FPGA}
-\end{figure}
-
-\subsubsection{资源使用及面积、功耗分析}
-
-根据资源和面积报告可知，由于使用了 BRAM 代替了 IROM 和 DRAM，节省了大量的 LUTRAM 使用和面
-积占用，故该旧版处理器设计使用的资源较少，LUT、FF 分别占旧 Kintex-7 器件资源的 3\% 和 2\%。
-
-\begin{figure}[htbp]
-  \centering
-  \includegraphics[width=\linewidth,height=0.68\textheight,keepaspectratio]{resources.png}
-  \caption{旧版 Mundus：资源使用}
-  \label{fig:resource}
-\end{figure}
-
-\begin{figure}[htbp]
-  \centering
-  \includegraphics[width=0.82\linewidth,height=0.68\textheight,keepaspectratio]{area.png}
-  \caption{旧版 Mundus：综合面积}
-  \label{fig:area}
-\end{figure}
-
-旧版 Vivado 功耗报告估算芯片总功耗为 0.677 W，动态功耗占比为总功耗的 75 \%，静态功耗占比为总功耗的 25\%。而在动态功耗中，Clock、Signals、以及 Logic 的
-占比各自为 19\%、29\%和 18\%。具体数据如图~\ref{fig:power} 所示。
-
-\begin{figure}[htbp]
-  \centering
-  \includegraphics[width=\linewidth,height=0.68\textheight,keepaspectratio]{power.png}
-  \caption{旧版 Mundus：功耗占比}
-  \label{fig:power}
-\end{figure}
-
-\subsection{IO 模拟与板级运行一致性}
-
-图~\ref{fig:student_top} 和图~\ref{fig:FPGA-sim-cmp} 展示旧版 IO 模拟及板级运行。
-
-\begin{figure}[htbp]
-  \centering
-  \includegraphics[width=0.90\linewidth,height=0.68\textheight,keepaspectratio]{student_top.png}
-  \caption{旧版 student\_top IO}
-  \label{fig:student_top}
-\end{figure}
-
-图~\ref{fig:FPGA-sim-cmp} 记录旧版 60 MHz 配置中 IO 模拟与 FPGA 显示结果的一致性（8.637 s）。
-
-\begin{figure}[htbp]
-  \centering
-  \begin{minipage}{0.48\linewidth}
-    \centering
-    \includegraphics[width=\linewidth,height=0.68\textheight,keepaspectratio]{simulation_io.png}
-    \caption*{(a) 仿真环境 60 MHz 运行情况}
-  \end{minipage}
-  \hfill
-  \begin{minipage}{0.48\linewidth}
-    \centering
-    \includegraphics[width=\linewidth,height=0.68\textheight,keepaspectratio]{FPGA_io.png}
-    \caption*{(b) FPGA 60 MHz 实际运行情况}
-  \end{minipage}
-  \par\medskip
-  \caption{旧版 Mundus FPGA 与仿真 IO 对比（60 MHz 历史配置）}
-  \label{fig:FPGA-sim-cmp}
-\end{figure}
 
 \clearpage
 \section{视频采集与手势控制集成方案}

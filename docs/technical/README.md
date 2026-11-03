@@ -7,7 +7,7 @@
 | 路径 | 说明 |
 | --- | --- |
 | `technical_report.tex` | 唯一的报告源文件（core + 应用/加速器，TikZ 图全部内联） |
-| `technical_report.pdf` | 合并报告 PDF（86 页） |
+| `technical_report.pdf` | 合并报告 PDF（74 页） |
 | `results.json` | core 组原有结果，未改动 |
 | `application_results.json` | 应用与加速器结果（本部分新增） |
 | `figures/` | 只放图片/PDF 素材，不再放 `.tex` |
@@ -40,7 +40,7 @@ xelatex -interaction=nonstopmode -halt-on-error technical_report.tex
 - 2.3.5：演示层（串口桥接、SSE、Three.js）。
 - 3.4：应用与加速器特性成果。
 - 4.1/4.2：应用侧扩展方向、五个 bug 与优化心得。
-- 附录 D：应用与加速器复现信息。
+- 附录 C：应用与加速器复现信息（原附录 B 旧版 Mundus 资料已删除）。
 
 所有 TikZ 图（core 原有 13 张 + 新增 12 张，以及正文内联小图，共 27 个 `tikzpicture`）都在 `technical_report.tex` 里，图片素材仍从 `figures/` 读取。
 
