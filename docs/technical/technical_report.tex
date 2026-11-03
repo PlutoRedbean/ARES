@@ -264,26 +264,50 @@ AGU 在 ISS 提前计算访存地址，三阶段 LSU 区分 DCache 命中快路�
 协处理器侧以 4×4 INT8 阵列、128 bit 行式统一缓冲、向量单元与定点 epilogue，把卷积和 GEMV 统一为同一条 \code{GEMM} 命令流。
 
 
-\subsection{主要配置}
-以下列出 RTL 默认配置及板级时钟目标。
+\subsection{主要性能指标}
+以下分 CPU、CoreMark 与应用三部分列出主要性能指标，测试方法与完整数据见第三部分。
+
+\paragraph{CPU 性能指标}
 \begin{table}[H]
 \centering
-\begin{tabularx}{\linewidth}{@{}P{0.30\linewidth}X@{}}
+\caption{CPU 主要性能指标}
+\label{tab:cpu-metrics}
+\begin{tabularx}{\linewidth}{@{}P{0.24\linewidth}>{\raggedright\arraybackslash}X@{}}
 \toprule
-项目 & 配置 \\
+项目 & 指标 \\
 \midrule
-处理器与扩展 & Mundus，顺序单发射；RV32IM、Zicsr、基础机器模式与 CRC8 \\
+处理器 & Mundus，九级顺序单发射；RV32IM、Zicsr、机器模式定时器中断与 custom-0 CRC8 \\
+工作频率 & 四核 AMP 板级构建 120 MHz 约束满足并上板运行（第~\ref{subsec:pds-results}~节）；RTL 默认 PLL 由 27 MHz 生成 CPU 100 MHz / 外设 50 MHz \\
+功能验证 & 36 个 cpu-tests、1520 项 DCache 检查及乘除法、三类加速引擎定向测试通过 \\
+分支预测与前端 & 16 项 BTB、2 bit Bimodal、8 项 RAS；8 项前端队列 \\
+存储层次 & 单核 4 KiB 四路 ICache、8 KiB 两路写直达 DCache；外设桥四项写队列 \\
+系统配置 & 单核（运行 RT-Thread Nano）；2/4-hart 私有存储 AMP；共享 L2 实验版 \\
 FPGA / 工具链 & PG2L200H-6IFBB676 / Pango PDS \\
-板级时钟 & 27 MHz 输入，RTL 默认 PLL 配置 CPU 100 MHz / 外设 50 MHz；四核 AMP 板级构建以 120 MHz 满足约束并上板运行，见第~\ref{subsec:pds-results}~节 \\
-预测器与前端 & 16 项 BTB、2 bit Bimodal、8 项 RAS；8 项前端队列 \\
-存储层次 & 单核默认 4 KiB 四路 ICache、8 KiB 两路 DCache \\
-系统配置 & 单核；2/4-hart 私有存储 AMP；共享 L2 实验版 \\
 \bottomrule
 \end{tabularx}
 \end{table}
 
-% ===== 新增：应用与加速器主要性能指标 =====
-除处理器配置外，两个应用与 miniTensor 的主要指标如下。
+\paragraph{CoreMark 性能指标}
+加速变体以 CRC8 指令和矩阵、状态机、链表引擎替换热点函数，用于评估软硬件协同收益，不作为 EEMBC 官方分数。
+\begin{table}[H]
+\centering
+\caption{CoreMark 主要性能指标}
+\label{tab:coremark-metrics}
+\begin{tabularx}{\linewidth}{@{}P{0.24\linewidth}>{\raggedright\arraybackslash}X r@{}}
+\toprule
+配置 & 口径 & CoreMark/MHz \\
+\midrule
+单核基线 & 未修改 CoreMark 1.0，100 MHz 仿真 & 2.235012 \\
+单核全加速 & 热点加速变体，100 MHz 仿真；相对基线 5.988× & 13.384075 \\
+两核聚合 & MULTITHREAD 全加速，100 MHz 仿真 & 28.167228 \\
+四核聚合 & MULTITHREAD 全加速，100 MHz 仿真 & 56.029283 \\
+四核聚合（板上） & MULTITHREAD 全加速，120 MHz 实测；70,000 次迭代、10.37 s，CRC 校验通过 & 56.261253 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\paragraph{应用性能指标}
+两个应用与 miniTensor 的主要指标如下。
 
 \begin{table}[H]
 \centering
@@ -3110,9 +3134,6 @@ MSH 为独立配置，使用 4 KiB shell 栈，通过 UART RX FIFO 与控制台�
 
 \clearpage
 \section{完成情况及性能参数}
-\subsection{整体介绍}
-以下汇总截至 2026 年 11 月 3 日的实现、验证记录及待完成项。
-
 \subsection{工程成果}
 \subsubsection{电路成果}
 已具备 Mundus 核、I/DCache、片上存储与外设、CRC8 和三类 MMIO 引擎、单核及 2/4-hart AMP 顶层。AMP 为每 hart 私有 IROM、四路 ICache 与数据 BRAM，通过 uncached mailbox 协作。
@@ -3277,41 +3298,6 @@ worker 启动、同步及完成等待；它与每 hart 打印一份 MULTITHREAD=
 （build 231170），目标为 PG2L200H。两组每 hart 数据 BRAM 均为 256 KiB，
 RTL 此后缩减为每 hart 32 KiB。
 
-\begin{table}[H]
-\centering
-\caption{四核 PDS 布线后时序（每 hart 256 KiB DRAM）}
-\label{tab:ares-pds-timing}
-\begin{tabularx}{\linewidth}{@{}Xrr@{}}
-\toprule
-项目 & 70 MHz 约束 & 200 MHz 约束 \\
-\midrule
-报告时间（11 月 1 日） & 16:03:55 & 17:44:37 \\
-Slow corner setup WNS/ns & +0.945 & -5.449 \\
-Slow corner setup TNS/ns & 0 & -86357.860 \\
-Slow corner recovery WNS/ns & +8.484 & -0.573 \\
-报告设计状态 & 全部约束满足 & 存在约束违例 \\
-\bottomrule
-\end{tabularx}
-\end{table}
-
-\begin{table}[H]
-\centering
-\caption{上述两组 PDS 构建的资源占用}
-\label{tab:ares-pds-resources}
-\begin{tabularx}{\linewidth}{@{}Xrrr@{}}
-\toprule
-资源 & 70 MHz 构建 & 200 MHz 构建 & 器件容量 \\
-\midrule
-CLMA & 7961 & 8041 & 30075 \\
-CLMS & 1905 & 1892 & 9875 \\
-APM（grid） & 44 & 40 & 370 \\
-DRM（grid） & 308 & 329 & 415 \\
-DRM36K & 304 & 304 & 415 \\
-DRM18K & 8 & 48 & 830 \\
-\bottomrule
-\end{tabularx}
-\end{table}
-DRM grid 与 DRM18K/36K 是报告的不同统计层级，不能直接相加。
 70 MHz 最差 setup 路径位于矩阵引擎内部；200 MHz 最差路径从 hart3 数据
 BRAM 经 Load 返回及旁路通路到乘法器输入，且存在一条 recovery 违例。
 因此时序瓶颈分布在加速器内部和核内 Load 返回通路两处。
@@ -3352,24 +3338,6 @@ CRC（4 个 context 一致） & \code{seedcrc=0xe9f5}，\code{crclist=0xe714}，
 \caption{板上 120 MHz 四核 MULTITHREAD CoreMark 串口输出}
 \label{fig:board-coremark}
 \end{figure}
-
-\subsubsection{待完成项}
-\begin{table}[H]
-\centering
-\caption{待完成项与验收内容}
-\begin{tabularx}{\linewidth}{@{}P{3.0cm}X@{}}
-\toprule
-项目 & 验收内容 \\
-\midrule
-ICache 上电初始化 & 验证目标 FPGA 的 valid 初始化及四态仿真的冷启动行为 \\
-FENCE.I & 增加 ICache 失效及前端清理路径，验证代码更新后的取指 \\
-共享 L2 CoreMark & 修复慢响应配对和顺序，再检查多核 CRC、done 与 a0 \\
-FPGA 验收 & 归档 120 MHz 四核构建的 PDS 资源与时序报告，补单核配置的 PnR 与实板结果 \\
-视频/手势闭环 & 连接独立视频工程、推理与网页控制，补端到端操作及测量结果 \\
-\bottomrule
-\end{tabularx}
-\end{table}
-已修复的短复位与 ICache 安装/flush 两项缺陷，修复方式分别见第二部分“总体结构”与第~\ref{subsec:icache-design}~节，复现资料路径见附录~\ref{app:repro}。
 
 \subsection{应用与加速器特性成果}
 \label{subsec:app-results}
