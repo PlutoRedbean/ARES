@@ -384,7 +384,7 @@ b5 整机 & CLMA 35\%、DRM 63\%、APM 9\% & 27 MHz WNS +12.85 ns \\
 \multicolumn{4}{@{}l}{\textbf{基础任务}} \\
 处理器内核构建 & 支持 RV32I 基础整数指令集 & RV32I 全部指令，另加 RV32M、Zicsr 与 custom-0 CRC8；36 个 cpu-tests 全部通过（表~\ref{tab:ares-functional-results}） & 完成 \\
 流水线架构设计 & 不少于 3 级流水，处理数据冲突与分支跳转 & Mundus 九级核，顺序单发射；温度计码时机表达、两级旁路与互锁处理数据冒险，HZU 统一重定向处理控制冒险 & 完成 \\
-外设系统集成 & 集成 UART、GPIO 等基础外设 & UART TX/RX（含 RX FIFO）、开关、按键、数码管、LED、毫秒计时器与机器定时器中断；MSH 双向串口测试通过 & 完成 \\
+外设系统集成 & 集成 UART、GPIO 等基础外设 & UART TX/RX（含 RX FIFO）、按键、LED、毫秒计时器与机器定时器中断；MSH 双向串口测试通过 & 完成 \\
 \midrule
 \multicolumn{4}{@{}l}{\textbf{高阶任务}} \\
 存储系统优化 & 2 路组相联指令与数据 Cache，优化总线突发传输 & ICache 四路组相联（单核 4 KiB，AMP 32 KiB/hart），DCache 两路组相联 8 KiB、写直达；外设桥四项写队列与逐字节转发；1520 项 DCache 与 2875 次 ICache 响应核对通过 & 完成 \\
@@ -776,7 +776,6 @@ IROM & \code{0x80000000--0x80007FFF} & 只读 & 32 KiB，32 bit 字；同步 BRA
 数据窗口 & \code{0x80100000--0x8013FFFF} & 读写 & 单核 256 KiB，DCache 可缓存窗口 \\
 SW & \code{0x80200000} \code{/} \code{0x80200004} & 只读 & 开关低/高 32 bit \\
 KEY & \code{0x80200010} & 只读 & 低 8 bit 有效 \\
-SEG / LED & \code{0x80200020} \code{/} \code{0x80200040} & 读写 & 数码管 / LED 寄存器 \\
 毫秒计数 & \code{0x80200050} & 读写 & 读毫秒数；写 \mbox{\code{0x80000000}} 启动、\mbox{\code{0xFFFFFFFF}} 停止 \\
 中断 pending & \code{0x80200054} & 读写 & bit0 为 pending，写 bit0=1 确认 \\
 UART TX & \code{0x80200060} & 只写 & 写低 8 bit 发送 \\
@@ -2415,21 +2414,6 @@ ARES/
 \label{fig:software-flow}
 \end{figure}
 
-\begin{table}[H]
-\centering
-\caption{软件模块的关键输入输出}
-\begin{tabularx}{\linewidth}{@{}P{2.1cm}XX@{}}
-\toprule
-模块 & 关键输入 & 关键输出 \\
-\midrule
-运行时与镜像 & 链接布局、程序及初始数据 & 入口与 IROM/DRAM 镜像 \\
-仿真驱动 & 镜像、复位、时钟 & 波形、日志与运行状态 \\
-退休观察 & 退休有效、PC、GPR 写回及 EBREAK & 程序结束条件及指令计数 \\
-BPU 差分（前身） & RTL 与参考模型的预测及更新事件 & 模型匹配率与预测准确率 \\
-IO 模拟 & LED、SEG、计时控制 & 灯组、数码管和运行时间 \\
-\bottomrule
-\end{tabularx}
-\end{table}
 
 \subsubsection{应用一：语言模型部署}
 \label{par:llm}
