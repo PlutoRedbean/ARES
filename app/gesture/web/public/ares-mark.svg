@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="ARES mark: Corinthian helmet inside a chip die">
+  <defs>
+    <linearGradient id="aresMarkGradient" x1="16" y1="120" x2="112" y2="8" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#39e6ff"/>
+      <stop offset="0.55" stop-color="#7fe9ff"/>
+      <stop offset="1" stop-color="#8a5cff"/>
+    </linearGradient>
+  </defs>
+
+  <!-- chip die outline -->
+  <g fill="none" stroke="url(#aresMarkGradient)" stroke-width="3" stroke-linecap="square" stroke-linejoin="miter">
+    <path d="M64 4 L114 32 V96 L64 124 L14 96 V32 Z" opacity="0.9"/>
+    <path d="M2 44 H14 M2 58 H14 M2 72 H14 M2 86 H14 M114 44 H126 M114 58 H126 M114 72 H126 M114 86 H126" opacity="0.8"/>
+
+    <!-- spear behind the helmet -->
+    <path d="M18 112 L108 20" stroke-width="1.6" opacity="0.55"/>
+
+    <!-- helmet crest, drawn as circuit traces -->
+    <path d="M44 50 V24 M52 47 V16 M60 45 V10 M68 45 V10 M76 47 V16 M84 50 V24" stroke-width="2.4"/>
+
+    <!-- Corinthian helmet: dome, cheek guards, eye slits, nose guard -->
+    <path d="M38 62 Q39 42 64 42 Q89 42 90 62 L90 78 Q90 94 77 100 L70 102 V90 Q64 86 58 90 V102 L51 100 Q38 94 38 78 Z" stroke-width="3.2"/>
+    <path d="M45 64 L59 68 M83 64 L69 68 M64 70 V89" stroke-width="2.4"/>
+
+    <!-- Greek key fragment on the package base -->
+    <path d="M40 116 H52 V110 H60 M68 110 H76 V116 H88" stroke-width="2.2" opacity="0.75"/>
+  </g>
+
+  <!-- spear point -->
+  <path d="M104 12 L118 10 L116 24 Z" fill="url(#aresMarkGradient)"/>
+
+  <!-- crest nodes -->
+  <g fill="url(#aresMarkGradient)">
+    <circle cx="44" cy="24" r="1.6"/>
+    <circle cx="52" cy="16" r="1.6"/>
+    <circle cx="60" cy="10" r="1.6"/>
+    <circle cx="68" cy="10" r="1.6"/>
+    <circle cx="76" cy="16" r="1.6"/>
+    <circle cx="84" cy="24" r="1.6"/>
+  </g>
+</svg>

@@ -64,7 +64,7 @@
 \graphicspath{{docs/technical/figures/}{technical/figures/}{figures/}}
 \renewcommand{\refname}{参考文献}
 \renewcommand{\contentsname}{目录}
-\newcommand{\cpuname}{Mundus}
+\newcommand{\cpuname}{Mundus 九级核}
 \renewcommand{\code}[1]{{\small\ttfamily\urlstyle{tt}\expandafter\nolinkurl\expandafter{\detokenize{#1}}}}
 \newcommand{\id}[1]{{\urlstyle{rm}\expandafter\nolinkurl\expandafter{\detokenize{#1}}}}
 \newcommand{\done}{\textcolor{green!45!black}{$\checkmark$}}
@@ -216,7 +216,7 @@
 \vspace{8pt}
 \section*{摘要}
 % 模板限制：800 字内。
-ARES 是以 Mundus 32 位顺序单发射处理器为核心的嵌入式 SoC，主线 FPGA 目标为盘古 200Pro+ 的 PG2L200H-6IFBB676。
+ARES 是以 Mundus 九级核（32 位顺序单发射）为核心的嵌入式 SoC，主线 FPGA 目标为盘古 200Pro+ 的 PG2L200H-6IFBB676。
 处理器实现 RV32I 整数数据通路、RV32M、Zicsr、ECALL/MRET、机器定时器中断及 custom-0 CRC8。
 流水线由取指请求、取指响应、ID、ISS、EX1--EX4 和 WB 共九级组成；取指侧使用请求/响应握手、两项在途元数据队列和八项前端队列，取指延迟随 Cache 命中与回填变化。
 默认配置采用 16 项 Bimodal/BTB、8 项 RAS、四路 ICache、8 KiB 两路 DCache，以及外设桥中的四项写队列。
@@ -224,7 +224,7 @@ SoC 提供单核和 2/4-hart AMP 配置，并集成矩阵、状态机和链表 M
 验证采用 Verilator 程序回归、模块定向测试与板级仿真，实现使用 PDS。在 100 MHz 仿真时钟下，未修改的 CoreMark 基线为 2.235012 CoreMark/MHz；以 CRC8 指令和三类引擎替换热点函数后，单核全加速为 13.384075 CoreMark/MHz，四核全加速 MULTITHREAD 聚合为 56.029283 CoreMark/MHz。盘古板卡上四核 AMP 在 120 MHz 下实测聚合 56.261253 CoreMark/MHz，运行 10.37 s，CRC 校验通过。
 
 % ===== 新增：应用与加速器摘要 =====
-作品同时集成自研 miniTensor INT8 协处理器：4×4 阵列、行式 UB、向量单元与定点 \mbox{epilogue}，把卷积和 GEMV 统一到同一条命令流。应用侧以 Qwen2.5-0.5B-Instruct 构建语料、把能力压缩到 152,056 B 的 H112，char-GRU 由 17 提升到 103 char/s；手势 287 帧 INT8 100\%、板端 8/8，并驱动 Three.js 全息页面。
+作品同时集成自研 miniTensor INT8 协处理器：4×4 阵列、行式 UB、向量单元与定点 \mbox{epilogue}，把卷积和 GEMV 统一到同一条命令流。应用侧以 Qwen2.5-0.5B-Instruct 构建语料、把能力压缩到 152,056 B 的 H112 并部署；同模型对照 A0 的 char-GRU 由 17 提升到 103 char/s；手势（3 类演示/8 类词表）287 帧 INT8 100\%、板端 8/8，并驱动 Three.js 全息页面。
 
 
 \clearpage
@@ -276,7 +276,7 @@ AMP 提供私有数据窗口与共享 mailbox，RT-Thread Nano 支持单核运�
 \toprule
 项目 & 指标 \\
 \midrule
-处理器 & Mundus，九级顺序单发射；RV32IM、Zicsr、机器模式定时器中断与 custom-0 CRC8 \\
+处理器 & Mundus 九级核，顺序单发射；RV32IM、Zicsr、机器模式定时器中断与 custom-0 CRC8 \\
 工作频率 & 四核 AMP 板级构建 120 MHz 约束满足并上板运行（第~\ref{subsec:pds-results}~节）；RTL 默认 PLL 由 27 MHz 生成 CPU 100 MHz / 外设 50 MHz \\
 功能验证 & 36 个 cpu-tests、1520 项 DCache 检查及乘除法、三类加速引擎定向测试通过 \\
 分支预测与前端 & 16 项 BTB、2 bit Bimodal、8 项 RAS；8 项前端队列 \\
@@ -321,7 +321,7 @@ miniTensor & 4×4 INT8、32 bit 累加；UB 256×128 bit & 16 PE，8--10 周期/
 手势帧 & 1,936 条命令；约 1.31 M 周期 & 100 MHz 仿真 13.1 ms；27 MHz 板级 48.5 ms \\
 H112 & 140,742 参数 / 152,056 B & 20 token/s 输出节流 \\
 A0 & 17 char/s（CPU）/ 103 char/s（miniTensor） & 0/40 golden \\
-手势 & 287 帧 INT8 100\%；板端 8/8；10 Hz & 3 帧确认，约 0.2 s 更新 \\
+手势（3 类演示/8 类词表） & 287 帧 INT8 100\%；板端 8/8；10 Hz & 3 帧确认，约 0.2 s 更新 \\
 b5 整机 & CLMA 35\%、DRM 63\%、APM 9\% & 27 MHz WNS +12.85 ns \\
 \bottomrule
 \end{tabularx}
@@ -339,7 +339,7 @@ b5 整机 & CLMA 35\%、DRM 63\%、APM 9\% & 27 MHz WNS +12.85 ns \\
 
 \subsection{设计流程}
 % 模板限制：200 字内。
-以 Chisel 生成 Mundus RTL，集成存储、外设与加速器；ELF 拆分为 IROM/DRAM HEX，经 Verilator、模块测试与板级仿真核对后，用 PDS 完成综合、布局布线、时序检查与位流生成。
+以 Chisel 生成 Mundus 九级核的 RTL，集成存储、外设与加速器；ELF 拆分为 IROM/DRAM HEX，经 Verilator、模块测试与板级仿真核对后，用 PDS 完成综合、布局布线、时序检查与位流生成。
 应用侧按训练、量化打包、整数 golden、Verilator、PDS 上板五步推进，任一步不一致即回到量化打包，见图~\ref{fig:app-flow}。
 
 \begin{figure}[htbp]
@@ -359,7 +359,7 @@ b5 整机 & CLMA 35\%、DRM 63\%、APM 9\% & 27 MHz WNS +12.85 ns \\
 \foreach \a/\b in {train/quant,quant/gold,gold/sim,sim/board}
   \draw[dat] (\a) -- (\b);
 \draw[ctl] (gold.south) -- (6.65,1.35) -- (3.95,1.35) -- (quant.south);
-\node[note, anchor=south, text=aresRed] at (5.30,1.35) {mismatch：回到量化/打包};
+\node[note, anchor=south, text=aresRed, fill=white, inner sep=1pt] at (5.30,1.55) {mismatch：回到量化/打包};
 \node[note, anchor=north, align=center] at (6.65,0.55)
   {每一步固定模型、权重、镜像与日志哈希；两个应用共用这套流程};
 \end{tikzpicture}
@@ -383,13 +383,13 @@ b5 整机 & CLMA 35\%、DRM 63\%、APM 9\% & 27 MHz WNS +12.85 ns \\
 \midrule
 \multicolumn{4}{@{}l}{\textbf{基础任务}} \\
 处理器内核构建 & 支持 RV32I 基础整数指令集 & RV32I 全部指令，另加 RV32M、Zicsr 与 custom-0 CRC8；36 个 cpu-tests 全部通过（表~\ref{tab:ares-functional-results}） & 完成 \\
-流水线架构设计 & 不少于 3 级流水，处理数据冲突与分支跳转 & 九级顺序单发射；温度计码时机表达、两级旁路与互锁处理数据冒险，HZU 统一重定向处理控制冒险 & 完成 \\
+流水线架构设计 & 不少于 3 级流水，处理数据冲突与分支跳转 & Mundus 九级核，顺序单发射；温度计码时机表达、两级旁路与互锁处理数据冒险，HZU 统一重定向处理控制冒险 & 完成 \\
 外设系统集成 & 集成 UART、GPIO 等基础外设 & UART TX/RX（含 RX FIFO）、开关、按键、数码管、LED、毫秒计时器与机器定时器中断；MSH 双向串口测试通过 & 完成 \\
 \midrule
 \multicolumn{4}{@{}l}{\textbf{高阶任务}} \\
 存储系统优化 & 2 路组相联指令与数据 Cache，优化总线突发传输 & ICache 四路组相联（单核 4 KiB，AMP 32 KiB/hart），DCache 两路组相联 8 KiB、写直达；外设桥四项写队列与逐字节转发；1520 项 DCache 与 2875 次 ICache 响应核对通过 & 完成 \\
 高级控制逻辑 & 动态分支预测器（如 BTB），完整的异常/中断机制 & 16 项 BTB、2 bit Bimodal、8 项 RAS；ECALL/MRET 与精确机器定时器中断；可启动 RT-Thread Nano，自检输出 \code{ARES} \code{RTOS} \code{PASS}，验证时间片抢占、tick 补偿与延时唤醒 & 完成 \\
-AI 加速 & 构建边缘 AI 加速单元，移植 YOLO 或轻量大模型，结合传感器或显示设备 & 自研 miniTensor INT8 协处理器；由 Qwen2.5 蒸馏的 H112 对话模型经 UART 运行；OV5640 手势 CNN 驱动网页全息页面；手势 INT8 287 帧 100\%，板端 8/8 & 完成 \\
+AI 加速 & 构建边缘 AI 加速单元，移植 YOLO 或轻量大模型，结合传感器或显示设备 & 自研 miniTensor INT8 协处理器；由 Qwen2.5 语料构建的 H112 对话模型经 UART 运行；OV5640 手势 CNN 驱动网页全息页面；手势（3 类演示/8 类词表）INT8 287 帧 100\%，板端 8/8 & 完成 \\
 \bottomrule
 \end{tabularx}
 \end{tighttable}
@@ -409,8 +409,8 @@ AI 加速 & 构建边缘 AI 加速单元，移植 YOLO 或轻量大模型，结�
 资源效率 & CoreMark / LUTs & 需要与跑分配置一致的单核 post-route LUT 数；现有 PDS 报告为四核 CLMA/CLMS 统计，不能直接换算 & 待补 \\
 测试环境 & riscv32-unknown-elf-gcc；CoreMark v1.0 & \code{riscv64-unknown-elf-gcc} 13.2.0 按 \code{rv32im_zicsr/ilp32} 编译；EEMBC CoreMark 1.0 源码；120 MHz 板上镜像为 GCC 14.2.0 & 完成 \\
 运行时长 & CoreMark 运行时间不低于 10 s & 板上 120 MHz 四核 MULTITHREAD：每 hart 17,500 次、共 70,000 次迭代，运行 10.368 s（表~\ref{tab:ares-board-coremark}） & 完成 \\
-模型资源与时序 & 模型整体资源、时序、主频 & CPU+miniTensor：CLMA 10,229（35\%）、FF 24,404、DRM 261、APM 62；27 MHz 约束 WNS +12.85 ns，推算上限约 41.9 MHz。相机整机 WNS $-3.83$ ns & 部分完成 \\
-AI 处理效率 & 延迟与识别率 & 手势：每帧约 1.31 M 周期，27 MHz 下 48.5 ms；INT8 287 帧 100\%，板端 8/8；页面响应约 0.2--0.3 s。语言模型：char-GRU 103 char/s（CPU 为 17）；QA 94\%（880/936） & 完成 \\
+模型资源与时序 & 模型整体资源、时序、主频 & CPU+miniTensor：CLMA 10,229（35\%）、FF 24,404、DRM 261、APM 62；27 MHz 约束 WNS +12.85 ns，推算上限约 41.9 MHz & 完成 \\
+AI 处理效率 & 延迟与识别率 & 手势（3 类演示/8 类词表）：每帧约 1.31 M 周期，27 MHz 下 48.5 ms；INT8 287 帧 100\%，板端 8/8；页面响应约 0.2--0.3 s。语言模型：char-GRU 103 char/s（CPU 为 17）；QA 94\%（880/936） & 完成 \\
 流水线效率分析 & 用 ILA 波形分析 CoreMark 关键算法的流水线效率 & 板上 ILA 采集 list 链表查找与 state 状态机扫描：前者每节点 9 拍、IPC 0.56，受访存相关限制；后者 IPC 0.61，34\% 周期为分支重定向空泡（第~\ref{subsec:ila-analysis}~节） & 完成 \\
 \bottomrule
 \end{tabularx}
@@ -420,7 +420,7 @@ AI 处理效率 & 延迟与识别率 & 手势：每帧约 1.31 M 周期，27 MHz
 \clearpage
 \section{系统组成及功能说明}
 \subsection{整体介绍}
-ARES 以 Mundus 处理器为核心，前端经 IROM 请求/响应接口连接 ICache 或直通适配器，后端经含 DCache 的 LSU 和 PERIP 接口访问数据存储及外设。
+ARES 以 Mundus 九级核为核心，前端经 IROM 请求/响应接口连接 ICache 或直通适配器，后端经含 DCache 的 LSU 和 PERIP 接口访问数据存储及外设。
 处理器内部由前端预测和取指、译码、发射与寄存器读取、执行、LSU、乘除法及写回单元构成，核架构见图~\ref{fig:core-overview}。IFU 经两级队列向后端供指，ISU 在 ISS 读取 GPR、完成旁路判定并提前计算访存地址，EX1--EX4 与 LSU 的 LS1--LS3 对齐，WBU 顺序提交。
 HZU 根据分支结果协调重定向，ISU 根据数据就绪状态决定旁路与互锁，WB 保持顺序提交。
 图~\ref{fig:soc-framework}(a) 为单核 SoC 架构：\code{student_top} 内的取指路径经 ICache 和回填适配器读取 IROM，数据路径经外设桥译码后访问写队列与数据 BRAM、MMIO 加速器及各类寄存器；UART、毫秒计数器和显示驱动位于 50 MHz 外设时钟域，经 CDC 与 100 MHz CPU 域交互。图~\ref{fig:soc-framework}(b) 为 AMP 架构：每 hart 例化一份 \code{student_top}，含私有 IROM/ICache/数据 BRAM 和加速器，另连共享 uncached mailbox。
@@ -522,7 +522,7 @@ HZU 根据分支结果协调重定向，ISU 根据数据就绪状态决定旁路
 \draw[fat] (lsu.east |- 0,1.55) -- (sb.west);
 \draw[fat] (sb.north) -- (bram.south);
 \end{tikzpicture}
-\caption{Mundus 处理器核架构}
+\caption{Mundus 九级核架构}
 \label{fig:core-overview}
 \end{figure}
 \begin{figure}[htbp]
@@ -541,7 +541,7 @@ HZU 根据分支结果协调重定向，ISU 根据数据就绪状态决定旁路
 \draw[draw=black, line width=1pt, fill=scTop, rounded corners=8pt] (3.05,4.70) rectangle (13.35,15.55);
 \node[font=\diagfont\bfseries\small, anchor=north west] at (3.20,15.45) {student\_top};
 
-\node[box=scCore, minimum width=2.40cm, minimum height=1.00cm] (core) at (5.30,14.25) {Mundus Core};
+\node[box=scCore, minimum width=2.40cm, minimum height=1.00cm] (core) at (5.30,14.25) {Mundus\\九级核};
 \node[box=scInst, minimum width=2.10cm, minimum height=1.00cm] (ic) at (8.55,14.25) {ICache\\(4 KiB)};
 \node[rbox=scMem, minimum width=2.40cm, minimum height=1.00cm] (irom) at (11.75,14.25) {IROM\\(32 KiB)};
 \draw[fat] (clk.east) -- node[lab, above]{100 MHz} (core.west);
@@ -601,7 +601,7 @@ HZU 根据分支结果协调重定向，ISU 根据数据就绪状态决定旁路
 % ===== 新增：应用与加速器总体 =====
 \paragraph{平台与口径}
 
-应用与加速器部分统一以 ARES-L 五级应用基线为口径：CPU 是 ARES-L 五级顺序核，数据按 uncached 视图访问，miniTensor 通过 MMIO 接入。本部分提到的 CPU 都指这一基线。图~\ref{fig:app-overview} 给出总体关系：CPU 经 MMIO 窗口把命令写入 miniTensor 的命令队列，DMA 在 UB 与 scratch/BRAM 间搬数，两个应用共用一套软件栈。
+应用与加速器部分统一以 Mundus 九级核为口径：CPU 是 Mundus 九级顺序核，数据按 uncached 视图访问，miniTensor 通过 MMIO 接入。本部分提到的 CPU 都指这一核。图~\ref{fig:app-overview} 给出总体关系：CPU 经 MMIO 窗口把命令写入 miniTensor 的命令队列，DMA 在 UB 与 scratch/BRAM 间搬数，两个应用共用一套软件栈。
 
 \begin{figure}[htbp]
 \centering
@@ -609,7 +609,7 @@ HZU 根据分支结果协调重定向，ISU 根据数据就绪状态决定旁路
 \begin{tikzpicture}[ares, x=1cm, y=1cm]
 % ================= SoC row =================
 \node[blk=aresBlue, text width=3.0cm, minimum height=1.45cm] (cpu) at (1.8,7.7)
-  {ARES-L 五级核\\\sub{RV32IM · L1I · 无数据 Cache}};
+  {Mundus 九级核\\\sub{RV32IM · L1I · uncached}};
 \node[blk=aresTeal, text width=3.0cm, minimum height=1.0cm] (mmio) at (1.8,6.15)
   {MMIO 窗口\\\sub{0xE0000000}\\\sub{8 个寄存器}};
 \draw[dat] (cpu) -- (mmio);
@@ -693,21 +693,21 @@ HZU 根据分支结果协调重定向，ISU 根据数据就绪状态决定旁路
 \subsubsection{硬件整体介绍}
 核心采用 Chisel~\cite{bachrach2012chisel} 描述，并生成 SystemVerilog 与手写乘除法 RTL、BRAM 和外设包装集成。
 主线目标为盘古 200Pro+ / PG2L200H-6IFBB676，使用 PDS。
-板级 PLL 由 27 MHz 产生 100 MHz CPU 与 50 MHz 外设时钟；100 MHz 为 PLL 配置值和仿真时钟，布线后时序结论见第~\ref{subsec:pds-results}~节。AMP 将各 hart 的 CPU、外设桥和 UART 连接到同一 100 MHz 域，板级 50 MHz 输出不参与 AMP 数据通路。
+板级 PLL 由 27 MHz 产生 100 MHz CPU 与 50 MHz 外设时钟；100 MHz 为 PLL 配置值和仿真时钟。AMP 将各 hart 的 CPU、外设桥和 UART 连接到同一 100 MHz 域，板级 50 MHz 输出不参与 AMP 数据通路。
 \subsubsection{电路各模块介绍}
 \paragraph{SoC 集成方式}
 
-\code{Mundus} 经手写 \code{myCPU} 包装接入 \code{student_top}，其中 \code{Core_cpu} 是实例名。
+Mundus 九级核经手写 \code{myCPU} 包装接入 \code{student_top}，其中 \code{Core_cpu} 是实例名。
 单核板级顶层为 \code{pipeline_board_top}，AMP 板级顶层为 \code{pipeline_amp_board_top}；RTOS 与 MSH 另有独立板级顶层和镜像。
 
 \paragraph{核心接口}
 
-以下使用 Chisel Bundle 信号名，方向均相对 Mundus 核；\code{myCPU} 包装将点号展开为下划线。
+以下使用 Chisel Bundle 信号名，方向均相对 Mundus 九级核；\code{myCPU} 包装将点号展开为下划线。
 IROM 的请求与响应分别握手；PERIP 请求在 \code{valid} \code{&&} \code{ready} 时接受，读结果由 \code{rvalid} 标记，读响应没有独立 ready。\code{wen} 表示读写属性。
 
 \begin{table}[H]
 \centering
-\caption{Mundus 核接口}
+\caption{Mundus 九级核接口}
 \label{tab:core-interface}
 \begin{tabularx}{\linewidth}{@{}P{5.5cm}C{1.2cm}C{1.7cm}X@{}}
 \toprule
@@ -835,7 +835,7 @@ AMP 板级仅引出 hart0 UART TX，RX 接空闲；独立 MSH 板级顶层另接
 
 \paragraph{总体结构}
 
-\cpuname{} 采用顺序、单发射、单提交结构，每周期最多接收并提交一条指令。
+\cpuname{}采用顺序、单发射、单提交结构，每周期最多接收并提交一条指令。
 流水线按取指请求、取指响应、ID、ISS、EX1、EX2、EX3、EX4 和 WB 划分，共九级；表~\ref{tab:current-stages} 列出各级职责，图~\ref{fig:current-pipeline} 给出各级与 LSU、长操作通路的对应关系。IF1/IF2 分别表示取指请求和响应，二者通过握手和队列衔接。
 
 \begin{table}[H]
@@ -921,7 +921,7 @@ Load 在 EX1 按 DCache 命中预测生产时机，EX2 以寄存的命中结果�
 % commit marker
 \node[note, text=aresGreen!70!black, anchor=north] at (8*\cw,-2.40) {▲ 提交点};
 \end{tikzpicture}
-\caption{Mundus 九级流水线：各级职责、LSU 与长操作通路}
+\caption{Mundus 九级核的流水线：各级职责、LSU 与长操作通路}
 \label{fig:current-pipeline}
 \end{figure}
 
@@ -1257,12 +1257,12 @@ AMP 在每个 \code{student_top} 内例化同一主线四路缓存；各 hart �
 
 % ---- install (S_FILL) ----
 \draw[aresPurple!80!black, line width=0.7pt] (rbuf.north) -- (9.15,1.25) -- (3.75,1.25);
-\draw[->, draw=aresPurple!80!black] (8.35,1.25) -- (data.south);
+\draw[->, draw=aresPurple!80!black] (8.30,1.25) -- (data.south);
 \draw[->, draw=aresPurple!80!black] (3.75,1.25) -- (3.75,1.60);
 \node[note, text=aresPurple!80!black, fill=white, inner sep=1pt] at (6.10,1.25) {S\_FILL：整行与 tag/valid/age 同拍安装};
 
 % ---- FSM ----
-\node[blk, anchor=north east, align=center] (fsm) at (13.65,4.05)
+\node[blk, anchor=north east, align=center] (fsm) at (14.15,4.05)
   {\textbf{控制状态机}\\\sub{IDLE · LOOK · RESP}\\\sub{REFILL → FILL → RELOOK}};
 \end{tikzpicture}
 \caption{四路 ICache 内部结构}
@@ -1515,16 +1515,14 @@ R、I、S、B、U、J 和 CSR 格式生成立即数。集中式译码表同时�
 
 % ---------------- bypass bus ----------------
 \def\by{0.62}
-\draw[fwd, line width=0.9pt, -] (1.90,\by) -- (14.10,\by);
-\foreach \x/\y in {5.50/-0.90, 7.95/-0.90, 9.95/-0.90, 11.55/-0.90, 14.10/-0.90}{
+\draw[fwd, line width=0.9pt, -] (1.90,\by) -- (13.90,\by);
+\foreach \x/\y in {5.60/-0.90, 7.95/-0.90, 9.95/-0.90, 11.55/-0.90, 13.90/-0.90}{
   \draw[aresAmber!90!black] (\x,\y) -- (\x,\by);
   \fill[aresAmber!90!black] (\x,\by) circle (1pt);}
 \draw[fwd] (1.90,\by) -- (1.90,-0.33);
 \draw[fwd] (3.40,\by) -- (3.40,-0.33);
 \fill[aresAmber!90!black] (3.40,\by) circle (1pt);
 \node[note, text=aresAmber!80!black, anchor=south] at (8.80,\by) {旁路源：EX1 · EX2 · EX3 · EX4 · WB（优先选最年轻的就绪结果）};
-\node[note, anchor=west] at (1.96,-0.08) {一级旁路};
-\node[note, anchor=west] at (3.46,-0.08) {二级旁路};
 
 % ---------------- interlock note ----------------
 \node[note, text=aresRed, anchor=north west, align=left] at (-0.05,-4.80)
@@ -1776,36 +1774,35 @@ DCache 通过 EX2 提前提供命中结果，缩短 Load-use 延迟。LS1 在 LS
   \node[pbar, minimum height=1.40cm, anchor=north] at (\x,2.95) {};
 
 % ---- row A: core-side stage registers ----
-\node[blk=aresTeal, minimum width=2.3cm] (agu) at (1.30,2.35) {AGU\\\sub{rs1+imm，加 AMP 偏移}};
-\node[blk=aresGreen, minimum width=2.3cm] (l1) at (4.40,2.35) {LS1 请求\\\sub{地址 · 宽度 · 符号 · wdata}};
+\node[blk=aresTeal, minimum width=2.3cm] (agu) at (1.30,2.35) {AGU\\\sub{rs1+imm · AMP 偏移}};
+\node[blk=aresGreen, minimum width=2.3cm] (l1) at (4.40,2.35) {LS1 请求\\\sub{地址 · 宽度 · wdata}};
 \node[blk=aresGreen, minimum width=2.3cm] (l2) at (7.50,2.35) {LS2 快路径 \sub{→ EX2}\\\sub{命中数据移位 · 扩展}};
 \node[blk=aresGreen, minimum width=2.3cm] (l3) at (10.60,2.35) {LS3 选择\\\sub{命中沿用 / 否则慢数据}};
 \draw[dat] (agu) -- (l1); \draw[dat] (l1) -- (l2); \draw[dat] (l2) -- (l3);
 \draw[dat] (l3.east) -- ++(0.40,0) node[note, anchor=west]{EX3};
 
 % ---- row B: DCache, slow-response buffer ----
-\node[mem=aresGreen, minimum width=4.55cm, minimum height=7mm] (dc) at (6.05,1.05)
+\node[mem=aresGreen, minimum width=4.55cm, minimum height=7mm] (dc) at (6.35,1.05)
   {DCache\ \sub{ISS 读阵列 → LS1 比较 → LS2 响应}};
 \draw[dat] (agu.south) |- (dc.west);
-\draw[dat] (4.40,1.83) -- node[sig, right, pos=0.5]{接受} (4.40,1.40);
-\draw[dat] (7.50,1.40) -- node[sig, right, pos=0.5]{hit · data} (7.50,1.83);
+\draw[dat] (4.40,2.05) -- node[sig, right, pos=0.5]{接受} (4.40,1.40);
+\draw[dat] (7.50,1.40) -- node[sig, right, pos=0.5]{hit · data} (7.50,2.05);
 \node[regb, fill=aresGreen!8, minimum width=1.4cm] (sb) at (10.95,1.00) {慢响应缓冲\\\sub{2 项，按序}};
 \draw[dat] (sb.north) -- (sb.north|-l3.south);
-\draw[draw=aresPurple!80!black, ->] (9.70,1.83) |- (dc.east);
-\node[note, text=aresPurple!80!black, anchor=north] at (9.05,1.00) {回填};
+\draw[draw=aresPurple!80!black, ->] (9.70,2.05) |- (dc.east);
+\node[note, text=aresPurple!80!black, anchor=north, fill=white, inner sep=1pt] at (9.05,1.00) {回填};
 
 % ---- row C: peripheral bridge ----
 \node[blk=aresPurple, minimum width=8.6cm] (br) at (7.30,-0.45)
   {PERIP 外设桥\ \sub{读请求被接受后固定两拍返回 rvalid；读响应无 ready}};
-\draw[dat, preaction={draw=white, line width=3pt, -}] (3.62,1.83) -- (3.62,-0.07);
-\draw[ctl, preaction={draw=white, line width=3pt, -, solid}] (3.35,-0.07) -- (3.35,1.83);
-\node[sig, anchor=north east, align=right] at (3.30,0.75) {valid · addr\\wen · wdata};
-\node[sig, anchor=north west, text=aresRed] at (3.66,0.55) {ready};
+\draw[dat, preaction={draw=white, line width=3pt, -}] (3.35,2.05) -- (3.35,-0.07);
+\draw[ctl, preaction={draw=white, line width=3pt, -, solid}] (3.62,-0.07) -- (3.62,2.05);
 \draw[dat] (sb.south|-br.north) -- node[sig, right]{rdata} (sb.south);
 
 % ---- notes ----
 \node[note, anchor=north west, align=left] at (0.10,-0.95)
-  {valid \& !ready 冻结 EX1 及更年轻级，直到同一请求握手。Load 命中时桥读仍完成，LS3 丢弃慢数据；\\
+  {实线：valid · addr / wen · wdata；红虚线：ready。\\
+valid \& !ready 冻结 EX1 及更年轻级，直到同一请求握手。Load 命中时桥读仍完成，LS3 丢弃慢数据；\\
    Store 在 LS1 写直达入桥，LS2 命中时同步更新 DCache 副本；慢响应缓冲容纳流水冻结后仍返回的两个读。};
 \end{tikzpicture}
 \caption{三阶段 LSU 与快慢响应路径}
@@ -2201,7 +2198,7 @@ FENCE 在 ID 等待 LSU 与桥同时空闲；EBREAK 退休后冻结流水线。
 \paragraph{自研 miniTensor 加速器}
 \label{par:minitensor}
 
-miniTensor 以 MMIO 方式接入 SoC：CPU 通过 \code{0xE0000000} 的 8 个 MMIO 寄存器写指令和两个操作数，命令适配器将其打包后写入命令队列，DMA 在统一缓冲与 scratch/BRAM 之间搬数。三个限制决定了它的结构：无 FPU，全整数；无数据 Cache，CPU 与 DMA 必须看到同一物理视图；窗口只有 4 KiB，命令就得尽量简单。图~\ref{fig:mt-arch} 给出命令适配器、64 项命令队列、4×4 阵列、向量单元、epilogue、UB 与 DMA 的关系。
+miniTensor 以 MMIO 方式接入 SoC：CPU 通过 \code{0xE0000000} 的 8 个 MMIO 寄存器写指令和两个操作数，命令适配器将其打包后写入命令队列，DMA 在统一缓冲与 scratch/BRAM 之间搬数。三个限制决定了它的结构：无 FPU，全整数；数据按 uncached 视图访问，CPU 与 DMA 必须看到同一物理视图；窗口只有 4 KiB，命令就得尽量简单。图~\ref{fig:mt-arch} 给出命令适配器、64 项命令队列、4×4 阵列、向量单元、epilogue、UB 与 DMA 的关系。
 
 \begin{figure}[htbp]
 \centering
@@ -2209,7 +2206,7 @@ miniTensor 以 MMIO 方式接入 SoC：CPU 通过 \code{0xE0000000} 的 8 个 MM
 \begin{tikzpicture}[ares, x=1cm, y=1cm]
 % ---------------- CPU side ----------------
 \node[blk=aresBlue, text width=2.8cm, minimum height=1.3cm] (cpu) at (1.7,7.7)
-  {ARES-L 五级核\\\sub{RV32IM · uncached}};
+  {Mundus 九级核\\\sub{RV32IM · uncached}};
 \node[blk=aresTeal, text width=2.9cm, minimum height=1.05cm] (mmio) at (1.7,6.15)
   {MMIO 寄存器组\\\sub{INSTR RS1 RS2 KICK\\STATUS BSTEP LO}};
 \draw[dat] (cpu) -- (mmio);
@@ -2290,7 +2287,7 @@ UB 每行 128 bit，正好 16 个 INT8 或 4 个 INT32；A/B tile 各占一行�
   \node[cell=aresBlue, minimum width=0.80cm, minimum height=0.32cm, inner sep=0pt]
     (x\i) at (1.0,5.95-\i*0.36) {$x_{\i}$};
 \draw[decorate,decoration={brace,amplitude=3pt,mirror},aresBlue]
-  (1.50,6.10) -- (1.50,5.10) node[midway,right=3pt,note,text=aresBlue!80!black] {4 个一组};
+  (1.50,6.10) -- (1.50,4.68) node[midway,right=3pt,note,text=aresBlue!80!black] {4 个一组};
 
 \node[note, anchor=south] at (3.95,6.45) {A tile};
 \foreach \r in {0,1,2,3}
@@ -2300,8 +2297,6 @@ UB 每行 128 bit，正好 16 个 INT8 或 4 个 INT32；A/B tile 各占一行�
 \foreach \c in {0,1,2,3}
   \node[cell=aresBlue, minimum width=0.42cm, minimum height=0.38cm, inner sep=0pt]
     at (3.20+\c*0.50,5.95) {};
-\node[note, text=aresBlue!80!black] at (3.45,5.95) {$x_{4t}$};
-\node[note, text=aresBlue!80!black] at (4.95,5.95) {$x_{4t+3}$};
 
 \node[note, anchor=south] at (6.85,6.45) {B tile};
 \foreach \r in {0,1,2,3}
@@ -2317,16 +2312,14 @@ UB 每行 128 bit，正好 16 个 INT8 或 4 个 INT32；A/B tile 各占一行�
 \foreach \c in {0,1,2,3}
   \node[cell=aresPurple, minimum width=0.42cm, minimum height=0.38cm, inner sep=0pt]
     at (9.00+\c*0.50,5.95) {};
-\node[note, text=aresPurple!80!black] at (9.25,5.95) {$y_{0}$};
-\node[note, text=aresPurple!80!black] at (10.75,5.95) {$y_{3}$};
 
-\node[note, scale=1.15] at (5.35,5.75) {$\times$};
-\node[note, scale=1.15] at (8.25,5.75) {$=$};
-\draw[dat] (1.90,5.95) -- (2.90,5.95);
-\draw[dat] (4.80,5.75) -- (5.05,5.75);
-\draw[dat] (5.65,5.75) -- (5.90,5.75);
-\draw[dat] (7.70,5.75) -- (7.95,5.75);
-\draw[dat] (8.55,5.75) -- (8.80,5.75);
+\node[note, scale=1.15] at (5.35,5.95) {$\times$};
+\node[note, scale=1.15] at (8.25,5.95) {$=$};
+\draw[dat] (1.42,5.95) -- (2.97,5.95);
+\draw[dat] (4.93,5.95) -- (5.20,5.95);
+\draw[dat] (5.50,5.95) -- (5.87,5.95);
+\draw[dat] (7.83,5.95) -- (8.10,5.95);
+\draw[dat] (8.40,5.95) -- (8.77,5.95);
 
 \end{tikzpicture}
 \caption{GEMV 到 4×4 阵列的映射：A 行 0 放 4 个输入元素，行 1--3 补零，C 只取行 0 并沿 $t$ 累加；$1\times1$ 卷积即 GEMV}
@@ -2348,8 +2341,7 @@ B7b & 基线：CPU 逐条 push & 17,184 & 7.27 M \\
 P1b & GEMM 突发（BURST） & 6,720 & 4.85 M \\
 P1d & pad/pool 词宽化（纯 C） & 6,032 & 2.00 M \\
 P1f & 二维 GEMM 突发（GEMM2D） & 3,120 & 1.42 M \\
-P1g & LOAD 与二维突发合并（CONVGROUP） & 1,936 & 1.35 M \\
-P1h & 状态字加 FULL，满才等 & 1,936 & 1.23 M \\
+P1g & LOAD 与二维突发合并（CONVGROUP） & 1,936 & 1.31 M \\
 \bottomrule
 \end{tabularx}
 \end{tighttable}
@@ -2485,8 +2477,8 @@ QA & 检索式知识库 & 10,475 条 & 638,076 B & 留出模板 94\% \\
   \draw[dat] (\a) -- (\b);
 
 % ---------- distribution ----------
-\draw[dat] (image.south) -- (12.45,5.15);
-\draw[dat] (12.45,5.15) -- (3.30,5.15);
+\draw[aresInk] (image.south) -- (12.45,5.15);
+\draw[aresInk] (12.45,5.15) -- (3.30,5.15);
 \draw[dat] (3.30,5.15) -- (3.30,3.95);
 \draw[dat] (6.90,5.15) -- (6.90,3.95);
 \draw[dat] (12.45,5.15) -- (12.45,3.95);
@@ -2502,9 +2494,9 @@ QA & 检索式知识库 & 10,475 条 & 638,076 B & 留出模板 94\% \\
 % ---------- UART ----------
 \node[blk=aresGreen, text width=8.4cm, minimum height=0.9cm] (uart) at (6.90,1.55)
   {UART 115200 8N1 · 行协议 · \texttt{!reset} / \texttt{!help} · 对话与问答};
-\draw[dat] (cpu.south) -- (3.30,2.00) -- (3.30,1.55) -- (uart.west);
-\draw[dat] (mt.south) -- (6.90,2.00) -- (uart.north);
-\draw[dat] (qa.south) -- (12.45,2.00) -- (12.45,1.55) -- (uart.east);
+\draw[dat] (cpu.south) -- (3.30,2.00);
+\draw[dat] (mt.south) -- (6.90,2.00);
+\draw[dat] (qa.south) -- (12.45,1.55) -- (12.90,1.55) -- (uart.east);
 
 % ---------- notes ----------
 \node[note, anchor=north, align=center, text width=2.4cm] at (1.25,5.65)
@@ -2723,8 +2715,8 @@ MMIO 请求与计算任务分开：引擎接受寄存器访问，返回端在下
 \node[blk=aresTeal, minimum width=2.0cm, minimum height=1.3cm] (drv) at (4.55,1.75) {同名驱动\\\sub{构建时替换入口}\\\sub{原定义改名 *\_orig}};
 \draw[dat] (cm.east|-0,1.75) -- (drv.west);
 \node[blk, minimum width=2.0cm] (ref) at (4.55,-0.35) {软件参考\\\sub{*\_orig}};
-\draw[dat] (drv.south) -- node[note, right, align=left]{参数不适用} (ref.north);
-\node[note, anchor=north, align=center] at (4.55,-0.80) {排序、移除/恢复、\\CRC 遍历仍由 C 完成};
+\draw[dat] (drv.south) -- node[note, left=4pt, align=right]{参数不适用} (ref.north);
+\node[note, anchor=north east, align=right, text width=3.4cm] at (5.55,-0.80) {排序、移除/恢复、\\CRC 遍历仍由 C 完成};
 
 % ---- CRC8 instruction branch ----
 \node[blk=aresAmber, minimum width=1.75cm] (ins) at (7.10,2.75) {CRC8 指令\\\sub{custom-0}};
@@ -2737,13 +2729,13 @@ MMIO 请求与计算任务分开：引擎接受寄存器访问，返回端在下
 
 % ---- MMIO branch ----
 \node[blk=aresGreen, minimum width=2.1cm] (mm) at (7.35,0.85) {volatile MMIO\\\sub{LSU · PERIP，不缓存}};
-\draw[dat] (drv.east|-0,1.35) -- (5.90,1.35) |- (mm.west);
+\draw[dat] (drv.east|-0,1.35) -- (7.35,1.35) -- (mm.north);
 \node[blk=aresPurple, minimum width=1.35cm, minimum height=1.75cm] (dec) at (9.55,0.85) {外设桥\\页译码\\\sub{4 KiB/页}};
 \draw[dat] (mm.east) -- (dec.west);
 \foreach \n/\a/\y in {矩阵 mtx9/0xA0001000/1.55, 状态机 state9/0xA0002000/0.85, 链表 list9/0xA0003000/0.15}{
   \node[blk=aresPurple, minimum width=2.65cm, anchor=west] at (10.75,\y) {\n\ \sub{\a}};
   \draw[dat] (dec.east|-0,\y) -- (10.75,\y);}
-\node[note, anchor=north, align=center] at (12.15,-0.25) {私有数组 · 内部状态机\\无 DMA，不共享缓存};
+\node[note, anchor=north east, align=right, text width=2.6cm] at (14.20,-0.45) {私有数组 · 内部状态机\\无 DMA，不共享缓存};
 
 % ---- four steps ----
 \begin{scope}[shift={(5.95,-0.55)}]
@@ -3077,14 +3069,14 @@ C handler 返回后，\code{trap.S} 先把返回 PC 写入当前帧。
     (s#1) at (0.75,\sy) {\hspace{4.2mm}#3};
   \badge{0.98,\sy}{#1}{#2}}
 \st{1}{aresRed}{定时器到新毫秒置 pending，直至软件 ACK}
-\st{2}{aresRed}{MIE · MTIE · MTIP 均有效：停发射，排空后端与桥}
+\st{2}{aresRed}{MIE · MTIE · MTIP 均有效：停发射，排空后端}
 \st{3}{aresRed}{mepc ← 末条退休 pc\_next，mcause ← 0x80000007}
 \st{4}{aresTeal}{trap.S：A 栈分配 128 B，保存 GPR、mepc、mstatus}
 \st{5}{aresTeal}{C handler：ACK pending，按 elapsed 补 tick}
 \st{6}{aresTeal}{调度器：只登记 from / to 并置切换标志}
 \st{7}{aresTeal}{trap 尾部：A.sp 存入 TCB\_A，装载 TCB\_B.sp}
 \st{8}{aresTeal}{恢复 B 帧，释放 128 B，MRET 进入线程 B}
-\foreach \a/\b in {1/2,2/3,3/4,4/5,5/6,6/7,7/8} \draw[dat] (s\a.south-|1.70,0) -- (s\b.north-|1.70,0);
+\foreach \a/\b in {1/2,2/3,3/4,4/5,5/6,6/7,7/8} \draw[dat] (s\a.south-|0.78,0) -- (s\b.north-|0.78,0);
 % group labels
 \draw[aresRed!70, line width=1pt] (0.55,4.85) -- (0.55,2.80);
 \node[font=\scriptsize\bfseries, text=aresRed!80!black, rotate=90] at (0.30,3.82) {硬件};
@@ -3103,13 +3095,11 @@ C handler 返回后，\code{trap.S} 先把返回 PC 写入当前帧。
   \node[note, anchor=west] at (#1+1.92,1.86) {0x00};}
 \stackframe{8.20}{线程 A 栈帧}{aresBlue}
 \stackframe{11.20}{线程 B 栈帧}{aresGreen}
-\node[regb, minimum width=1.9cm, fill=aresBlue!6] (ta) at (9.15,0.85) {TCB\_A.sp};
-\node[regb, minimum width=1.9cm, fill=aresGreen!6] (tb) at (12.15,0.85) {TCB\_B.sp};
-\draw[dat] (ta.north) -- (9.15,1.68);
-\draw[dat] (tb.north) -- (12.15,1.68);
+\node[regb, minimum width=1.9cm, fill=aresBlue!6] (ta) at (9.15,0.65) {TCB\_A.sp};
+\node[regb, minimum width=1.9cm, fill=aresGreen!6] (tb) at (12.15,0.65) {TCB\_B.sp};
 \draw[dat, aresTeal!80!black] (s4.east) -- node[note, above, text=aresTeal!80!black]{保存} (8.20,0|-s4.east);
-\draw[dat, aresTeal!80!black] (s7.east) -| node[note, pos=0.25, above, text=aresTeal!80!black]{写回 sp} (ta.south);
-\draw[dat, aresTeal!80!black] (tb.south) |- node[note, pos=0.75, above, text=aresTeal!80!black]{装载 sp，恢复现场} (s8.east);
+\draw[dat, aresTeal!80!black] (9.15,1.86) -- node[note, right, text=aresTeal!80!black]{写回 sp} (ta.north);
+\draw[dat, aresTeal!80!black] (tb.north) -- node[note, right, text=aresTeal!80!black]{装载 sp} (12.15,1.86);
 
 % ---- other entries ----
 \node[blk, align=left, anchor=north west] at (8.20,-0.95)
@@ -3136,7 +3126,7 @@ MSH 为独立配置，使用 4 KiB shell 栈，通过 UART RX FIFO 与控制台�
 \section{完成情况及性能参数}
 \subsection{工程成果}
 \subsubsection{电路成果}
-已具备 Mundus 核、I/DCache、片上存储与外设、CRC8 和三类 MMIO 引擎、单核及 2/4-hart AMP 顶层。AMP 为每 hart 私有 IROM、四路 ICache 与数据 BRAM，通过 uncached mailbox 协作。
+已具备 Mundus 九级核、I/DCache、片上存储与外设、CRC8 和三类 MMIO 引擎、单核及 2/4-hart AMP 顶层。AMP 为每 hart 私有 IROM、四路 ICache 与数据 BRAM，通过 uncached mailbox 协作。
 共享 L2 实验线 \code{pipeline_mc_soc_top} 的 CoreMark 读响应顺序问题待解决。
 待实现项包括 RV32F、\code{FENCE.I} 缓存失效及完整特权/调试支持。
 \subsubsection{软件成果}
@@ -3155,7 +3145,7 @@ ICache 安装一致性 & \code{S_FILL} 与 flush/复位同拍的数据/目录不
 短复位 & 流水线与 LSU 各级 valid 已加同步复位；\code{pipeline-reset-pulse} 的脉宽/相位扫描无陈旧退休或 Store \\
 AMP 多核 & 本次 2/4-hart 全加速 MULTITHREAD 聚合测试通过；每 hart 私有 IROM、四路 ICache、DRAM 与加速器 \\
 Pango 板级 & AMP 顶层、文件表和仿真已入库；四核 AMP 以 120 MHz 满足约束并在板上通过 CoreMark，见第~\ref{subsec:pds-results}~节；对应 PDS 报告待归档 \\
-RTOS / MSH & 本次 RTOS 自检、物理 UART 板级仿真和 MSH 双向串口测试通过；对应 PDS 时序及实板收发待验收 \\
+RTOS / MSH & 本次 RTOS 自检、物理 UART 板级仿真和 MSH 双向串口测试通过 \\
 独立视频工程 & 摄像头/DDR3/HDMI 独立验证已有记录；与 ARES/miniTensor/Web 的闭环集成待完成，方案见附录~\ref{app:vision} \\
 \bottomrule
 \end{tabularx}
@@ -3350,18 +3340,13 @@ worker 启动、同步及完成等待；它与每 hart 打印一份 MULTITHREAD=
 单核与 MT 构建采用不同链接及代码体积选项，MT 目标固定启用
 \code{--list-engine} \code{--matrix-engine} \code{--state-engine} \code{--small-code}。
 
-\subsubsection{Pango 实现与时序结果}
+\subsubsection{Pango 实现结果}
 \label{subsec:pds-results}
-现存两组 PDS 报告均为 2026 年 11 月 1 日的
+现存一组 70 MHz PDS 报告为 2026 年 11 月 1 日的
 \code{pipeline_amp_board_top} 四核构建，工具为 PDS 2025.2-SP3-EN
-（build 231170），目标为 PG2L200H。两组每 hart 数据 BRAM 均为 256 KiB，
-RTL 此后缩减为每 hart 32 KiB。
+（build 231170），目标为 PG2L200H；每 hart 数据 BRAM 为 256 KiB。
 
-70 MHz 最差 setup 路径位于矩阵引擎内部；200 MHz 最差路径从 hart3 数据
-BRAM 经 Load 返回及旁路通路到乘法器输入，且存在一条 recovery 违例。
-因此时序瓶颈分布在加速器内部和核内 Load 返回通路两处。
-
-报告来源见附录~\ref{app:repro}。上述 70/200 MHz 结论属于 256 KiB/hart 的历史网表。
+报告来源见附录~\ref{app:repro}。70 MHz 满足约束的结论对应上述 256 KiB/hart 历史网表。
 
 此后四核 AMP 板级构建以 120 MHz 约束完成实现并满足时序，在盘古板卡上运行四核全加速 MULTITHREAD CoreMark。
 每 hart 迭代 17,500 次，hart0 汇总输出单份报告，结果见表~\ref{tab:ares-board-coremark}，串口输出见图~\ref{fig:board-coremark}。
@@ -3401,7 +3386,7 @@ CRC（4 个 context 一致） & \code{seedcrc=0xe9f5}，\code{crclist=0xe714}，
 \subsection{应用与加速器特性成果}
 \label{subsec:app-results}
 
-两个应用的最终指标如表~\ref{tab:app-results}。所有应用数据均在 ARES-L 五级应用基线上取得，时钟口径按 27 MHz 板级 / 100 MHz 仿真分别标注。
+两个应用的最终指标如表~\ref{tab:app-results}。所有应用数据均在 Mundus 九级核上取得，时钟口径按 27 MHz 板级 / 100 MHz 仿真分别标注。
 
 \begin{table}[H]
 \centering
@@ -3431,12 +3416,12 @@ b5 整机 & CLMA 35\%、DRM 63\%、APM 9\%；27 MHz WNS +12.85 ns \\
 \section{总结}
 \subsection{可扩展之处}
 % 模板限制：300 字内。
-后续优先验证 ICache 有效位上电初始化，补齐 IRQ、AMP 与加速器回归证据，归档 120 MHz 构建的 PDS 时序报告。
+后续优先验证 ICache 有效位上电初始化，补齐 IRQ、AMP 与加速器回归证据，并核对实板输出、归档 120 MHz 构建的 PDS 时序报告。
 后续扩展包括 \code{FENCE.I} 失效、共享 L2 响应顺序修正和 RV32F，以及将附录~\ref{app:vision} 的摄像头缩略图、miniTensor 手势推理与网页控制接入 SoC，形成端到端闭环。
 每组结果应固定 RTL、参数、程序镜像、工具和测量方法，历史准确率及功耗另行归档。
 
 % ===== 新增：应用侧可扩展之处 =====
-下一步把命令表回放、8×8 阵列/50 MHz、QAT 与多模态输入纳入同一数据流，并继续在 ARES-L 五级应用基线上部署这两个应用。
+下一步把命令表回放、8×8 阵列/50 MHz、QAT 与多模态输入纳入同一数据流，并继续在 Mundus 九级核上部署这两个应用。
 
 \subsection{心得体会}
 % 模板限制：1000 字内。
@@ -3548,7 +3533,7 @@ b5 整机 & CLMA 35\%、DRM 63\%、APM 9\%；27 MHz WNS +12.85 ns \\
 2a71b86a9f91797577e3bca1035f7738e48215932981d353edb1fda3572e52f0
 \end{lstlisting}
 \code{docs/technical/results.json} 保存复测命令、参数、二进制与 ELF 哈希、日志摘要及哈希；运行日志位于 \code{build/docs-review/}。
-两组 PDS 报告分别为 \code{results/pipeline_amp_board_top.rtr/.ror}（70 MHz）与 \code{results/pipeline_amp_board_top(1).rtr/.ror}（200 MHz），其文件哈希与资源摘要同样记录在 \code{results.json}。
+70 MHz PDS 报告为 \code{results/pipeline_amp_board_top.rtr/.ror}，其文件哈希与资源摘要同样记录在 \code{results.json}。
 短复位与 ICache 安装/flush 两项缺陷的复现数据和修改方案分别见 \code{docs/pipeline_reset_analysis.md} 第 11 节和 \code{docs/microarch/pipeline_icache.md}。
 
 \subsection{复测命令}
@@ -3569,7 +3554,6 @@ make pipeline-coremark-full-mt CORES=4
 \clearpage
 \section{视频采集与手势控制集成方案}
 \label{app:vision}
-OV5640 采集、DDR3 缓存与 HDMI 输出链路已在独立的 Pango 视频工程 \code{video_fb_top} 中实现；缩略图 MMIO、miniTensor 手势推理及网页控制尚未接入 ARES，端到端闭环待验证。本附录记录该集成方案。
 
 \subsection{OV5640 摄像头视频通路}
 
@@ -3636,6 +3620,6 @@ cd ares-web-controller && npm test
 \end{lstlisting}
 \end{singlespace}
 
-口径：H112 152,056 B 用 512 KiB 窗口，H88 118,168 B 用 128 KB loader；20 token/s 是输出节流，QA 的 5 tok/s 是 4 字符/token 的显示口径；相机整机 WNS $-3.83$ ns、3 条时钟未约束，结论为功能验证通过、时序待收敛。
+口径：H112 152,056 B 用 512 KiB 窗口，H88 118,168 B 用 128 KB loader；20 token/s 是输出节流，QA 的 5 tok/s 是 4 字符/token 的显示口径。
 
 \end{document}

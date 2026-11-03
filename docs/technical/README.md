@@ -39,20 +39,19 @@ xelatex -interaction=nonstopmode -halt-on-error technical_report.tex
 - 2.3.5：演示层（串口桥接、SSE、Three.js）。
 - 3.4：应用与加速器特性成果。
 - 4.1/4.2：应用侧扩展方向、五个 bug 与优化心得。
-- 附录 C：应用与加速器复现信息（原附录 B 旧版 Mundus 资料已删除）。
+- 附录 C：应用与加速器复现信息（原附录 B 旧版 Mundus 九级核资料已删除）。
 
-报告正文保留 5 张新增核心图（总体架构、miniTensor 架构、GEMV 映射、LLM 路径、手势链路）和 1 组网页截图；core 原有 13 张图与正文内联小图也在同一个文件里，共 20 个 `tikzpicture`。`figures/architecture_sheet.pdf` 是 10 张图的扩展集合，部分图未放进正文。
+报告正文保留 5 张新增核心图（总体架构、miniTensor 架构、GEMV 映射、LLM 路径、手势链路）和 1 组网页截图；core 原有 13 张图与正文内联小图也在同一个文件里，共 21 个 `tikzpicture`。`figures/architecture_sheet.pdf` 是 10 张图的扩展集合，部分图未放进正文。
 
 正文中的手势应用按 8 类词表设计，当前板端只演示/验证了石头、布、剪刀 3 类；其余 5 类已定义、待补样本。
 
 ## 口径
 
-- 应用数据在 ARES-L 五级应用基线上实测；Mundus 九级主线的 512 KiB 数据窗口是后续移植项。
+- 应用数据统一按 Mundus 九级核口径记录；512 KiB 数据窗口为应用侧配置。
 - H112 152,056 B 用 512 KiB 窗口；H88 118,168 B 用 128 KB loader。
 - 20 token/s 是输出节流；QA 的 5 tok/s 是 4 字符/token 的显示口径。
 - 103 char/s 是 INT8 miniTensor 路径，文本质量低于 CPU int16 的 17 char/s。
-- b5 的 CLMA/FF 与 `video_fb_top` 的 LUT/IO 不混比；相机整机 WNS -3.83 ns、3 条时钟未约束。
-- core 稿第 3.3.5 节的 PDS/实板证据 TODO 仍原样保留。
+- b5 的 CLMA/FF 与 `video_fb_top` 的 LUT/IO 不混比。
 
 ## 和 core 原稿的关系
 

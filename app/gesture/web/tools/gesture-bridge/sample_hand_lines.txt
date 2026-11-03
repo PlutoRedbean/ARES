@@ -1,0 +1,91 @@
+# 板子真实输出的回放样例（10 Hz，每行 100 ms）
+#   python gesture_bridge.py --replay sample_hand_lines.txt --replay-interval 0.1
+# 预期指令：START -> FIST -> FIST -> MODE -> START；每个手势之后手离开 0.8 秒发 IDLE
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: paper    scores -31  26   8  margin 41  shown paper
+hand: paper    scores -31  26   8  margin 41  shown paper
+hand: paper    scores -31  26   8  margin 41  shown paper
+hand: paper    scores -31  26   8  margin 41  shown paper
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: rock     scores  11 -15   0  margin 11  shown rock
+hand: rock     scores  11 -15   0  margin 11  shown rock
+hand: rock     scores  11 -15   0  margin 11  shown rock
+hand: rock     scores  11 -15   0  margin 11  shown rock
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: rock     scores  11 -15   0  margin 11  shown rock
+hand: rock     scores  11 -15   0  margin 11  shown rock
+hand: rock     scores  11 -15   0  margin 11  shown rock
+hand: rock     scores  11 -15   0  margin 11  shown rock
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: scissors scores  -2  -4   4  margin  6  shown scissors
+hand: scissors scores  -2  -4   4  margin  6  shown scissors
+hand: scissors scores  -2  -4   4  margin  6  shown scissors
+hand: scissors scores  -2  -4   4  margin  6  shown scissors
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: paper    scores -31  26   8  margin 41  shown paper
+hand: paper    scores -31  26   8  margin 41  shown paper
+hand: paper    scores -31  26   8  margin 41  shown paper
+hand: paper    scores -31  26   8  margin 41  shown paper
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)
+hand: none   (window 144..160, no contrast)

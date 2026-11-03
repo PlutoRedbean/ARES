@@ -1,0 +1,120 @@
+`timescale 1ns/1ps
+module tb_soc;
+  logic clk = 0, rst = 1;
+  always #5 clk = ~clk; // 100 MHz model
+
+  logic uart_tx, uart_rx = 1'b1;
+  logic [31:0] gpio_in = 32'd0, gpio_out, gpio_dir;
+  logic mt_irq, dbg_halt, dbg_commit;
+  logic [10:0] cam_addr;
+  logic [10:0] cam2_addr;
+  logic        cam_bank;
+  logic [15:0] cam_data = 16'd0;
+  logic [31:0] cam_frame = 32'd0;
+  logic [31:0] cam_wrcnt = 32'd0;
+  logic [23:0] cam_dbg = 24'd0;
+  // ---------------------------------------------------------- stereo windows
+  // Two frame memories with the same registered read as stereo_store, filled
+  // with a textured pair whose right eye is the left one shifted by 9 pixels.
+  // This is what lets the simulation catch address/decode mistakes instead of
+  // burning a 12 minute bitstream on them.
+  logic [17:0] st_l_a, st_r_a;
+  logic [7:0]  st_l_d, st_r_d;
+  logic [7:0]  st_l_mem[0:76799];
+  logic [7:0]  st_r_mem[0:76799];
+
+  function automatic [7:0] tex(input integer xx, input integer yy);
+    integer v;
+    begin
+      v = (xx * 13 + yy * 7 + ((xx * xx) >> 3) + ((yy * yy) >> 2)) & 255;
+      tex = v[7:0];
+    end
+  endfunction
+
+  integer sxx, syy;
+  initial begin
+    for (syy = 0; syy < 240; syy = syy + 1)
+      for (sxx = 0; sxx < 320; sxx = sxx + 1) begin
+        st_l_mem[syy * 320 + sxx] = tex(sxx, syy);
+        // a point at left x appears at right x-9, so right(u) = left(u+9)
+        st_r_mem[syy * 320 + sxx] = tex(sxx + 9, syy);
+      end
+  end
+
+  always @(posedge clk) begin
+    st_l_d <= st_l_mem[st_l_a[16:0]];
+    st_r_d <= st_r_mem[st_r_a[16:0]];
+
+  end
+
+  logic [191:0] osd_boxes;
+  logic         osd_tog;
+  logic [39:0]  osd_text;
+  logic [31:0] dbg_pc, dbg_pc_f;
+  logic dbg_ifid_valid, dbg_idex_valid, dbg_exmem_valid, dbg_memwb_valid, dbg_if_pending;
+
+  ares_soc #(
+    .DDR_FILE("")
+  ) u_soc (
+    .clk, .rst,
+    .uart_rx, .uart_tx,
+    .gpio_in, .gpio_out, .gpio_dir,
+    .cam_addr, .cam_bank, .cam_data, .cam_frame, .cam_wrcnt, .cam_dbg,
+    .cam2_addr, .cam2_data(16'd0), .cam2_frame(32'd0),
+    .st_l_addr(st_l_a), .st_l_data(st_l_d),
+    .st_r_addr(st_r_a), .st_r_data(st_r_d),
+    .osd_boxes, .osd_tog, .osd_text,
+    .mt_irq, .dbg_halt, .dbg_pc, .dbg_commit,
+    .dbg_pc_f, .dbg_ifid_valid, .dbg_idex_valid, .dbg_exmem_valid,
+    .dbg_memwb_valid, .dbg_if_pending
+  );
+
+  // UART receiver: 8N1, divisor 8 -> 80 ns per bit at 100 MHz.
+  int uart_chars = 0;
+  int uart_fd;
+  initial uart_fd = $fopen("build/uart.log", "w");
+  initial begin
+    @(negedge rst); // discard the reset-time line state
+    forever begin
+      @(negedge uart_tx);
+      #120; // 1.5 bit times
+      begin
+        logic [7:0] ch;
+        for (int i = 0; i < 8; i++) begin
+          ch[i] = uart_tx;
+          #80;
+        end
+        uart_chars++;
+        $write("%c", ch);
+        $fwrite(uart_fd, "%c", ch);
+        $fflush(uart_fd);
+      end
+    end
+  end
+
+  initial begin
+    repeat (20) @(negedge clk);
+    rst = 0;
+    $display("\n[TB] ARES SoC reset released");
+  end
+
+
+
+  initial begin
+    #2_000_000_000; // 2 s simulated
+    $display("\n[TB] TIMEOUT: pc=%08x pf=%08x ifid=%b idex=%b exmem=%b memwb=%b halt=%b",
+             dbg_pc, dbg_pc_f, dbg_ifid_valid, dbg_idex_valid,
+             dbg_exmem_valid, dbg_memwb_valid, dbg_halt);
+    $fclose(uart_fd);
+    $finish;
+  end
+
+  always @(posedge clk) begin
+    if (dbg_halt) begin
+      repeat (10) @(posedge clk);
+      $display("\n[TB] core halted, pc=%08x", dbg_pc);
+      $fclose(uart_fd);
+      $finish;
+    end
+  end
+endmodule
