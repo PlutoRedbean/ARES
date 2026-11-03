@@ -1,0 +1,55 @@
+% Mundus nine-stage pipeline: per-stage work, LSU lane and long-latency lane.
+\begin{tikzpicture}[ares]
+\def\cw{1.60}\def\bw{1.42}
+\def\top{0}
+% stage headers
+\foreach \n/\c/\s [count=\i from 0] in
+  {IF1/aresBlue/取指请求, IF2/aresBlue/取指响应, ID/aresTeal/译码, ISS/aresTeal/发射,
+   EX1/aresAmber/执行 1, EX2/aresAmber/执行 2, EX3/aresAmber/执行 3, EX4/aresAmber/执行 4, WB/aresGreen/写回}{
+  \node[stagehead=\c, minimum width=\bw cm] (h\i) at (\i*\cw,0) {\n};
+  \node[note] at (\i*\cw,-0.42) {\s};
+}
+% pipeline registers
+\foreach \i in {0,...,7}
+  \node[pbar, minimum height=3.05cm, anchor=north] at (\i*\cw+\cw/2,0.22) {};
+% per-stage cells: \stagecells{index}{color}{list}
+\newcommand{\stagecells}[3]{%
+  \foreach \t [count=\k from 0] in {#3}
+    \node[cell=#2, minimum width=\bw cm] at (#1*\cw,-0.90-\k*0.52) {\t};}
+\stagecells{0}{aresBlue}{PC 选择, BPU 查询, IROM 请求}
+\stagecells{1}{aresBlue}{元数据配对, 前端队列}
+\stagecells{2}{aresTeal}{译码, 立即数, GPR 读地址}
+\stagecells{3}{aresTeal}{GPR 数据, 一级旁路, 互锁判定, AGU}
+\stagecells{4}{aresAmber}{二级旁路, ALU · BRU, CSR, CRC8 前半}
+\stagecells{5}{aresAmber}{命中数据, CRC8 后半, miss 判定}
+\stagecells{6}{aresAmber}{慢 Load}
+\stagecells{7}{aresAmber}{结果传递}
+\stagecells{8}{aresGreen}{结果选择, GPR 写回, 顺序退休}
+\node[note] at (1*\cw,-2.00) {延迟可变};
+
+% LSU lane
+\def\ly{-3.30}
+\fill[aresGreen!6, rounded corners=2pt] (-0.75,\ly+0.40) rectangle (8*\cw+0.75,\ly-0.40);
+\node[font=\scriptsize\bfseries, text=aresGreen!80!black, anchor=west] at (-0.70,\ly) {LSU / DCache};
+\foreach \i/\t in {3/DCache 读, 4/LS1 请求, 5/LS2 命中, 6/LS3 慢返回}
+  \node[cell=aresGreen, minimum width=\bw cm] (l\i) at (\i*\cw,\ly) {\t};
+\foreach \a/\b in {3/4,4/5,5/6} \draw[dat] (l\a) -- (l\b);
+\node[note, anchor=west] at (6*\cw+\bw/2+0.08,\ly) {回填 DCache};
+
+% long-latency lane
+\def\my{-4.15}
+\fill[aresAmber!6, rounded corners=2pt] (-0.75,\my+0.40) rectangle (8*\cw+0.75,\my-0.40);
+\node[font=\scriptsize\bfseries, text=aresAmber!80!black, anchor=west] at (-0.70,\my) {乘法 / 除法};
+\node[cell=aresAmber, minimum width=6.0cm, anchor=west] (ml) at (4*\cw-\bw/2,\my)
+  {乘法 4 级流水 · 除法 radix-4 迭代，WB 等待结果};
+\draw[dat] (ml.east) -- (8*\cw-\bw/2,\my);
+\node[cell=aresGreen, minimum width=\bw cm] at (8*\cw,\my) {乘除结果};
+
+% redirect path (top)
+\draw[ctl] (4*\cw+0.25,0.22) -- (4*\cw+0.25,0.75) -| (0,0.22);
+\draw[ctl] (5*\cw,0.22) -- (5*\cw,0.75) -- (4*\cw+0.25,0.75);
+\node[note, text=aresRed, anchor=south] at (2*\cw+0.4,0.75)
+  {redirect：分支纠正 / Load replay / 中断进入，清除 IF1–ISS 旧路径};
+% commit marker
+\node[note, text=aresGreen!70!black, anchor=north] at (8*\cw,-2.40) {▲ 提交点};
+\end{tikzpicture}

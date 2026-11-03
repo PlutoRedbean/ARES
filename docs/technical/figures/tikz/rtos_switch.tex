@@ -1,0 +1,50 @@
+% Machine-timer interrupt entry and preemptive context switch in the ARES RT-Thread Nano BSP.
+\begin{tikzpicture}[ares]
+\newcommand{\badge}[3]{\node[circle, fill=#3!80!black, text=white, font=\tiny\bfseries, inner sep=0pt,
+  minimum size=3.4mm] at (#1) {#2};}
+% \st{n}{color}{text}: steps stacked downwards from y=4.60
+\newcommand{\st}[3]{%
+  \pgfmathsetmacro{\sy}{4.60-(#1-1)*0.78}
+  \node[blk=#2, minimum height=5.2mm, anchor=west, text width=6.45cm, align=left]
+    (s#1) at (0.75,\sy) {\hspace{4.2mm}#3};
+  \badge{0.98,\sy}{#1}{#2}}
+\st{1}{aresRed}{定时器到新毫秒置 pending，直至软件 ACK}
+\st{2}{aresRed}{MIE · MTIE · MTIP 均有效：停发射，排空后端与桥}
+\st{3}{aresRed}{mepc ← 末条退休 pc\_next，mcause ← 0x80000007}
+\st{4}{aresTeal}{trap.S：A 栈分配 128 B，保存 GPR、mepc、mstatus}
+\st{5}{aresTeal}{C handler：ACK pending，按 elapsed 补 tick}
+\st{6}{aresTeal}{调度器：只登记 from / to 并置切换标志}
+\st{7}{aresTeal}{trap 尾部：A.sp 存入 TCB\_A，装载 TCB\_B.sp}
+\st{8}{aresTeal}{恢复 B 帧，释放 128 B，MRET 进入线程 B}
+\foreach \a/\b in {1/2,2/3,3/4,4/5,5/6,6/7,7/8} \draw[dat] (s\a.south-|1.70,0) -- (s\b.north-|1.70,0);
+% group labels
+\draw[aresRed!70, line width=1pt] (0.55,4.85) -- (0.55,2.80);
+\node[font=\scriptsize\bfseries, text=aresRed!80!black, rotate=90] at (0.30,3.82) {硬件};
+\draw[aresTeal!70, line width=1pt] (0.55,2.40) -- (0.55,-0.97);
+\node[font=\scriptsize\bfseries, text=aresTeal!80!black, rotate=90] at (0.30,0.72) {BSP 软件};
+
+% ---- stack frames (higher address up, sp points at word 0) ----
+\newcommand{\stackframe}[3]{% x, title, color
+  \node[font=\scriptsize\bfseries, text=#3!80!black] at (#1+0.95,4.62) {#2};
+  \node[draw=#3!80!black, fill=#3!10, minimum width=1.9cm, minimum height=1.2cm, inner sep=0pt,
+    font=\scriptsize, align=center] at (#1+0.95,3.72) {x4–x31\\\sub{28 字}};
+  \foreach \t/\k in {gp 槽（预留）/0, mstatus/1, ra（x1）/2, epc/3}
+    \node[draw=#3!80!black, fill=#3!10, minimum width=1.9cm, minimum height=3.6mm, inner sep=0pt, font=\scriptsize]
+      at (#1+0.95,2.94-\k*0.36) {\t};
+  \node[note, anchor=west] at (#1+1.92,4.25) {0x7C};
+  \node[note, anchor=west] at (#1+1.92,1.86) {0x00};}
+\stackframe{8.20}{线程 A 栈帧}{aresBlue}
+\stackframe{11.20}{线程 B 栈帧}{aresGreen}
+\node[regb, minimum width=1.9cm, fill=aresBlue!6] (ta) at (9.15,0.85) {TCB\_A.sp};
+\node[regb, minimum width=1.9cm, fill=aresGreen!6] (tb) at (12.15,0.85) {TCB\_B.sp};
+\draw[dat] (ta.north) -- (9.15,1.68);
+\draw[dat] (tb.north) -- (12.15,1.68);
+\draw[dat, aresTeal!80!black] (s4.east) -- node[note, above, text=aresTeal!80!black]{保存} (8.20,0|-s4.east);
+\draw[dat, aresTeal!80!black] (s7.east) -| node[note, pos=0.25, above, text=aresTeal!80!black]{写回 sp} (ta.south);
+\draw[dat, aresTeal!80!black] (tb.south) |- node[note, pos=0.75, above, text=aresTeal!80!black]{装载 sp，恢复现场} (s8.east);
+
+% ---- other entries ----
+\node[blk, align=left, anchor=north west] at (8.20,-0.95)
+  {\textbf{同一帧布局的其他入口}\\\sub{首次启动：rt\_hw\_context\_switch\_to()}\\
+   \sub{主动阻塞：rt\_hw\_context\_switch()}};
+\end{tikzpicture}

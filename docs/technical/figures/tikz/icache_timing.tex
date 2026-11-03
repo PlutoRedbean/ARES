@@ -1,0 +1,71 @@
+% ICache timing (32 B line, PIPE_HITS=1): (a) back-to-back hits, (b) response back-pressure,
+% (c) miss with word-by-word refill. Cycle-accurate with pipeline_icache.v.
+\begin{tikzpicture}[ares]
+\def\cw{0.72}\def\rh{0.56}
+% \lbl{x}{y}{text}: signal name left of a row
+\newcommand{\lbl}[3]{\node[sig, anchor=east] at (#1-0.08,#2+0.17) {#3};}
+\newcommand{\cyc}[4]{% x y n first
+  \foreach \c in {0,...,#3}{\pgfmathtruncatemacro{\cn}{\c+#4}
+    \node[note] at (#1+\c*\cw+\cw/2,#2) {\cn};}}
+
+% =================== (a) back-to-back hits ===================
+\begin{scope}[shift={(1.55,0)}]
+\node[font=\footnotesize\bfseries, anchor=west] at (-1.55,0.55) {(a) 连续命中};
+\cyc{0}{0.15}{5}{0}
+\aresgrid{6}{6.2}{0}{0}
+\lbl{0}{-0.55}{clk}      \clkwave{0}{-0.55}{6}
+\lbl{0}{-1.11}{req fire} \bitwave{0}{-1.11}{1,1,1,1,0,0}
+\lbl{0}{-1.67}{req\_addr}
+  \busseg{0}{-1.67}{1}{A}{aresBlue}\busseg{\cw}{-1.67}{1}{B}{aresBlue}
+  \busseg{2*\cw}{-1.67}{1}{C}{aresBlue}\busseg{3*\cw}{-1.67}{1}{D}{aresBlue}\busidle{4*\cw}{-1.67}{2}
+\lbl{0}{-2.23}{state}
+  \busseg{0}{-2.23}{1}{IDLE}{aresGray}\busseg{\cw}{-2.23}{4}{LOOK}{aresTeal}\busseg{5*\cw}{-2.23}{1}{IDLE}{aresGray}
+\lbl{0}{-2.79}{rsp\_valid} \bitwave{0}{-2.79}{0,0,1,1,1,1}
+\lbl{0}{-3.35}{rsp\_data}
+  \busidle{0}{-3.35}{2}\busseg{2*\cw}{-3.35}{1}{A}{aresGreen}\busseg{3*\cw}{-3.35}{1}{B}{aresGreen}
+  \busseg{4*\cw}{-3.35}{1}{C}{aresGreen}\busseg{5*\cw}{-3.35}{1}{D}{aresGreen}
+\draw[<->, aresRed] (0.5*\cw,-3.55) -- node[note, text=aresRed, below]{命中延迟 2 拍} (2.5*\cw,-3.55);
+\end{scope}
+
+% =================== (b) back-pressure ===================
+\begin{scope}[shift={(8.75,0)}]
+\node[font=\footnotesize\bfseries, anchor=west] at (-1.55,0.55) {(b) 响应背压};
+\cyc{0}{0.15}{5}{0}
+\aresgrid{6}{6.2}{0}{0}
+\lbl{0}{-0.55}{clk}       \clkwave{0}{-0.55}{6}
+\lbl{0}{-1.11}{req fire}  \bitwave{0}{-1.11}{1,1,0,1,0,0}
+\lbl{0}{-1.67}{rsp\_ready} \bitwave{0}{-1.67}{1,1,0,1,1,1}
+\lbl{0}{-2.23}{state}
+  \busseg{0}{-2.23}{1}{IDLE}{aresGray}\busseg{\cw}{-2.23}{2}{LOOK}{aresTeal}
+  \busseg{3*\cw}{-2.23}{1}{RESP}{aresAmber}\busseg{4*\cw}{-2.23}{1}{LOOK}{aresTeal}\busseg{5*\cw}{-2.23}{1}{IDLE}{aresGray}
+\lbl{0}{-2.79}{rsp\_valid} \bitwave{0}{-2.79}{0,0,1,1,1,1}
+\lbl{0}{-3.35}{rsp\_data}
+  \busidle{0}{-3.35}{2}\busseg{2*\cw}{-3.35}{2}{A（保持）}{aresGreen}
+  \busseg{4*\cw}{-3.35}{1}{B}{aresGreen}\busseg{5*\cw}{-3.35}{1}{C}{aresGreen}
+\node[note, text=aresRed, anchor=north, align=center] at (3*\cw,-3.55) {B 的结果暂存于 S\_RESP，响应槽空出后提交};
+\end{scope}
+
+% =================== (c) miss refill ===================
+\begin{scope}[shift={(1.55,-4.75)}]
+\node[font=\footnotesize\bfseries, anchor=west] at (-1.55,0.55) {(c) 未命中与逐字回填（32 B 行，8 个字）};
+\def\cw{0.72}
+\cyc{0}{0.15}{14}{0}
+\aresgrid{15}{5.0}{0}{0}
+\lbl{0}{-0.55}{clk}  \clkwave{0}{-0.55}{15}
+\lbl{0}{-1.11}{state}
+  \busseg{0}{-1.11}{1}{IDLE}{aresGray}\busseg{\cw}{-1.11}{1}{LOOK}{aresTeal}
+  \busseg{2*\cw}{-1.11}{9}{REFILL}{aresPurple}\busseg{11*\cw}{-1.11}{1}{FILL}{aresPurple}
+  \busseg{12*\cw}{-1.11}{1}{RELK}{aresPurple}\busseg{13*\cw}{-1.11}{1}{LOOK}{aresTeal}
+  \busseg{14*\cw}{-1.11}{1}{IDLE}{aresGray}
+\lbl{0}{-1.67}{beat\_issue}
+  \busidle{0}{-1.67}{2}
+  \foreach \b in {0,...,7}{\pgfmathsetmacro\bx{(\b+2)*\cw}\busseg{\bx}{-1.67}{1}{\b}{aresPurple}}
+  \busidle{10*\cw}{-1.67}{5}
+\lbl{0}{-2.23}{beat\_rsp}
+  \busidle{0}{-2.23}{3}
+  \foreach \b in {0,...,7}{\pgfmathsetmacro\bx{(\b+3)*\cw}\busseg{\bx}{-2.23}{1}{\b}{aresPurple}}
+  \busidle{11*\cw}{-2.23}{4}
+\lbl{0}{-2.79}{rsp\_valid} \bitwave{0}{-2.79}{0,0,0,0,0,0,0,0,0,0,0,0,0,0,1}
+\draw[<->, aresRed] (0.5*\cw,-3.05) -- node[note, text=aresRed, below]{miss 延迟 14 拍：8 次逐字读 + 安装 + 重查} (14.5*\cw,-3.05);
+\end{scope}
+\end{tikzpicture}

@@ -1,0 +1,109 @@
+% Mundus core: module relation overview.
+\begin{tikzpicture}[ares]
+% ---------------- group frames ----------------
+\draw[grp=aresBlue]   (0.00,0) rectangle (2.60,4.0);
+\draw[grp=aresTeal]   (3.00,0) rectangle (4.25,4.0);
+\draw[grp=aresTeal]   (4.65,0) rectangle (7.15,4.0);
+\draw[grp=aresAmber]  (7.55,0) rectangle (12.55,4.0);
+\draw[grp=aresGreen]  (12.95,0) rectangle (14.35,4.0);
+\node[gtitle=aresBlue]  at (0.00,4.0) {IFU};
+\node[gtitle=aresTeal]  at (3.00,4.0) {IDU};
+\node[gtitle=aresTeal]  at (4.65,4.0) {ISU};
+\node[gtitle=aresAmber] at (7.55,4.0) {EXU};
+\node[gtitle=aresGreen] at (12.95,4.0) {WBU};
+
+% ---------------- IFU ----------------
+\begin{scope}[every node/.append style={minimum width=2.25cm}]
+\node[blk=aresBlue] (pc)  at (1.30,3.00) {PC · 提前查询};
+\node[blk=aresBlue] (bpu) at (1.30,2.15) {BPU\\\sub{BTB+Bimodal+RAS}};
+\node[regb]         (meta) at (1.30,1.25) {取指元数据 ×2};
+\node[regb]         (fq)   at (1.30,0.50) {前端队列 ×8};
+\end{scope}
+
+% ---------------- IDU ----------------
+\begin{scope}[every node/.append style={minimum width=1.0cm}]
+\node[blk=aresTeal] at (3.625,3.00) {译码};
+\node[blk=aresTeal] at (3.625,2.25) {立即数};
+\node[blk=aresTeal] at (3.625,1.35) {生产/消费\\时机码};
+\node[blk=aresTeal] at (3.625,0.50) {RAS 提示};
+\end{scope}
+
+% ---------------- ISU ----------------
+\begin{scope}[every node/.append style={minimum width=2.25cm}]
+\node[mem=aresTeal] (gpr) at (5.90,3.00) {GPR\ \sub{32×32 同步读}};
+\node[blk=aresTeal] (byp) at (5.90,1.95) {相关检测 · 一级旁路\\\sub{where · mask}};
+\node[blk=aresTeal] (agu) at (5.90,0.85) {AGU\\\sub{rs1+imm · AMP 偏移}};
+\end{scope}
+
+% ---------------- EXU ----------------
+\node[stagehead=aresAmber, minimum width=1.60cm] at (8.45,3.40) {EX1};
+\node[stagehead=aresAmber, minimum width=1.20cm] at (9.97,3.40) {EX2};
+\node[stagehead=aresAmber, minimum width=0.95cm] at (11.17,3.40) {EX3};
+\node[stagehead=aresAmber, minimum width=0.70cm] at (12.07,3.40) {EX4};
+\begin{scope}[every node/.append style={minimum width=1.60cm}]
+\node[cell=aresAmber] at (8.45,2.90) {二级旁路};
+\node[cell=aresAmber] at (8.45,2.40) {ALU · BRU};
+\node[cell=aresAmber] at (8.45,1.90) {CSR};
+\node[cell=aresAmber] at (8.45,1.40) {CRC8 前半};
+\node[cell=aresAmber] (md) at (8.45,0.90) {乘/除法启动};
+\node[cell=aresAmber] (ls1in) at (8.45,0.40) {访存请求};
+\end{scope}
+\begin{scope}[every node/.append style={minimum width=1.20cm}]
+\node[cell=aresAmber] at (9.97,2.90) {命中数据};
+\node[cell=aresAmber] at (9.97,2.40) {CRC8 后半};
+\node[cell=aresAmber] at (9.97,1.90) {miss 判定};
+\end{scope}
+\node[cell=aresAmber, minimum width=0.95cm] at (11.17,2.90) {慢 Load};
+\node[cell=aresAmber, minimum width=0.70cm] at (12.07,2.90) {传递};
+\node[cell=aresAmber, minimum width=3.09cm, anchor=west] (mul) at (9.37,0.90) {乘法流水 · 除法迭代};
+
+% ---------------- WBU ----------------
+\begin{scope}[every node/.append style={minimum width=1.15cm}]
+\node[blk=aresGreen] at (13.65,3.00) {结果选择};
+\node[blk=aresGreen] at (13.65,2.15) {GPR 写回};
+\node[blk=aresGreen] at (13.65,1.30) {顺序退休};
+\node[blk=aresGreen] at (13.65,0.50) {EBREAK\\停机};
+\end{scope}
+
+% ---------------- main flow ----------------
+\foreach \a/\b in {2.60/3.00, 4.25/4.65, 7.15/7.55, 12.55/12.95}
+  \draw[dat, line width=0.9pt] (\a,1.95) -- (\b,1.95);
+\draw[dat] (mul.east) -- (12.95,0.90);
+
+% ---------------- bypass & write-back (top) ----------------
+\draw[fwd] (13.35,4.0) |- (6.50,4.35) -- (6.50,4.0);
+\foreach \x in {8.45,9.97,11.17,12.07} \draw[aresAmber!90!black] (\x,4.0) -- (\x,4.35);
+\foreach \x in {8.45,9.97,11.17,12.07,13.35} \fill[aresAmber!90!black] (\x,4.35) circle (0.9pt);
+\node[note, text=aresAmber!80!black, anchor=south] at (9.97,4.35) {旁路：EX1–EX4、WB 结果送回 ISU};
+\draw[dat] (14.00,4.0) |- (5.30,4.85) -- (5.30,4.0);
+\node[note, anchor=south] at (9.97,4.85) {GPR 写端口};
+
+% ---------------- LSU ----------------
+\draw[grp=aresGreen] (7.55,-2.10) rectangle (12.55,-0.35);
+\node[gtitle=aresGreen] at (7.55,-0.35) {LSU};
+\node[cell=aresGreen, minimum width=1.10cm] (ls1) at (8.45,-1.00) {LS1};
+\node[cell=aresGreen, minimum width=1.10cm] (ls2) at (9.97,-1.00) {LS2};
+\node[cell=aresGreen, minimum width=0.95cm] (ls3) at (11.17,-1.00) {LS3};
+\node[mem=aresGreen, minimum width=4.40cm, minimum height=5mm] (dc) at (10.05,-1.65)
+  {DCache\ \sub{8 KiB · 两路 · 写直达}};
+\draw[dat] (ls1in.south) -- (ls1.north);
+\draw[dat] (ls2.north) -- (9.97,0.0);
+\draw[dat] (ls3.north) -- (11.17,0.0);
+
+% ---------------- HZU / redirect ----------------
+\node[blk=aresRed, minimum width=2.25cm] (hzu) at (5.90,-1.20) {重定向控制\\\sub{分支 · replay · 中断}};
+\draw[ctl] (7.55,0.25) -- (7.35,0.25) -- (7.35,-1.20) -- (hzu.east);
+\draw[ctl] (hzu.west) -| (2.05,0);
+\node[note, text=aresRed, anchor=north] at (3.30,-1.25) {redirect / BPU 更新};
+
+% ---------------- SoC side ----------------
+\draw[aresLine, dashed] (-0.05,-2.45) -- (14.40,-2.45);
+\node[note, anchor=south east] at (14.40,-2.45) {Mundus 核};
+\node[note, anchor=north east] at (14.40,-2.45) {SoC};
+\node[blk=aresPurple, minimum width=2.60cm] (ic) at (1.30,-3.20) {ICache / 直通\\\sub{IROM 32 KiB}};
+\node[blk=aresPurple, minimum width=4.40cm] (br) at (10.05,-3.20) {PERIP 外设桥\\\sub{写队列 · 数据 BRAM · MMIO · 加速器}};
+\draw[dat] (0.80,0) -- node[sig, left, pos=0.55]{req} (0.80,-2.85);
+\draw[dat] (1.30,-2.85) -- node[sig, right, pos=0.45]{rsp} (1.30,0);
+\draw[dat] (9.50,-2.10) -- node[sig, left]{req} (9.50,-2.85);
+\draw[dat] (10.60,-2.85) -- node[sig, right]{rdata} (10.60,-2.10);
+\end{tikzpicture}

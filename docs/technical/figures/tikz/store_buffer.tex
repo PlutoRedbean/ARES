@@ -1,0 +1,61 @@
+% perip_bridge store queue: 4-entry FIFO, staged BRAM write, byte-lane load forwarding.
+\begin{tikzpicture}[ares]
+% ---- inputs ----
+\node[sig, anchor=east, align=right] at (0.55,2.40) {DRAM Store\\(握手后入队)};
+\node[sig, anchor=east, align=right] at (0.55,0.30) {DRAM Load\\(接受时快照)};
+
+% ---- FIFO ----
+\node[gtitle=aresPurple] at (0.75,3.30) {Store FIFO\ \sub{\normalfont 4 项（addr · data · 宽度），同址不合并}};
+\foreach \k in {0,...,3}{
+  \draw[draw=aresPurple!80!black, fill=aresPurple!10] (0.80+\k*0.80,2.15) rectangle ++(0.80,0.52);
+  \node[note] at (1.20+\k*0.80,2.41) {\k};}
+\node[note, anchor=north] at (1.20,2.12) {头};
+\node[note, anchor=north] at (3.60,2.12) {尾};
+\draw[dat] (0.55,2.41) -- (0.80,2.41);
+% staged write
+\node[regb, fill=aresPurple!14, minimum width=1.7cm] (stg) at (5.55,2.41) {暂存写命令\\\sub{addr · wdata · wea}};
+\draw[dat] (4.00,2.41) -- (stg.west);
+% BRAM
+\node[mem=aresPurple, minimum width=1.4cm, minimum height=1.25cm] (bram) at (8.45,2.20) {数据 BRAM};
+\draw[dat] (stg.east) -- node[sig, above]{Port A} (bram.west|-0,2.41);
+\draw[dat] (0.55,0.30) -- (8.10,0.30) -- node[sig, right, pos=0.80]{Port B} (8.10,1.575);
+
+% ---- forwarding scan ----
+\node[blk=aresAmber, minimum width=2.9cm] (scan) at (2.40,1.15) {逐字节转发扫描\\\sub{暂存写 → FIFO 老→新，后写覆盖}};
+\draw[->, draw=aresAmber!80!black] (2.40,2.15) -- (scan.north);
+\draw[->, draw=aresAmber!80!black] ([xshift=-5mm]stg.south) |- ([yshift=1.5mm]scan.east);
+\fill (1.20,0.30) circle (0.9pt);
+\draw[dat] (1.20,0.30) -- (1.20,0.82);
+\node[regb, fill=aresAmber!10, minimum width=1.6cm] (fpipe) at (6.25,1.00) {mask · data\\\sub{两级寄存}};
+\draw[dat] ([yshift=-1.5mm]scan.east) -- (fpipe.west|-0,1.0);
+
+% ---- merge ----
+\node[blk=aresGreen, minimum width=2.2cm] (mrg) at (10.60,1.00) {按字节合并\\\sub{(B\,\&\,¬F) | (D\,\&\,F)}};
+\draw[dat] (bram.east) -| node[sig, right, pos=0.7]{B（两拍后）} (mrg.north);
+\draw[dat, preaction={draw=white, line width=3pt, -}] (fpipe.east) -- node[sig, below, pos=0.75]{F, D} (mrg.west);
+\draw[dat] (mrg.east) -- ++(0.35,0) node[sig, anchor=west]{rdata};
+
+% ---- MMIO ordering ----
+\node[note, text=aresRed, anchor=west, align=left] at (9.30,2.75) {MMIO：等待 FIFO 为空且\\无暂存写，保持顺序};
+
+% ---- byte-lane example ----
+\begin{scope}[shift={(0.80,-1.15)}]
+\node[font=\scriptsize\bfseries, anchor=west] at (-0.85,0.45) {例：初值 0x11223344，依次 SB 0xAA,1(A)；SH 0xBBCC,2(A)；再 LW 0(A)};
+\newcommand{\lane}[4]{\node[draw=#4!80!black, fill=#4!12, minimum width=0.62cm, minimum height=0.42cm,
+  font=\ttfamily\scriptsize, inner sep=0pt] at (#1+#2*0.64,#3) {\textcolor{aresInk}{##1}};}
+\foreach \lbl/\x in {BRAM 原字/0, SB 0xAA/3.25, SH 0xBBCC/6.50, LW 结果/9.75}
+  \node[note, anchor=south] at (\x+0.96,-0.10) {\lbl};
+\foreach \b [count=\i from 0] in {11,22,33,44}
+  \node[draw=aresGray, fill=aresGray!10, minimum width=0.62cm, minimum height=0.42cm, font=\ttfamily\scriptsize, inner sep=0pt] at (\i*0.64,-0.40) {\b};
+\foreach \b/\c [count=\i from 0] in {--/aresLine,--/aresLine,AA/aresAmber,--/aresLine}
+  \node[draw=\c!80!black, fill=\c!12, minimum width=0.62cm, minimum height=0.42cm, font=\ttfamily\scriptsize, inner sep=0pt] at (3.25+\i*0.64,-0.40) {\b};
+\foreach \b/\c [count=\i from 0] in {BB/aresAmber,CC/aresAmber,--/aresLine,--/aresLine}
+  \node[draw=\c!80!black, fill=\c!12, minimum width=0.62cm, minimum height=0.42cm, font=\ttfamily\scriptsize, inner sep=0pt] at (6.50+\i*0.64,-0.40) {\b};
+\foreach \b/\c [count=\i from 0] in {BB/aresAmber,CC/aresAmber,AA/aresAmber,44/aresGray}
+  \node[draw=\c!80!black, fill=\c!12, minimum width=0.62cm, minimum height=0.42cm, font=\ttfamily\scriptsize, inner sep=0pt] at (9.75+\i*0.64,-0.40) {\b};
+\foreach \x in {2.55,5.80} \node at (\x,-0.40) {+};
+\node at (9.05,-0.40) {=};
+\node[note, anchor=north] at (0.96,-0.66) {byte 3 … 0};
+\node[note, anchor=north] at (10.71,-0.66) {0xBBCCAA44};
+\end{scope}
+\end{tikzpicture}

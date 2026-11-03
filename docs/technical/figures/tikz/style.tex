@@ -1,0 +1,85 @@
+% Shared TikZ style for the ARES technical report figures.
+% Loaded from the report preamble; every figure in this directory uses it.
+\usetikzlibrary{arrows.meta,positioning,calc,fit,backgrounds,shapes.geometric,decorations.pathreplacing}
+
+\definecolor{aresInk}{HTML}{2B2F36}
+\definecolor{aresGray}{HTML}{6B7280}
+\definecolor{aresLine}{HTML}{9CA3AF}
+\definecolor{aresBlue}{HTML}{2F6DB5}   % front end
+\definecolor{aresTeal}{HTML}{1F8A84}   % decode / issue
+\definecolor{aresAmber}{HTML}{C9771F}  % execute
+\definecolor{aresGreen}{HTML}{3C8D4F}  % memory
+\definecolor{aresPurple}{HTML}{7A5BA8} % SoC / accelerators
+\definecolor{aresRed}{HTML}{C0392B}    % redirect / control
+
+\tikzset{
+  ares/.style={font=\scriptsize, line width=0.6pt, draw=aresInk, text=aresInk,
+    >={Stealth[length=1.7mm,width=1.3mm]}},
+  % functional block
+  blk/.style={draw=#1!80!black, fill=#1!9, rounded corners=1.5pt, align=center,
+    inner sep=2pt, minimum height=6mm},
+  blk/.default=aresGray,
+  % storage array (SRAM/BRAM/register file)
+  mem/.style={draw=#1!80!black, fill=#1!18, align=center, inner sep=2.5pt,
+    minimum height=6mm, double, double distance=0.9pt},
+  mem/.default=aresGray,
+  % plain register / queue slot
+  regb/.style={draw=aresInk, fill=white, align=center, inner sep=2pt, minimum height=5.5mm},
+  % group frame with title placed by \grouplabel
+  grp/.style={draw=#1!55, fill=#1!3, rounded corners=3pt, inner sep=5pt},
+  grp/.default=aresGray,
+  gtitle/.style={font=\footnotesize\bfseries, text=#1!80!black, anchor=north west, inner sep=2pt},
+  gtitle/.default=aresGray,
+  % pipeline-register bar
+  pbar/.style={draw=aresInk, fill=aresLine!45, minimum width=1.4mm, inner sep=0pt},
+  % multiplexer (trapezoid)
+  mux/.style={trapezium, trapezium angle=70, shape border rotate=270, draw=aresInk,
+    fill=white, minimum width=6mm, minimum height=3mm, inner sep=1pt, font=\scriptsize},
+  sig/.style={font=\ttfamily\scriptsize, text=aresInk, inner sep=1.5pt},
+  note/.style={font=\scriptsize, text=aresGray, inner sep=1.5pt, align=center},
+  dat/.style={->, draw=aresInk},
+  ctl/.style={->, draw=aresRed, dashed, dash pattern=on 2.2pt off 1.4pt},
+  fwd/.style={->, draw=aresAmber!90!black},
+  stagehead/.style={draw=#1!85!black, fill=#1!85, text=white, rounded corners=1.5pt,
+    font=\scriptsize\bfseries, align=center, minimum height=4.4mm, inner sep=1.5pt},
+  stagehead/.default=aresGray,
+  cell/.style={draw=#1!70!black, fill=#1!12, rounded corners=1pt, font=\scriptsize,
+    align=center, minimum height=4.6mm, inner sep=1pt},
+  cell/.default=aresGray,
+}
+
+% Pipeline occupancy / timing helpers ------------------------------------
+% \aresgrid{ncycles}{nrows}{x0}{y0}: faint vertical cycle grid, rows go downwards.
+\newcommand{\aresgrid}[4]{%
+  \foreach \c in {0,...,#1}{\draw[aresLine!60, line width=0.3pt]
+    ($(#3,#4)+(\c*\cw,0)$) -- ++(0,-#2*\rh);}%
+}
+% bus segment of a timing waveform: \busseg{x}{y}{len}{label}{color}
+\newcommand{\busseg}[5]{%
+  \path[draw=#5!80!black, fill=#5!14, line width=0.5pt]
+    ($(#1,#2)+(0.06,0)$) -- ++(-0.06,0.17) -- ++(0.06,0.17)
+    -- ($(#1,#2)+(#3*\cw-0.06,0.34)$) -- ++(0.06,-0.17) -- ++(-0.06,-0.17) -- cycle;
+  \node[font=\ttfamily\scriptsize, text=aresInk, inner sep=0pt]
+    at ($(#1,#2)+(#3*\cw/2,0.17)$) {#4};%
+}
+% idle bus (single mid line): \busidle{x}{y}{len}
+\newcommand{\busidle}[3]{%
+  \draw[aresGray, line width=0.5pt] ($(#1,#2)+(0,0.17)$) -- ++(#3*\cw,0);}
+% bit waveform from a list of 0/1 values: \bitwave{x}{y}{0,1,1,0}
+\newcommand{\bitwave}[3]{%
+  \def\prev{-1}%
+  \foreach \v [count=\i from 0, remember=\v as \prev (initially -1)] in {#3}{%
+    \pgfmathsetmacro{\yy}{#2+0.34*\v}%
+    \pgfmathsetmacro{\xx}{#1+\i*\cw}%
+    \ifnum\prev>-1 \ifnum\prev=\v\else
+      \draw[aresInk, line width=0.6pt] (\xx,#2) -- (\xx,#2+0.34);\fi\fi
+    \draw[aresInk, line width=0.6pt] (\xx,\yy) -- ++(\cw,0);}%
+}
+% clock waveform: \clkwave{x}{y}{ncycles}
+\newcommand{\clkwave}[3]{%
+  \foreach \c in {1,...,#3}{%
+    \draw[aresGray, line width=0.5pt] ($(#1,#2)+(\c*\cw-\cw,0)$) -- ++(0,0.34) -- ++(\cw/2,0)
+      -- ++(0,-0.34) -- ++(\cw/2,0);}%
+}
+% secondary line inside a block
+\newcommand{\sub}[1]{{\color{aresGray}#1}}

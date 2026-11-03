@@ -65,6 +65,13 @@
 \newcommand{\todo}{\textcolor{red!70!black}{$\times$}}
 \AtBeginEnvironment{table}{\small\setstretch{1.08}}
 \setlength{\tabcolsep}{2.5pt}
+% TikZ figures drawn for this report live in figures/tikz/ and share one style file.
+\makeatletter
+\newcommand{\ares@tikzdir}{figures/tikz/}
+\IfFileExists{figures/tikz/style.tex}{}{\renewcommand{\ares@tikzdir}{docs/technical/figures/tikz/}}
+\input{\ares@tikzdir style.tex}
+\newcommand{\tikzfig}[1]{\input{\ares@tikzdir #1.tex}}
+\makeatother
 \lstset{basicstyle=\ttfamily\fontsize{9}{12}\selectfont,breaklines=true,columns=fullflexible,numbers=none,frame=none}
 
 \begin{document}
@@ -140,7 +147,7 @@ FPGA / 工具链 & PG2L200H-6IFBB676 / Pango PDS \\
 \section{系统组成及功能说明}
 \subsection{整体介绍}
 ARES 以 Mundus 处理器为核心，前端经 IROM 请求/响应接口连接 ICache 或直通适配器，后端经含 DCache 的 LSU 和 PERIP 接口访问数据存储及外设。
-处理器内部由前端预测和取指、译码、发射与寄存器读取、执行、LSU、乘除法及写回单元构成。
+处理器内部由前端预测和取指、译码、发射与寄存器读取、执行、LSU、乘除法及写回单元构成，模块关系见图~\ref{fig:core-overview}。
 HZU 根据分支结果协调重定向，ISU 根据数据就绪状态决定旁路与互锁，WB 保持顺序提交。
 图~\ref{fig:soc-framework} 表示单核 SoC 的连接概览。AMP 为每 hart 例化 \code{student_top}、私有 IROM/ICache/数据 BRAM 和加速器，另连共享 uncached mailbox。
 \code{pipeline_mc_soc_top} 则是共享 L2 的独立实验配置。
@@ -165,8 +172,8 @@ HZU 根据分支结果协调重定向，ISU 根据数据就绪状态决定旁路
 \end{figure}
 \begin{figure}[htbp]
 \centering
-\fbox{\parbox{0.92\linewidth}{\small\textbf{TODO：绘制当前 Mundus 核内模块关系：IFU/BPU/ICache、IDU、ISU/GPR/AGU、EX1--EX4、LSU/DCache、乘除法、CSR、WB 与重定向。}}}
-\caption{当前核内模块关系（待绘制）}
+\tikzfig{core_overview}
+\caption{Mundus 核内模块关系}
 \label{fig:core-overview}
 \end{figure}
 
@@ -319,7 +326,7 @@ AMP 板级仅引出 hart0 UART TX，RX 接空闲；独立 MSH 板级顶层另接
 \paragraph{总体结构}
 
 \cpuname{} 采用顺序、单发射、单提交结构，每周期最多接收并提交一条指令。
-流水线按取指请求、取指响应、ID、ISS、EX1、EX2、EX3、EX4 和 WB 划分，共九级；表~\ref{tab:current-stages} 列出各级职责。IF1/IF2 分别表示取指请求和响应，二者通过握手和队列衔接。
+流水线按取指请求、取指响应、ID、ISS、EX1、EX2、EX3、EX4 和 WB 划分，共九级；表~\ref{tab:current-stages} 列出各级职责，图~\ref{fig:current-pipeline} 给出各级与 LSU、长操作通路的对应关系。IF1/IF2 分别表示取指请求和响应，二者通过握手和队列衔接。
 
 \begin{table}[H]
 \centering
@@ -349,15 +356,15 @@ LSU 请求未被桥接受时冻结相关流水级；数据相关在 ISS 互锁�
 
 \begin{figure}[htbp]
 \centering
-\fbox{\parbox{0.92\linewidth}{\small\textbf{TODO：绘制当前流水线：取指请求/响应与队列、ID、ISS、EX1--EX4、WB；标出 AGU、LS1--LS3、CRC8、BRU/HZU 及提交位置。}}}
-\caption{当前流水线结构（待绘制）}
+\tikzfig{pipeline}
+\caption{Mundus 九级流水线：各级职责、LSU 与长操作通路}
 \label{fig:current-pipeline}
 \end{figure}
 
 \paragraph{RTL 前端设计}
 
 当前前端由 PC 选择逻辑、BPU、ICache/直通接口、两项取指元数据队列、八项前端队列和 IF/ID 输出通路组成。
-图~\ref{fig:frontend-architecture} 预留当前前端结构图，ICache 及其队列配合详见下文。BPU 采用常见的动态预测组合~\cite{mittal2019survey}，以 Bimodal 预测器判断跳转方向，
+图~\ref{fig:frontend-architecture} 给出前端结构，ICache 及其队列配合详见下文。BPU 采用常见的动态预测组合~\cite{mittal2019survey}，以 Bimodal 预测器判断跳转方向，
 通过 BTB 保存历史跳转目标，并可选配返回地址栈 RAS 预测函数返回地址。PC 用于驱动
 IROM 取指并生成对应的请求元数据；IROM 返回指令后，与 \id{FetchMeta} 中保存的
 PC 及预测信息对齐，再经前端队列送入 IDU。
@@ -373,10 +380,9 @@ ARES 核参数集中在 \code{gen/configs/scsrc/autoconf.scala}，由 \code{make
 
 \begin{figure}[htbp]
   \centering
-  \fbox{\parbox{0.92\linewidth}{\small\textbf{TODO：绘制当前前端架构图。}\\
-  展示 PC/BPU、ICache/直通适配器、两项元数据队列、八项 fall-through 队列、IF/ID 接口，以及请求/响应握手、槽位预留和 redirect 清理。}}
-  \caption{当前前端与取指队列结构（待绘制）}
-  \label{fig:frontend-architecture}
+\tikzfig{frontend}
+\caption{前端取指结构：提前查询、请求许可与两级队列}
+\label{fig:frontend-architecture}
 \end{figure}
 
 \subparagraph{分支预测单元 BPU}
@@ -573,16 +579,15 @@ Redirect & 重置 PC，清元数据与前端队列、旧预测暂存；\code{iro
 \noindent\textbf{接入位置与设计目标}\par
 
 ICache 位于 IFU 与只读 IROM 之间，提供每次一条 32 bit 指令的请求/响应接口。其目标是将前端的取指节奏与底层同步存储器解耦，并利用流水化命中路径维持单发射所需的每拍一条取指吞吐。
-当前连接为 IFU $\rightarrow$ \code{pipeline_icache} $\rightarrow$ \code{pipeline_irom_passthrough} $\rightarrow$ \code{IROM_BMEM32}。ICache 以整行缓存指令，回填适配器将一行拆为连续的 32 bit IROM 读取。
+当前连接为 IFU $\rightarrow$ \code{pipeline_icache} $\rightarrow$ \code{pipeline_irom_passthrough} $\rightarrow$ \code{IROM_BMEM32}。ICache 以整行缓存指令，回填适配器将一行拆为连续的 32 bit IROM 读取，内部结构见图~\ref{fig:icache-architecture}。
 
 \code{USE_ICACHE=1} 选择缓存路径，\code{USE_ICACHE=0} 仅保留一拍直通适配器，两者向 IFU 提供相同的握手信号。\code{ICACHE_PIPE_HITS=1} 允许命中流水重叠，置 0 则保留串行请求节奏，用于对照取指吞吐的影响。
 AMP 在每个 \code{student_top} 内例化同一主线四路缓存；各 hart 拥有私有缓存和私有 32 KiB IROM，执行相同的只读代码镜像。
 
 \begin{figure}[htbp]
 \centering
-\fbox{\parbox{0.92\linewidth}{\small\textbf{TODO：绘制 ICache 内部架构图。}\\
-标出请求地址寄存、valid/tag/age 目录、提前路选择、同步数据 BRAM、选字逻辑、响应槽、回填缓冲与状态机；区分 IFU 握手口和 IROM 逐字回填口。}}
-\caption{ICache 内部结构（待绘制）}
+\tikzfig{icache}
+\caption{四路 ICache 内部结构}
 \label{fig:icache-architecture}
 \end{figure}
 
@@ -616,7 +621,7 @@ AMP 板级/hart & 32 KiB & 128 & \code{PC[31:13]} & \code{PC[12:6]} & \code{PC[5
 \medskip
 \noindent\textbf{命中流水与响应保持}\par
 
-设周期 $T$ 中请求 $P$ 握手：时钟沿保存其 tag、组号和字偏移，并完成对应数据行的同步读取；接下来的 \code{S_LOOK} 周期确认命中，将选出的指令写入响应槽，随后对 IFU 置 \code{rsp_valid}。按该接口的周期划分，命中延迟为两拍。
+设周期 $T$ 中请求 $P$ 握手：时钟沿保存其 tag、组号和字偏移，并完成对应数据行的同步读取；接下来的 \code{S_LOOK} 周期确认命中，将选出的指令写入响应槽，随后对 IFU 置 \code{rsp_valid}。按该接口的周期划分，命中延迟为两拍（图~\ref{fig:icache-timing}(a)）。
 
 缓存以 \code{out_free} \code{=} \code{!rsp_valid_r} \code{||} \code{rsp_ready} 判断响应槽是否可写。响应槽已满且下游不接收时，原响应保持不变，当前查找结果转入 \code{S_RESP} 等待；空间释放后再写入该结果。因此，已返回的响应不会因下一次查找而被覆盖。
 \code{PIPE_HITS=1} 时，\code{S_LOOK} 命中且响应槽可写的同拍可以接受下一个请求，将当前结果写入响应槽，同时为下一请求读取数据行，稳态达到每拍接受一条请求、每拍返回一条指令。
@@ -631,7 +636,7 @@ AMP 板级/hart & 32 KiB & 128 & \code{PC[31:13]} & \code{PC[12:6]} & \code{PC[5
 
 回填阶段分别维护 \code{beat_issue} 和 \code{beat_rsp}：请求握手才推进发出计数，响应握手才将数据写入对应 \code{refill_buf} 项并推进接收计数。
 第 $i$ 个请求的字节地址为 $\mathrm{line\_base}+4i$，单核默认发出 8 个字请求，AMP 的 64 B 行发出 16 个。最后一个响应到达后，缓冲中的字按地址递增顺序组成整行，再写入数据阵列和目录。
-缓存等待整行完成后重新查找原请求，每次处理一个 miss。
+缓存等待整行完成后重新查找原请求，每次处理一个 miss；以 32 B 行为例，从请求握手到响应有效共 14 拍（图~\ref{fig:icache-timing}(c)）。
 
 \begin{table}[H]
 \centering
@@ -653,9 +658,8 @@ AMP 板级/hart & 32 KiB & 128 & \code{PC[31:13]} & \code{PC[12:6]} & \code{PC[5
 
 \begin{figure}[htbp]
 \centering
-\fbox{\parbox{0.92\linewidth}{\small\textbf{TODO：绘制 ICache 命中与回填时序图。}\\
-分别展示连续命中、响应背压和 miss 回填；标出两拍命中延迟、一条/拍稳态吞吐、最后一字返回后的安装及重查周期，以及 \code{beat_issue/beat_rsp} 的独立推进。}}
-\caption{ICache 命中、背压与回填时序（待绘制）}
+\tikzfig{icache_timing}
+\caption{ICache 连续命中、响应背压与未命中回填时序（32 B 行，PIPE\_HITS=1）}
 \label{fig:icache-timing}
 \end{figure}
 
@@ -708,10 +712,12 @@ R、I、S、B、U、J 和 CSR 格式生成立即数。集中式译码表同时�
 
 \begin{figure}[htbp]
   \centering
-  \fbox{\parbox{0.92\linewidth}{\small\textbf{TODO：绘制当前后端：ISS 旁路与互锁、EX1--EX4、LSU 快慢响应、乘除法及 WB 顺序提交。}}}
-\caption{当前后端架构（待绘制）}
-  \label{fig:backend_pipeline}
+\tikzfig{backend}
+\caption{后端执行通路与两级旁路}
+\label{fig:backend_pipeline}
 \end{figure}
+
+后端由 ISU、EX1--EX4、LSU、乘除法单元和 WBU 组成，数据通路与两级旁路如图~\ref{fig:backend_pipeline} 所示。
 
 \subparagraph{发射与旁路单元 ISU}
 
@@ -783,13 +789,12 @@ AMP 在 ISS 的 AGU 后、DCache 查表前对数据窗口地址加 \code{data_of
 组索引为 \code{addr[11:2]}，tag 为 \code{addr[17:12]}，\code{addr[1:0]} 是字内字节偏移。可缓存窗口的高 14 位固定，目录仅保存其余地址中的 tag。
 
 每路各自例化一份 \code{DCacheData_BRAM} 与 \code{DCacheTag_BRAM}，分别保存数据和 \code{{valid,tag}}；另有一份每组 1 bit 的 \code{DCacheLru_BRAM} 保存最近使用路。各阵列均使用独立写口和同步读口，读地址直接来自 ISS，不在地址端串入命中、互锁或全组选择逻辑。
-两个 tag 和两个数据字并行读出，tag 比较后优先选择编号较小的命中路。命中判定和数据选择使用同一命中向量，避免二者选择不同的路。
+两个 tag 和两个数据字并行读出，tag 比较后优先选择编号较小的命中路。命中判定和数据选择使用同一命中向量，避免二者选择不同的路。整体结构见图~\ref{fig:dcache-architecture}。
 
 \begin{figure}[htbp]
 \centering
-\fbox{\parbox{0.92\linewidth}{\small\textbf{TODO：绘制两路单字 DCache 架构图。}\\
-标出 ISS 读地址、两路 Tag/Data BRAM、独立 LRU BRAM、tag 比较与选路、请求保持和响应寄存器、Store 合并旁路、refill 与一致性失效写入口。注明容量为 1024 组 $\times$ 2 路 $\times$ 4 B。}}
-\caption{两路 DCache 内部结构（待绘制）}
+\tikzfig{dcache}
+\caption{两路单字 DCache 内部结构（1024 组 $\times$ 2 路 $\times$ 4 B）}
 \label{fig:dcache-architecture}
 \end{figure}
 
@@ -867,7 +872,7 @@ LSU 在 Load 发出时采样 epoch，回填时比较当前版本。主线单核�
 \medskip
 \noindent\textbf{快慢路径及阶段对齐}\par
 
-LSU 由 LS1、LS2、LS3 组成，与 EX1、EX2、EX3 对齐；ISS 中的提前 AGU 和 DCache 查表位于正式访存请求之前。阶段职责见表~\ref{tab:lsu-memory-stages}。
+LSU 由 LS1、LS2、LS3 组成，与 EX1、EX2、EX3 对齐；ISS 中的提前 AGU 和 DCache 查表位于正式访存请求之前。阶段职责见表~\ref{tab:lsu-memory-stages}，数据通路见图~\ref{fig:lsu-architecture}。
 
 \begin{table}[H]
 \centering
@@ -894,10 +899,9 @@ DCache 通过 EX2 提前提供命中结果，缩短 Load-use 延迟。LS1 在 LS
 
 \begin{figure}[htbp]
 \centering
-\fbox{\parbox{0.92\linewidth}{\small\textbf{TODO：绘制当前三阶段 LSU 与快慢响应架构图。}\\
-展示 ISS 提前查询、LS1 请求握手、LS2 命中快路径、LS3 慢路径及回填、两项慢响应缓冲；注明 Load 命中后外部请求仍完成，以及 Store 在 LS1 发出、LS2 更新缓存。}}
-\caption{三阶段 LSU 与快慢响应路径（待绘制）}
-\label{fig:lsu architecture}
+\tikzfig{lsu}
+\caption{三阶段 LSU 与快慢响应路径}
+\label{fig:lsu-architecture}
 \end{figure}
 
 \Needspace{4\baselineskip}
@@ -919,7 +923,7 @@ PERIP 没有读响应 ready，已经发出的读不会因为核停顿而停止�
 \medskip
 \noindent\textbf{Load 命中预测与 miss replay}\par
 
-为避免 DCache tag 比较直接串回 ISS/GPR 使能路径，Load 在 EX1 的生产时机按 EX2 命中预测。相关网络据此允许满足条件的后继指令继续推进；EX2 再用寄存的 \code{cache_hit} 修正结果可用时机：命中为 \code{WHEN_ABS_EX2}，miss 为 \code{WHEN_ABS_EX3}。
+为避免 DCache tag 比较直接串回 ISS/GPR 使能路径，Load 在 EX1 的生产时机按 EX2 命中预测。相关网络据此允许满足条件的后继指令继续推进；EX2 再用寄存的 \code{cache_hit} 修正结果可用时机：命中为 \code{WHEN_ABS_EX2}，miss 为 \code{WHEN_ABS_EX3}。图~\ref{fig:dcache-replay-timing} 给出紧邻消费者在命中与未命中时的停顿周期。
 
 若 EX2 是可缓存窗口内的 miss Load，且较年轻 EX1 指令的任一实际使用源操作数依赖该 EX2 Load，EXU 产生 \code{load_miss_replay}，以该消费者 PC 重定向。
 被重放的消费者与更年轻前端内容被丢弃，较老 Load 沿慢路径继续完成；消费者重新取指后按新的生产时机取得正确操作数。即使消费者不是立即发起访存的指令，相关源检查也同时覆盖 rs1 和 rs2。
@@ -929,9 +933,8 @@ MMIO 通过慢路径完成，不参与该 replay。更老分支的纠正目标�
 
 \begin{figure}[htbp]
 \centering
-\fbox{\parbox{0.92\linewidth}{\small\textbf{TODO：绘制 Load hit/miss 与消费者 replay 对照时序。}\\
-分别画出命中快返回、miss 且消费者无关、miss 且 EX1 消费者依赖；标出 EX2 命中判定、EX3 慢返回、消费者 PC 重定向及较老 Load 保留。补充 AGU 提前依赖与 MMIO 不触发该 replay 的注释。}}
-\caption{Load 快慢路径与 miss replay 时序（待绘制）}
+\tikzfig{load_timing}
+\caption{Load 命中与未命中时的相关时序}
 \label{fig:dcache-replay-timing}
 \end{figure}
 
@@ -948,15 +951,14 @@ MMIO 通过慢路径完成，不参与该 replay。更老分支的纠正目标�
 \begin{equation}
 D_{\mathrm{load}}=(D_{\mathrm{BRAM}}\land\neg F)\lor(D_{\mathrm{forward}}\land F).
 \end{equation}
-未被较老 Store 覆盖的字节仍来自 BRAM；这允许 Load 读取队列中多条 byte/half Store 拼接出的最新完整字，同时避免依赖 BRAM 同址读写返回旧值还是新值的器件差异。
+未被较老 Store 覆盖的字节仍来自 BRAM；这允许 Load 读取队列中多条 byte/half Store 拼接出的最新完整字，同时避免依赖 BRAM 同址读写返回旧值还是新值的器件差异。结构与示例见图~\ref{fig:store_buffer_architecture}。
 
 例如，初始对齐字为 \code{0x11223344}，按顺序执行 \code{SB} \code{0xAA,} \code{1(A)}、\code{SH} \code{0xBBCC,} \code{2(A)}，随后执行 \code{LW} \code{0(A)}。无论这两次写仍在 FIFO、正在暂存还是已经落地，按字节转发所要求的返回值都是 \code{0xBBCCAA44}。
 
 \begin{figure}[htbp]
 \centering
-\fbox{\parbox{0.92\linewidth}{\small\textbf{TODO：绘制外设桥 Store FIFO、暂存写与 Load 转发结构。}\\
-标出 FIFO 头尾及计数、一级写命令寄存器、独立 BRAM 读写端口、从老到新的逐字节覆盖优先级，以及 mask/data 与读标签的两拍对齐。可用 byte+half Store 后 LW 的例子标注最终拼接结果。}}
-\caption{写队列与逐字节 Load 转发（待绘制）}
+\tikzfig{store_buffer}
+\caption{外设桥写队列与逐字节 Load 转发}
 \label{fig:store_buffer_architecture}
 \end{figure}
 
@@ -1295,15 +1297,12 @@ MMIO 请求与计算任务分开：引擎接受寄存器访问，返回端在下
 包装层再寄存一拍，与外设桥的两拍读响应对齐；计算则由引擎内部状态机推进。
 操作数从 CPU 经 MMIO 拷入引擎私有数组，完成后仅取回结果或节点影子。
 该过程不使用 DMA，MMIO 也不进入 DCache，因此无需在 CPU 与引擎之间维护
-共享缓存副本。
+共享缓存副本。两类加速路径的调用关系如图~\ref{fig:accelerator-call-flow} 所示。
 
 \begin{figure}[htbp]
 \centering
-\fbox{\parbox{0.92\linewidth}{\small\textbf{TODO：绘制软硬件加速调用图。}\\
-左侧画 CoreMark 调用与 staged 驱动，CRC8 分支进入 EX1/EX2；MMIO 分支经
-PERIP/外设桥和页译码进入三个引擎。标出装载、启动、轮询、取回四步，以及
-引擎私有数组和软件保留的尾部处理。}}
-\caption{CRC8 与 MMIO 引擎的调用关系（待绘制）}
+\tikzfig{accel_flow}
+\caption{CRC8 指令与 MMIO 引擎的调用关系}
 \label{fig:accelerator-call-flow}
 \end{figure}
 
@@ -1466,18 +1465,15 @@ state，然后执行自己的 \code{iterate()}。传递的是描述字段，数�
 检查 CRC 并打印一份聚合报告。总迭代数为 context 数乘以每 context 迭代数。
 \end{enumerate}
 
-worker 的初始化在 GO 之后，因此聚合计时包含 worker 初始化、启动与同步。
+图~\ref{fig:amp-mailbox-flow} 给出上述过程。worker 的初始化在 GO 之后，因此聚合计时包含 worker 初始化、启动与同步。
 \code{pipeline-coremark-full-mt} 的常规仿真总迭代为 200，两核各 100 次、
 四核各 50 次。另一个 \code{pipeline-coremark-mc} 入口让各 hart 各自打印
 MULTITHREAD=1 报告，属于独立跑分方式。
 
 \begin{figure}[htbp]
 \centering
-\fbox{\parbox{0.92\linewidth}{\small\textbf{TODO：绘制 AMP 启动与任务时序图。}\\
-画 mailbox 64 字初始化与 hart 复位释放；随后按 hart0、mailbox、worker 三条
-泳道标出参数、GO、worker 初始化、并行 iterate、CRC/ERR、DONE、EBREAK 与
-hart0 汇总。将 start/stop 计时边界标在 hart0 泳道。}}
-\caption{AMP mailbox 启动及结果汇总（待绘制）}
+\tikzfig{amp_mailbox}
+\caption{AMP mailbox 启动、并行执行与结果汇总}
 \label{fig:amp-mailbox-flow}
 \end{figure}
 
@@ -1560,7 +1556,7 @@ C handler 返回后，\code{trap.S} 先把返回 PC 写入当前帧。
 若切换标志置位，先清除标志，将当前 sp 写入原线程 TCB 的 sp 字段，再从
 目标线程 TCB 装入新的 sp；随后统一恢复目标帧的 mstatus、mepc 和通用寄存器，
 释放栈帧并执行 MRET。没有切换请求时，同一路径恢复原线程。
-因此，抢占切换改变的是恢复所用的栈帧，无需把旧线程现场搬运到另一个栈。
+因此，抢占切换改变的是恢复所用的栈帧，无需把旧线程现场搬运到另一个栈。完整流程见图~\ref{fig:rtos-context-switch-flow}。
 
 线程主动阻塞时使用 \code{context_gcc.S} 的
 \code{rt_hw_context_switch()}：先保存调用者现场，将调用返回地址同时写入
@@ -1570,11 +1566,8 @@ C handler 返回后，\code{trap.S} 先把返回 PC 写入当前帧。
 
 \begin{figure}[htbp]
 \centering
-\fbox{\parbox{0.92\linewidth}{\small\textbf{TODO：绘制定时器中断与线程切换图。}\\
-依次画定时器 pending、CPU 排空/保存 CSR、trap 保存线程 A 的 128 B 现场、
-ACK 与 elapsed 补 tick、调度登记 from/to、trap 尾部保存 A.sp/装载 B.sp、
-恢复 B 现场及 MRET。另标线程主动阻塞与首次启动进入同一恢复流程的位置。}}
-\caption{机器定时器中断与上下文切换（待绘制）}
+\tikzfig{rtos_switch}
+\caption{机器定时器中断进入与抢占式上下文切换}
 \label{fig:rtos-context-switch-flow}
 \end{figure}
 

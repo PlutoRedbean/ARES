@@ -1,0 +1,40 @@
+% Three-stage LSU: ISS early lookup, LS1 handshake, LS2 hit fast path, LS3 slow path and refill.
+\begin{tikzpicture}[ares]
+\foreach \n/\c/\x in {ISS/aresTeal/1.30, LS1 · EX1/aresGreen/4.40, LS2 · EX2/aresGreen/7.50, LS3 · EX3/aresGreen/10.60}
+  \node[stagehead=\c, minimum width=2.6cm] at (\x,3.25) {\n};
+\foreach \x in {2.85,5.95,9.05}
+  \node[pbar, minimum height=1.40cm, anchor=north] at (\x,2.95) {};
+
+% ---- row A: core-side stage registers ----
+\node[blk=aresTeal, minimum width=2.3cm] (agu) at (1.30,2.35) {AGU\\\sub{rs1+imm，加 AMP 偏移}};
+\node[blk=aresGreen, minimum width=2.3cm] (l1) at (4.40,2.35) {LS1 请求\\\sub{地址 · 宽度 · 符号 · wdata}};
+\node[blk=aresGreen, minimum width=2.3cm] (l2) at (7.50,2.35) {LS2 快路径 \sub{→ EX2}\\\sub{命中数据移位 · 扩展}};
+\node[blk=aresGreen, minimum width=2.3cm] (l3) at (10.60,2.35) {LS3 选择\\\sub{命中沿用 / 否则慢数据}};
+\draw[dat] (agu) -- (l1); \draw[dat] (l1) -- (l2); \draw[dat] (l2) -- (l3);
+\draw[dat] (l3.east) -- ++(0.40,0) node[note, anchor=west]{EX3};
+
+% ---- row B: DCache, slow-response buffer ----
+\node[mem=aresGreen, minimum width=4.55cm, minimum height=7mm] (dc) at (6.05,1.05)
+  {DCache\ \sub{ISS 读阵列 → LS1 比较 → LS2 响应}};
+\draw[dat] (agu.south) |- (dc.west);
+\draw[dat] (4.40,1.83) -- node[sig, right, pos=0.5]{接受} (4.40,1.40);
+\draw[dat] (7.50,1.40) -- node[sig, right, pos=0.5]{hit · data} (7.50,1.83);
+\node[regb, fill=aresGreen!8, minimum width=1.4cm] (sb) at (10.95,1.00) {慢响应缓冲\\\sub{2 项，按序}};
+\draw[dat] (sb.north) -- (sb.north|-l3.south);
+\draw[draw=aresPurple!80!black, ->] (9.70,1.83) |- (dc.east);
+\node[note, text=aresPurple!80!black, anchor=north] at (9.05,1.00) {回填};
+
+% ---- row C: peripheral bridge ----
+\node[blk=aresPurple, minimum width=8.6cm] (br) at (7.30,-0.45)
+  {PERIP 外设桥\ \sub{读请求被接受后固定两拍返回 rvalid；读响应无 ready}};
+\draw[dat, preaction={draw=white, line width=3pt, -}] (3.62,1.83) -- (3.62,-0.07);
+\draw[ctl, preaction={draw=white, line width=3pt, -, solid}] (3.35,-0.07) -- (3.35,1.83);
+\node[sig, anchor=north east, align=right] at (3.30,0.75) {valid · addr\\wen · wdata};
+\node[sig, anchor=north west, text=aresRed] at (3.66,0.55) {ready};
+\draw[dat] (sb.south|-br.north) -- node[sig, right]{rdata} (sb.south);
+
+% ---- notes ----
+\node[note, anchor=north west, align=left] at (0.10,-0.95)
+  {valid \& !ready 冻结 EX1 及更年轻级，直到同一请求握手。Load 命中时桥读仍完成，LS3 丢弃慢数据；\\
+   Store 在 LS1 写直达入桥，LS2 命中时同步更新 DCache 副本；慢响应缓冲容纳流水冻结后仍返回的两个读。};
+\end{tikzpicture}

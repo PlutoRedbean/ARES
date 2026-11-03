@@ -1,0 +1,62 @@
+% Load-use timing: (a) DCache hit, (b) DCache miss, (c) independent instruction after a miss.
+% Consumer timing follows the ISU interlock: a Load in EX1 cannot feed an ISS consumer;
+% in EX2 the registered hit decides between EX2 (fast) and EX3 (slow) readiness.
+\begin{tikzpicture}[ares]
+\def\cw{0.86}\def\rh{0.50}\def\lx{2.85}
+% \pc{col}{row}{text}{color}
+\newcommand{\pc}[4]{\node[cell=#4, minimum width=\cw cm-0.08cm, minimum height=\rh cm-0.08cm]
+  at (\lx+#1*\cw+\cw/2,-#2*\rh) {#3};}
+\newcommand{\stall}[2]{\node[cell=aresRed, minimum width=\cw cm-0.08cm, minimum height=\rh cm-0.08cm] at (\lx+#1*\cw+\cw/2,-#2*\rh) {停顿};}
+\newcommand{\byp}[3]{\draw[fwd, line width=0.8pt] (\lx+#1*\cw+\cw-0.06,-#2*\rh) to[bend left=55] (\lx+#1*\cw+\cw-0.06,-#3*\rh);}
+\newcommand{\panel}[2]{% y-shift, title
+  \node[font=\footnotesize\bfseries, anchor=west] at (0,#1+0.05) {#2};}
+\newcommand{\cycles}[1]{\foreach \c in {0,...,9}\node[note] at (\lx+\c*\cw+\cw/2,#1) {\c};}
+
+% ---------------- (a) hit ----------------
+\begin{scope}[shift={(0,0)}]
+\panel{0}{(a) DCache 命中}
+\cycles{0.05}
+\node[sig, anchor=west] at (0,-1*\rh) {lw  x5, 0(a0)};
+\node[sig, anchor=west] at (0,-2*\rh) {add x6, x5, x7};
+\foreach \s [count=\c from 0] in {ID,ISS,EX1,EX2,EX3,EX4,WB}{\pc{\c}{1}{\s}{aresGray}}
+\pc{1}{2}{ID}{aresGray}\stall{2}{2}\pc{3}{2}{ISS}{aresTeal}
+\foreach \s [count=\c from 4] in {EX1,EX2,EX3,EX4,WB}{\pc{\c}{2}{\s}{aresGray}}
+\byp{3}{1}{2}
+\node[note, anchor=west, text=aresAmber!80!black] at (\lx+10*\cw+0.05,-1.5*\rh) {EX2 快数据旁路};
+\end{scope}
+
+% ---------------- (b) miss ----------------
+\begin{scope}[shift={(0,-1.75)}]
+\panel{0}{(b) DCache 未命中}
+\cycles{0.05}
+\node[sig, anchor=west] at (0,-1*\rh) {lw  x5, 0(a0)};
+\node[sig, anchor=west] at (0,-2*\rh) {add x6, x5, x7};
+\pc{0}{1}{ID}{aresGray}\pc{1}{1}{ISS}{aresGray}\pc{2}{1}{EX1}{aresGray}
+\pc{3}{1}{EX2}{aresRed}\pc{4}{1}{EX3}{aresGreen}\pc{5}{1}{EX4}{aresGray}\pc{6}{1}{WB}{aresGray}
+\pc{1}{2}{ID}{aresGray}\stall{2}{2}\stall{3}{2}\pc{4}{2}{ISS}{aresTeal}
+\foreach \s [count=\c from 5] in {EX1,EX2,EX3,EX4,WB}{\pc{\c}{2}{\s}{aresGray}}
+\byp{4}{1}{2}
+\node[note, anchor=west, text=aresAmber!80!black] at (\lx+10*\cw+0.05,-1.5*\rh) {EX3 慢数据旁路};
+\node[note, text=aresRed, anchor=north] at (\lx+3.5*\cw,-2.45*\rh) {EX2 寄存的 hit=0：就绪时机改为 EX3};
+\end{scope}
+
+% ---------------- (c) independent ----------------
+\begin{scope}[shift={(0,-3.75)}]
+\panel{0}{(c) 无关指令}
+\cycles{0.05}
+\node[sig, anchor=west] at (0,-1*\rh) {lw  x5, 0(a0)};
+\node[sig, anchor=west] at (0,-2*\rh) {add x8, x9, x10};
+\pc{0}{1}{ID}{aresGray}\pc{1}{1}{ISS}{aresGray}\pc{2}{1}{EX1}{aresGray}
+\pc{3}{1}{EX2}{aresRed}\pc{4}{1}{EX3}{aresGreen}\pc{5}{1}{EX4}{aresGray}\pc{6}{1}{WB}{aresGray}
+\foreach \s [count=\c from 1] in {ID,ISS,EX1,EX2,EX3,EX4,WB}{\pc{\c}{2}{\s}{aresGray}}
+\node[note, anchor=west] at (\lx+10*\cw+0.05,-1.5*\rh) {不停顿};
+\end{scope}
+
+% legend
+\begin{scope}[shift={(\lx,-5.35)}]
+\node[cell=aresRed, minimum width=0.55cm] at (0.3,0) {}; \node[note, anchor=west] at (0.62,0) {停顿 / miss};
+\node[cell=aresGreen, minimum width=0.55cm] at (2.6,0) {}; \node[note, anchor=west] at (2.92,0) {慢数据返回};
+\draw[fwd, line width=0.8pt] (4.70,0.18) to[bend left=55] (4.70,-0.18); \node[note, anchor=west] at (4.85,0) {同周期旁路};
+\node[note, anchor=west] at (6.6,0) {MMIO Load 始终走慢路径，不参与命中预测};
+\end{scope}
+\end{tikzpicture}
