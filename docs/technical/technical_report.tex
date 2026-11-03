@@ -411,7 +411,7 @@ AI 加速 & 构建边缘 AI 加速单元，移植 YOLO 或轻量大模型，结�
 运行时长 & CoreMark 运行时间不低于 10 s & 板上 120 MHz 四核 MULTITHREAD：每 hart 17,500 次、共 70,000 次迭代，运行 10.368 s（表~\ref{tab:ares-board-coremark}） & 完成 \\
 模型资源与时序 & 模型整体资源、时序、主频 & CPU+miniTensor：CLMA 10,229（35\%）、FF 24,404、DRM 261、APM 62；27 MHz 约束 WNS +12.85 ns，推算上限约 41.9 MHz。相机整机 WNS $-3.83$ ns & 部分完成 \\
 AI 处理效率 & 延迟与识别率 & 手势：每帧约 1.31 M 周期，27 MHz 下 48.5 ms；INT8 287 帧 100\%，板端 8/8；页面响应约 0.2--0.3 s。语言模型：char-GRU 103 char/s（CPU 为 17）；QA 94\%（880/936） & 完成 \\
-流水线效率分析 & 用 ILA 波形分析 CoreMark 关键算法的流水线效率 & 已有 Verilator 周期统计与分支预测分析；板上在线逻辑分析波形尚未采集 & 待补 \\
+流水线效率分析 & 用 ILA 波形分析 CoreMark 关键算法的流水线效率 & 板上 ILA 采集 list 链表查找与 state 状态机扫描：前者每节点 9 拍、IPC 0.56，受访存相关限制；后者 IPC 0.61，34\% 周期为分支重定向空泡（第~\ref{subsec:ila-analysis}~节） & 完成 \\
 \bottomrule
 \end{tabularx}
 \end{tighttable}
@@ -3240,6 +3240,65 @@ CRC8 + 状态机 & 24,117,405 & 24,169,678 & 4.146383 & 1.855$\times$ \\
 加速变体修改了 CoreMark 热点函数，用于评估软硬件协同收益，不作为 EEMBC 官方分数。
 
 各镜像的复测命令见附录~\ref{app:repro}。
+
+\subsubsection{ILA 波形与关键算法流水线效率}
+\label{subsec:ila-analysis}
+为观察 CoreMark 关键算法在板上的真实流水线行为，在 Mundus 核内挂接 ILA，采样 EX1--EX4 有效位（\code{*_valid_q}）、DCache 命中（\code{*che_hit_q}）、PERIP 请求与就绪（\code{*p_valid_q}/\code{*p_ready_q}）、长操作停顿（\code{*g_stall_q}）、EX2--EX4 停顿（\code{*_stall_q}）以及退休 PC、退休有效与写回数据。
+两组波形均以对应算法的触发信号（链表为 \code{cm_trig_b}，状态机为 \code{cm_trig_c}）在进入第九次内层循环时触发，各截取 125 个周期，被测程序为未加速的软件 CoreMark。
+下文的周期数按每个采样点读取波形得到。
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\linewidth]{ila_list_find.png}
+\caption{ILA 波形：list 链表查找（\code{core_list_find} 内层循环）}
+\label{fig:ila-list}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\linewidth]{ila_state_scan.png}
+\caption{ILA 波形：state 状态机扫描}
+\label{fig:ila-state}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\caption{ILA 窗口内的流水线效率统计（125 个周期）}
+\label{tab:ila-stats}
+\begin{tabularx}{\linewidth}{@{}Xrr@{}}
+\toprule
+指标 & list 链表查找 & state 状态机扫描 \\
+\midrule
+退休指令数 & 70 & 76 \\
+IPC & 0.56 & 0.61 \\
+PERIP 访存请求 / DCache 命中 & 42 / 41 & 14 / 9 \\
+重定向空泡（6 拍/次） & 0 & 7 次，共 42 拍 \\
+相关停顿空泡 & 55 拍 & 7 拍 \\
+最长连续满速退休 & 2 拍 & 26 拍 \\
+长操作与 EX2/EX3 停顿 & 无 & 无 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\paragraph{list 链表查找：访存相关主导}
+图~\ref{fig:ila-list} 中各信号严格以 9 个周期为周期重复，EX1--EX4 与退休有效位逐级后移一拍，说明流水线无反压、无重定向。
+每个周期内退休 5 条指令、发出 3 次访存且全部命中 DCache，与 \code{core_list_find} 的内层循环一一对应：
+\begin{lstlisting}[language={}]
+lw   a5, 0(a5)     # list = list->next
+beqz a5, exit      # 依赖上一条 Load：停 1 拍
+lw   a4, 4(a5)     # list->info
+lh   a4, 2(a4)     # 以上一条 Load 结果作基址：停 2 拍
+bne  a4, s1, loop  # 依赖 lh 结果：停 1 拍；回跳被正确预测，0 拍
+\end{lstlisting}
+相邻指令间的空泡依次为 1、0、2、1、0 拍，合计 4 拍，与第~\ref{subsec:lsu-memory-control}~节的时机规则完全一致：Load 命中在 EX2 产生，紧邻的消费者停一拍；访存基址在 ISS 由 AGU 提前使用，Load 到 Load 基址的相关多停一拍。
+回跳分支与循环出口分支均被正确预测，没有出现重定向空泡，取指前端在 9 拍内稳定供指。
+该循环的瓶颈是指针追逐形成的串行访存链，而不是命中率或取指；这也是链表引擎把整段查找、反转搬入硬件后能取得显著收益的原因。
+
+\paragraph{state 状态机扫描：分支重定向主导}
+图~\ref{fig:ila-state} 中退休序列不再规则：窗口内出现 7 段长度均为 6 拍的空泡，共 42 拍，占窗口的 34\%。
+这些空泡前后没有长操作或 EX2/EX3 停顿，PERIP 也始终就绪，对应按输入字符走向不同分支的数据相关跳转被预测错误：BRU 在 EX1 判定，HZU 寄存一拍后重定向，前端经 ICache 重新取指，每次固定损失 6 拍。
+除重定向外仅有 7 拍零散的 Load 相关停顿；窗口末尾连续 26 拍以 IPC 1 满速退休，表明在预测正确时前端与后端都能保持每拍一条。
+若去掉重定向空泡，该段 IPC 将由 0.61 升至约 0.92，可见状态机扫描的瓶颈在于数据相关分支的预测，这也是状态机引擎以硬件逐字符扫描取代软件分支的原因。
 
 \subsubsection{两核与四核 MULTITHREAD 聚合}
 \code{pipeline-coremark-full-mt} 将总迭代数固定为 200，两核各运行 100 次、
