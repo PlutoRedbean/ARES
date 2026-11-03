@@ -388,7 +388,7 @@ b5 整机 & CLMA 35\%、DRM 63\%、APM 9\% & 27 MHz WNS +12.85 ns \\
 \midrule
 \multicolumn{4}{@{}l}{\textbf{高阶任务}} \\
 存储系统优化 & 2 路组相联指令与数据 Cache，优化总线突发传输 & ICache 四路组相联（单核 4 KiB，AMP 32 KiB/hart），DCache 两路组相联 8 KiB、写直达；外设桥四项写队列与逐字节转发；1520 项 DCache 与 2875 次 ICache 响应核对通过 & 完成 \\
-高级控制逻辑 & 动态分支预测器（如 BTB），完整的异常/中断机制 & 16 项 BTB、2 bit Bimodal、8 项 RAS；ECALL/MRET 与精确机器定时器中断；可启动 RT-Thread Nano，自检输出 \code{ARES} \code{RTOS} \code{PASS}，验证时间片抢占、tick 补偿与延时唤醒 & 完成 \\
+高级控制逻辑 & 动态分支预测器（如 BTB），完整的异常/中断机制 & 128 项 BTB、2 bit Bimodal、8 项 RAS；ECALL/MRET 与精确机器定时器中断；可启动 RT-Thread Nano，自检输出 \code{ARES} \code{RTOS} \code{PASS}，验证时间片抢占、tick 补偿与延时唤醒 & 完成 \\
 AI 加速 & 构建边缘 AI 加速单元，移植 YOLO 或轻量大模型，结合传感器或显示设备 & 自研 miniTensor INT8 协处理器；由 Qwen2.5 语料构建的 H112 对话模型经 UART 运行；OV5640 手势 CNN 驱动网页全息页面；手势（3 类演示/8 类词表）INT8 287 帧 100\%，板端 8/8 & 完成 \\
 \bottomrule
 \end{tabularx}
@@ -1201,69 +1201,15 @@ Redirect & 重置 PC，清元数据与前端队列、旧预测暂存；\code{iro
 \medskip
 \noindent\textbf{接入位置与设计目标}\par
 
-ICache 位于 IFU 与只读 IROM 之间，提供每次一条 32 bit 指令的请求/响应接口。其目标是将前端的取指节奏与底层同步存储器解耦，并利用流水化命中路径维持单发射所需的每拍一条取指吞吐。
-IFU 经 \code{pipeline_icache} 和 \code{pipeline_irom_passthrough} 访问 \code{IROM_BMEM32}。ICache 以整行缓存指令，回填适配器将一行拆为连续的 32 bit IROM 读取，内部结构见图~\ref{fig:icache-architecture}。
+ICache 位于 IFU 与只读指令存储器之间，每次向 IFU 提供一条 32 位指令。它的作用是把前端取指的节奏与较慢的同步存储器解耦：命中时由流水化的查找路径连续供指，使单发射流水线每个时钟周期都能取到一条指令。
+取指请求先送入缓存；未命中时，缓存向只读存储器发起整行读取，回填逻辑再把这一行拆成若干次连续的 32 位读取并装配回缓存。其内部组成见图~\ref{fig:icache-architecture}。
 
-\code{USE_ICACHE=1} 选择缓存路径，\code{USE_ICACHE=0} 仅保留一拍直通适配器，两者向 IFU 提供相同的握手信号。\code{ICACHE_PIPE_HITS=1} 允许命中流水重叠，置 0 则保留串行请求节奏，用于对照取指吞吐的影响。
-AMP 在每个 \code{student_top} 内例化同一主线四路缓存；各 hart 拥有私有缓存和私有 32 KiB IROM，执行相同的只读代码镜像。
+系统提供两种取指路径：启用缓存时使用四路组相联缓存；关闭缓存时只保留一个单周期直通适配器，直接把请求转给只读存储器。两种路径对 IFU 呈现相同的请求/响应握手，因此前端无须感知缓存是否存在。缓存还可以选择是否允许相邻命中重叠流水：允许时，连续命中可每拍供指一条；关闭后则回到“一次请求完成后再发下一次”的串行节奏，便于对照取指吞吐的差异。
+在多核配置中，每个核心都例化同样结构的四路缓存；各 hart 拥有私有缓存和私有 32 KiB 只读存储器，并执行相同的只读代码镜像。
 
 \begin{figure}[htbp]
 \centering
-% ICache internals: directory, early way select, synchronous data array, response slot, refill path.
-\begin{tikzpicture}[ares]
-% ---- IFU side ----
-\node[sig, anchor=east, align=right] (rin) at (0.95,2.30) {req\_valid\\req\_addr};
-\draw[dat] (0.95,2.30) -- (1.55,2.30);
-\fill (1.55,2.30) circle (0.9pt);
-% request register
-\node[regb, minimum width=2.0cm, fill=aresBlue!6] (rq) at (3.15,3.45) {请求寄存\\\sub{tag · 组号 · 字偏移}};
-\draw[dat] (1.55,2.30) |- (rq.west);
-% directory
-\node[mem=aresBlue, minimum width=2.0cm, minimum height=10mm] (dir) at (3.15,2.10)
-  {目录\\\sub{valid · tag · age × 4 路}};
-\draw[dat] (1.55,2.30) -- ([yshift=2mm]dir.west);
-% tag compare / early way select
-\node[blk=aresBlue, minimum width=1.6cm, minimum height=10mm] (cmp) at (5.45,2.10) {tag 比较\\\sub{提前路选择}};
-\draw[dat] (dir.east) -- (cmp.west);
-% data address mux
-\draw[fill=white] (6.75,1.45) -- (7.05,1.65) -- (7.05,2.55) -- (6.75,2.75) -- cycle;
-\draw[dat] (cmp.east) -- (6.75,2.10);
-\node[note, anchor=south] at (6.90,2.75) {\{way, set\}};
-% data array
-\node[mem=aresBlue, minimum width=1.9cm, minimum height=10mm] (data) at (8.30,2.10)
-  {数据阵列\\\sub{同步 BRAM}\\\sub{一项一行}};
-\draw[dat] (7.05,2.10) -- (data.west);
-% word select and response slot
-\node[blk=aresBlue, minimum width=1.2cm, minimum height=10mm] (wsel) at (10.30,2.10) {选字\\\sub{32 bit}};
-\draw[dat] (data.east) -- (wsel.west);
-\draw[dat] (rq.east) -| node[note, pos=0.8, right]{字偏移} (wsel.north);
-\node[regb, minimum width=1.2cm, minimum height=10mm, fill=aresBlue!12] (slot) at (11.95,2.10) {响应槽\\\sub{rsp\_valid\_r}};
-\draw[dat] (wsel.east) -- (slot.west);
-\draw[dat] (slot.east) -- (13.00,2.10) node[sig, anchor=west, align=left] {rsp\_valid\\rsp\_data};
-\node[note, anchor=north] at (11.95,1.48) {满且下游不收：\\结果转 S\_RESP 等待};
-
-% ---- miss path ----
-\node[blk=aresRed, minimum width=1.55cm] (vic) at (2.55,0.45) {victim\\\sub{age = 3 的路}};
-\draw[dat] ([xshift=-6mm]dir.south) -- (vic.north);
-\node[regb, minimum width=1.75cm] (mreg) at (4.60,0.45) {miss 寄存\\\sub{行首 · tag · 组 · 路}};
-\draw[dat] (vic.east) -- (mreg.west);
-\node[blk=aresPurple, minimum width=1.75cm] (rctl) at (6.75,0.45) {回填请求\\\sub{beat\_issue}};
-\draw[dat] (mreg.east) -- (rctl.west);
-\node[regb, minimum width=1.75cm, fill=aresPurple!6] (rbuf) at (9.15,0.45) {回填缓冲\\\sub{refill\_buf[beat\_rsp]}};
-\node[blk=aresPurple, minimum width=4.15cm] (irom) at (7.95,-1.05) {直通适配器 → IROM\_BMEM32\\\sub{逐字读，一拍返回}};
-\draw[dat] (rctl.south) -- node[sig, left]{行首+4i} (rctl.south|-irom.north);
-\draw[dat] (rbuf.south|-irom.north) -- node[sig, right]{rsp} (rbuf.south);
-
-% ---- install (S_FILL) ----
-\draw[aresPurple!80!black, line width=0.7pt] (rbuf.north) -- (9.15,1.25) -- (3.75,1.25);
-\draw[->, draw=aresPurple!80!black] (8.30,1.25) -- (data.south);
-\draw[->, draw=aresPurple!80!black] (3.75,1.25) -- (3.75,1.60);
-\node[note, text=aresPurple!80!black, fill=white, inner sep=1pt] at (6.10,1.25) {S\_FILL：整行与 tag/valid/age 同拍安装};
-
-% ---- FSM ----
-\node[blk, anchor=north east, align=center] (fsm) at (14.15,4.05)
-  {\textbf{控制状态机}\\\sub{IDLE · LOOK · RESP}\\\sub{REFILL → FILL → RELOOK}};
-\end{tikzpicture}
+\includegraphics[width=\linewidth,height=0.5\textheight,keepaspectratio]{figures/module14_icache.drawio.pdf}
 \caption{四路 ICache 内部结构}
 \label{fig:icache-architecture}
 \end{figure}
