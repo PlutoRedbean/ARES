@@ -41,7 +41,7 @@ xelatex -interaction=nonstopmode -halt-on-error technical_report.tex
 - 4.1/4.2：应用侧扩展方向、五个 bug 与优化心得。
 - 附录 C：应用与加速器复现信息（原附录 B 旧版 Mundus 资料已删除）。
 
-报告正文保留 5 张新增核心图（总体架构、miniTensor 架构、GEMV 映射、LLM 路径、手势链路）和 1 组网页截图；core 原有 13 张图与正文内联小图也在同一个文件里，共 20 个 `tikzpicture`。`figures/architecture_sheet.pdf` 是 10 张图的扩展集合，部分图未放进正文。
+报告正文保留 5 张新增核心图（总体架构、miniTensor 架构、GEMV 映射、LLM 路径、手势链路）和 1 组网页截图；core 原有 13 张图与正文内联小图也在同一个文件里，共 21 个 `tikzpicture`。`figures/architecture_sheet.pdf` 是 10 张图的扩展集合，部分图未放进正文。
 
 正文中的手势应用按 8 类词表设计，当前板端只演示/验证了石头、布、剪刀 3 类；其余 5 类已定义、待补样本。
 
