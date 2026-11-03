@@ -14,6 +14,8 @@
 \IfFontExistsTF{SimHei}{\setCJKsansfont{SimHei}}{\setCJKsansfont{Noto Sans CJK SC}}
 \IfFontExistsTF{SimSun}{\setCJKmonofont{SimSun}}{\setCJKmonofont{Noto Serif CJK SC}}
 \setmonofont{DejaVu Sans Mono}[Scale=0.85]
+% 架构框图用无衬线字体；无 Arial 时回退到 TeX Gyre Heros。
+\IfFontExistsTF{Arial}{\newfontfamily\diagfont{Arial}}{\newfontfamily\diagfont{TeX Gyre Heros}}
 \usepackage{graphicx,float,booktabs,longtable,array,makecell,tabularx,multirow}
 \usepackage{amsmath,amssymb,xcolor,enumitem,caption,fancyhdr,setspace,fvextra}
 \usepackage{tikz}
@@ -156,6 +158,53 @@
 }
 % secondary line inside a block
 \newcommand{\sub}[1]{{\color{aresGray}#1}}
+% 架构框图（处理器核、SoC）共用的配色与样式。
+\definecolor{dgFront}{HTML}{FFF2D6}
+\definecolor{dgBack}{HTML}{DDF5E6}
+\definecolor{dgSky}{HTML}{D1E9F4}
+\definecolor{dgKhaki}{HTML}{F2E3B5}
+\definecolor{dgBlue}{HTML}{99CCFF}
+\definecolor{dgPink}{HTML}{FFD9D9}
+\definecolor{dgLilac}{HTML}{E5CCFF}
+\definecolor{dgGold}{HTML}{F0C84A}
+\definecolor{dgTeal}{HTML}{70D0B8}
+\definecolor{dgPort}{HTML}{66CDAA}
+\definecolor{dgRose}{HTML}{F2D7E3}
+\definecolor{dgLav}{HTML}{ECE5FA}
+\definecolor{dgSalmon}{HTML}{FF9999}
+\definecolor{dgMag}{HTML}{FFCCE6}
+\definecolor{dgRed}{HTML}{F8B4B4}
+\definecolor{dgArrow}{HTML}{9999EE}
+% SoC 架构图配色：蓝=核与取指，天蓝=存储，琥珀=MMIO 寄存器，紫=加速器，橙=50 MHz 外设域。
+\definecolor{scBoard}{HTML}{F6F3EC}
+\definecolor{scTop}{HTML}{E8F4EC}
+\definecolor{scBridge}{HTML}{FCE6E0}
+\definecolor{scDom}{HTML}{FFF3DE}
+\definecolor{scAmp}{HTML}{EBEFF9}
+\definecolor{scCore}{HTML}{7FB6EE}
+\definecolor{scInst}{HTML}{B8D6F3}
+\definecolor{scMem}{HTML}{D3EAF6}
+\definecolor{scReg}{HTML}{FFE09A}
+\definecolor{scDecode}{HTML}{F3A897}
+\definecolor{scAccBg}{HTML}{E6E0F7}
+\definecolor{scAcc}{HTML}{BBA9EA}
+\definecolor{scDomBlk}{HTML}{FFC78C}
+\definecolor{scClock}{HTML}{D6CCF0}
+\definecolor{scUart}{HTML}{F8CDB8}
+\tikzset{dgdiagram/.style={
+  font=\diagfont,
+  box/.style={draw=black, line width=0.9pt, fill=##1, align=center,
+    font=\diagfont\bfseries\footnotesize, inner sep=2pt},
+  rbox/.style={box=##1, rounded corners=5pt},
+  title/.style={font=\diagfont\bfseries\small, anchor=north},
+  ctitle/.style={font=\diagfont\bfseries\Large, anchor=north west},
+  fat/.style={draw=dgArrow, line width=3.4pt, -{Triangle[length=2.6mm,width=4.6mm]}},
+  fatb/.style={draw=dgArrow, line width=3.4pt,
+    {Triangle[length=2.6mm,width=4.6mm]}-{Triangle[length=2.6mm,width=4.6mm]}},
+  fatl/.style={draw=dgArrow, line width=3.4pt},
+  lab/.style={font=\diagfont\footnotesize, inner sep=1.5pt},
+  dbox/.style={box=##1, dashed},
+}}
 
 
 \lstset{basicstyle=\ttfamily\fontsize{9}{12}\selectfont,breaklines=true,columns=fullflexible,numbers=none,frame=none}
@@ -348,142 +397,181 @@ AI 处理效率 & 延迟与识别率 & 手势：每帧约 1.31 M 周期，27 MHz
 \section{系统组成及功能说明}
 \subsection{整体介绍}
 ARES 以 Mundus 处理器为核心，前端经 IROM 请求/响应接口连接 ICache 或直通适配器，后端经含 DCache 的 LSU 和 PERIP 接口访问数据存储及外设。
-处理器内部由前端预测和取指、译码、发射与寄存器读取、执行、LSU、乘除法及写回单元构成，模块关系见图~\ref{fig:core-overview}。
+处理器内部由前端预测和取指、译码、发射与寄存器读取、执行、LSU、乘除法及写回单元构成，核架构见图~\ref{fig:core-overview}。IFU 经两级队列向后端供指，ISU 在 ISS 读取 GPR、完成旁路判定并提前计算访存地址，EX1--EX4 与 LSU 的 LS1--LS3 对齐，WBU 顺序提交。
 HZU 根据分支结果协调重定向，ISU 根据数据就绪状态决定旁路与互锁，WB 保持顺序提交。
-图~\ref{fig:soc-framework} 表示单核 SoC 的连接概览。AMP 为每 hart 例化 \code{student_top}、私有 IROM/ICache/数据 BRAM 和加速器，另连共享 uncached mailbox。
+图~\ref{fig:soc-framework}(a) 为单核 SoC 架构：\code{student_top} 内的取指路径经 ICache 和回填适配器读取 IROM，数据路径经外设桥译码后访问写队列与数据 BRAM、MMIO 加速器及各类寄存器；UART、毫秒计数器和显示驱动位于 50 MHz 外设时钟域，经 CDC 与 100 MHz CPU 域交互。图~\ref{fig:soc-framework}(b) 为 AMP 架构：每 hart 例化一份 \code{student_top}，含私有 IROM/ICache/数据 BRAM 和加速器，另连共享 uncached mailbox。
 \code{pipeline_mc_soc_top} 则是共享 L2 的独立实验配置。
 
 \begin{figure}[htbp]
 \centering
-\begin{tikzpicture}[>=Latex,node distance=9mm,
- box/.style={draw,align=center,minimum height=9mm,font=\small},
- core/.style={box,text width=3.0cm},other/.style={box,text width=2.3cm}]
-\node[core] (cpu) {Mundus 处理器核\\Core\_cpu};
-\node[other,right=17mm of cpu] (irom) {ICache / 直通\\IROM 32 KiB};
-\node[other,below=12mm of cpu] (bridge) {PERIP 互连与译码};
-\node[other,left=8mm of bridge] (dram) {DRAM\\256 KiB};
-\node[other,right=8mm of bridge] (io) {UART / timer / IO\\MMIO 加速器};
-\draw[->] (cpu)--node[above,font=\scriptsize]{取指请求}(irom);
-\draw[->] ([yshift=-3mm]irom.west)--node[below,font=\scriptsize]{指令}([yshift=-3mm]cpu.east);
-\draw[<->] (cpu)--node[right,font=\scriptsize]{地址、控制、数据}(bridge);
-\draw[<->] (bridge)--(dram);\draw[<->] (bridge)--(io);
+% Mundus core architecture, block-diagram style: FrontEnd on top, BackEnd below.
+\begin{tikzpicture}[dgdiagram]
+% ============================ FrontEnd ============================
+\draw[draw=black, line width=1pt, fill=dgFront, rounded corners=8pt] (0,11.00) rectangle (13.60,19.60);
+\node[ctitle] at (0.30,19.45) {FrontEnd};
+
+\node[rbox=dgSky, minimum width=10.4cm, minimum height=1.25cm] (irom) at (7.10,17.85)
+  {{\small ICache + IROM}\\(4-way · 4 KiB / 32 KiB)};
+
+% prediction column
+\node[box=dgBlue, minimum width=2.50cm, minimum height=0.85cm] (pc) at (2.15,16.05) {PC};
+\node[box=dgKhaki, minimum width=2.50cm, minimum height=0.95cm] (btb) at (2.15,14.55) {BTB\\(16 entries)};
+\node[box=dgKhaki, minimum width=2.50cm, minimum height=0.95cm] (bim) at (2.15,13.25) {Bimodal BPU\\(2-bit)};
+\node[box=dgKhaki, minimum width=2.50cm, minimum height=0.95cm] (ras) at (2.15,11.95) {Return Address\\Stack (RAS, 8)};
+\draw[fat] (btb.north) -- node[lab, right]{Pred} (pc.south);
+\draw[fat] (pc.north) -- node[lab, right]{Addr} (2.15,17.22);
+
+% fetch column
+\node[box=dgBlue, minimum width=4.0cm, minimum height=0.85cm] (meta) at (8.40,15.95) {Fetch Meta (×2)};
+\node[box=dgBlue, minimum width=4.0cm, minimum height=0.85cm] (fq) at (8.40,14.35) {Fetch Queue (×8)};
+\draw[fat] (8.40,17.22) -- node[lab, right]{32 bits / cycle} (meta.north);
+\draw[fat] (meta.south) -- node[lab, right]{Inst} (fq.north);
+
+\node[box=dgPink, minimum width=8.4cm, minimum height=1.95cm] (idu) at (8.40,12.35) {};
+\node[title] at (8.40,13.25) {IDU (Instruction Decode Unit)};
+\node[box=dgLilac, minimum width=3.0cm, minimum height=0.75cm] at (6.60,11.95) {Decoder};
+\node[box=dgLilac, minimum width=3.0cm, minimum height=0.75cm] at (10.20,11.95) {Imm Gen};
+\draw[fat] (fq.south) -- (8.40,13.30);
+
+% ============================ BackEnd ============================
+\draw[draw=black, line width=1pt, fill=dgBack, rounded corners=8pt] (0,0) rectangle (13.60,10.60);
+\node[ctitle] at (0.30,10.45) {BackEnd};
+
+\draw[fat] (8.40,11.37) -- node[lab, right, pos=0.45]{Ctrl} (8.40,10.02);
+
+% ISU
+\node[box=dgKhaki, minimum width=6.8cm, minimum height=2.10cm] (isu) at (7.60,8.95) {};
+\node[title] at (7.60,9.95) {ISU (Issue Unit)};
+\node[box=dgGold, minimum width=1.55cm, minimum height=0.95cm] at (5.10,8.55) {AGU};
+\node[box=dgKhaki!60, minimum width=2.00cm, minimum height=0.95cm] at (7.25,8.55) {Bypass /\\Interlock};
+\node[box=dgSky, minimum width=2.30cm, minimum height=0.95cm] at (9.75,8.55) {Register File\\(32 × 32)};
+
+% HZU
+\node[box=dgRed, minimum width=2.50cm, minimum height=1.20cm] (hzu) at (2.15,8.95) {HZU\\(Redirect)};
+
+% OP bus and ports
+\def\ux{1.85,3.49,5.13,6.77,8.41,10.05}
+\draw[fatl] (7.60,7.90) -- (7.60,7.35);
+\draw[fatl] (1.85,7.35) -- (10.05,7.35);
+\node[lab, anchor=south east] at (1.75,7.35) {OP};
+\foreach \x in \ux \draw[fat] (\x,7.35) -- (\x,6.82);
+
+% EXU
+\node[box=dgTeal, minimum width=10.1cm, minimum height=1.75cm] (exu) at (5.95,5.58) {};
+\foreach \x in \ux
+  \node[box=dgPort, minimum width=1.10cm, minimum height=0.42cm, font=\diagfont\bfseries\footnotesize] at (\x,6.50) {Port};
+\node[title] at (5.95,6.20) {EXU (Execute Unit, EX1–EX4)};
+\foreach \x/\t in {1.85/Branch, 3.49/ALU, 5.13/CSR, 6.77/CRC8, 8.41/MUL, 10.05/DIV}
+  \node[box=dgGold, minimum width=1.40cm, minimum height=0.70cm] at (\x,5.10) {\t};
+
+% redirect: branch result -> HZU -> PC
+\draw[fatl] (0.90,5.30) -- (0.45,5.30) -- (0.45,8.95);
+\draw[fat] (0.45,8.95) -- (hzu.west);
+\node[lab, rotate=90, anchor=south] at (0.40,7.10) {Branch};
+\draw[fatl] (hzu.east) -- (3.90,8.95) -- (3.90,16.05);
+\draw[fat] (3.90,16.05) -- (pc.east);
+\node[lab, rotate=90, anchor=north] at (3.98,15.00) {Redirect};
+
+% bypass: EXU -> ISU
+\draw[fatl] (exu.east |- 0,5.60) -- (11.38,5.60) -- (11.38,8.95);
+\draw[fat] (11.38,8.95) -- (isu.east);
+\node[lab, rotate=90, anchor=south] at (11.33,7.45) {Bypass};
+
+% WBU
+\node[box=dgRose, minimum width=3.50cm, minimum height=3.50cm] (wbu) at (2.65,2.15) {{\small WBU}\\{\small (Writeback Unit)}\\[2pt]in-order retire};
+\draw[fat] (1.85,4.70) -- node[lab, right]{rd} (1.85,3.92);
+
+% LSU
+\node[box=dgLav, minimum width=6.2cm, minimum height=3.50cm] (lsu) at (7.90,2.15) {};
+\node[title] at (7.90,3.85) {LSU (Load Store Unit)};
+\node[box=dgRose, minimum width=5.6cm, minimum height=0.70cm] at (7.90,2.75) {LS1 → LS2 → LS3};
+\node[box=dgSky, minimum width=2.65cm, minimum height=1.15cm] at (6.48,1.20) {DCache\\(8 KiB, 2-way)};
+\node[box=dgRose, minimum width=2.65cm, minimum height=1.15cm] at (9.33,1.20) {Return\\Queue (×2)};
+\draw[fatb] (7.90,4.70) -- node[lab, right]{addr / wdata / rdata} (7.90,3.92);
+
+% Perip Bridge
+\node[rbox=dgSalmon, minimum width=1.75cm, minimum height=9.55cm] (br) at (12.62,5.20) {};
+\node[font=\diagfont\bfseries\small, align=left, anchor=north west] at (11.82,9.88) {Perip\\Bridge};
+\node[rbox=dgMag, minimum width=1.45cm, minimum height=1.75cm] (mmio) at (12.62,6.80) {MMIO\\Accel};
+\node[rbox=dgSky, minimum width=1.45cm, minimum height=1.55cm] (bram) at (12.62,4.25) {BRAM};
+\node[rbox=dgSky, minimum width=1.45cm, minimum height=1.75cm] (sb) at (12.62,1.55) {Store\\Buffer\\(×4)};
+\draw[fat] (lsu.east |- 0,1.55) -- (sb.west);
+\draw[fat] (sb.north) -- (bram.south);
 \end{tikzpicture}
-\caption{ARES 单核 SoC 连接概览（DCache 位于核内 LSU）}
-\label{fig:soc-framework}
+\caption{Mundus 处理器核架构}
+\label{fig:core-overview}
 \end{figure}
 \begin{figure}[htbp]
 \centering
-% Mundus core: module relation overview.
-\begin{tikzpicture}[ares]
-% ---------------- group frames ----------------
-\draw[grp=aresBlue]   (0.00,0) rectangle (2.60,4.0);
-\draw[grp=aresTeal]   (3.00,0) rectangle (4.25,4.0);
-\draw[grp=aresTeal]   (4.65,0) rectangle (7.15,4.0);
-\draw[grp=aresAmber]  (7.55,0) rectangle (12.55,4.0);
-\draw[grp=aresGreen]  (12.95,0) rectangle (14.35,4.0);
-\node[gtitle=aresBlue]  at (0.00,4.0) {IFU};
-\node[gtitle=aresTeal]  at (3.00,4.0) {IDU};
-\node[gtitle=aresTeal]  at (4.65,4.0) {ISU};
-\node[gtitle=aresAmber] at (7.55,4.0) {EXU};
-\node[gtitle=aresGreen] at (12.95,4.0) {WBU};
+% ARES SoC architecture, block-diagram style: (a) single-hart board top, (b) AMP.
+\begin{tikzpicture}[dgdiagram]
+% ============================ (a) Board Top ============================
+\draw[draw=black, line width=1pt, fill=scBoard, rounded corners=8pt] (0,4.25) rectangle (13.60,16.40);
+\node[ctitle] at (0.25,16.30) {(a) Board Top};
 
-% ---------------- IFU ----------------
-\begin{scope}[every node/.append style={minimum width=2.25cm}]
-\node[blk=aresBlue] (pc)  at (1.30,3.00) {PC · 提前查询};
-\node[blk=aresBlue] (bpu) at (1.30,2.15) {BPU\\\sub{BTB+Bimodal+RAS}};
-\node[regb]         (meta) at (1.30,1.25) {取指元数据 ×2};
-\node[regb]         (fq)   at (1.30,0.50) {前端队列 ×8};
-\end{scope}
+\node[box=scClock, minimum width=1.90cm, minimum height=1.00cm] (clk) at (1.45,14.25) {Clock\\Reset};
+\node[box=scUart, minimum width=1.90cm, minimum height=1.00cm] (uart) at (1.45,6.30) {UART\\(115200)};
+\draw[fat] (clk.south) -- node[lab, right]{50 MHz} (uart.north);
 
-% ---------------- IDU ----------------
-\begin{scope}[every node/.append style={minimum width=1.0cm}]
-\node[blk=aresTeal] at (3.625,3.00) {译码};
-\node[blk=aresTeal] at (3.625,2.25) {立即数};
-\node[blk=aresTeal] at (3.625,1.35) {生产/消费\\时机码};
-\node[blk=aresTeal] at (3.625,0.50) {RAS 提示};
-\end{scope}
+% ---- student_top ----
+\draw[draw=black, line width=1pt, fill=scTop, rounded corners=8pt] (3.05,4.70) rectangle (13.35,15.55);
+\node[font=\diagfont\bfseries\small, anchor=north west] at (3.20,15.45) {student\_top};
 
-% ---------------- ISU ----------------
-\begin{scope}[every node/.append style={minimum width=2.25cm}]
-\node[mem=aresTeal] (gpr) at (5.90,3.00) {GPR\ \sub{32×32 同步读}};
-\node[blk=aresTeal] (byp) at (5.90,1.95) {相关检测 · 一级旁路\\\sub{where · mask}};
-\node[blk=aresTeal] (agu) at (5.90,0.85) {AGU\\\sub{rs1+imm · AMP 偏移}};
-\end{scope}
+\node[box=scCore, minimum width=2.40cm, minimum height=1.00cm] (core) at (5.30,14.25) {Mundus Core};
+\node[box=scInst, minimum width=2.10cm, minimum height=1.00cm] (ic) at (8.55,14.25) {ICache\\(4 KiB)};
+\node[rbox=scMem, minimum width=2.40cm, minimum height=1.00cm] (irom) at (11.75,14.25) {IROM\\(32 KiB)};
+\draw[fat] (clk.east) -- node[lab, above]{100 MHz} (core.west);
+\draw[fatb] (core.east) -- node[lab, above]{Inst} (ic.west);
+\draw[fatb] (ic.east) -- node[lab, above]{Refill} (irom.west);
 
-% ---------------- EXU ----------------
-\node[stagehead=aresAmber, minimum width=1.60cm] at (8.45,3.40) {EX1};
-\node[stagehead=aresAmber, minimum width=1.20cm] at (9.97,3.40) {EX2};
-\node[stagehead=aresAmber, minimum width=0.95cm] at (11.17,3.40) {EX3};
-\node[stagehead=aresAmber, minimum width=0.70cm] at (12.07,3.40) {EX4};
-\begin{scope}[every node/.append style={minimum width=1.60cm}]
-\node[cell=aresAmber] at (8.45,2.90) {二级旁路};
-\node[cell=aresAmber] at (8.45,2.40) {ALU · BRU};
-\node[cell=aresAmber] at (8.45,1.90) {CSR};
-\node[cell=aresAmber] at (8.45,1.40) {CRC8 前半};
-\node[cell=aresAmber] (md) at (8.45,0.90) {乘/除法启动};
-\node[cell=aresAmber] (ls1in) at (8.45,0.40) {访存请求};
-\end{scope}
-\begin{scope}[every node/.append style={minimum width=1.20cm}]
-\node[cell=aresAmber] at (9.97,2.90) {命中数据};
-\node[cell=aresAmber] at (9.97,2.40) {CRC8 后半};
-\node[cell=aresAmber] at (9.97,1.90) {miss 判定};
-\end{scope}
-\node[cell=aresAmber, minimum width=0.95cm] at (11.17,2.90) {慢 Load};
-\node[cell=aresAmber, minimum width=0.70cm] at (12.07,2.90) {传递};
-\node[cell=aresAmber, minimum width=3.09cm, anchor=west] (mul) at (9.37,0.90) {乘法流水 · 除法迭代};
+% ---- Perip Bridge ----
+\draw[draw=black, line width=1pt, fill=scBridge, rounded corners=6pt] (3.35,5.00) rectangle (13.05,12.95);
+\node[font=\diagfont\bfseries\small, anchor=north east] at (12.95,12.88) {Perip Bridge};
+\draw[fatb] (5.10,13.75) -- node[lab, right, pos=0.22]{PERIP} (5.10,12.00);
 
-% ---------------- WBU ----------------
-\begin{scope}[every node/.append style={minimum width=1.15cm}]
-\node[blk=aresGreen] at (13.65,3.00) {结果选择};
-\node[blk=aresGreen] at (13.65,2.15) {GPR 写回};
-\node[blk=aresGreen] at (13.65,1.30) {顺序退休};
-\node[blk=aresGreen] at (13.65,0.50) {EBREAK\\停机};
-\end{scope}
+\node[box=scDecode, minimum width=9.45cm, minimum height=0.60cm] (dec) at (8.20,11.70) {Address Decode};
+\foreach \x in {4.30,5.95,7.85,10.00,12.10} \draw[fat] (\x,11.40) -- (\x,10.72);
 
-% ---------------- main flow ----------------
-\foreach \a/\b in {2.60/3.00, 4.25/4.65, 7.15/7.55, 12.55/12.95}
-  \draw[dat, line width=0.9pt] (\a,1.95) -- (\b,1.95);
-\draw[dat] (mul.east) -- (12.95,0.90);
+\node[box=scReg, minimum width=1.50cm, minimum height=1.20cm] (con) at (4.30,10.10) {Console};
+\node[box=scReg, minimum width=1.50cm, minimum height=1.20cm] (tmr) at (5.95,10.10) {Timer};
+\node[box=scMem, minimum width=1.90cm, minimum height=0.95cm] (sb) at (7.85,10.22) {Store\\Buffer (×4)};
+\node[rbox=scMem, minimum width=1.90cm, minimum height=0.95cm] (bram) at (7.85,8.85) {BRAM\\(256 KiB)};
+\draw[fat] (sb.south) -- (bram.north);
 
-% ---------------- bypass & write-back (top) ----------------
-\draw[fwd] (13.35,4.0) |- (6.50,4.35) -- (6.50,4.0);
-\foreach \x in {8.45,9.97,11.17,12.07} \draw[aresAmber!90!black] (\x,4.0) -- (\x,4.35);
-\foreach \x in {8.45,9.97,11.17,12.07,13.35} \fill[aresAmber!90!black] (\x,4.35) circle (0.9pt);
-\node[note, text=aresAmber!80!black, anchor=south] at (9.97,4.35) {旁路：EX1–EX4、WB 结果送回 ISU};
-\draw[dat] (14.00,4.0) |- (5.30,4.85) -- (5.30,4.0);
-\node[note, anchor=south] at (9.97,4.85) {GPR 写端口};
+\node[box=scAccBg, minimum width=2.20cm, minimum height=2.70cm] (acc) at (10.00,9.36) {};
+\node[title, font=\diagfont\bfseries\footnotesize] at (10.00,10.66) {Accelerators};
+\foreach \y/\t in {9.85/Matrix, 9.20/State, 8.55/List}
+  \node[box=scAcc, minimum width=1.60cm, minimum height=0.48cm] at (10.00,\y) {\t};
 
-% ---------------- LSU ----------------
-\draw[grp=aresGreen] (7.55,-2.10) rectangle (12.55,-0.35);
-\node[gtitle=aresGreen] at (7.55,-0.35) {LSU};
-\node[cell=aresGreen, minimum width=1.10cm] (ls1) at (8.45,-1.00) {LS1};
-\node[cell=aresGreen, minimum width=1.10cm] (ls2) at (9.97,-1.00) {LS2};
-\node[cell=aresGreen, minimum width=0.95cm] (ls3) at (11.17,-1.00) {LS3};
-\node[mem=aresGreen, minimum width=4.40cm, minimum height=5mm] (dc) at (10.05,-1.65)
-  {DCache\ \sub{8 KiB · 两路 · 写直达}};
-\draw[dat] (ls1in.south) -- (ls1.north);
-\draw[dat] (ls2.north) -- (9.97,0.0);
-\draw[dat] (ls3.north) -- (11.17,0.0);
+\node[dbox=scMem, minimum width=1.80cm, minimum height=0.95cm] (mbox) at (12.10,10.22) {Mailbox\\(AMP)};
+\node[box=scReg, minimum width=1.80cm, minimum height=0.95cm] (io) at (12.10,8.85) {IO Regs};
 
-% ---------------- HZU / redirect ----------------
-\node[blk=aresRed, minimum width=2.25cm] (hzu) at (5.90,-1.20) {重定向控制\\\sub{分支 · replay · 中断}};
-\draw[ctl] (7.55,0.25) -- (7.35,0.25) -- (7.35,-1.20) -- (hzu.east);
-\draw[ctl] (hzu.west) -| (2.05,0);
-\node[note, text=aresRed, anchor=north] at (3.30,-1.25) {redirect / BPU 更新};
+% ---- 50 MHz domain ----
+\draw[draw=black, line width=0.9pt, dashed, fill=scDom, rounded corners=5pt] (3.55,5.25) rectangle (12.85,7.45);
+\node[font=\diagfont\bfseries\footnotesize, anchor=north] at (8.85,7.38) {50 MHz Domain};
+\node[box=scDomBlk, minimum width=1.50cm, minimum height=1.00cm] (usync) at (4.30,6.20) {UART\\Sync};
+\node[box=scDomBlk, minimum width=1.50cm, minimum height=1.00cm] (ms) at (5.95,6.20) {ms\\Counter};
+\node[box=scDomBlk, minimum width=1.80cm, minimum height=1.00cm] (disp) at (12.10,6.20) {Display};
+\draw[fatb] (con.south) -- (usync.north);
+\draw[fatb] (tmr.south) -- (ms.north);
+\draw[fatb] (io.south) -- (disp.north);
+\draw[fat] (usync.west) -- (uart.east);
+\draw[fat] (disp.south) -- (12.10,4.30);
+\node[lab, anchor=east] at (11.95,4.48) {LED};
 
-% ---------------- SoC side ----------------
-\draw[aresLine, dashed] (-0.05,-2.45) -- (14.40,-2.45);
-\node[note, anchor=south east] at (14.40,-2.45) {Mundus 核};
-\node[note, anchor=north east] at (14.40,-2.45) {SoC};
-\node[blk=aresPurple, minimum width=2.60cm] (ic) at (1.30,-3.20) {ICache / 直通\\\sub{IROM 32 KiB}};
-\node[blk=aresPurple, minimum width=4.40cm] (br) at (10.05,-3.20) {PERIP 外设桥\\\sub{写队列 · 数据 BRAM · MMIO · 加速器}};
-\draw[dat] (0.80,0) -- node[sig, left, pos=0.55]{req} (0.80,-2.85);
-\draw[dat] (1.30,-2.85) -- node[sig, right, pos=0.45]{rsp} (1.30,0);
-\draw[dat] (9.50,-2.10) -- node[sig, left]{req} (9.50,-2.85);
-\draw[dat] (10.60,-2.85) -- node[sig, right]{rdata} (10.60,-2.10);
+% ============================ (b) AMP ============================
+\draw[draw=black, line width=1pt, fill=scAmp, rounded corners=8pt] (0,0) rectangle (13.60,4.15);
+\node[ctitle] at (0.25,4.05) {(b) AMP};
+\foreach \k/\s in {0/box,1/box,2/dbox,3/dbox}
+  \node[\s=scCore, minimum width=2.20cm, minimum height=0.85cm] (h\k) at (1.65+2.65*\k,2.40) {hart \k};
+\node[box=scMem, minimum width=10.15cm, minimum height=0.65cm] (smb) at (5.625,0.70) {Shared Mailbox};
+\foreach \k in {0,...,3} \draw[fatb] (h\k.south) -- (1.65+2.65*\k,1.03);
+\node[box=scUart, minimum width=1.90cm, minimum height=0.85cm] (u2) at (12.30,2.40) {UART};
+\draw[fatl] (h0.north) -- (1.65,3.20) -- (12.30,3.20);
+\draw[fat] (12.30,3.20) -- (u2.north);
 \end{tikzpicture}
-\caption{Mundus 核内模块关系}
-\label{fig:core-overview}
+\caption{ARES SoC 架构：(a) 单核；(b) AMP 多核（虚线 hart 仅在 4 核配置中存在）}
+\label{fig:soc-framework}
 \end{figure}
 
 % ===== 新增：应用与加速器总体 =====
