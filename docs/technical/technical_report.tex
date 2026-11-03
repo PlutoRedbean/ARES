@@ -418,7 +418,7 @@ HZU 根据分支结果协调重定向，ISU 根据数据就绪状态决定旁路
 % ===== 新增：应用与加速器总体 =====
 \paragraph{平台与口径}
 
-应用与加速器部分在 ARES-L 五级应用基线上完成；它与 Mundus 九级核共享 RV32IM、uncached 数据视图和同一套 miniTensor RTL，Mundus 侧的 CV-X-IF 端口与 512 KiB 窗口是后续移植项。图~\ref{fig:app-overview} 给出总体关系：CPU 经 MMIO/CV-X-IF 发命令，DMA 在 UB 与 scratch/BRAM 间搬数，两个应用共用一套软件栈。
+应用与加速器部分统一以 ARES-L 五级应用基线为口径：CPU 是 ARES-L 五级顺序核，数据按 uncached 视图访问，miniTensor 通过 CV-X-IF 兼容 shim 接入。本部分提到的 CPU 都指这一基线。图~\ref{fig:app-overview} 给出总体关系：CPU 经 MMIO/CV-X-IF 发命令，DMA 在 UB 与 scratch/BRAM 间搬数，两个应用共用一套软件栈。
 
 \begin{figure}[htbp]
 \centering
@@ -426,7 +426,7 @@ HZU 根据分支结果协调重定向，ISU 根据数据就绪状态决定旁路
 \begin{tikzpicture}[ares, x=1cm, y=1cm]
 % ================= SoC row =================
 \node[blk=aresBlue, text width=3.0cm, minimum height=1.45cm] (cpu) at (1.8,7.7)
-  {ARES-L 五级核 / Mundus 九级核\\\sub{RV32IM · L1I · 无数据 Cache}};
+  {ARES-L 五级核\\\sub{RV32IM · L1I · 无数据 Cache}};
 \node[blk=aresTeal, text width=3.0cm, minimum height=1.0cm] (mmio) at (1.8,6.15)
   {MMIO 窗口\\\sub{0xE0000000}\\\sub{8 个寄存器}};
 \draw[dat] (cpu) -- (mmio);
@@ -2023,7 +2023,7 @@ FENCE 在 ID 等待 LSU 与桥同时空闲；EBREAK 退休后冻结流水线。
 \paragraph{自研 miniTensor 加速器}
 \label{par:minitensor}
 
-miniTensor 挂在 CPU 的 CV-X-IF 通道上，不是总线从设备：CPU 只通过 8 个 MMIO 寄存器写指令和两个操作数，shim 合成 issue→register→commit→result 事务，DMA 在统一缓冲与 scratch/BRAM 之间搬数。三条约束决定了结构：无 FPU，全整数；无数据 Cache，CPU 与 DMA 必须看到同一物理视图；窗口只有 4 KiB，命令必须极简。图~\ref{fig:mt-arch} 给出 shim、64 项命令队列、4×4 阵列、向量单元、epilogue、UB 与 DMA 的关系。
+miniTensor 接在 CPU 的 CV-X-IF 通道上，不是挂在总线上的外设：CPU 只通过 8 个 MMIO 寄存器写指令和两个操作数，shim 合成 issue→register→commit→result 事务，DMA 在统一缓冲与 scratch/BRAM 之间搬数。三个限制决定了它的结构：无 FPU，全整数；无数据 Cache，CPU 与 DMA 必须看到同一物理视图；窗口只有 4 KiB，命令就得尽量简单。图~\ref{fig:mt-arch} 给出 shim、64 项命令队列、4×4 阵列、向量单元、epilogue、UB 与 DMA 的关系。
 
 \begin{figure}[htbp]
 \centering
@@ -2031,7 +2031,7 @@ miniTensor 挂在 CPU 的 CV-X-IF 通道上，不是总线从设备：CPU 只通
 \begin{tikzpicture}[ares, x=1cm, y=1cm]
 % ---------------- CPU side ----------------
 \node[blk=aresBlue, text width=2.8cm, minimum height=1.3cm] (cpu) at (1.7,7.7)
-  {ARES-L / Mundus\\\sub{RV32IM · uncached}};
+  {ARES-L 五级核\\\sub{RV32IM · uncached}};
 \node[blk=aresTeal, text width=2.9cm, minimum height=1.05cm] (mmio) at (1.7,6.15)
   {MMIO 寄存器组\\\sub{INSTR RS1 RS2 KICK\\STATUS BSTEP LO}};
 \draw[dat] (cpu) -- (mmio);
@@ -2102,7 +2102,7 @@ miniTensor 挂在 CPU 的 CV-X-IF 通道上，不是总线从设备：CPU 只通
 \label{fig:mt-arch}
 \end{figure}
 
-统一缓冲以 128 bit 为一行，正好 16 个 INT8 或 4 个 INT32；A/B tile 各占一行，C tile 占四行，4 拍把 $k=0,\ldots,3$ 的乘积累加到 16 个 32 bit 累加器，\code{accumulate} 位选择初始化或累加。所有指令为 custom-0：\code{BURST} 用 rd 当重复次数，\code{GEMM2D} 用 nu×nj 展开二维网格，\code{CONVGROUP} 把 LOAD 与网格合成一条。图~\ref{fig:mt-gemv} 给出 GEMV 映射：A 行 0 放 $x[4t..4t{+}3]$、行 1--3 补零，B 放 [组][k 组][4k][4out] 权重，\mbox{C 只取行 0}，沿 $t$ 累加。这样 $1\times1$ 卷积就是 GEMV，不需要第二套数据通路，代价是阵列利用率约 1/4。
+UB 每行 128 bit，正好 16 个 INT8 或 4 个 INT32；A/B tile 各占一行，C tile 占四行，4 拍把 $k=0,\ldots,3$ 的乘积累加到 16 个 32 bit 累加器，\code{accumulate} 位选择初始化或累加。所有指令为 custom-0：\code{BURST} 用 rd 当重复次数，\code{GEMM2D} 用 nu×nj 展开二维网格，\code{CONVGROUP} 把 LOAD 与网格合成一条。图~\ref{fig:mt-gemv} 给出 GEMV 映射：A 行 0 放 $x[4t..4t{+}3]$、行 1--3 补零，B 放 [组][k 组][4k][4out] 权重，\mbox{C 只取行 0}，沿 $t$ 累加。这样一来，$1\times1$ 卷积就是 GEMV，不需要第二套数据通路，代价是阵列利用率约 1/4。
 
 \begin{figure}[htbp]
 \centering
@@ -2155,7 +2155,7 @@ miniTensor 挂在 CPU 的 CV-X-IF 通道上，不是总线从设备：CPU 只通
 \label{fig:mt-gemv}
 \end{figure}
 
-基线每帧 17,184 条命令、约 7.27 M 周期，加速器 busy 只有 7.7\%；把外层循环搬进 shim 后降到 1,936 条、约 1.31 M 周期，busy 升到 39\%。b5 post-route：CLMA 10,229/30,075（35\%）、FF 24,404（11\%）、DRM 261/415（63\%）、APM 62/740（9\%）；b5$-$b4 为 +6,276 LUT、+5,067 FF、+48 APM、+4.5 DRM；27 MHz WNS +12.85 ns，推算上限约 41.9 MHz。验证采用命令级单测、逐层整数 golden 与板端串口：手势 287 帧 INT8 100\%、板端 8/8，A0 40 token 0/40。miniTensor 的优势正在于“同一阵列覆盖两类负载、命令化把循环搬进硬件、资源增量可控”。表~\ref{tab:mt-perf} 给出关键几级优化：命令数从 17,184 降到 1,936，周期从 7.27 M 降到约 1.31 M。
+基线每帧 17,184 条命令、约 7.27 M 周期，加速器 busy 只有 7.7\%；把外层循环搬进 shim 后降到 1,936 条、约 1.31 M 周期，busy 升到 39\%。b5 post-route：CLMA 10,229/30,075（35\%）、FF 24,404（11\%）、DRM 261/415（63\%）、APM 62/740（9\%）；b5$-$b4 为 +6,276 LUT、+5,067 FF、+48 APM、+4.5 DRM；27 MHz WNS +12.85 ns，推算上限约 41.9 MHz。验证采用命令级单测、逐层整数 golden 与板端串口：手势 287 帧 INT8 100\%、板端 8/8，A0 40 token 0/40。它的优势可以概括为“同一阵列覆盖两类负载、命令化把循环搬进硬件、资源增量可控”。表~\ref{tab:mt-perf} 给出关键几级优化：命令数从 17,184 降到 1,936，周期从 7.27 M 降到约 1.31 M。
 
 \begin{table}[H]
 \centering
@@ -2267,7 +2267,7 @@ IO 模拟 & LED、SEG、计时控制 & 灯组、数码管和运行时间 \\
 
 Qwen2.5-0.5B-Instruct~\cite{qwen2025} 有 24 层、$d=896$、494M 参数，FP16 权重约 1 GB、INT8 仍约 494 MB；片上窗口只有 512 KiB。把 0.5B 搬到 DDR 需要 64--128 lane 的 GEMV 和 BPE 词表，是另一条路线；我们选择把能力压到 $10^5$ 参数级、让它常驻片上：Qwen 提供语料与语言能力，板上运行 H112。
 
-四个形态各有分工（表~\ref{tab:llm-models}）：H112 140,742 参数 / 152,056 B，是当前部署；H88 107,000 / 118,168 B，适配 128 KB loader；A0 56,480，用来做 CPU 与加速器的同模型对照；QA 10,475 条 / 638,076 B，留出模板 94\%。A0 的 CPU 路径用 int16 Q15、17 char/s；miniTensor 把 GEMV 映射为 1×1 卷积，int8、103 char/s @27 MHz、0/40 golden。6 倍提升来自“把 GEMV 变成阵列友好的形状”，代价是 INT8 激活的文本质量，下一步做 QAT。图~\ref{fig:llm-flow} 给出从 Qwen 语料到两条执行路径。
+四个形态各管一件事（表~\ref{tab:llm-models}）：H112 140,742 参数 / 152,056 B，是当前部署；H88 107,000 / 118,168 B，适配 128 KB loader；A0 56,480，用来做 CPU 与加速器的同模型对照；QA 10,475 条 / 638,076 B，留出模板 94\%。A0 的 CPU 路径用 int16 Q15、17 char/s；miniTensor 把 GEMV 映射为 1×1 卷积，int8、103 char/s @27 MHz、0/40 golden。6 倍提升主要来自“把 GEMV 变成阵列友好的形状”，代价是 INT8 激活的文本质量，下一步做 QAT。图~\ref{fig:llm-flow} 给出从 Qwen 语料到两条执行路径。
 
 \begin{table}[H]
 \centering
@@ -2346,7 +2346,7 @@ QA & 检索式知识库 & 10,475 条 & 638,076 B & 留出模板 94\% \\
 \subsubsection{应用二：手势识别}
 \label{par:gesture}
 
-OV5640 以 720p 输出，取中心 640×480，按 2:1 抽成 320×240 灰度，写入 \mbox{\texttt{0xD010\_0000}}；固件放一个 13×11 格的固定取景框（约 240×165 px），把框内区域 letterbox 到 32×32，量化后送入 miniTensor 的四层 CNN；每帧做 argmax、裕度门限和 3 帧确认，结果经 UART 以 10 Hz 输出。图~\ref{fig:gesture-flow} 给出从摄像头到网页的完整链路。
+OV5640 输出 720p，取中心 640×480，按 2:1 抽成 320×240 灰度，写入 \mbox{\texttt{0xD010\_0000}}；固件放一个 13×11 格的固定取景框（约 240×165 px），把框内区域 letterbox 到 32×32，量化后送入 miniTensor 的四层 CNN；每帧做 argmax、裕度门限和 3 帧确认，结果经 UART 以 10 Hz 输出。图~\ref{fig:gesture-flow} 给出从摄像头到网页的完整链路。
 
 \begin{figure}[htbp]
 \centering
@@ -2413,12 +2413,12 @@ OV5640 以 720p 输出，取中心 640×480，按 2:1 抽成 320×240 灰度，�
 \end{tabularx}
 \end{table}
 
-它的优势是“小阵列 + INT8 也能在 10 Hz 下跑完整 CNN，并与检测器共用同一加速器”。
+它的好处是“小阵列 + INT8 也能在 10 Hz 下跑完整 CNN，并与检测器共用同一加速器”。
 
 \subsubsection{演示层：上位机}
 \label{par:web}
 
-上位机把串口行翻译成状态：gesture-bridge 独占 COM9，把板端手势行映射为 \texttt{FIST/START/MODE}，经 SSE 推给页面；页面按 LineParser → CommandBus → StateMachine → EffectDirector → Three.js 驱动全息效果。33 个单元测试、15/15 浏览器端到端通过，生产包约 608 kB；RTX 5060 Laptop / 2560×1600 / HIGH 下实测 240 FPS。图~\ref{fig:web-shots} 为生产构建实拍。
+上位机把串口输出翻译成页面状态：gesture-bridge 独占 COM9，把板端手势行映射为 \texttt{FIST/START/MODE}，经 SSE 推给页面；页面按 LineParser → CommandBus → StateMachine → EffectDirector → Three.js 驱动全息效果。33 个单元测试、15/15 浏览器端到端通过，生产包约 608 kB；RTX 5060 Laptop / 2560×1600 / HIGH 下实测 240 FPS。图~\ref{fig:web-shots} 为生产构建实拍。
 
 \begin{figure}[htbp]
 \centering
@@ -3187,7 +3187,7 @@ b5 整机 & CLMA 35\%、DRM 63\%、APM 9\%；27 MHz WNS +12.85 ns \\
 每组结果应固定 RTL、参数、程序镜像、工具和测量方法，历史准确率及功耗另行归档。
 
 % ===== 新增：应用侧可扩展之处 =====
-下一步把命令表回放、8×8 阵列/50 MHz、QAT 与多模态输入纳入同一数据流，并把两个应用移植到 Mundus 主线。
+下一步把命令表回放、8×8 阵列/50 MHz、QAT 与多模态输入纳入同一数据流，并继续在 ARES-L 五级应用基线上部署这两个应用。
 
 \subsection{心得体会}
 % 模板限制：1000 字内。
