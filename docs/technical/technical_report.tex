@@ -1383,7 +1383,7 @@ IFU 使用 $\mathrm{reservedCount}=\mathrm{fqCount}+\mathrm{metaCount}$ 预留�
 
 模块提供请求、miss、安装完成及响应提交四个 64 bit 计数器，\code{student_top} 在 EBREAK 退休时触发统计输出。其中 \code{hit_count} 是响应提交计数，包含 miss 回填后重查成功的响应。性能记录分别列出请求、miss、完成回填和响应提交数，并注明 Cache 配置与镜像。
 
-本节对应 \code{core/vsrc/icache/pipeline_icache.v}、\code{core/scsrc/ifu/IFU.scala} 和 \code{soc/jyd/pipeline_irom_passthrough.v}，路径均相对 \code{rtl/pipeline/}。集成验证入口包括 smoke、ISA、CoreMark 及 Cache 开关对照测试。
+本节对应 \code{core/vsrc/icache/pipeline_icache.v}、\code{core/scsrc/ifu/IFU.scala} 和 \code{soc/zg/pipeline_irom_passthrough.v}，路径均相对 \code{rtl/pipeline/}。集成验证入口包括 smoke、ISA、CoreMark 及 Cache 开关对照测试。
 
 \subparagraph{译码单元 IDU}
 
@@ -1945,7 +1945,7 @@ FENCE 停留在 ID，直到 \code{LSU.idle} 与 \code{perip.idle} 同时成立�
 机器定时器中断还要停止新发射，并等待执行、写回及长操作排空，再通过寄存的空闲判断进入 trap；它复用访存空闲信息，但恢复 PC 来自最后退休指令的真实下一 PC。
 \code{FENCE.I} 仅共用 FENCE 排空语义，ICache 的事务 flush 与缓存内容失效仍是不同操作。
 
-本节对应 \code{core/scsrc/lsu/dcache.scala}、\code{core/scsrc/lsu/lsu.scala}、\code{core/scsrc/exu/EXU.scala}、\code{soc/jyd/perip_bridge.sv} 及三类 DCache BRAM 包装，路径均相对 \code{rtl/pipeline/}。
+本节对应 \code{core/scsrc/lsu/dcache.scala}、\code{core/scsrc/lsu/lsu.scala}、\code{core/scsrc/exu/EXU.scala}、\code{soc/zg/perip_bridge.sv} 及三类 DCache BRAM 包装，路径均相对 \code{rtl/pipeline/}。
 现有 \code{pipeline-dcache-test} 包含同组双项驻留、LRU、部分写、失效、epoch、查表保持及回填冲突等定向和随机检查；\code{pipeline-smoke}、程序回归及 IRQ 测试用于覆盖系统顺序与暂停组合。
 
 \subparagraph{写回单元 WBU}
@@ -2332,7 +2332,7 @@ ARES/
 |-- rtl/pipeline/core/scsrc/     Chisel core, DCache and CRC8
 |-- rtl/pipeline/core/vsrc/      Generated core and handwritten wrappers
 |-- rtl/pipeline/gen/            mill build and core configuration
-|-- rtl/pipeline/soc/            jyd, amp, mc, ip and pango
+|-- rtl/pipeline/soc/            zg, amp, mc, ip and pango
 |-- rtl/pipeline/board/          Clock/reset and board tops
 |-- rtl/pipeline/test/           RTL testbenches and Verilator drivers
 |-- rtl/accel/                   Matrix, state and list engines
