@@ -57,3 +57,19 @@ xelatex -interaction=nonstopmode -halt-on-error technical_report.tex
 ## 和 core 原稿的关系
 
 主报告是在 core 原稿上插入应用/加速器内容得到的；插入前正文没有被删除或改写。新增图表会让 core 原有图表号整体后移，正文引用都走 `\label/\ref`。
+## 图纸索引
+
+`figures/diagrams/` 里是 10 张图的 PNG；正文只放了其中 5 张核心图，其余留在扩展图纸里。
+
+| PNG | 内容 | 正文位置 |
+| --- | --- | --- |
+| `01_app_overview.png` | 应用与加速器总体架构 | 图 4 |
+| `02_mt_arch.png` | miniTensor 架构 | 图 15 |
+| `03_mt_dataflow.png` | 行式 UB 与 4×4 数据通路 | 扩展 |
+| `04_mt_cmd_timing.png` | 命令 issue/commit/result | 扩展 |
+| `05_mt_gemv.png` | GEMV 映射为 1×1 卷积 | 图 16 |
+| `06_app_stack.png` | 两个应用共用软件栈 | 扩展 |
+| `07_llm_flow.png` | Qwen → H112 → 两条路径 | 图 18 |
+| `08_gesture_flow.png` | 手势识别链路 | 图 19 |
+| `09_gesture_fsm.png` | 手势判决状态机 | 扩展 |
+| `10_gesture_tile.png` | 手势 UB 分配与 tile 调度 | 扩展 |
