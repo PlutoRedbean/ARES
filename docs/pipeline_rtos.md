@@ -121,7 +121,8 @@ pds_shell.exe -file fpga/pango/pipeline/flow_pipeline_rtos_shell.tcl -project_na
 CPU 的 `timer_irq` 为电平。`mie.MTIE`、`mstatus.MIE` 和 `mip.MTIP` 同时成立时停止新发射，
 让执行/写回、乘除法、LSU 和外设桥排空；通过注册的空闲状态进入中断，避免
 redirect 与 LSU idle 构成组合环。最后退休的 `pc_next` 是恢复地址。
-排空过程中仍处理分支及 load replay；进入时清前端并写 `mepc/mcause/mstatus`，不训练 BPU。
+排空过程中仍处理分支纠正，进入条件同时排除分支重定向与 load miss 保护路径
+（`load_miss_replay`，按当前时机编码普通 RAW 相关不会触发）；进入时清前端并写 `mepc/mcause/mstatus`，不训练 BPU。
 若较早已发射的 ECALL 关闭使能，取消该次排空；EBREAK 继续保留原有停机用途。
 
 只支持机器模式直接入口，`mtvec/mepc` 低两位清零。

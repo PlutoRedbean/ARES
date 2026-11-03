@@ -352,7 +352,7 @@ WB & 选择普通/乘除法结果，GPR 写回与顺序退休；EBREAK 触发停
 BRU 在 EX1 计算真实控制流，HZU 寄存一拍后发出重定向，清除错误路径的前端、ID/ISS 和 ISS/EX1 内容，保留更老的后端指令。
 各级流水寄存器及 LSU 的 LS2/LS3 只对 valid 做同步复位，payload 由 valid 屏蔽而不复位；因此任意宽度的复位脉冲都会清空在途指令，复位释放后的第一条退休指令必为复位入口。
 LSU 请求未被桥接受时冻结相关流水级；数据相关在 ISS 互锁并向 EX1 注入气泡；长操作未完成时保持顺序提交。
-当前 Load 采用命中时机预测，若 EX2 确认 DCache miss 且较年轻 EX1 指令依赖该结果，则重放该消费者。
+Load 在 EX1 按 DCache 命中预测生产时机，EX2 以寄存的命中结果修正：紧邻消费者命中时停顿一拍、miss 时停顿两拍，不撤销已发射指令；EXU 另保留 \code{load_miss_replay} 作为保护路径（第~\ref{subsec:lsu-memory-control}~节）。
 
 \begin{figure}[htbp]
 \centering
@@ -678,7 +678,7 @@ IFU 使用 $\mathrm{reservedCount}=\mathrm{fqCount}+\mathrm{metaCount}$ 预留�
 \medskip
 \noindent\textbf{重定向、复位与统计}\par
 
-分支纠正、Load 消费者重放或中断进入均通过 IFU 的 redirect 清理旧路径：禁止本拍新取指，清空元数据和前端队列，切换 PC，并向 ICache 及其直通回填适配器同时发出 \code{flush}。
+分支纠正、中断进入以及 Load miss 保护路径均通过 IFU 的 redirect 清理旧路径：禁止本拍新取指，清空元数据和前端队列，切换 PC，并向 ICache 及其直通回填适配器同时发出 \code{flush}。
 缓存清理事务状态和响应有效位，停止接收当前回填，并保留目录中的 tag/valid。直通适配器同时清除 pending，丢弃旧响应。
 
 \textbf{安装与 flush/复位同拍的一致性。}数据阵列写使能与目录安装共用 \code{fill_we} \code{=} \code{(state==S_FILL)} \code{&&} \code{!rst}。安装当拍若发生 flush，整行数据已全部到达且 IROM 只读，因此照常写入数据并安装 tag/valid/age，只丢弃在途请求和响应；若当拍复位，则数据与目录均不写入。
@@ -1161,7 +1161,7 @@ IDU 给出的 \id{PROD_ABS_*} 以生产者自身的流水过程为绝对时间�
 \subparagraph{控制冒险}
 
 EX1 的 BRU 计算真实 next PC，HZU 将误预测标记、真实目标及预测器更新信息寄存一拍。重定向清空前端元数据和队列、ID/ISS 与 ISS/EX1 的错误路径内容，并通过 \code{irom.flush} 丢弃旧取指事务。
-DCache miss replay 和定时器中断也可触发前端重定向；中断恢复入口优先于普通分支，普通分支目标优先于年轻 Load 消费者的重放目标。
+定时器中断和 Load miss 保护路径也可触发前端重定向；中断恢复入口优先于普通分支，普通分支目标优先于保护路径给出的消费者 PC。按当前生产/消费时机编码，普通写后读相关由 ISS 互锁处理，不经过该保护路径。
 
 \subparagraph{结构冒险}
 
@@ -1501,8 +1501,8 @@ MSH 固件。\code{start.S} 设置 gp、sp 和直接模式 \code{mtvec=trap_entr
 定时器将毫秒计数同步到 CPU 域，观察到新毫秒时置 pending，直至软件 ACK。
 \code{mstatus.MIE}、\code{mie.MTIE} 和 \code{mip.MTIP} 同时有效后，
 核停止新发射，让已经发射的 EX、WB、乘除法、LSU 和桥请求继续排空。
-最后退休指令的 \code{pc_next} 持续更新恢复地址；排空期间仍处理分支纠正和
-Load replay。核将后端空闲寄存一拍后进入 trap，向 IFU 发重定向，跳转到 mtvec。
+最后退休指令的 \code{pc_next} 持续更新恢复地址；排空期间仍处理分支纠正，
+进入条件同时排除分支重定向与 Load miss 保护路径。核将后端空闲寄存一拍后进入 trap，向 IFU 发重定向，跳转到 mtvec。
 
 进入时保存该恢复地址到 mepc，写 \code{mcause=0x80000007}，将原 MIE
 转存到 MPIE 并清 MIE。ECALL 同样进入 trap，但 mcause 为 11，mepc 为
@@ -1828,7 +1828,7 @@ FENCE.I & 增加 ICache 失效及前端清理路径，验证代码更新后的�
 \section{总结}
 \subsection{可扩展之处}
 % 模板限制：300 字内。
-后续优先验证 ICache 有效位的上电初始化，再补齐当前配置对应的 Cache/重放、IRQ、AMP 和加速器回归证据，核对目标频率下的 PDS 时序、资源和实板输出。
+后续优先验证 ICache 有效位的上电初始化，再补齐当前配置对应的 Cache 与 Load 时机修正、IRQ、AMP 和加速器回归证据，核对目标频率下的 PDS 时序、资源和实板输出。
 后续扩展包括 \code{FENCE.I} 失效、共享 L2 响应顺序修正和 RV32F，以及将附录~\ref{app:vision} 的摄像头缩略图、miniTensor 手势推理与网页控制接入 SoC，形成端到端闭环。
 每组结果应固定 RTL、参数、程序镜像、工具和测量方法，历史准确率及功耗另行归档。
 
