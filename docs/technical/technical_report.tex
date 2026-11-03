@@ -393,7 +393,7 @@ AI 加速 & 构建边缘 AI 加速单元，移植 YOLO 或轻量大模型，结�
 \midrule
 执行效率 & CoreMark/MHz & 未加速 CoreMark 1.0：2.235012；加速后 CoreMark：单核 13.384075，四核聚合 56.029283（第~\ref{subsec:ares-current-results}~节）；板上 120 MHz 四核聚合实测 59.901114 & 完成 \\
 时钟频率 & 满足时钟约束的最高工作频率 & 120 MHz 约束已满足 & 完成 \\
-资源效率 & CoreMark / LUTs & 需要与跑分配置一致的单核 post-route LUT 数；现有 PDS 报告为四核 CLMA/CLMS 统计，不能直接换算 & 待补 \\
+资源效率 & CoreMark / LUTs & 板上 120 MHz 四核全加速：7188.13 CoreMark / 53,559 LUT = 0.1342 CoreMark/LUT（表~\ref{tab:ares-board-resource}） & 完成 \\
 测试环境 & riscv32-unknown-elf-gcc；CoreMark v1.0 & \code{riscv32-unknown-elf-gcc} 13.2.0 按 \code{rv32im_zicsr/ilp32} 编译；EEMBC CoreMark 1.0 源码；120 MHz 板上镜像为 GCC 14.2.0 & 完成 \\
 运行时长 & CoreMark 运行时间不低于 10 s & 板上 120 MHz 四核 MULTITHREAD：每 hart 20,000 次、共 80,000 次迭代，运行 11.129 s（表~\ref{tab:ares-board-coremark}） & 完成 \\
 模型资源与时序 & 模型整体资源、时序、主频 & CPU+miniTensor：CLMA 10,229（35\%）、FF 24,404、DRM 261、APM 62；27 MHz 约束 WNS +12.85 ns，推算上限约 41.9 MHz & 完成 \\
@@ -3051,7 +3051,7 @@ Core / Cache / 加速器 & 本次 smoke、36 个 cpu-tests、1520 项 DCache 检
 ICache 安装一致性 & \code{S_FILL} 与 flush/复位同拍的数据/目录不一致已修复；\code{pipeline-icache-test} 定向与随机检查通过 \\
 短复位 & 流水线与 LSU 各级 valid 已加同步复位；\code{pipeline-reset-pulse} 的脉宽/相位扫描无陈旧退休或 Store \\
 AMP 多核 & 本次 2/4-hart 全加速 MULTITHREAD 聚合测试通过；每 hart 私有 IROM、四路 ICache、DRAM 与加速器 \\
-Pango 板级 & AMP 顶层、文件表和仿真已入库；四核 AMP 以 120 MHz 满足约束并在板上通过 CoreMark，见第~\ref{subsec:pds-results}~节；对应 PDS 报告待归档 \\
+Pango 板级 & AMP 顶层、文件表和仿真已入库；四核 AMP 以 120 MHz 满足约束并在板上通过 CoreMark，资源占用见第~\ref{subsec:pds-results}~节 \\
 RTOS / MSH & 本次 RTOS 自检、物理 UART 板级仿真和 MSH 双向串口测试通过 \\
 独立视频工程 & 摄像头/DDR3/HDMI 独立验证已有记录；与 ARES/miniTensor/Web 的闭环集成待完成，方案见附录~\ref{app:vision} \\
 \bottomrule
@@ -3281,7 +3281,7 @@ CRC（4 个 context 一致） & \code{seedcrc=0xe9f5}，\code{crclist=0xe714}，
 \end{table}
 
 \code{crcfinal} 随每 context 迭代数变化，20,000 次对应 \code{0x382f}。
-该结果同样为加速后 CoreMark 分数。120 MHz 构建的 PDS 资源与时序报告待归档。
+该结果同样为加速后 CoreMark 分数。
 
 \begin{figure}[htbp]
 \centering
@@ -3289,6 +3289,32 @@ CRC（4 个 context 一致） & \code{seedcrc=0xe9f5}，\code{crclist=0xe714}，
 \caption{板上 120 MHz 四核 MULTITHREAD CoreMark 串口输出}
 \label{fig:board-coremark}
 \end{figure}
+
+该 120 MHz 四核全加速构建的 post-route 资源占用见表~\ref{tab:ares-board-resource}。
+整机 LUT 53,559（逻辑 49,623、分布式 RAM 即 LUTRAM 3,936）、FF 32,373、APM 88、DRM 144（36K 当量）；
+器件级 CLMA 占用 43\%、CLMS 39\%、DRM 37\%、APM 12\%。
+每个 hart 约 13.1--13.2 k LUT，其中 ICache 约 5.8 k、Mundus 核约 3.9 k、CoreMark 加速器约 2.8--3.0 k。
+
+\begin{table}[H]
+\centering
+\caption{120 MHz 四核全加速构建资源占用（PDS post-route）}
+\label{tab:ares-board-resource}
+\begin{tabularx}{\linewidth}{@{}P{3.0cm}*{5}{>{\raggedleft\arraybackslash}X}@{}}
+\toprule
+模块 & LUT & FF & LUTRAM & APM & DRM \\
+\midrule
+整机 & 53,559 & 32,373 & 3,936 & 88 & 144 \\
+单 hart（hart0） & 13,144 & 8,043 & 920 & 22 & 36 \\
+\quad Mundus 核 & 3,878 & 4,118 & 50 & 4 & 4 \\
+\quad ICache & 5,817 & 1,643 & 456 & 0 & 9.5 \\
+\quad 加速器 & 2,829 & 1,588 & 336 & 18 & 6.5 \\
+mailbox & 780 & 551 & 256 & 0 & 0 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+以板上 Iterations/Sec 7188.133688 作为 CoreMark 分数，资源效率为 7188.13 / 53,559 = 0.1342 CoreMark/LUT（134.2 CoreMark/kLUT）；
+按 CoreMark/MHz 折算为 1.118 CoreMark/MHz/kLUT。
 
 \subsection{应用与加速器特性成果}
 \label{subsec:app-results}
