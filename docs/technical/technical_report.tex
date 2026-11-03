@@ -42,6 +42,7 @@
 \renewcommand{\thesubsection}{\arabic{section}.\arabic{subsection}}
 \renewcommand{\thesubsubsection}{\thesubsection.\arabic{subsubsection}}
 \setcounter{secnumdepth}{3}
+\setcounter{tocdepth}{2}
 \pagestyle{fancy}
 \fancyhf{}
 \fancyhead[C]{\includegraphics[width=6.516cm]{figures/template_header.png}}
@@ -61,6 +62,7 @@
 \usepackage[section]{placeins}
 \graphicspath{{docs/technical/figures/}{technical/figures/}{figures/}}
 \renewcommand{\refname}{参考文献}
+\renewcommand{\contentsname}{目录}
 \newcommand{\cpuname}{Mundus}
 \renewcommand{\code}[1]{{\small\ttfamily\urlstyle{tt}\expandafter\nolinkurl\expandafter{\detokenize{#1}}}}
 \newcommand{\id}[1]{{\urlstyle{rm}\expandafter\nolinkurl\expandafter{\detokenize{#1}}}}
@@ -175,6 +177,9 @@ SoC 提供单核和 2/4-hart AMP 配置，并集成矩阵、状态机和链表 M
 % ===== 新增：应用与加速器摘要 =====
 作品另集成自研 miniTensor INT8 协处理器：4×4 阵列、256×128 bit 统一缓冲、向量单元与定点 epilogue；同一阵列既跑手势 CNN，也把语言模型 GEMV 映射为 1×1 卷积。单帧 1,936 条命令、约 1.31 M 周期，char-GRU 由 17 提升到 103 char/s；应用侧用 Qwen2.5-0.5B-Instruct 构建语料、把能力压缩到 152,056 B 的 H112，手势 287 帧 INT8 100\%、板端 8/8，并驱动 Three.js 全息页面。
 
+\clearpage
+{\setstretch{1.1}\tableofcontents}
+\clearpage
 
 \section{作品概述}
 \subsection{功能与特性}
