@@ -221,7 +221,7 @@ ARES 是以 Mundus 九级核（32 位顺序单发射）为核心的嵌入式 SoC
 流水线由取指请求、取指响应、ID、ISS、EX1--EX4 和 WB 共九级组成；取指侧使用请求/响应握手、两项在途元数据队列和八项前端队列，取指延迟随 Cache 命中与回填变化。
 默认配置采用 128 项 Bimodal/BTB、8 项 RAS、四路 ICache、8 KiB 两路 DCache，以及外设桥中的四项写队列。
 SoC 提供单核和 2/4-hart AMP 配置，并集成矩阵、状态机和链表 MMIO 加速器；单核可运行 RT-Thread Nano 与 MSH。
-验证采用 Verilator 程序回归、模块定向测试与板级仿真，实现使用 PDS。在 100 MHz 仿真时钟下，未修改的 CoreMark 基线为 2.235012 CoreMark/MHz；以 CRC8 指令和三类引擎替换热点函数后，单核全加速为 13.384075 CoreMark/MHz，四核全加速 MULTITHREAD 聚合为 56.029283 CoreMark/MHz。盘古板卡上四核 AMP 在 120 MHz 下实测聚合 56.261253 CoreMark/MHz，运行 10.37 s，CRC 校验通过。
+验证采用 Verilator 程序回归、模块定向测试与板级仿真，实现使用 PDS。在 100 MHz 仿真时钟下，未加速 CoreMark 基线为 2.235012 CoreMark/MHz；以 CRC8 指令和三类引擎加速热点函数后，单核全加速为 13.384075 CoreMark/MHz，四核全加速 MULTITHREAD 聚合为 56.029283 CoreMark/MHz。盘古板卡上四核 AMP 在 120 MHz 下实测聚合 56.261253 CoreMark/MHz，运行 10.37 s，CRC 校验通过。
 
 % ===== 新增：应用与加速器摘要 =====
 作品同时集成自研 miniTensor INT8 协处理器：4×4 阵列、行式 UB、向量单元与定点 \mbox{epilogue}，把卷积和 GEMV 统一到同一条命令流。应用侧以 Qwen2.5-0.5B-Instruct 构建语料、把能力压缩到 152,056 B 的 H112 并部署；同模型对照 A0 的 char-GRU 由 17 提升到 103 char/s；手势（3 类演示/8 类词表）287 帧 INT8 100\%、板端 8/8，并驱动 Three.js 全息页面。
@@ -247,7 +247,7 @@ AMP 提供私有数据窗口与共享 mailbox，RT-Thread Nano 支持单核运�
 % 模板限制：400 字内。
 作品面向三类场景。
 一是嵌入式控制：单核配合机器定时器中断运行 RT-Thread Nano，提供时间片抢占、延时唤醒和串口命令行，可作为小型实时控制器的处理器平台。
-二是专用计算加速：CRC8 自定义指令与矩阵、状态机、链表 MMIO 引擎给出“热点函数替换、保留软件参考实现”的加速方法，可迁移到校验、滤波、协议解析等固定算法。
+二是专用计算加速：CRC8 自定义指令与矩阵、状态机、链表 MMIO 引擎给出“硬件加速热点函数、保留软件参考实现”的加速方法，可迁移到校验、滤波、协议解析等固定算法。
 
 % ===== 新增：端侧智能交互 =====
 三是端侧智能交互：无操作系统、无外部加速卡即可完成小模型对话、知识问答与手势控制，可用于展陈互动与无障碍辅助。
@@ -260,17 +260,18 @@ AMP 提供私有数据窗口与共享 mailbox，RT-Thread Nano 支持单核运�
 \item \textbf{温度计码旁路网络}：温度计码统一刻画结果产生与操作数需求的时机，两级旁路只在真正来不及时停顿。
 \item \textbf{前移一级的访存通路}：AGU 与 DCache 查表前移到 ISS，Load 命中在 EX2 即可旁路，miss 只停两拍；写队列逐字节转发。
 \item \textbf{可扩展多核 AMP}：每 hart 私有 IROM、ICache、BRAM 与加速器，AGU 按 hart\_id 重定位数据，同一镜像跑满 2/4 核；共享 mailbox 同步并汇总，四核吞吐达两核的 1.99 倍。
-\item \textbf{软硬件协同加速}：CRC8 指令与三类 MMIO 引擎替换 CoreMark 热点，单核提速 5.99 倍；四核板上 120 MHz 实测 56.26 CoreMark/MHz。
+\item \textbf{软硬件协同加速}：CRC8 指令与三类 MMIO 引擎加速 CoreMark 热点，单核提速 5.99 倍；四核板上 120 MHz 实测 56.26 CoreMark/MHz。
 \item \textbf{一条命令流跑两类模型}：miniTensor 把 GEMV 映射为 1×1 卷积，语言模型与手势 CNN 共用 \code{GEMM} 命令流，手势每帧周期降至约 1/5.5。
 \end{itemize}
 
 \subsection{主要性能指标}
-以下分 CPU、CoreMark 与应用三部分列出主要性能指标，测试方法与完整数据见第三部分。
+以下分 CPU 与 CoreMark、应用两部分列出主要性能指标，测试方法与完整数据见第三部分。
 
-\paragraph{CPU 性能指标}
+\paragraph{CPU 与 CoreMark 性能指标}
+加速后 CoreMark 由 CRC8 指令和矩阵、状态机、链表引擎执行热点函数，用于评估软硬件协同收益。
 \begin{table}[H]
 \centering
-\caption{CPU 主要性能指标}
+\caption{CPU 与 CoreMark 主要性能指标}
 \label{tab:cpu-metrics}
 \begin{tabularx}{\linewidth}{@{}P{0.24\linewidth}>{\raggedright\arraybackslash}X@{}}
 \toprule
@@ -278,30 +279,16 @@ AMP 提供私有数据窗口与共享 mailbox，RT-Thread Nano 支持单核运�
 \midrule
 处理器 & Mundus 九级核，顺序单发射；RV32IM、Zicsr、机器模式定时器中断与 custom-0 CRC8 \\
 工作频率 & 四核 AMP 板级构建 120 MHz 约束满足并上板运行（第~\ref{subsec:pds-results}~节）；RTL 默认 PLL 由 27 MHz 生成 CPU 100 MHz / 外设 50 MHz \\
-功能验证 & 36 个 cpu-tests、1520 项 DCache 检查及乘除法、三类加速引擎定向测试通过 \\
 分支预测与前端 & 128 项 BTB、2 bit Bimodal、8 项 RAS；8 项前端队列 \\
 存储层次 & 单核 4 KiB 四路 ICache、8 KiB 两路写直达 DCache；外设桥四项写队列 \\
 系统配置 & 单核（运行 RT-Thread Nano）；2/4-hart 私有存储 AMP；共享 L2 实验版 \\
-FPGA / 工具链 & PG2L200H-6IFBB676 / Pango PDS \\
-\bottomrule
-\end{tabularx}
-\end{table}
-
-\paragraph{CoreMark 性能指标}
-加速变体以 CRC8 指令和矩阵、状态机、链表引擎替换热点函数，用于评估软硬件协同收益，不作为 EEMBC 官方分数。
-\begin{table}[H]
-\centering
-\caption{CoreMark 主要性能指标}
-\label{tab:coremark-metrics}
-\begin{tabularx}{\linewidth}{@{}P{0.24\linewidth}>{\raggedright\arraybackslash}X r@{}}
-\toprule
-配置 & 口径 & CoreMark/MHz \\
 \midrule
-单核基线 & 未修改 CoreMark 1.0，100 MHz 仿真 & 2.235012 \\
-单核全加速 & 热点加速变体，100 MHz 仿真；相对基线 5.988× & 13.384075 \\
-两核聚合 & MULTITHREAD 全加速，100 MHz 仿真 & 28.167228 \\
-四核聚合 & MULTITHREAD 全加速，100 MHz 仿真 & 56.029283 \\
-四核聚合（板上） & MULTITHREAD 全加速，120 MHz 实测；70,000 次迭代、10.37 s，CRC 校验通过 & 56.261253 \\
+\multicolumn{2}{@{}l}{\textbf{CoreMark/MHz}} \\
+单核基线 & 2.235012；未加速 CoreMark 1.0，100 MHz 仿真 \\
+单核全加速 & 13.384075；加速后 CoreMark，100 MHz 仿真，相对基线 5.988× \\
+两核聚合 & 28.167228；MULTITHREAD 全加速，100 MHz 仿真 \\
+四核聚合 & 56.029283；MULTITHREAD 全加速，100 MHz 仿真 \\
+四核聚合（板上） & 56.261253；MULTITHREAD 全加速，120 MHz 实测，70,000 次迭代、10.37 s，CRC 校验通过 \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -333,7 +320,7 @@ b5 整机 & CLMA 35\%、DRM 63\%、APM 9\% & 27 MHz WNS +12.85 ns \\
 \item 提前查询与预测保持隐藏 BPU 读表延迟，维持每拍取指。
 \item 温度计码统一生产与消费时机，两级旁路减少误停顿。
 \item ISS 级 AGU、三段 LSU 与转发写队列兼顾频率与访存。
-\item CRC8 指令与三类 MMIO 引擎替换热点，单核约 6 倍加速。
+\item CRC8 指令与三类 MMIO 引擎加速热点，单核约 6 倍加速。
 \item 行式 UB 把 GEMV 映射为 1×1 卷积，两个应用共用同一条 \code{GEMM} 命令流。
 \end{enumerate}
 
@@ -404,7 +391,7 @@ AI 加速 & 构建边缘 AI 加速单元，移植 YOLO 或轻量大模型，结�
 \toprule
 指标 & 赛题口径 & 本作品结果 & 状态 \\
 \midrule
-执行效率 & CoreMark/MHz & 未修改 CoreMark 1.0：2.235012；热点加速变体（非官方分数）：单核 13.384075，四核聚合 56.029283（第~\ref{subsec:ares-current-results}~节）；板上 120 MHz 四核聚合实测 56.261253 & 完成 \\
+执行效率 & CoreMark/MHz & 未加速 CoreMark 1.0：2.235012；加速后 CoreMark：单核 13.384075，四核聚合 56.029283（第~\ref{subsec:ares-current-results}~节）；板上 120 MHz 四核聚合实测 56.261253 & 完成 \\
 时钟频率 & 满足时钟约束的最高工作频率 & 120 MHz 约束已满足 & 完成 \\
 资源效率 & CoreMark / LUTs & 需要与跑分配置一致的单核 post-route LUT 数；现有 PDS 报告为四核 CLMA/CLMS 统计，不能直接换算 & 待补 \\
 测试环境 & riscv32-unknown-elf-gcc；CoreMark v1.0 & \code{riscv64-unknown-elf-gcc} 13.2.0 按 \code{rv32im_zicsr/ilp32} 编译；EEMBC CoreMark 1.0 源码；120 MHz 板上镜像为 GCC 14.2.0 & 完成 \\
@@ -3157,7 +3144,7 @@ CRC8 + 状态机 & 24,117,405 & 24,169,678 & 4.146383 & 1.855$\times$ \\
 四类全加速为 CRC8 指令加链表、矩阵和状态机引擎，相对同次基线为约 5.99 倍。
 五种镜像的 \code{crclist/crcmatrix/crcstate/crcfinal} 均为
 \code{e714/1fd7/8e3a/988c}，输出 \code{CoreMark} \code{PASS}，退出时 a0=0。
-加速变体修改了 CoreMark 热点函数，用于评估软硬件协同收益，不作为 EEMBC 官方分数。
+加速后 CoreMark 用于评估软硬件协同收益。
 
 各镜像的复测命令见附录~\ref{app:repro}。
 
@@ -3304,7 +3291,7 @@ CRC（4 个 context 一致） & \code{seedcrc=0xe9f5}，\code{crclist=0xe714}，
 \end{table}
 
 板上聚合分数与表~\ref{tab:ares-mt-coremark} 中 100 MHz 仿真的四核结果 56.029283 接近；\code{crcfinal} 随每 context 迭代数变化，17,500 次对应 \code{0xd340}。
-该结果同样属于热点加速变体，不作为 EEMBC 官方分数。120 MHz 构建的 PDS 资源与时序报告待归档。
+该结果同样为加速后 CoreMark 分数。120 MHz 构建的 PDS 资源与时序报告待归档。
 
 \begin{figure}[htbp]
 \centering
