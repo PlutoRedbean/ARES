@@ -3372,14 +3372,13 @@ b5 整机 & CLMA 35\%、DRM 63\%、APM 9\%；27 MHz WNS +12.85 ns \\
 
 \clearpage
 \section{总结}
-\subsection{可扩展之处}
+\subsection{实际应用}
 % 模板限制：300 字内。
-后续优先验证 ICache 有效位上电初始化，补齐 IRQ、AMP 与加速器回归证据，并核对实板输出、归档 120 MHz 构建的 PDS 时序报告。
-后续扩展包括 \code{FENCE.I} 失效、共享 L2 响应顺序修正和 RV32F，以及将附录~\ref{app:vision} 的摄像头缩略图、miniTensor 手势推理与网页控制接入 SoC，形成端到端闭环。
-每组结果应固定 RTL、参数、程序镜像、工具和测量方法，历史准确率及功耗另行归档。
+2026 年被业内叫做“端侧 AI 元年”。中国信息通信研究院发布的《端侧智能产业发展报告（2026年）》指出，模型轻量化、软硬协同，正在成为嵌入式 AI 这条线的主线~\cite{caict2026edge}。
 
-% ===== 新增：应用侧可扩展之处 =====
-下一步把命令表回放、8×8 阵列/50 MHz、QAT 与多模态输入纳入同一数据流，并继续在 Mundus 九级核上部署这两个应用。
+而本项目就是把端侧 AI 跑在一块板子上。模型只有几百 KB，不用操作系统和显卡，靠我们设计的 CPU 和加速器，就能实现手势识别、简单对话。未来它可以用在互动展厅、无障碍控制、工业操作和教学实验等场景，不用依赖服务器，离线也能运行，既保证了速度，也保证了特殊场景下的稳定性。
+
+接下来，我们会继续优化速度和能耗，完善模型部署工具链，逐步探索多模态和端云协同。
 
 \subsection{心得体会}
 % 模板限制：1000 字内。
@@ -3475,6 +3474,11 @@ b5 整机 & CLMA 35\%、DRM 63\%、APM 9\%；27 MHz WNS +12.85 ns \\
 
   \bibitem{webserial}
   Web Serial API. \url{https://wicg.github.io/serial/}.
+
+  \bibitem{caict2026edge}
+  中国信息通信研究院人工智能研究所、中国人工智能产业发展联盟端侧智能组.
+  端侧智能产业发展报告（2026年）. 2026.
+  \url{https://aihub.caict.ac.cn/docs/WqwJiNKhyQtg}.
 
 \end{thebibliography}
 \endgroup
