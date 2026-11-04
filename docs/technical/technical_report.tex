@@ -241,6 +241,24 @@ AMP 提供私有数据窗口与共享 mailbox，RT-Thread Nano 支持单核运�
 
 % ===== 新增：应用功能 =====
 在处理器之外，作品给出两条应用路径：经 UART 的端侧对话与知识问答，以及 OV5640 手势识别；两者共用同一套 miniTensor、驱动与量化工具链，并驱动浏览器全息演示。
+作品运行平台与演示页面见图~\ref{fig:overview-demo}。
+
+\begin{figure}[htbp]
+\centering
+\begin{minipage}{0.48\linewidth}
+  \centering
+  \includegraphics[width=\linewidth]{FPGA_io.png}
+  \caption*{(a) 盘古 200Pro+ 开发板}
+\end{minipage}
+\hfill
+\begin{minipage}{0.48\linewidth}
+  \centering
+  \includegraphics[width=\linewidth]{app_web_ready.png}
+  \caption*{(b) 手势驱动的上位机全息页面}
+\end{minipage}
+\caption{作品运行平台与演示页面}
+\label{fig:overview-demo}
+\end{figure}
 
 
 \subsection{应用领域}
@@ -251,10 +269,19 @@ AMP 提供私有数据窗口与共享 mailbox，RT-Thread Nano 支持单核运�
 
 % ===== 新增：端侧智能交互 =====
 三是端侧智能交互：无操作系统、无外部加速卡即可完成小模型对话、知识问答与手势控制，可用于展陈互动与无障碍辅助。
+图~\ref{fig:rtos-msh} 为 RT-Thread Nano 在 ARES 上运行 MSH 命令行的实录，对应第一类场景。
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.6\linewidth]{rtos.png}
+\caption{RT-Thread Nano 在 ARES 上运行：MSH 命令列表、线程查看与 LED 控制}
+\label{fig:rtos-msh}
+\end{figure}
 
 
 \subsection{主要技术特点}
 % 模板限制：400 字内。
+主要技术特点如下，Mundus 九级核的整体结构见图~\ref{fig:core-overview}。
 \begin{itemize}
 \item \textbf{零气泡取指前端}：BPU 读表寄存一拍，由提前查询与预测保持隐藏；配合流水化 ICache，命中时每拍取指一条。
 \item \textbf{温度计码旁路网络}：温度计码统一刻画结果产生与操作数需求的时机，两级旁路只在真正来不及时停顿。
@@ -263,6 +290,107 @@ AMP 提供私有数据窗口与共享 mailbox，RT-Thread Nano 支持单核运�
 \item \textbf{软硬件协同加速}：CRC8 指令与三类 MMIO 引擎加速 CoreMark 热点，单核提速 5.99 倍；四核板上 120 MHz 实测 59.90 CoreMark/MHz。
 \item \textbf{一条命令流跑两类模型}：miniTensor 把 GEMV 映射为 1×1 卷积，语言模型与手势 CNN 共用 \code{GEMM} 命令流，手势每帧周期降至约 1/5.5。
 \end{itemize}
+
+\begin{figure}[H]
+\centering
+% Mundus core architecture, block-diagram style: FrontEnd on top, BackEnd below.
+\adjustbox{max width=0.8\linewidth}{%
+\begin{tikzpicture}[dgdiagram]
+% ============================ FrontEnd ============================
+\draw[draw=black, line width=1pt, fill=dgFront, rounded corners=8pt] (0,11.00) rectangle (13.60,19.60);
+\node[ctitle] at (0.30,19.45) {FrontEnd};
+
+\node[rbox=dgSky, minimum width=10.4cm, minimum height=1.25cm] (irom) at (7.10,17.85)
+  {{\small ICache + IROM}\\(4-way · 4 KiB / 32 KiB)};
+
+% prediction column
+\node[box=dgBlue, minimum width=2.50cm, minimum height=0.85cm] (pc) at (2.15,16.05) {PC};
+\node[box=dgKhaki, minimum width=2.50cm, minimum height=0.95cm] (btb) at (2.15,14.55) {BTB\\(128 entries)};
+\node[box=dgKhaki, minimum width=2.50cm, minimum height=0.95cm] (bim) at (2.15,13.25) {Bimodal BPU\\(2-bit)};
+\node[box=dgKhaki, minimum width=2.50cm, minimum height=0.95cm] (ras) at (2.15,11.95) {Return Address\\Stack (RAS, 8)};
+\draw[fat] (btb.north) -- node[lab, right]{Pred} (pc.south);
+\draw[fat] (pc.north) -- node[lab, right]{Addr} (2.15,17.22);
+
+% fetch column
+\node[box=dgBlue, minimum width=4.0cm, minimum height=0.85cm] (meta) at (8.40,15.95) {Fetch Meta (×2)};
+\node[box=dgBlue, minimum width=4.0cm, minimum height=0.85cm] (fq) at (8.40,14.35) {Fetch Queue (×8)};
+\draw[fat] (8.40,17.22) -- node[lab, right]{32 bits / cycle} (meta.north);
+\draw[fat] (meta.south) -- node[lab, right]{Inst} (fq.north);
+
+\node[box=dgPink, minimum width=8.4cm, minimum height=1.95cm] (idu) at (8.40,12.35) {};
+\node[title] at (8.40,13.25) {IDU (Instruction Decode Unit)};
+\node[box=dgLilac, minimum width=3.0cm, minimum height=0.75cm] at (6.60,11.95) {Decoder};
+\node[box=dgLilac, minimum width=3.0cm, minimum height=0.75cm] at (10.20,11.95) {Imm Gen};
+\draw[fat] (fq.south) -- (8.40,13.30);
+
+% ============================ BackEnd ============================
+\draw[draw=black, line width=1pt, fill=dgBack, rounded corners=8pt] (0,0) rectangle (13.60,10.60);
+\node[ctitle] at (0.30,10.45) {BackEnd};
+
+\draw[fat] (8.40,11.37) -- node[lab, right, pos=0.45]{Ctrl} (8.40,10.02);
+
+% ISU
+\node[box=dgKhaki, minimum width=6.8cm, minimum height=2.10cm] (isu) at (7.60,8.95) {};
+\node[title] at (7.60,9.95) {ISU (Issue Unit)};
+\node[box=dgGold, minimum width=1.55cm, minimum height=0.95cm] at (5.10,8.55) {AGU};
+\node[box=dgKhaki!60, minimum width=2.00cm, minimum height=0.95cm] at (7.25,8.55) {Bypass /\\Interlock};
+\node[box=dgSky, minimum width=2.30cm, minimum height=0.95cm] at (9.75,8.55) {Register File\\(32 × 32)};
+
+% HZU
+\node[box=dgRed, minimum width=2.50cm, minimum height=1.20cm] (hzu) at (2.15,8.95) {HZU\\(Redirect)};
+
+% OP bus and ports
+\def\ux{1.85,3.49,5.13,6.77,8.41,10.05}
+\draw[fatl] (7.60,7.90) -- (7.60,7.35);
+\draw[fatl] (1.85,7.35) -- (10.05,7.35);
+\node[lab, anchor=south east] at (1.75,7.35) {OP};
+\foreach \x in \ux \draw[fat] (\x,7.35) -- (\x,6.82);
+
+% EXU
+\node[box=dgTeal, minimum width=10.1cm, minimum height=1.75cm] (exu) at (5.95,5.58) {};
+\foreach \x in \ux
+  \node[box=dgPort, minimum width=1.10cm, minimum height=0.42cm, font=\diagfont\bfseries\footnotesize] at (\x,6.50) {Port};
+\node[title] at (5.95,6.20) {EXU (Execute Unit, EX1–EX4)};
+\foreach \x/\t in {1.85/Branch, 3.49/ALU, 5.13/CSR, 6.77/CRC8, 8.41/MUL, 10.05/DIV}
+  \node[box=dgGold, minimum width=1.40cm, minimum height=0.70cm] at (\x,5.10) {\t};
+
+% redirect: branch result -> HZU -> PC
+\draw[fatl] (0.90,5.30) -- (0.45,5.30) -- (0.45,8.95);
+\draw[fat] (0.45,8.95) -- (hzu.west);
+\node[lab, rotate=90, anchor=south] at (0.40,7.10) {Branch};
+\draw[fatl] (hzu.east) -- (3.90,8.95) -- (3.90,16.05);
+\draw[fat] (3.90,16.05) -- (pc.east);
+\node[lab, rotate=90, anchor=north] at (3.98,15.00) {Redirect};
+
+% bypass: EXU -> ISU
+\draw[fatl] (exu.east |- 0,5.60) -- (11.38,5.60) -- (11.38,8.95);
+\draw[fat] (11.38,8.95) -- (isu.east);
+\node[lab, rotate=90, anchor=south] at (11.33,7.45) {Bypass};
+
+% WBU
+\node[box=dgRose, minimum width=3.50cm, minimum height=3.50cm] (wbu) at (2.65,2.15) {{\small WBU}\\{\small (Writeback Unit)}\\[2pt]in-order retire};
+\draw[fat] (1.85,4.70) -- node[lab, right]{rd} (1.85,3.92);
+
+% LSU
+\node[box=dgLav, minimum width=6.2cm, minimum height=3.50cm] (lsu) at (7.90,2.15) {};
+\node[title] at (7.90,3.85) {LSU (Load Store Unit)};
+\node[box=dgRose, minimum width=5.6cm, minimum height=0.70cm] at (7.90,2.75) {LS1 → LS2 → LS3};
+\node[box=dgSky, minimum width=2.65cm, minimum height=1.15cm] at (6.48,1.20) {DCache\\(8 KiB, 2-way)};
+\node[box=dgRose, minimum width=2.65cm, minimum height=1.15cm] at (9.33,1.20) {Return\\Queue (×2)};
+\draw[fatb] (7.90,4.70) -- node[lab, right]{addr / wdata / rdata} (7.90,3.92);
+
+% Perip Bridge
+\node[rbox=dgSalmon, minimum width=1.75cm, minimum height=9.55cm] (br) at (12.62,5.20) {};
+\node[font=\diagfont\bfseries\small, align=left, anchor=north west] at (11.82,9.88) {Perip\\Bridge};
+\node[rbox=dgMag, minimum width=1.45cm, minimum height=1.75cm] (mmio) at (12.62,6.80) {MMIO\\Accel};
+\node[rbox=dgSky, minimum width=1.45cm, minimum height=1.55cm] (bram) at (12.62,4.25) {BRAM};
+\node[rbox=dgSky, minimum width=1.45cm, minimum height=1.75cm] (sb) at (12.62,1.55) {Store\\Buffer\\(×4)};
+\draw[fat] (lsu.east |- 0,1.55) -- (sb.west);
+\draw[fat] (sb.north) -- (bram.south);
+\end{tikzpicture}}
+\caption{Mundus 九级核架构}
+\label{fig:core-overview}
+\end{figure}
 
 \subsection{主要性能指标}
 以下分 CPU 与 CoreMark、应用两部分列出主要性能指标，测试方法与完整数据见第三部分。
@@ -413,105 +541,6 @@ HZU 根据分支结果协调重定向，ISU 根据数据就绪状态决定旁路
 图~\ref{fig:soc-framework}(a) 为单核 SoC 架构：CPU 顶层模块内的取指路径经 ICache 和回填适配器读取 IROM，数据路径经外设桥译码后访问写队列与数据 BRAM、MMIO 加速器及各类寄存器；UART、毫秒计数器和显示驱动位于 50 MHz 外设时钟域，经 CDC 与 100 MHz CPU 域交互。图~\ref{fig:soc-framework}(b) 为 AMP 架构：每 hart 例化一份 CPU 顶层模块（\code{core_top}），含私有 IROM/ICache/数据 BRAM 和加速器，另连共享 uncached mailbox。
 SoC 顶层模块（\code{pipeline_mc_soc_top}）则是共享 L2 的独立实验配置。
 
-\begin{figure}[htbp]
-\centering
-% Mundus core architecture, block-diagram style: FrontEnd on top, BackEnd below.
-\begin{tikzpicture}[dgdiagram]
-% ============================ FrontEnd ============================
-\draw[draw=black, line width=1pt, fill=dgFront, rounded corners=8pt] (0,11.00) rectangle (13.60,19.60);
-\node[ctitle] at (0.30,19.45) {FrontEnd};
-
-\node[rbox=dgSky, minimum width=10.4cm, minimum height=1.25cm] (irom) at (7.10,17.85)
-  {{\small ICache + IROM}\\(4-way · 4 KiB / 32 KiB)};
-
-% prediction column
-\node[box=dgBlue, minimum width=2.50cm, minimum height=0.85cm] (pc) at (2.15,16.05) {PC};
-\node[box=dgKhaki, minimum width=2.50cm, minimum height=0.95cm] (btb) at (2.15,14.55) {BTB\\(128 entries)};
-\node[box=dgKhaki, minimum width=2.50cm, minimum height=0.95cm] (bim) at (2.15,13.25) {Bimodal BPU\\(2-bit)};
-\node[box=dgKhaki, minimum width=2.50cm, minimum height=0.95cm] (ras) at (2.15,11.95) {Return Address\\Stack (RAS, 8)};
-\draw[fat] (btb.north) -- node[lab, right]{Pred} (pc.south);
-\draw[fat] (pc.north) -- node[lab, right]{Addr} (2.15,17.22);
-
-% fetch column
-\node[box=dgBlue, minimum width=4.0cm, minimum height=0.85cm] (meta) at (8.40,15.95) {Fetch Meta (×2)};
-\node[box=dgBlue, minimum width=4.0cm, minimum height=0.85cm] (fq) at (8.40,14.35) {Fetch Queue (×8)};
-\draw[fat] (8.40,17.22) -- node[lab, right]{32 bits / cycle} (meta.north);
-\draw[fat] (meta.south) -- node[lab, right]{Inst} (fq.north);
-
-\node[box=dgPink, minimum width=8.4cm, minimum height=1.95cm] (idu) at (8.40,12.35) {};
-\node[title] at (8.40,13.25) {IDU (Instruction Decode Unit)};
-\node[box=dgLilac, minimum width=3.0cm, minimum height=0.75cm] at (6.60,11.95) {Decoder};
-\node[box=dgLilac, minimum width=3.0cm, minimum height=0.75cm] at (10.20,11.95) {Imm Gen};
-\draw[fat] (fq.south) -- (8.40,13.30);
-
-% ============================ BackEnd ============================
-\draw[draw=black, line width=1pt, fill=dgBack, rounded corners=8pt] (0,0) rectangle (13.60,10.60);
-\node[ctitle] at (0.30,10.45) {BackEnd};
-
-\draw[fat] (8.40,11.37) -- node[lab, right, pos=0.45]{Ctrl} (8.40,10.02);
-
-% ISU
-\node[box=dgKhaki, minimum width=6.8cm, minimum height=2.10cm] (isu) at (7.60,8.95) {};
-\node[title] at (7.60,9.95) {ISU (Issue Unit)};
-\node[box=dgGold, minimum width=1.55cm, minimum height=0.95cm] at (5.10,8.55) {AGU};
-\node[box=dgKhaki!60, minimum width=2.00cm, minimum height=0.95cm] at (7.25,8.55) {Bypass /\\Interlock};
-\node[box=dgSky, minimum width=2.30cm, minimum height=0.95cm] at (9.75,8.55) {Register File\\(32 × 32)};
-
-% HZU
-\node[box=dgRed, minimum width=2.50cm, minimum height=1.20cm] (hzu) at (2.15,8.95) {HZU\\(Redirect)};
-
-% OP bus and ports
-\def\ux{1.85,3.49,5.13,6.77,8.41,10.05}
-\draw[fatl] (7.60,7.90) -- (7.60,7.35);
-\draw[fatl] (1.85,7.35) -- (10.05,7.35);
-\node[lab, anchor=south east] at (1.75,7.35) {OP};
-\foreach \x in \ux \draw[fat] (\x,7.35) -- (\x,6.82);
-
-% EXU
-\node[box=dgTeal, minimum width=10.1cm, minimum height=1.75cm] (exu) at (5.95,5.58) {};
-\foreach \x in \ux
-  \node[box=dgPort, minimum width=1.10cm, minimum height=0.42cm, font=\diagfont\bfseries\footnotesize] at (\x,6.50) {Port};
-\node[title] at (5.95,6.20) {EXU (Execute Unit, EX1–EX4)};
-\foreach \x/\t in {1.85/Branch, 3.49/ALU, 5.13/CSR, 6.77/CRC8, 8.41/MUL, 10.05/DIV}
-  \node[box=dgGold, minimum width=1.40cm, minimum height=0.70cm] at (\x,5.10) {\t};
-
-% redirect: branch result -> HZU -> PC
-\draw[fatl] (0.90,5.30) -- (0.45,5.30) -- (0.45,8.95);
-\draw[fat] (0.45,8.95) -- (hzu.west);
-\node[lab, rotate=90, anchor=south] at (0.40,7.10) {Branch};
-\draw[fatl] (hzu.east) -- (3.90,8.95) -- (3.90,16.05);
-\draw[fat] (3.90,16.05) -- (pc.east);
-\node[lab, rotate=90, anchor=north] at (3.98,15.00) {Redirect};
-
-% bypass: EXU -> ISU
-\draw[fatl] (exu.east |- 0,5.60) -- (11.38,5.60) -- (11.38,8.95);
-\draw[fat] (11.38,8.95) -- (isu.east);
-\node[lab, rotate=90, anchor=south] at (11.33,7.45) {Bypass};
-
-% WBU
-\node[box=dgRose, minimum width=3.50cm, minimum height=3.50cm] (wbu) at (2.65,2.15) {{\small WBU}\\{\small (Writeback Unit)}\\[2pt]in-order retire};
-\draw[fat] (1.85,4.70) -- node[lab, right]{rd} (1.85,3.92);
-
-% LSU
-\node[box=dgLav, minimum width=6.2cm, minimum height=3.50cm] (lsu) at (7.90,2.15) {};
-\node[title] at (7.90,3.85) {LSU (Load Store Unit)};
-\node[box=dgRose, minimum width=5.6cm, minimum height=0.70cm] at (7.90,2.75) {LS1 → LS2 → LS3};
-\node[box=dgSky, minimum width=2.65cm, minimum height=1.15cm] at (6.48,1.20) {DCache\\(8 KiB, 2-way)};
-\node[box=dgRose, minimum width=2.65cm, minimum height=1.15cm] at (9.33,1.20) {Return\\Queue (×2)};
-\draw[fatb] (7.90,4.70) -- node[lab, right]{addr / wdata / rdata} (7.90,3.92);
-
-% Perip Bridge
-\node[rbox=dgSalmon, minimum width=1.75cm, minimum height=9.55cm] (br) at (12.62,5.20) {};
-\node[font=\diagfont\bfseries\small, align=left, anchor=north west] at (11.82,9.88) {Perip\\Bridge};
-\node[rbox=dgMag, minimum width=1.45cm, minimum height=1.75cm] (mmio) at (12.62,6.80) {MMIO\\Accel};
-\node[rbox=dgSky, minimum width=1.45cm, minimum height=1.55cm] (bram) at (12.62,4.25) {BRAM};
-\node[rbox=dgSky, minimum width=1.45cm, minimum height=1.75cm] (sb) at (12.62,1.55) {Store\\Buffer\\(×4)};
-\draw[fat] (lsu.east |- 0,1.55) -- (sb.west);
-\draw[fat] (sb.north) -- (bram.south);
-\end{tikzpicture}
-\caption{Mundus 九级核架构}
-\label{fig:core-overview}
-\end{figure}
 \begin{figure}[htbp]
 \centering
 % ARES SoC architecture, block-diagram style: (a) single-hart board top, (b) AMP.

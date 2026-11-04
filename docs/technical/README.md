@@ -62,13 +62,13 @@ xelatex -interaction=nonstopmode -halt-on-error technical_report.tex
 
 | PNG | 内容 | 正文位置 |
 | --- | --- | --- |
-| `01_app_overview.png` | 应用与加速器总体架构 | 图 4 |
-| `02_mt_arch.png` | miniTensor 架构 | 图 15 |
+| `01_app_overview.png` | 应用与加速器总体架构 | 图 6 |
+| `02_mt_arch.png` | miniTensor 架构 | 图 18 |
 | `03_mt_dataflow.png` | 行式 UB 与 4×4 数据通路 | 扩展 |
 | `04_mt_cmd_timing.png` | 命令 issue/commit/result | 扩展 |
-| `05_mt_gemv.png` | GEMV 映射为 1×1 卷积 | 图 16 |
+| `05_mt_gemv.png` | GEMV 映射为 1×1 卷积 | 图 19 |
 | `06_app_stack.png` | 两个应用共用软件栈 | 扩展 |
-| `07_llm_flow.png` | Qwen → H112 → 两条路径 | 图 18 |
-| `08_gesture_flow.png` | 手势识别链路 | 图 19 |
+| `07_llm_flow.png` | Qwen → H112 → 两条路径 | 图 21 |
+| `08_gesture_flow.png` | 手势识别链路 | 图 22 |
 | `09_gesture_fsm.png` | 手势判决状态机 | 扩展 |
 | `10_gesture_tile.png` | 手势 UB 分配与 tile 调度 | 扩展 |
