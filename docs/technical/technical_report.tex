@@ -410,8 +410,8 @@ AI 处理效率 & 延迟与识别率 & 手势（3 类演示/8 类词表）：每
 ARES 以 Mundus 九级核为核心，前端经 IROM 请求/响应接口连接 ICache 或直通适配器，后端经含 DCache 的 LSU 和 PERIP 接口访问数据存储及外设。
 处理器内部由前端预测和取指、译码、发射与寄存器读取、执行、LSU、乘除法及写回单元构成，核架构见图~\ref{fig:core-overview}。IFU 经两级队列向后端供指，ISU 在 ISS 读取 GPR、完成旁路判定并提前计算访存地址，EX1--EX4 与 LSU 的 LS1--LS3 对齐，WBU 顺序提交。
 HZU 根据分支结果协调重定向，ISU 根据数据就绪状态决定旁路与互锁，WB 保持顺序提交。
-图~\ref{fig:soc-framework}(a) 为单核 SoC 架构：\code{student_top} 内的取指路径经 ICache 和回填适配器读取 IROM，数据路径经外设桥译码后访问写队列与数据 BRAM、MMIO 加速器及各类寄存器；UART、毫秒计数器和显示驱动位于 50 MHz 外设时钟域，经 CDC 与 100 MHz CPU 域交互。图~\ref{fig:soc-framework}(b) 为 AMP 架构：每 hart 例化一份 \code{student_top}，含私有 IROM/ICache/数据 BRAM 和加速器，另连共享 uncached mailbox。
-\code{pipeline_mc_soc_top} 则是共享 L2 的独立实验配置。
+图~\ref{fig:soc-framework}(a) 为单核 SoC 架构：CPU 顶层模块内的取指路径经 ICache 和回填适配器读取 IROM，数据路径经外设桥译码后访问写队列与数据 BRAM、MMIO 加速器及各类寄存器；UART、毫秒计数器和显示驱动位于 50 MHz 外设时钟域，经 CDC 与 100 MHz CPU 域交互。图~\ref{fig:soc-framework}(b) 为 AMP 架构：每 hart 例化一份 CPU 顶层模块（\code{core_top}），含私有 IROM/ICache/数据 BRAM 和加速器，另连共享 uncached mailbox。
+SoC 顶层模块（\code{pipeline_mc_soc_top}）则是共享 L2 的独立实验配置。
 
 \begin{figure}[htbp]
 \centering
@@ -524,9 +524,9 @@ HZU 根据分支结果协调重定向，ISU 根据数据就绪状态决定旁路
 \node[box=scUart, minimum width=1.90cm, minimum height=1.00cm] (uart) at (1.45,6.30) {UART\\(115200)};
 \draw[fat] (clk.south) -- node[lab, right]{50 MHz} (uart.north);
 
-% ---- student_top ----
+% ---- core_top ----
 \draw[draw=black, line width=1pt, fill=scTop, rounded corners=8pt] (3.05,4.70) rectangle (13.35,15.55);
-\node[font=\diagfont\bfseries\small, anchor=north west] at (3.20,15.45) {student\_top};
+\node[font=\diagfont\bfseries\small, anchor=north west] at (3.20,15.45) {core\_top};
 
 \node[box=scCore, minimum width=2.40cm, minimum height=1.00cm] (core) at (5.30,14.25) {Mundus\\九级核};
 \node[box=scInst, minimum width=2.10cm, minimum height=1.00cm] (ic) at (8.55,14.25) {ICache\\(4 KiB)};
@@ -681,7 +681,7 @@ HZU 根据分支结果协调重定向，ISU 根据数据就绪状态决定旁路
 \subsubsection{电路各模块介绍}
 \paragraph{SoC 集成方式}
 
-Mundus 九级核经手写 \code{myCPU} 包装接入 \code{student_top}，其中 \code{Core_cpu} 是实例名。
+Mundus 九级核经手写 \code{myCPU} 包装接入 \code{core_top}，其中 \code{Core_cpu} 是实例名。
 单核板级顶层为 \code{pipeline_board_top}，AMP 板级顶层为 \code{pipeline_amp_board_top}；RTOS 与 MSH 另有独立板级顶层和镜像。
 
 \paragraph{核心接口}
@@ -731,7 +731,7 @@ IROM 的请求与响应分别握手；PERIP 请求在 \code{valid} \code{&&} \co
 项目 & 参数及适用配置 \\
 \midrule
 BPU / 前端 & BTB 索引 7 bit，共 128 项；Bimodal 2 bit；RAS 深度 8；前端队列 8 项；在途元数据 2 项 \\
-单核 ICache & \code{student_top} 默认 32 组 $\times$ 4 路 $\times$ 32 B = 4 KiB \\
+单核 ICache & \code{core_top} 默认 32 组 $\times$ 4 路 $\times$ 32 B = 4 KiB \\
 AMP ICache & \code{pipeline_amp_top} 默认 64 组 $\times$ 4 路 $\times$ 64 B = 16 KiB/hart；每 hart 内部 IROM 为 32 KiB \\
 AMP 板级 ICache & \code{pipeline_amp_board_top} 覆盖为 128 组 $\times$ 4 路 $\times$ 64 B = 32 KiB/hart \\
 DCache & 8 KiB，1024 组 $\times$ 2 路 $\times$ 4 B；每次只回填一个字，写直达、写 miss 不分配 \\
@@ -747,7 +747,7 @@ AMP 以 \code{EXTERNAL_IROM=0}、\code{ICACHE_WAYS=4} 为每 hart 例化私有 I
 
 \paragraph{SoC 地址空间}\label{tab:address-space}
 
-下表为 \code{student_top/perip_bridge} 单核与 AMP 路径的地址映射，其中 \code{DRAM} 表示片上数据 BRAM。
+下表为 \code{core_top/perip_bridge} 单核与 AMP 路径的地址映射，其中 \code{DRAM} 表示片上数据 BRAM。
 
 \begin{table}[H]
 \centering
@@ -1361,7 +1361,7 @@ IFU 使用 $\mathrm{reservedCount}=\mathrm{fqCount}+\mathrm{metaCount}$ 预留�
 普通 \code{rst} 清状态机、响应槽和计数器，将每组 age 置为路号，保留 valid/tag/data。该复位方式要求 IROM 镜像保持不变；有效位的上电初始化待验证。
 \code{FENCE.I} 复用访存屏障，ICache 失效功能尚未实现。
 
-模块提供请求、miss、安装完成及响应提交四个 64 bit 计数器，\code{student_top} 在 EBREAK 退休时触发统计输出。其中 \code{hit_count} 是响应提交计数，包含 miss 回填后重查成功的响应。性能记录分别列出请求、miss、完成回填和响应提交数，并注明 Cache 配置与镜像。
+模块提供请求、miss、安装完成及响应提交四个 64 bit 计数器，\code{core_top} 在 EBREAK 退休时触发统计输出。其中 \code{hit_count} 是响应提交计数，包含 miss 回填后重查成功的响应。性能记录分别列出请求、miss、完成回填和响应提交数，并注明 Cache 配置与镜像。
 
 本节对应 \code{core/vsrc/icache/pipeline_icache.v}、\code{core/scsrc/ifu/IFU.scala} 和 \code{soc/zg/pipeline_irom_passthrough.v}，路径均相对 \code{rtl/pipeline/}。集成验证入口包括 smoke、ISA、CoreMark 及 Cache 开关对照测试。
 
@@ -1744,7 +1744,7 @@ PERIP 请求以 \code{valid} \code{&&} \code{ready} 为接受事件，\code{wen}
 LSU 传给请求有效逻辑的 \code{stall} 只包含更老的长操作暂停，桥背压则经 \code{ready} 本地合并到流水使能中，避免 valid 与 ready 经全局停顿形成组合依赖环。
 长操作暂停时 \code{perip.valid} 降低，相关地址/宽度选择维持旧响应的对齐；桥背压保持尚未接受的 LS1 请求。
 
-\code{student_top/perip_bridge} 路径约定：读请求一旦被接受，数据经过 BRAM 读取和输出寄存，在两拍后以 \code{perip.rvalid} 返回，正好对应 LS3；MMIO、周期计数、加速器和 mailbox 的响应也对齐到该时刻。
+\code{core_top/perip_bridge} 路径约定：读请求一旦被接受，数据经过 BRAM 读取和输出寄存，在两拍后以 \code{perip.rvalid} 返回，正好对应 LS3；MMIO、周期计数、加速器和 mailbox 的响应也对齐到该时刻。
 PERIP 没有读响应 ready，已经发出的读不会因为核停顿而停止返回。LSU 因而设置两个按序数据槽：若 LS3 可消费且队列为空，本拍返回直接使用；否则返回入队，恢复后优先消费队首。
 两个槽位容纳长操作冻结流水后仍会陆续返回的两个已接受读。
 
@@ -2752,7 +2752,7 @@ BLKSIZE、SEED1、SEED2、STEP、CRC\_IN，再写 \code{0x700} 启动。
 \label{subsec:amp-mailbox-cooperation}
 
 \paragraph{私有计算状态与统一程序镜像}
-\code{pipeline_amp_top} 按 CORES 例化 2/4 个 \code{student_top}。
+\code{pipeline_amp_top} 按 CORES 例化 2/4 个 \code{core_top}。
 各 hart 拥有私有 32 KiB IROM、四路 ICache、DCache、数据 BRAM、MMIO 和
 三个加速器，IROM 装载同一份程序。软件链接的数据窗口均从
 \code{0x80100000} 开始，ISS 地址生成对 cacheable 数据地址施加
