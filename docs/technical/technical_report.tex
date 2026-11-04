@@ -615,9 +615,9 @@ SoC 顶层模块（\code{pipeline_mc_soc_top}）则是共享 L2 的独立实验�
 \end{figure}
 
 % ===== 新增：应用与加速器总体 =====
-\paragraph{平台与口径}
+\paragraph{应用平台}
 
-应用与加速器部分统一以 Mundus 九级核为口径：CPU 是 Mundus 九级顺序核，数据按 uncached 视图访问，miniTensor 通过 MMIO 接入。本部分提到的 CPU 都指这一核。图~\ref{fig:app-overview} 给出总体关系：CPU 经 MMIO 窗口把命令写入 miniTensor 的命令队列，DMA 在 UB 与 scratch/BRAM 间搬数，两个应用共用一套软件栈。
+应用侧采用 Mundus 九级顺序核，数据按 uncached 视图访问，miniTensor 通过 MMIO 接入。图~\ref{fig:app-overview} 给出总体关系：CPU 经 MMIO 窗口把命令写入 miniTensor 的命令队列，DMA 在 UB 与 scratch/BRAM 间搬数，两个应用共用一套软件栈。
 
 \begin{figure}[htbp]
 \centering
@@ -2306,13 +2306,12 @@ P1g & LOAD 与二维突发合并（CONVGROUP） & 1,936 & 1.31 M \\
 \subsection{软件系统介绍}
 \subsubsection{软件整体介绍}
 目标端包括 AbstractMachine 裸机运行时与 CoreMark，以及独立的 RT-Thread Nano 自检和 MSH 固件；主机端提供镜像拆分、Verilator 驱动和模块测试脚本。
-核生成配置关闭 DPI-C/difftest 仿真钩子。裸机仿真仍可通过独立 DPI 存储器模型运行，退休观察使用显式 \code{retire_*} 接口；RTOS 板级仿真使用推断 BRAM 和实际 UART RTL。
+核生成配置 \code{CONFIG_SIMULATION=false} 关闭核内 DPI-C/difftest 插桩；裸机仿真使用独立 DPI 存储器模型，通过显式 \code{retire_*} 接口观察退休；RTOS 板级仿真使用推断 BRAM 和实际 UART RTL。
 
 \subsubsection{软件各模块介绍}
 \paragraph{仿真平台}
 
 Verilator~\cite{verilator} 将 RTL 编译为 C++ 模型，测试台负责时钟、复位、镜像和结束条件。\code{rtl/pipeline/test} 提供 smoke、ISA、CoreMark、Cache、乘除法、IRQ、UART、AMP 等入口；波形和日志按对应构建配置生成。
-\code{CONFIG_SIMULATION=false} 关闭核内仿真插桩，与 Verilator 构建中的独立 DPI 存储器接口是不同开关。
 
 \paragraph{软件测试环境}
 
@@ -2373,7 +2372,7 @@ ARES/
 \subsubsection{应用一：语言模型部署}
 \label{par:llm}
 
-Qwen2.5-0.5B-Instruct~\cite{qwen2025} 有 24 层、$d=896$、494M 参数，FP16 权重约 1 GB、INT8 仍约 494 MB；片上窗口只有 512 KiB。把 0.5B 搬到 DDR 需要 64--128 lane 的 GEMV 和 BPE 词表，是另一条路线；我们选择把能力压到 $10^5$ 参数级、让它常驻片上：Qwen 提供语料与语言能力，板上运行 H112。
+Qwen2.5-0.5B-Instruct~\cite{qwen2025} 有 24 层、$d=896$、494M 参数，FP16 权重约 1 GB、INT8 约 494 MB。受 512 KiB 片上窗口限制，板端部署 $10^5$ 参数级的 H112，Qwen 用于语料构建。
 
 四个形态各管一件事（表~\ref{tab:llm-models}）：H112 140,742 参数 / 152,056 B，是当前部署；H88 107,000 / 118,168 B，适配 128 KB loader；A0 56,480，用来做 CPU 与加速器的同模型对照；QA 10,475 条 / 638,076 B，留出模板 94\%。A0 的 CPU 路径用 int16 Q15、17 char/s；miniTensor 把 GEMV 映射为 1×1 卷积，int8、103 char/s @27 MHz、0/40 golden。6 倍提升主要来自“把 GEMV 变成阵列友好的形状”，代价是 INT8 激活的文本质量，下一步做 QAT。图~\ref{fig:llm-flow} 给出从 Qwen 语料到两条执行路径。
 
@@ -2449,9 +2448,7 @@ QA & 检索式知识库 & 10,475 条 & 638,076 B & 留出模板 94\% \\
 \label{fig:llm-flow}
 \end{figure}
 
-串口采用 115200 8N1 行协议；H112 的 20 token/s 是 50 ms/token 的输出节流，不是模型算力。上电先位流后固件；128 KB loader 装 H88，512 KiB 窗口装 H112 与 QA。这里的优势不是“把 0.5B 搬上板”，而是把 Qwen 的能力压到 152 KB、常驻片上，并用同一套权重跑出 CPU 与加速器两条可对比的路径。
-
-这套设计的好处很直接：权重常驻片上，不靠 DDR 流式加载，首字延迟更稳定；同一套权重有 CPU 和 miniTensor 两条路，质量优先/吞吐优先可以切换；QA 检索兜底，开放问题不会跑飞。表~\ref{tab:h112-demo} 是板端对话节选。
+串口采用 115200 8N1 行协议。H112 的 20 token/s 为输出节流设置，每个 token 附加 50 ms 延时。上电先下载位流，再加载固件；H88 适配 128 KB loader，H112 使用 512 KiB 数据窗口。表~\ref{tab:h112-demo} 给出 H112 板端对话节选。
 
 \begin{table}[H]
 \centering
@@ -2475,7 +2472,7 @@ my name is alice & hello alice! nice to meet you, alice. \\
 
 OV5640 输出 720p，取中心 640×480，按 2:1 抽成 320×240 灰度，写入 \mbox{\texttt{0xD010\_0000}}；固件放一个 13×11 格的固定取景框（约 240×165 px），把框内区域 letterbox 到 32×32，量化后送入 miniTensor 的四层 CNN；每帧做 argmax、裕度门限和 3 帧确认，结果经 UART 以 10 Hz 输出。图~\ref{fig:gesture-flow} 给出从摄像头到网页的完整链路。
 
-我们把手势词表设计成 8 类，当前演示只用了其中 3 类（石头/布/剪刀）。分类头本来就是 1×1 的 16→8，现在只用了 3 个通道，剩下 5 个通道正好留给扩展手势；扩到 8 类不需要改 RTL，只换权重和补样本。表~\ref{tab:gesture-vocab} 是这 8 类的词表。
+手势词表包含 8 类，当前完成石头、布、剪刀 3 类的板端验证。分类头为 1×1 的 16→8，使用其中 3 个输出通道；其余 5 类需补充数据、重新训练并验证。表~\ref{tab:gesture-vocab} 列出各类手势及其状态。
 
 \begin{table}[H]
 \centering
@@ -2567,7 +2564,7 @@ OK & 拇指食指成环 & 确认、选择 & 已定义，待补样本 \\
 \end{tabularx}
 \end{table}
 
-它的好处是“小阵列 + INT8 也能在 10 Hz 下跑完整 CNN，并与检测器共用同一加速器”。从设计上看，固定取景框加 letterbox 让手离镜头远近、位置偏一点都能识别；裕度门限加连续 3 帧确认抑制抖动，没有对比度时直接报 none，避免乱报；8 类词表只换分类头，RTL 和 10 Hz 链路不变。也就是说，它不是一个“只能做石头剪刀布”的演示，而是一个可扩展到 8 类的交互入口；受演示时间限制，当前只把 3 类做到板端，其余 5 类补样本即可。
+判决阶段结合裕度门限与连续 3 帧确认抑制类别抖动，无对比度时输出 \code{none}。
 
 \subsubsection{演示层：上位机}
 \label{par:web}
@@ -3402,12 +3399,12 @@ b5 整机 & CLMA 35\%、DRM 63\%、APM 9\%；27 MHz WNS +12.85 ns \\
 我们还有一个深刻的教训：综合功耗、仿真周期、板卡运行时间也要分开记。配置、日志、照片都留好，不然过几天自己都说不清这个数到底是哪一版、什么配置跑出来的。
 
 应用联调最有意思，也最磨人的环节。
-五个能稳定复现的坑，基本都不是“算法不会”，而是字节、符号、顺序、边界这些细节没对齐：一是补丁把 0–255 的原始字节直接塞进 int8 引擎，忘了先转成有符号数；
+联调中定位了四类问题：一是补丁把 0--255 的原始字节直接塞进 int8 引擎，忘了先转成有符号数；
 二是相机固件复制推理序列时抄错了位；三是找最大裕度的循环从 best=0 开始，分数全是负的时候就会选错；四是取景框偏移常量写成了 80。
 
 也正因为这些坑，我们后来养成了“先测量再优化”的习惯：先看时间到底花在哪，再决定改什么。
 
-回头看这个比赛，一个看似容易实现的功能，可能需要我们在实验室里无数次重复“调算法—上板—再调”的循环；一个深夜报出来的 bug，需要我们即时把它复现；对着时序报告，甚至连 AI 都没有优化思路时，我们只能回头读论文、翻手册、学业界方案，再一点点试。我们不敢说做得完美，但更愿意把一件事追到底，也更明白从“做出来”到“做可靠”还有很长的路。也许正如芯片的行业旅途，真正拉开差距的往往不是某个宏大的概念，而是这些具体而琐碎的细节；所谓产业底气，也不过是一代代人把这些细节一个个啃下来，再交到下一双手里。
+从模型训练到 FPGA 上板，功能与时序问题需要在反复联调中定位。固定实验配置、保留原始记录，并把已复现的问题纳入回归，是本项目逐步提高可靠性的主要经验。
 
 \begingroup
 \small
