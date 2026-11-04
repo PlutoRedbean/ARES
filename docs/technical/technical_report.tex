@@ -498,7 +498,7 @@ b5 整机 & CLMA 35\%、DRM 63\%、APM 9\% & 27 MHz WNS +12.85 ns \\
 任务 & 赛题要求 & 本作品实现与证据 & 状态 \\
 \midrule
 \multicolumn{4}{@{}l}{\textbf{基础任务}} \\
-处理器内核构建 & 支持 RV32I 基础整数指令集 & RV32I 全部指令，另加 RV32M、Zicsr 与 custom-0 CRC8；36 个 cpu-tests 全部通过（表~\ref{tab:ares-functional-results}） & 完成 \\
+处理器内核构建 & 支持 RV32I 基础整数指令集 & RV32I 全部指令，另加 RV32M、Zicsr 与 custom-0 CRC8；45 个 cpu-tests 全部通过（表~\ref{tab:ares-functional-results}） & 完成 \\
 流水线架构设计 & 不少于 3 级流水，处理数据冲突与分支跳转 & Mundus 九级核，顺序单发射；温度计码时机表达、两级旁路与互锁处理数据冒险，HZU 统一重定向处理控制冒险 & 完成 \\
 外设系统集成 & 集成 UART、GPIO 等基础外设 & UART TX/RX（含 RX FIFO）、按键、LED、毫秒计时器与机器定时器中断；MSH 双向串口测试通过 & 完成 \\
 \midrule
@@ -2333,7 +2333,7 @@ CoreMark 等目标程序由 \code{riscv32-unknown-elf-gcc} 13.2.0 按
 \paragraph{测试程序}
 
 测试入口覆盖 \code{pipeline-smoke}、\code{pipeline-isa}、CoreMark 各镜像、DCache 与乘除法单测、多核 mailbox/存储实验及 RTOS/IRQ/UART。
-cpu-tests 包含 36 个程序级回归用例。
+cpu-tests 包含 45 个程序级回归用例。
 
 \paragraph{工程模块组织}
 ARES 的相关模块组织如下，构建产物位于 \code{build/}。
@@ -3072,7 +3072,7 @@ MSH 为独立配置，使用 4 KiB shell 栈，通过 UART RX FIFO 与控制台�
 \toprule
 范围 & 状态 \\
 \midrule
-Core / Cache / 加速器 & 本次 smoke、36 个 cpu-tests、1520 项 DCache 检查、乘除法、三个引擎与五种单核 CoreMark 镜像通过 \\
+Core / Cache / 加速器 & 本次 smoke、45 个 cpu-tests、1520 项 DCache 检查、乘除法、三个引擎与五种单核 CoreMark 镜像通过 \\
 ICache 安装一致性 & \code{S_FILL} 与 flush/复位同拍的数据/目录不一致已修复；\code{pipeline-icache-test} 定向与随机检查通过 \\
 短复位 & 流水线与 LSU 各级 valid 已加同步复位；\code{pipeline-reset-pulse} 的脉宽/相位扫描无陈旧退休或 Store \\
 AMP 多核 & 本次 2/4-hart 全加速 MULTITHREAD 聚合测试通过；每 hart 私有 IROM、四路 ICache、DRAM 与加速器 \\
@@ -3130,6 +3130,15 @@ ISA/ABI 为 \code{rv32im_zicsr/ilp32}。
 生成核与镜像哈希、复测命令及日志记录见附录~\ref{app:repro}。
 
 \subsubsection{功能验证}
+图~\ref{fig:riscv-tests} 展示仿真中的指令测试结果，45 项测试全部通过。
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\linewidth,height=0.68\textheight,keepaspectratio]{riscv-tests.png}
+\caption{RISC-V 指令仿真测试通过情况（45 项）}
+\label{fig:riscv-tests}
+\end{figure}
+
 \begin{table}[H]
 \centering
 \caption{ARES 功能复测结果}
@@ -3139,7 +3148,7 @@ ISA/ABI 为 \code{rv32im_zicsr/ilp32}。
 项目 & 结果 \\
 \midrule
 Smoke & 两次 Store 分别得到 0x55、0x66；FENCE 前后顺序及 EBREAK 停机通过 \\
-ISA & 36 个 cpu-tests 全部通过，\code{ISA} \code{pass=36} \code{fail=0} \\
+ISA & 45 个 cpu-tests 全部通过，\code{ISA} \code{pass=45} \code{fail=0} \\
 DCache & 两路缓存定向与随机测试通过，共 1520 项检查 \\
 乘法 / 除法 & 乘法 21771 个检查周期通过；除法 2347 次操作通过 \\
 MMIO 引擎 & 矩阵 3507 项、状态机 10928 项检查通过；链表 232 组向量通过 \\
