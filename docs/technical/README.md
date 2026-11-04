@@ -7,7 +7,7 @@
 | 路径 | 说明 |
 | --- | --- |
 | `technical_report.tex` | 唯一的报告源文件（core + 应用/加速器，TikZ 图全部内联） |
-| `technical_report.pdf` | 合并报告 PDF（69 页） |
+| `technical_report.pdf` | 由报告源文件编译生成的提交版 PDF |
 | `results.json` | core 组原有结果，未改动 |
 | `application_results.json` | 应用与加速器结果（本部分新增） |
 | `figures/` | 只放图片/PDF 素材，不再放 `.tex` |
@@ -37,11 +37,13 @@ xelatex -interaction=nonstopmode -halt-on-error technical_report.tex
 - 2.3.3：语言模型部署。
 - 2.3.4：手势识别。
 - 2.3.5：演示层（串口桥接、SSE、Three.js）。
-- 3.4：应用与加速器特性成果。
+- 第三部分开头：RTL 烧录、OV5640 采集与应用运行的整体介绍。
+- 3.1：工程成果，含机械集成的正面、背面与 45 度实物图。
+- 3.3：应用与加速器特性成果，含语言模型对话和 YOLO 手势全息界面图片。
 - 4.1/4.2：实际应用、五个 bug 与优化心得。
 - 附录 C：应用与加速器复现信息（原附录 B 旧版 Mundus 九级核资料已删除）。
 
-报告正文保留 5 张新增核心图（总体架构、miniTensor 架构、GEMV 映射、LLM 路径、手势链路）和 1 组网页截图；core 原有 13 张图与正文内联小图也在同一个文件里，共 21 个 `tikzpicture`。`figures/architecture_sheet.pdf` 是 10 张图的扩展集合，部分图未放进正文。
+报告正文保留 5 张新增核心图（总体架构、miniTensor 架构、GEMV 映射、LLM 路径、手势链路）和 1 组网页截图；core 原有 13 张图与正文内联小图也在同一个文件里，共 21 个 `tikzpicture`；第三部分另补入整机三视角实物图和两张 AI 应用成果图。`figures/architecture_sheet.pdf` 是 10 张图的扩展集合，部分图未放进正文。
 
 正文中的手势应用按 8 类词表设计，可识别石头、布、剪刀、OK、点赞、指向、停止、捏合 8 种手势，其中石头、布、剪刀已完成板端演示，识别速度为 10 fps。
 

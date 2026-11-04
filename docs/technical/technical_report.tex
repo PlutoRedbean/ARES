@@ -3056,6 +3056,8 @@ MSH 为独立配置，使用 4 KiB shell 栈，通过 UART RX FIFO 与控制台�
 
 \clearpage
 \section{完成情况及性能参数}
+我们将自研处理器、存储系统、外设与 miniTensor 加速器的 RTL 综合并生成位流，烧录到盘古 200Pro+ FPGA 开发板，加载固件后运行完整应用。视觉链路通过 OV5640 采集画面，在板端完成图像预处理与手势识别，再经 UART 将结果送至上位机，驱动浏览器全息界面；语言模型链路在板端运行 H112，经串口接收问题并逐 token 返回回答。以下分别展示电路、软件、机械集成与 AI 应用成果，并汇总验证结果和性能参数。
+
 \subsection{工程成果}
 \subsubsection{电路成果}
 已具备 Mundus 九级核、I/DCache、片上存储与外设、CRC8 和三类 MMIO 引擎、单核及 2/4-hart AMP 顶层。AMP 为每 hart 私有 IROM、四路 ICache 与数据 BRAM，通过 uncached mailbox 协作。
@@ -3082,6 +3084,35 @@ RTOS / MSH & 本次 RTOS 自检、物理 UART 板级仿真和 MSH 双向串口�
 \end{table}
 
 程序与模块测试的 RTL 版本、命令、镜像与日志哈希见附录~\ref{app:repro}。
+
+\clearpage
+\subsubsection{机械成果}
+作品已完成开发板、扩展板与摄像头的实物集成，并连接下载、供电与串口线缆。图~\ref{fig:mechanical-results} 展示整机正面、背面和 45 度视角，可见板卡布局、接口连接及支撑固定结构。
+
+\begin{figure}[H]
+\centering
+\begin{minipage}{0.48\linewidth}
+  \centering
+  \includegraphics[width=\linewidth,height=5.8cm,keepaspectratio]{FPGA_io.png}
+  \caption*{(a) 正面}
+\end{minipage}
+\hfill
+\begin{minipage}{0.48\linewidth}
+  \centering
+  \includegraphics[width=\linewidth,height=5.8cm,keepaspectratio]{back.png}
+  \caption*{(b) 背面}
+\end{minipage}
+
+\medskip
+\begin{minipage}{0.72\linewidth}
+  \centering
+  \includegraphics[width=\linewidth]{overview.png}
+  \caption*{(c) 45 度展示}
+\end{minipage}
+\caption{机械集成与整机实物展示}
+\label{fig:mechanical-results}
+\end{figure}
+
 
 
 \subsection{ARES 验证与性能结果}
@@ -3367,6 +3398,27 @@ b5 整机 & CLMA 35\%、DRM 63\%、APM 9\%；27 MHz WNS +12.85 ns \\
 \end{table}
 
 优势可以归结为三点：同一颗自研 CPU 通过 MMIO 接一个 miniTensor，就能同时覆盖语言模型与手势 CNN；同一 4×4 阵列既能做卷积，也能执行 GEMV；两个应用共用驱动与量化工具链，指标可逐字节/逐 token 对拍。
+
+\clearpage
+\subsubsection{AI 应用展示}
+语言模型已完成板端部署与串口交互。用户在上位机终端输入问题，板端返回回答并显示输出速度，约为 3 token/s。图~\ref{fig:llm-result} 展示围绕 CPU、流水线和指令 Cache 的对话效果。
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\linewidth]{llm.png}
+\caption{语言模型板端对话成果}
+\label{fig:llm-result}
+\end{figure}
+
+手势应用通过 OV5640 采集画面，板端输出识别结果，上位机将手势事件映射为全息界面的启动、确认、模式切换等动作。图~\ref{fig:gesture-hologram-result} 展示 YOLO 手势全息界面，手势识别速度为 10 fps。
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\linewidth]{app_web_ready.png}
+\caption{YOLO 手势全息界面成果}
+\label{fig:gesture-hologram-result}
+\end{figure}
+
 
 \clearpage
 \section{总结}
