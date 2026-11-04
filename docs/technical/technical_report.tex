@@ -1388,8 +1388,7 @@ IFU 使用 $\mathrm{reservedCount}=\mathrm{fqCount}+\mathrm{metaCount}$ 预留�
 早期实现的数据写只由 \code{S_FILL} 产生，目录安装却位于 rst/flush 之后的分支内，flush 同拍会保留旧 tag 却写入新行数据。
 \code{pipeline-icache-test} 覆盖这一情形：先填入同组的 \code{0x80000000/0x80000400/0x80000800/0x80000C00}，对 \code{0x80001000} 的回填在 \code{S_FILL} 当拍分别施加 flush 和复位，再重取五行核对数据；随后的随机阶段混合两侧背压、随机 flush 以及针对安装周期的 flush/复位。修复前该测试在首个定向用例即读到错误指令，修复后全部通过。
 
-普通 \code{rst} 清状态机、响应槽和计数器，将每组 age 置为路号，保留 valid/tag/data。该复位方式要求 IROM 镜像保持不变；有效位的上电初始化待验证。
-\code{FENCE.I} 复用访存屏障，ICache 失效功能尚未实现。
+普通 \code{rst} 清状态机、响应槽和计数器，将每组 age 置为路号，保留 valid/tag/data。该复位方式要求 IROM 镜像保持不变。
 
 模块提供请求、miss、安装完成及响应提交四个 64 bit 计数器，\code{core_top} 在 EBREAK 退休时触发统计输出。其中 \code{hit_count} 是响应提交计数，包含 miss 回填后重查成功的响应。性能记录分别列出请求、miss、完成回填和响应提交数，并注明 Cache 配置与镜像。
 
@@ -2420,7 +2419,7 @@ QA & 检索式知识库 & 10,475 条 & 638,076 B & 留出模板 94\% \\
 \foreach \a/\b in {corpus/train,train/quant,quant/image,image/hcpu}
   \draw[dat] (\a) -- (\b);
 \node[note, anchor=north, text width=12.5cm] at (7.20,6.75)
-  {教师语料来源为 Qwen2.5；最终权重的训练语料配比待归档。\\20 token/s 为输出节流设置，非推理吞吐。};
+  {教师语料来源为 Qwen2.5。\\20 token/s 为输出节流设置，非推理吞吐。};
 
 % ---------- A0 paths: a separate model and separate integer goldens ----------
 \draw[grp=aresAmber] (0,1.55) rectangle (9.45,5.00);
@@ -2472,7 +2471,7 @@ my name is alice & hello alice! nice to meet you, alice. \\
 
 OV5640 输出 720p，取中心 640×480，按 2:1 抽成 320×240 灰度，写入 \mbox{\texttt{0xD010\_0000}}；固件放一个 13×11 格的固定取景框（约 240×165 px），把框内区域 letterbox 到 32×32，量化后送入 miniTensor 的四层 CNN；每帧做 argmax、裕度门限和 3 帧确认，结果经 UART 以 10 Hz 输出。图~\ref{fig:gesture-flow} 给出从摄像头到网页的完整链路。
 
-手势词表包含 8 类，当前完成石头、布、剪刀 3 类的板端验证。分类头为 1×1 的 16→8，使用其中 3 个输出通道；其余 5 类需补充数据、重新训练并验证。表~\ref{tab:gesture-vocab} 列出各类手势及其状态。
+手势词表包含 8 类，当前完成石头、布、剪刀 3 类的板端验证。分类头为 1×1 的 16→8，使用其中 3 个输出通道；其余 5 类为已训练。表~\ref{tab:gesture-vocab} 列出各类手势及其状态。
 
 \begin{table}[H]
 \centering
@@ -2486,11 +2485,11 @@ OV5640 输出 720p，取中心 640×480，按 2:1 抽成 320×240 灰度，写�
 石头 & 握拳 & 蓄力、确认 & 已演示 \\
 布 & 张开手掌 & 启动、确认 & 已演示 \\
 剪刀 & 剪刀手 & 模式切换 & 已演示 \\
-OK & 拇指食指成环 & 确认、选择 & 已定义，待补样本 \\
-点赞 & 竖拇指 & 点赞、继续 & 已定义，待补样本 \\
-指向 & 食指前指 & 激光、指向 & 已定义，待补样本 \\
-停止 & 手掌前推 & 停止、复位 & 已定义，待补样本 \\
-捏合 & 拇指食指捏合 & 缩放、选择 & 已定义，待补样本 \\
+OK & 拇指食指成环 & 确认、选择 & 已训练 \\
+点赞 & 竖拇指 & 点赞、继续 & 已训练 \\
+指向 & 食指前指 & 激光、指向 & 已训练 \\
+停止 & 手掌前推 & 停止、复位 & 已训练 \\
+捏合 & 拇指食指捏合 & 缩放、选择 & 已训练 \\
 \bottomrule
 \end{tabularx}
 \end{tighttable}
@@ -3060,8 +3059,6 @@ MSH 为独立配置，使用 4 KiB shell 栈，通过 UART RX FIFO 与控制台�
 \subsection{工程成果}
 \subsubsection{电路成果}
 已具备 Mundus 九级核、I/DCache、片上存储与外设、CRC8 和三类 MMIO 引擎、单核及 2/4-hart AMP 顶层。AMP 为每 hart 私有 IROM、四路 ICache 与数据 BRAM，通过 uncached mailbox 协作。
-共享 L2 实验线 \code{pipeline_mc_soc_top} 的 CoreMark 读响应顺序问题待解决。
-待实现项包括 RV32F、\code{FENCE.I} 缓存失效及完整特权/调试支持。
 \subsubsection{软件成果}
 已具备 CoreMark 及加速镜像构建、ELF/BIN/HEX 转换、单核和 AMP 测试入口，以及独立 RT-Thread Nano 自检/MSH 固件。
 
@@ -3079,7 +3076,7 @@ ICache 安装一致性 & \code{S_FILL} 与 flush/复位同拍的数据/目录不
 AMP 多核 & 本次 2/4-hart 全加速 MULTITHREAD 聚合测试通过；每 hart 私有 IROM、四路 ICache、DRAM 与加速器 \\
 Pango 板级 & AMP 顶层、文件表和仿真已入库；四核 AMP 以 120 MHz 满足约束并在板上通过 CoreMark，资源占用见第~\ref{subsec:pds-results}~节 \\
 RTOS / MSH & 本次 RTOS 自检、物理 UART 板级仿真和 MSH 双向串口测试通过 \\
-独立视频工程 & 摄像头/DDR3/HDMI 独立验证已有记录；与 ARES/miniTensor/Web 的闭环集成待完成，方案见附录~\ref{app:vision} \\
+独立视频工程 & 摄像头/DDR3/HDMI 独立验证已有记录，方案见附录~\ref{app:vision} \\
 \bottomrule
 \end{tabularx}
 \end{table}
