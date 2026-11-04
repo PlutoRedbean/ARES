@@ -18,6 +18,26 @@
       "per_frame_commands": 17184,
       "per_frame_cycles": 7270000,
       "busy_percent": 7.7
+    },
+    "current_compute_steps": 10,
+    "gemm_cycles_scope": "8-10 is a historical record. Current complete 4x4x4 tile requires 10 compute steps; command and UB transfer overhead is additional.",
+    "gemm_unit_verification": {
+      "verified_on": "2026-11-04",
+      "command": "python3 scripts/test_minitensor_gemm.py",
+      "applications": [
+        "llm",
+        "gesture"
+      ],
+      "cases_per_application": 134,
+      "checked_outputs_per_application": 2144,
+      "coverage": [
+        "full 4x4 matrix products",
+        "signed INT8 limits",
+        "nonzero accumulation and 32-bit wraparound",
+        "latched operands",
+        "result backpressure"
+      ],
+      "result": "PASS"
     }
   },
   "llm": {
@@ -27,7 +47,7 @@
     "synthetic_dialogues": 20000,
     "h112": {
       "type": "word-level seq2seq GRU, V198/E48/H112/rank24",
-      "params": 140742,
+      "params": 126006,
       "image_bytes": 152056,
       "output_throttle_tokens_per_s": 20
     },
@@ -39,7 +59,7 @@
     },
     "a0": {
       "type": "char-GRU, Emb64/GRU96/Linear65",
-      "params": 56480,
+      "params": 57121,
       "cpu_char_s": 17,
       "minitensor_char_s": 103,
       "golden_mismatch": "0/40"
@@ -51,7 +71,9 @@
       "heldout_templates": "880/936",
       "accuracy_percent": 94,
       "output_chars_per_s": 20
-    }
+    },
+    "parameter_count_basis": "Weights and biases in current firmware headers; excludes quantization scales, activation LUTs and padding.",
+    "parameter_count_verified_on": "2026-11-04"
   },
   "gesture": {
     "dataset_frames": 287,
@@ -121,6 +143,7 @@
     "5 tok/s for QA is a display estimate at 4 chars/token, not BPE throughput.",
     "103 char/s is the INT8 miniTensor path; text quality is lower than the int16 CPU path at 17 char/s.",
     "1.31 M cycles is the final-image figure; P1h recorded 1.23 M under a different image/measurement boundary.",
-    "video_fb_top timing is not converged (WNS -3.83 ns, 3 unconstrained clocks); functional verification passed."
+    "video_fb_top timing is not converged (WNS -3.83 ns, 3 unconstrained clocks); functional verification passed.",
+    "Application accuracy/golden, throughput, frame cycles and FPGA resource/timing measurements predate the 10-step GEMM fix and require end-to-end and board-level revalidation."
   ]
 }

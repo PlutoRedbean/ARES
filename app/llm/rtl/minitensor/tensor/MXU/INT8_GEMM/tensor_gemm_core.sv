@@ -14,7 +14,8 @@ module tensor_gemm_core (
   input  logic result_ready,
   output logic [tensor_pkg::TENSOR_RESULT_WIDTH-1:0] result_data
 );
-  localparam int unsigned RUN_CYCLES = 8;
+  // The last product reaches PE[3][3] at step k + row + col = 9.
+  localparam int unsigned RUN_CYCLES = 10;
 
   typedef enum logic [1:0] {S_IDLE, S_RUN, S_RESULT} state_t;
   state_t state_q;

@@ -73,12 +73,14 @@ QA）。共用的 INT8 量化/打包/golden 格式参考实现在
 
 | 形态 | 结构 | 参数 / 镜像 | 入口 |
 | --- | --- | --- | --- |
-| A0 | char-GRU：Emb64→GRU96→Linear65 | 56,480 参数 / 62 KB | `main.c`（CPU）、`main_mt.c`（miniTensor） |
-| H112 | 词级 seq2seq GRU（V198/E48/H112/rank24） | 140,742 参数 / 152,056 B | `main_seq.c` |
+| A0 | char-GRU：Emb64→GRU96→Linear65 | 57,121 参数 / 62 KB | `main.c`（CPU）、`main_mt.c`（miniTensor） |
+| H112 | 词级 seq2seq GRU（V198/E48/H112/rank24） | 126,006 参数 / 152,056 B | `main_seq.c` |
 | QA | 检索式知识库 | 10,475 条 / 638,076 B | `main_cpu.c` |
 | intent / rule | 意图分类与规则对话 | — | `main_intent.c` / `main_rule.c` |
 
-miniTensor 把 GEMV 映射为 1×1 卷积：A 行 0 放 x[4t..4t+3]、行 1–3 补零，B 放
+上述参数量包含权重与偏置，不包含量化比例、LUT 与对齐填充。
+
+miniTensor 把 GEMV 映射为单个空间位置的 1×1 卷积：A 行 0 放 x[4t..4t+3]、行 1–3 补零，B 放
 [组][k 组][4k][4out] 权重，C 只取行 0 沿 t 累加。串口行协议与 20 token/s 输出节流
 （50 ms/token）是演示节流，不代表算力。
 

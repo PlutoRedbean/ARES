@@ -68,7 +68,25 @@ xelatex -interaction=nonstopmode -halt-on-error technical_report.tex
 | `04_mt_cmd_timing.png` | 命令 issue/commit/result | 扩展 |
 | `05_mt_gemv.png` | GEMV 映射为 1×1 卷积 | 图 19 |
 | `06_app_stack.png` | 两个应用共用软件栈 | 扩展 |
-| `07_llm_flow.png` | Qwen → H112 → 两条路径 | 图 21 |
+| `07_llm_flow.png` | H112 CPU 部署、A0 定点路径对照及独立 QA 检索 | 图 21 |
 | `08_gesture_flow.png` | 手势识别链路 | 图 22 |
 | `09_gesture_fsm.png` | 手势判决状态机 | 扩展 |
 | `10_gesture_tile.png` | 手势 UB 分配与 tile 调度 | 扩展 |
+
+
+## 本次勘误与待补验证（2026-11-04）
+
+- H112 rank-24：126,006 个参数（124,464 个权重 + 1,542 个偏置）。
+- A0：57,121 个参数（56,480 个权重 + 641 个偏置）。参数统计不包含量化比例、LUT 和对齐填充；镜像大小沿用原记录。
+- 图 21 将 H112 的 CPU 部署、A0 的 CPU/miniTensor 两种量化路径和 QA 检索分别表示。H112 激活 LUT 按 127 缩放。
+- 两个应用的 GEMM 核均由 8 步改为 10 步，覆盖完整 4×4×4 tile 的末端乘积。运行 `python3 scripts/test_minitensor_gemm.py`，两份 RTL 各通过 134 个用例、2,144 个输出检查；含有符号边界、累加、输入锁存与结果背压。
+
+| 需要补充的实验或材料 | 要记录的内容 |
+| --- | --- |
+| 修复后的应用级仿真 | 手势各层及完整输出与整数 golden 对拍；A0 INT8 序列与各自 golden 对拍；固定输入、权重、RTL 哈希与随机种子 |
+| 修复后的性能复测 | 手势命令数、完整帧周期与 busy 占比；A0 字符吞吐；明确计时是否包含 DMA、量化、后处理和串口延时 |
+| 新位流与板端验证 | 重新综合/PnR，归档资源、setup/hold 时序及位流哈希；复测手势板端一致性和实际延迟 |
+| 异常机制覆盖 | 实现标准 EBREAK 断点异常及其他拟声明支持的异常；用例检查 mcause、mepc、mtval（适用时）、mstatus、返回 PC 与错误路径副作用。FENCE.I 的取指同步需单独实现和验证 |
+| 模型来源 | 最终 H112 checkpoint、训练语料配比和训练配置；H88 的实际权重与含偏置参数统计 |
+
+正文及 JSON 中原有的 17/103 char/s、1.31 M 周期、精度和 FPGA 资源/时序仍是历史记录。10 步版本的应用性能与板级结果尚未重新测量。

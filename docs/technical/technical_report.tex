@@ -288,7 +288,7 @@ AMP 提供私有数据窗口与共享 mailbox，RT-Thread Nano 支持单核运�
 \item \textbf{前移一级的访存通路}：AGU 与 DCache 查表前移到 ISS，Load 命中在 EX2 即可旁路，miss 只停两拍；写队列逐字节转发。
 \item \textbf{可扩展多核 AMP}：每 hart 私有 IROM、ICache、BRAM 与加速器，AGU 按 hart\_id 重定位数据，同一镜像跑满 2/4 核；共享 mailbox 同步并汇总，四核仿真聚合 59.46 CoreMark/MHz。
 \item \textbf{软硬件协同加速}：CRC8 指令与三类 MMIO 引擎加速 CoreMark 热点，单核提速 5.99 倍；四核板上 120 MHz 实测 59.90 CoreMark/MHz。
-\item \textbf{一条命令流跑两类模型}：miniTensor 把 GEMV 映射为 1×1 卷积，语言模型与手势 CNN 共用 \code{GEMM} 命令流，手势每帧周期降至约 1/5.5。
+\item \textbf{一条命令流跑两类模型}：miniTensor 将 GEMV 表示为单个空间位置的 1×1 卷积，语言模型与手势 CNN 共用 \code{GEMM} 命令流，手势每帧周期降至约 1/5.5。
 \end{itemize}
 
 \begin{figure}[H]
@@ -432,9 +432,9 @@ AMP 提供私有数据窗口与共享 mailbox，RT-Thread Nano 支持单核运�
 \toprule
 项目 & 指标 & 口径 \\
 \midrule
-miniTensor & 4×4 INT8、32 bit 累加；UB 256×128 bit & 16 PE，8--10 周期/GEMM \\
+miniTensor & 4×4 INT8、32 bit 累加；UB 256×128 bit & 16 PE；完整 4×4×4 tile 计算 10 拍，另计命令与 UB 搬运开销 \\
 手势帧 & 1,936 条命令；约 1.31 M 周期 & 100 MHz 仿真 13.1 ms；27 MHz 板级 48.5 ms \\
-H112 & 140,742 参数 / 152,056 B & 20 token/s 输出节流 \\
+H112 & 126,006 参数 / 152,056 B & 20 token/s 输出节流 \\
 A0 & 17 char/s（CPU）/ 103 char/s（miniTensor） & 0/40 golden \\
 手势（3 类演示/8 类词表） & 287 帧 INT8 100\%；板端 8/8；10 Hz & 3 帧确认，约 0.2 s 更新 \\
 b5 整机 & CLMA 35\%、DRM 63\%、APM 9\% & 27 MHz WNS +12.85 ns \\
@@ -449,7 +449,7 @@ b5 整机 & CLMA 35\%、DRM 63\%、APM 9\% & 27 MHz WNS +12.85 ns \\
 \item 温度计码统一生产与消费时机，两级旁路减少误停顿。
 \item ISS 级 AGU、三段 LSU 与转发写队列兼顾频率与访存。
 \item CRC8 指令与三类 MMIO 引擎加速热点，单核约 6 倍加速。
-\item 行式 UB 把 GEMV 映射为 1×1 卷积，两个应用共用同一条 \code{GEMM} 命令流。
+\item 行式 UB 将 GEMV 表示为单个空间位置的 1×1 卷积，两个应用共用同一条 \code{GEMM} 命令流。
 \end{enumerate}
 
 \subsection{设计流程}
@@ -2152,7 +2152,7 @@ FENCE 在 ID 等待 LSU 与桥同时空闲；EBREAK 退休后冻结流水线。
 \paragraph{自研 miniTensor 加速器}
 \label{par:minitensor}
 
-miniTensor 以 MMIO 方式接入 SoC：CPU 通过 \code{0xE0000000} 的 8 个 MMIO 寄存器写指令和两个操作数，命令适配器将其打包后写入命令队列，DMA 在统一缓冲与 scratch/BRAM 之间搬数。三个限制决定了它的结构：无 FPU，全整数；数据按 uncached 视图访问，CPU 与 DMA 必须看到同一物理视图；窗口只有 4 KiB，命令就得尽量简单。图~\ref{fig:mt-arch} 给出命令适配器、64 项命令队列、4×4 阵列、向量单元、epilogue、UB 与 DMA 的关系。
+miniTensor 以 MMIO 方式接入 SoC：CPU 通过 \code{0xE0000000} 起始的 8 个 32 bit MMIO 寄存器写指令和两个操作数，寄存器共占 32 B；命令适配器将其打包后写入命令队列，DMA 在统一缓冲与 scratch/BRAM 之间搬数。加速器采用全整数运算，CPU 与 DMA 通过 uncached 数据视图访问同一物理内存；4 KiB 的 UB 容量决定 tile 与中间结果的分块方式。图~\ref{fig:mt-arch} 给出命令适配器、64 项命令队列、4×4 阵列、向量单元、epilogue、UB 与 DMA 的关系。
 
 \begin{figure}[htbp]
 \centering
@@ -2231,7 +2231,9 @@ miniTensor 以 MMIO 方式接入 SoC：CPU 通过 \code{0xE0000000} 的 8 个 MM
 \label{fig:mt-arch}
 \end{figure}
 
-UB 每行 128 bit，正好 16 个 INT8 或 4 个 INT32；A/B tile 各占一行，C tile 占四行，4 拍把 $k=0,\ldots,3$ 的乘积累加到 16 个 32 bit 累加器，\code{accumulate} 位选择初始化或累加。所有指令为 custom-0：\code{BURST} 用 rd 当重复次数，\code{GEMM2D} 用 nu×nj 展开二维网格，\code{CONVGROUP} 把 LOAD 与网格合成一条。图~\ref{fig:mt-gemv} 给出 GEMV 映射：A 行 0 放 $x[4t..4t{+}3]$、行 1--3 补零，B 放 [组][k 组][4k][4out] 权重，\mbox{C 只取行 0}，沿 $t$ 累加。这样一来，$1\times1$ 卷积就是 GEMV，不需要第二套数据通路，代价是阵列利用率约 1/4。
+UB 每行 128 bit，正好 16 个 INT8 或 4 个 INT32；A/B tile 各占一行，C tile 占四行。每个输出累加 $k=0,\ldots,3$ 的四个乘积；输入错位及相邻 PE 间的一拍传播使第 $(r,c)$ 个 PE 的有效乘加位于计算步 $k+r+c$，最晚为第 9 步。因此，完整 4×4×4 tile 需要第 0--9 步共 10 个计算周期，命令握手、UB 读写与结果返回开销另计。\code{accumulate} 位选择初始化或累加。
+
+所有命令采用 custom-0 编码：\code{BURST} 用 rd 当重复次数，\code{GEMM2D} 用 nu×nj 展开二维网格，\code{CONVGROUP} 把 LOAD 与网格合成一条。图~\ref{fig:mt-gemv} 给出 GEMV 映射：A 行 0 放 $x[4t..4t{+}3]$、行 1--3 补零，B 放 [组][k 组][4k][4out] 权重，\mbox{C 只取行 0}，沿 $t$ 累加。单个空间位置上的 $1\times1$ 卷积可表示为 GEMV，多个空间位置合并后可表示为 GEMM。上述映射的有效输出行占比为 $1/4$；总体 MAC 利用率还受阵列填充、排空及命令开销影响。
 
 \begin{figure}[htbp]
 \centering
@@ -2276,7 +2278,7 @@ UB 每行 128 bit，正好 16 个 INT8 或 4 个 INT32；A/B tile 各占一行�
 \draw[dat] (8.40,5.95) -- (8.77,5.95);
 
 \end{tikzpicture}
-\caption{GEMV 到 4×4 阵列的映射：A 行 0 放 4 个输入元素，行 1--3 补零，C 只取行 0 并沿 $t$ 累加；$1\times1$ 卷积即 GEMV}
+\caption{GEMV 到 4×4 阵列的映射：A 行 0 放 4 个输入元素，行 1--3 补零，C 只取行 0 并沿 $t$ 累加；对应单个空间位置的 $1\times1$ 卷积}
 \label{fig:mt-gemv}
 \end{figure}
 
@@ -2374,7 +2376,7 @@ ARES/
 
 Qwen2.5-0.5B-Instruct~\cite{qwen2025} 有 24 层、$d=896$、494M 参数，FP16 权重约 1 GB、INT8 约 494 MB。受 512 KiB 片上窗口限制，板端部署 $10^5$ 参数级的 H112，Qwen 用于语料构建。
 
-四个形态各管一件事（表~\ref{tab:llm-models}）：H112 140,742 参数 / 152,056 B，是当前部署；H88 107,000 / 118,168 B，适配 128 KB loader；A0 56,480，用来做 CPU 与加速器的同模型对照；QA 10,475 条 / 638,076 B，留出模板 94\%。A0 的 CPU 路径用 int16 Q15、17 char/s；miniTensor 把 GEMV 映射为 1×1 卷积，int8、103 char/s @27 MHz、0/40 golden。6 倍提升主要来自“把 GEMV 变成阵列友好的形状”，代价是 INT8 激活的文本质量，下一步做 QAT。图~\ref{fig:llm-flow} 给出从 Qwen 语料到两条执行路径。
+表~\ref{tab:llm-models} 列出四种形态：H112 为当前 CPU 对话模型，126,006 参数 / 152,056 B；H88 适配 128 KB loader；A0 char-GRU 用于 CPU 与 miniTensor 的执行路径对照；QA 是独立的检索式知识库。A0 的历史吞吐为 CPU int16 Q15 路径 17 char/s、miniTensor int8 路径 103 char/s @27 MHz，两条路径分别与各自的整数 golden 核对，所测序列均为 0/40 差异。INT8 路径的文本质量较低。图~\ref{fig:llm-flow} 分别展示 H112 部署、A0 对照与 QA 检索。
 
 \begin{table}[H]
 \centering
@@ -2385,8 +2387,8 @@ Qwen2.5-0.5B-Instruct~\cite{qwen2025} 有 24 层、$d=896$、494M 参数，FP16 
 \toprule
 代号 & 类型 & 参数 & 镜像 & 定位 \\
 \midrule
-A0 & char-GRU（64 维嵌入、96 维 GRU、65 类输出） & 56,480 & 62 KB & CPU/加速器同模型对照 \\
-H112 & 词级 seq2seq GRU（V198/E48/H112/rank24） & 140,742 & 152,056 B & 当前部署 \\
+A0 & char-GRU（64 维嵌入、96 维 GRU、65 类输出） & 57,121 & 62 KB & CPU/加速器同模型对照 \\
+H112 & 词级 seq2seq GRU（V198/E48/H112/rank24） & 126,006 & 152,056 B & 当前部署 \\
 H88 & 词级 seq2seq GRU（轻量版） & 107,000 & 118,168 B & 128 KB loader \\
 QA & 检索式知识库 & 10,475 条 & 638,076 B & 留出模板 94\% \\
 \bottomrule
@@ -2398,53 +2400,50 @@ QA & 检索式知识库 & 10,475 条 & 638,076 B & 留出模板 94\% \\
 
 \begin{figure}[htbp]
 \centering
-% From Qwen corpus to the deployed H112 and the two execution paths.
+% H112 CPU deployment, A0 quantized execution paths, and independent QA.
+\adjustbox{max width=\linewidth}{%
 \begin{tikzpicture}[ares, x=1cm, y=1cm]
-% ---------- top: corpus and compression ----------
-\node[blk=aresTeal, text width=2.0cm, minimum height=1.25cm] (qwen) at (1.25,6.55)
-  {Qwen2.5-0.5B\\\sub{Instruct · 语料来源}};
-\node[blk=aresTeal, text width=2.0cm, minimum height=1.25cm] (corpus) at (4.05,6.55)
-  {教师语料\\\sub{473 行 + 2 万合成}};
-\node[blk=aresTeal, text width=2.0cm, minimum height=1.25cm] (train) at (6.85,6.55)
+% ---------- H112 CPU deployment ----------
+\draw[grp=aresTeal] (0,5.40) rectangle (14.40,9.05);
+\node[gtitle=aresTeal] at (0,9.05) {H112：词级 seq2seq GRU 部署};
+\node[blk=aresTeal, text width=2.0cm, minimum height=1.05cm] (corpus) at (1.40,7.85)
+  {训练语料\\\sub{教师语料 / 合成对话}};
+\node[blk=aresTeal, text width=2.0cm, minimum height=1.05cm] (train) at (4.20,7.85)
   {seq2seq GRU\\\sub{E48/H112/rank24}};
-\node[blk=aresTeal, text width=2.0cm, minimum height=1.25cm] (quant) at (9.65,6.55)
-  {INT8 量化\\\sub{per-row · Q15 LUT}};
-\node[blk=aresPurple, text width=2.0cm, minimum height=1.45cm] (image) at (12.45,6.55)
-  {H112 镜像\\\sub{140,742 参数}\\\sub{152,056 B}};
-\foreach \a/\b in {qwen/corpus,corpus/train,train/quant,quant/image}
+\node[blk=aresTeal, text width=2.0cm, minimum height=1.05cm] (quant) at (7.00,7.85)
+  {INT8 量化\\\sub{per-row scale}\\\sub{LUT 按 127 缩放}};
+\node[blk=aresPurple, text width=2.0cm, minimum height=1.05cm] (image) at (9.80,7.85)
+  {H112 镜像\\\sub{126,006 参数}\\\sub{152,056 B}};
+\node[blk=aresAmber, text width=2.0cm, minimum height=1.05cm] (hcpu) at (12.60,7.85)
+  {CPU 推理\\\sub{INT8 点积}\\\sub{UART 对话}};
+\foreach \a/\b in {corpus/train,train/quant,quant/image,image/hcpu}
   \draw[dat] (\a) -- (\b);
+\node[note, anchor=north, text width=12.5cm] at (7.20,6.75)
+  {教师语料来源为 Qwen2.5；最终权重的训练语料配比待归档。\\20 token/s 为输出节流设置，非推理吞吐。};
 
-% ---------- distribution ----------
-\draw[aresInk] (image.south) -- (12.45,5.15);
-\draw[aresInk] (12.45,5.15) -- (3.30,5.15);
-\draw[dat] (3.30,5.15) -- (3.30,3.95);
-\draw[dat] (6.90,5.15) -- (6.90,3.95);
-\draw[dat] (12.45,5.15) -- (12.45,3.95);
+% ---------- A0 paths: a separate model and separate integer goldens ----------
+\draw[grp=aresAmber] (0,1.55) rectangle (9.45,5.00);
+\node[gtitle=aresAmber] at (0,5.00) {A0：char-GRU 执行路径对照（历史吞吐）};
+\node[blk=aresTeal, text width=1.65cm, minimum height=1.0cm] (a0) at (1.25,3.25)
+  {A0 char-GRU\\\sub{E64/H96/V65}};
+\node[blk=aresAmber, text width=2.5cm, minimum height=1.0cm] (cpu) at (5.05,3.95)
+  {CPU：int16 Q15\\17 char/s};
+\node[blk=aresPurple, text width=2.5cm, minimum height=1.0cm] (mt) at (5.05,2.55)
+  {miniTensor：int8\\103 char/s @27 MHz};
+\draw[dat] (a0.east) -- (2.55,3.25) |- (cpu.west);
+\draw[dat] (2.55,3.25) |- (mt.west);
+\node[note, text width=2.3cm] at (8.05,3.95) {CPU 整数 golden\\0/40 差异};
+\node[note, text width=2.3cm] at (8.05,2.55) {INT8 整数 golden\\0/40 差异};
 
-% ---------- two execution paths + QA ----------
-\node[blk=aresAmber, text width=2.5cm, minimum height=1.2cm] (cpu) at (3.30,3.35)
-  {CPU 路径\\\sub{int16 Q15 GEMV}\\17 char/s};
-\node[blk=aresAmber, text width=2.5cm, minimum height=1.2cm] (mt) at (6.90,3.35)
-  {miniTensor 路径\\\sub{GEMV → 1×1 卷积}\\103 char/s @27 MHz};
-\node[blk=aresTeal, text width=2.5cm, minimum height=1.2cm] (qa) at (12.45,3.35)
-  {QA 知识库\\\sub{10,475 条 · 638,076 B}\\94\%};
-
-% ---------- UART ----------
-\node[blk=aresGreen, text width=8.4cm, minimum height=0.9cm] (uart) at (6.90,1.55)
-  {UART 115200 8N1 · 行协议 · \texttt{!reset} / \texttt{!help} · 对话与问答};
-\draw[dat] (cpu.south) -- (3.30,2.00);
-\draw[dat] (mt.south) -- (6.90,2.00);
-\draw[dat] (qa.south) -- (12.45,1.55) -- (12.90,1.55) -- (uart.east);
-
-% ---------- notes ----------
-\node[note, anchor=north, align=center, text width=2.4cm] at (1.25,5.65)
-  {Qwen 只提供语料与\\语言能力，权重不上板};
-\node[note, anchor=south, align=center] at (6.90,7.45)
-  {能力压缩到 $10^5$ 参数级，常驻 512 KiB 窗口};
-\node[note, anchor=north, align=center] at (6.90,2.45)
-  {两条路径共享同一套权重与整数 golden};
-\end{tikzpicture}
-\caption{从 Qwen 语料到 H112，再到 CPU 与 miniTensor 两条执行路径}
+% ---------- independent retrieval application ----------
+\draw[grp=aresBlue] (9.75,1.55) rectangle (14.40,5.00);
+\node[gtitle=aresBlue] at (9.75,5.00) {QA：检索式知识库};
+\node[blk=aresBlue, text width=3.5cm, minimum height=1.3cm] (qa) at (12.10,3.25)
+  {10,475 条 / 638,076 B\\\sub{留出模板 880/936}\\\sub{CPU 检索 → UART}};
+\node[note, anchor=north, text width=13.0cm] at (7.20,1.10)
+  {H112、A0 与 QA 为独立固件入口；A0 的两个定点路径分别验证。};
+\end{tikzpicture}}
+\caption{语言模型与知识库执行路径：H112 的 CPU 部署、A0 的两种定点路径及独立 QA 检索}
 \label{fig:llm-flow}
 \end{figure}
 
@@ -3205,7 +3204,7 @@ PERIP 访存请求 / DCache 命中 & 42 / 41 & 14 / 9 \\
 
 \paragraph{list 链表查找：访存相关主导}
 图~\ref{fig:ila-list} 中各信号严格以 9 个周期为周期重复，EX1--EX4 与退休有效位逐级后移一拍，说明流水线无反压、无重定向。
-每个周期内退休 5 条指令、发出 3 次访存且全部命中 DCache，与 \code{core_list_find} 的内层循环一一对应：
+每个包含 9 个时钟周期的循环迭代退休 5 条指令、发出 3 次访存且全部命中 DCache，与 \code{core_list_find} 的内层循环一一对应：
 \begin{lstlisting}[language={}]
 lw   a5, 0(a5)     # list = list->next
 beqz a5, exit      # 依赖上一条 Load：停 1 拍
@@ -3357,7 +3356,7 @@ mailbox & 780 & 551 & 256 & 0 & 0 \\
 项目 & 结果 \\
 \midrule
 A0 CPU / miniTensor & 17 / 103 char/s；0/40 golden；INT8 文本质量下降 \\
-H112 & 140,742 参数 / 152,056 B；20 token/s 输出节流 \\
+H112 & 126,006 参数 / 152,056 B；20 token/s 输出节流 \\
 H88 & 107,000 参数 / 118,168 B；128 KB loader \\
 QA & 10,475 条 / 638,076 B；留出模板 94\%（880/936） \\
 手势 & 词表 8 类，当前演示 3 类；287 帧 INT8 100\%、板端 8/8；10 Hz；约 0.2 s 更新 \\
@@ -3369,7 +3368,7 @@ b5 整机 & CLMA 35\%、DRM 63\%、APM 9\%；27 MHz WNS +12.85 ns \\
 \end{tighttable}
 \end{table}
 
-优势可以归结为三点：同一颗自研 CPU 通过 MMIO 接一个 miniTensor，就能同时覆盖语言模型与手势 CNN；同一 4×4 阵列既能做卷积，也能把 GEMV 映射为 1×1 卷积；两个应用共用驱动与量化工具链，指标可逐字节/逐 token 对拍。
+优势可以归结为三点：同一颗自研 CPU 通过 MMIO 接一个 miniTensor，就能同时覆盖语言模型与手势 CNN；同一 4×4 阵列既能做卷积，也能执行 GEMV；两个应用共用驱动与量化工具链，指标可逐字节/逐 token 对拍。
 
 \clearpage
 \section{总结}
