@@ -498,7 +498,7 @@ b5 整机 & CLMA 35\%、DRM 63\%、APM 9\% & 27 MHz WNS +12.85 ns \\
 任务 & 赛题要求 & 本作品实现与证据 & 状态 \\
 \midrule
 \multicolumn{4}{@{}l}{\textbf{基础任务}} \\
-处理器内核构建 & 支持 RV32I 基础整数指令集 & RV32I 全部指令，另加 RV32M、Zicsr 与 custom-0 CRC8；45 个 riscv-tests 全部通过（表~\ref{tab:ares-functional-results}） & 完成 \\
+处理器内核构建 & 支持 RV32I 基础整数指令集 & RV32I 全部指令，另加 RV32M、Zicsr 与 custom-0 CRC8；45 个 riscv-tests 全部通过（图~\ref{fig:riscv-tests}） & 完成 \\
 流水线架构设计 & 不少于 3 级流水，处理数据冲突与分支跳转 & Mundus 九级核，顺序单发射；温度计码时机表达、两级旁路与互锁处理数据冒险，HZU 统一重定向处理控制冒险 & 完成 \\
 外设系统集成 & 集成 UART、GPIO 等基础外设 & UART TX/RX（含 RX FIFO）、按键、LED、毫秒计时器与机器定时器中断；MSH 双向串口测试通过 & 完成 \\
 \midrule
