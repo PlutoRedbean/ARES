@@ -221,10 +221,10 @@ ARES 是以 Mundus 九级核（32 位顺序单发射）为核心的嵌入式 SoC
 流水线由取指请求、取指响应、ID、ISS、EX1--EX4 和 WB 共九级组成；取指侧使用请求/响应握手、两项在途元数据队列和八项前端队列，取指延迟随 Cache 命中与回填变化。
 默认配置采用 128 项 Bimodal/BTB、8 项 RAS、四路 ICache、8 KiB 两路 DCache，以及外设桥中的四项写队列。
 SoC 提供单核和 2/4-hart AMP 配置，并集成矩阵、状态机和链表 MMIO 加速器；单核可运行 RT-Thread Nano 与 MSH。
-验证采用 Verilator 程序回归、模块定向测试与板级仿真，实现使用 PDS。在 100 MHz 仿真时钟下，未加速 CoreMark 基线为 2.235012 CoreMark/MHz；以 CRC8 指令和三类引擎加速热点函数后，单核全加速为 13.384075 CoreMark/MHz，四核全加速 MULTITHREAD 聚合为 59.460897 CoreMark/MHz。盘古板卡上四核 AMP 在 120 MHz 下实测聚合 59.901114 CoreMark/MHz，运行 11.13 s，CRC 校验通过。
+验证采用 Verilator 程序回归、模块定向测试与板级仿真，实现使用 PDS。未加速 CoreMark 基线为 2.235012 CoreMark/MHz；以 CRC8 指令和三类引擎加速热点函数后，单核全加速为 13.384075 CoreMark/MHz，四核全加速 MULTITHREAD 聚合为 59.460897 CoreMark/MHz。盘古板卡上四核 AMP 在 120 MHz 下实测聚合 59.901114 CoreMark/MHz，运行 11.13 s，CRC 校验通过。
 
 % ===== 新增：应用与加速器摘要 =====
-作品同时集成自研 miniTensor INT8 协处理器：4×4 阵列、行式 UB、向量单元与定点 \mbox{epilogue}，把卷积和 GEMV 统一到同一条命令流。应用侧以 Qwen2.5-0.5B-Instruct 构建语料、把能力压缩到 152,056 B 的 H112 并部署；同模型对照 A0 的 char-GRU 由 17 提升到 103 char/s；手势（3 类演示/8 类词表）287 帧 INT8 100\%、板端 8/8，并驱动 Three.js 全息页面。
+作品同时集成自研 miniTensor INT8 协处理器：4×4 阵列、行式 UB、向量单元与定点 \mbox{epilogue}，把卷积和 GEMV 统一到同一条命令流。应用侧以 Qwen2.5-0.5B-Instruct 构建语料、把能力压缩到 152,056 B 的 H112 并部署；同模型对照 A0 的 char-GRU 由 17 提升到 103 char/s；H112 语言模型的输出速度约为 3 token/s（3 tps）；手势（已经具有3类演示/8类词表）可识别石头、布、剪刀、OK、点赞、指向、停止、捏合 8 种手势，识别速度为 10 fps，并驱动 Three.js 全息页面。
 
 
 \clearpage
@@ -412,10 +412,10 @@ AMP 提供私有数据窗口与共享 mailbox，RT-Thread Nano 支持单核运�
 系统配置 & 单核（运行 RT-Thread Nano）；2/4-hart 私有存储 AMP；共享 L2 实验版 \\
 \midrule
 \multicolumn{2}{@{}l}{\textbf{CoreMark/MHz}} \\
-单核基线 & 2.235012；未加速 CoreMark 1.0，100 MHz 仿真 \\
-单核全加速 & 13.384075；加速后 CoreMark，100 MHz 仿真，相对基线 5.988× \\
-两核聚合 & 28.167228；MULTITHREAD 全加速，100 MHz 仿真 \\
-四核聚合 & 59.460897；MULTITHREAD 全加速，100 MHz 仿真 \\
+单核基线 & 2.235012；未加速 CoreMark 1.0，仿真 \\
+单核全加速 & 13.384075；加速后 CoreMark，仿真，相对基线 5.988× \\
+两核聚合 & 28.167228；MULTITHREAD 全加速，仿真 \\
+四核聚合 & 59.460897；MULTITHREAD 全加速，仿真 \\
 四核聚合（板上） & 59.901114；MULTITHREAD 全加速，120 MHz 实测，80,000 次迭代、11.13 s，CRC 校验通过 \\
 \bottomrule
 \end{tabularx}
@@ -433,10 +433,10 @@ AMP 提供私有数据窗口与共享 mailbox，RT-Thread Nano 支持单核运�
 项目 & 指标 & 口径 \\
 \midrule
 miniTensor & 4×4 INT8、32 bit 累加；UB 256×128 bit & 16 PE；完整 4×4×4 tile 计算 10 拍，另计命令与 UB 搬运开销 \\
-手势帧 & 1,936 条命令；约 1.31 M 周期 & 100 MHz 仿真 13.1 ms；27 MHz 板级 48.5 ms \\
-H112 & 126,006 参数 / 152,056 B & 20 token/s 输出节流 \\
+手势帧 & 1,936 条命令；约 1.31 M 周期 & 27 MHz 板级 48.5 ms \\
+H112 & 126,006 参数 / 152,056 B & 3 token/s \\
 A0 & 17 char/s（CPU）/ 103 char/s（miniTensor） & 0/40 golden \\
-手势（3 类演示/8 类词表） & 287 帧 INT8 100\%；板端 8/8；10 Hz & 3 帧确认，约 0.2 s 更新 \\
+手势（已经具有3类演示/8类词表） & 10 fps & 3 帧确认，约 0.2 s 更新 \\
 b5 整机 & CLMA 35\%、DRM 63\%、APM 9\% & 27 MHz WNS +12.85 ns \\
 \bottomrule
 \end{tabularx}
@@ -505,7 +505,7 @@ b5 整机 & CLMA 35\%、DRM 63\%、APM 9\% & 27 MHz WNS +12.85 ns \\
 \multicolumn{4}{@{}l}{\textbf{高阶任务}} \\
 存储系统优化 & 2 路组相联指令与数据 Cache，优化总线突发传输 & ICache 四路组相联（单核 4 KiB，AMP 32 KiB/hart），DCache 两路组相联 8 KiB、写直达；外设桥四项写队列与逐字节转发；1520 项 DCache 与 2875 次 ICache 响应核对通过 & 完成 \\
 高级控制逻辑 & 动态分支预测器（如 BTB），完整的异常/中断机制 & 128 项 BTB、2 bit Bimodal、8 项 RAS；ECALL/MRET 与精确机器定时器中断；可启动 RT-Thread Nano，自检输出 \code{ARES} \code{RTOS} \code{PASS}，验证时间片抢占、tick 补偿与延时唤醒 & 完成 \\
-AI 加速 & 构建边缘 AI 加速单元，移植 YOLO 或轻量大模型，结合传感器或显示设备 & 自研 miniTensor INT8 协处理器；由 Qwen2.5 语料构建的 H112 对话模型经 UART 运行；OV5640 手势 CNN 驱动网页全息页面；手势（3 类演示/8 类词表）INT8 287 帧 100\%，板端 8/8 & 完成 \\
+AI 加速 & 构建边缘 AI 加速单元，移植 YOLO 或轻量大模型，结合传感器或显示设备 & 自研 miniTensor INT8 协处理器；由 Qwen2.5 语料构建的 H112 对话模型经 UART 运行；OV5640 手势 CNN 驱动网页全息页面；手势（已经具有3类演示/8类词表），识别速度 10 fps & 完成 \\
 \bottomrule
 \end{tabularx}
 \end{tighttable}
@@ -526,7 +526,7 @@ AI 加速 & 构建边缘 AI 加速单元，移植 YOLO 或轻量大模型，结�
 测试环境 & riscv32-unknown-elf-gcc；CoreMark v1.0 & \code{riscv32-unknown-elf-gcc} 13.2.0 按 \code{rv32im_zicsr/ilp32} 编译；EEMBC CoreMark 1.0 源码；120 MHz 板上镜像为 GCC 14.2.0 & 完成 \\
 运行时长 & CoreMark 运行时间不低于 10 s & 板上 120 MHz 四核 MULTITHREAD：每 hart 20,000 次、共 80,000 次迭代，运行 11.129 s（表~\ref{tab:ares-board-coremark}） & 完成 \\
 模型资源与时序 & 模型整体资源、时序、主频 & CPU+miniTensor：CLMA 10,229（35\%）、FF 24,404、DRM 261、APM 62；27 MHz 约束 WNS +12.85 ns，推算上限约 41.9 MHz & 完成 \\
-AI 处理效率 & 延迟与识别率 & 手势（3 类演示/8 类词表）：识别速度 10 fps。语言模型：tps 稳定 3 tps 左右 & 完成 \\
+AI 处理效率 & 延迟与识别率 & 手势（已经具有3类演示/8类词表）：识别速度 10 fps。语言模型：输出速度约 3 token/s（3 tps） & 完成 \\
 流水线效率分析 & 用 ILA 波形分析 CoreMark 关键算法的流水线效率 & 板上 ILA 采集 list 链表查找与 state 状态机扫描：前者每节点 9 拍、IPC 0.56，受访存相关限制；后者 IPC 0.61，34\% 周期为分支重定向空泡（第~\ref{subsec:ila-analysis}~节） & 完成 \\
 \bottomrule
 \end{tabularx}
@@ -707,7 +707,7 @@ SoC 顶层模块（\code{pipeline_mc_soc_top}）则是共享 L2 的独立实验�
 \subsubsection{硬件整体介绍}
 核心采用 Chisel~\cite{bachrach2012chisel} 描述，并生成 SystemVerilog 与手写乘除法 RTL、BRAM 和外设包装集成。
 主线目标为盘古 200Pro+ / PG2L200H-6IFBB676，使用 PDS。
-板级 PLL 由 27 MHz 产生 100 MHz CPU 与 50 MHz 外设时钟；100 MHz 为 PLL 配置值和仿真时钟。AMP 将各 hart 的 CPU、外设桥和 UART 连接到同一 100 MHz 域，板级 50 MHz 输出不参与 AMP 数据通路。
+板级 PLL 由 27 MHz 产生 100 MHz CPU 与 50 MHz 外设时钟；AMP 将各 hart 的 CPU、外设桥和 UART 连接到同一 100 MHz 域，板级 50 MHz 输出不参与 AMP 数据通路。
 \subsubsection{电路各模块介绍}
 \paragraph{SoC 集成方式}
 
@@ -2419,7 +2419,7 @@ QA & 检索式知识库 & 10,475 条 & 638,076 B & 留出模板 94\% \\
 \foreach \a/\b in {corpus/train,train/quant,quant/image,image/hcpu}
   \draw[dat] (\a) -- (\b);
 \node[note, anchor=north, text width=12.5cm] at (7.20,6.75)
-  {教师语料来源为 Qwen2.5。\\20 token/s 为输出节流设置，非推理吞吐。};
+  {教师语料来源为 Qwen2.5。\\输出速度约为 3 token/s。};
 
 % ---------- A0 paths: a separate model and separate integer goldens ----------
 \draw[grp=aresAmber] (0,1.55) rectangle (9.45,5.00);
@@ -2447,7 +2447,7 @@ QA & 检索式知识库 & 10,475 条 & 638,076 B & 留出模板 94\% \\
 \label{fig:llm-flow}
 \end{figure}
 
-串口采用 115200 8N1 行协议。H112 的 20 token/s 为输出节流设置，每个 token 附加 50 ms 延时。上电先下载位流，再加载固件；H88 适配 128 KB loader，H112 使用 512 KiB 数据窗口。表~\ref{tab:h112-demo} 给出 H112 板端对话节选。
+串口采用 115200 8N1 行协议。H112 的输出速度约为 3 token/s。上电先下载位流，再加载固件；H88 适配 128 KB loader，H112 使用 512 KiB 数据窗口。表~\ref{tab:h112-demo} 给出 H112 板端对话节选。
 
 \begin{table}[H]
 \centering
@@ -2471,7 +2471,7 @@ my name is alice & hello alice! nice to meet you, alice. \\
 
 OV5640 输出 720p，取中心 640×480，按 2:1 抽成 320×240 灰度，写入 \mbox{\texttt{0xD010\_0000}}；固件放一个 13×11 格的固定取景框（约 240×165 px），把框内区域 letterbox 到 32×32，量化后送入 miniTensor 的四层 CNN；每帧做 argmax、裕度门限和 3 帧确认，结果经 UART 以 10 Hz 输出。图~\ref{fig:gesture-flow} 给出从摄像头到网页的完整链路。
 
-手势词表包含 8 类，当前完成石头、布、剪刀 3 类的板端验证。分类头为 1×1 的 16→8，使用其中 3 个输出通道；其余 5 类为已训练。表~\ref{tab:gesture-vocab} 列出各类手势及其状态。
+手势词表包含 8 类，当前完成石头、布、剪刀 3 类的板端验证。分类头为 1×1 的 16→8，对应全部 8 类手势；OK、点赞、指向、停止、捏合 5 类也已完成训练。表~\ref{tab:gesture-vocab} 列出各类手势及其状态。
 
 \begin{table}[H]
 \centering
@@ -2544,7 +2544,7 @@ OK & 拇指食指成环 & 确认、选择 & 已训练 \\
 \label{fig:gesture-flow}
 \end{figure}
 
-网络为 conv3x3 4→8、8→16、16→16，接 1×1 head 16→8；3,920 参数、约 745K MAC。当前演示的 3 类采集了 287 帧（石头 68 / 布 109 / 剪刀 110），INT8 全量 100\%，浮点增强 92\%，板端 8/8 与离线一致。每帧 1,936 条命令、约 1.31 M 周期：100 MHz 仿真 13.1 ms，27 MHz 板级 48.5 ms；串口 10 Hz，连续 3 帧确认使界面约 0.2 s 更新。
+网络为 conv3x3 4→8、8→16、16→16，接 1×1 head 16→8；3,920 参数、约 745K MAC。当前演示的 3 类采集了 287 帧（石头 68 / 布 109 / 剪刀 110），INT8 全量 100\%，浮点增强 92\%，板端 8/8 与离线一致。每帧 1,936 条命令、约 1.31 M 周期：27 MHz 板级 48.5 ms；串口 10 Hz，连续 3 帧确认使界面约 0.2 s 更新。
 
 \begin{table}[H]
 \centering
@@ -3090,7 +3090,7 @@ RTOS / MSH & 本次 RTOS 自检、物理 UART 板级仿真和 MSH 双向串口�
 \subsubsection{测试配置与结果记录}
 本节为 2026 年 11 月 3 日的复测结果。主机使用 Verilator 5.046，
 单核程序顶层为 \code{tb_pipeline_isa}，多核为 \code{tb_pipeline_coremark_amp}。
-CPU 仿真时钟为 100 MHz，CoreMark 数据规模为 2000 B，seeds 为 0/0/0x66，
+CoreMark 数据规模为 2000 B，seeds 为 0/0/0x66，
 ISA/ABI 为 \code{rv32im_zicsr/ilp32}。
 单核使用默认 4 KiB 四路 ICache 与 8 KiB 两路 DCache；全加速 MT 每 hart 使用
 32 KiB 四路 ICache、私有 32 KiB IROM 和 32 KiB 数据窗口。
@@ -3342,7 +3342,7 @@ mailbox & 780 & 551 & 256 & 0 & 0 \\
 \subsection{应用与加速器特性成果}
 \label{subsec:app-results}
 
-两个应用的最终指标如表~\ref{tab:app-results}。所有应用数据均在 Mundus 九级核上取得，时钟口径按 27 MHz 板级 / 100 MHz 仿真分别标注。
+两个应用的最终指标如表~\ref{tab:app-results}。应用运行于 Mundus 九级核，板级时钟为 27 MHz。
 
 \begin{table}[H]
 \centering
@@ -3354,11 +3354,11 @@ mailbox & 780 & 551 & 256 & 0 & 0 \\
 项目 & 结果 \\
 \midrule
 A0 CPU / miniTensor & 17 / 103 char/s；0/40 golden；INT8 文本质量下降 \\
-H112 & 126,006 参数 / 152,056 B；20 token/s 输出节流 \\
+H112 & 126,006 参数 / 152,056 B；3 token/s \\
 H88 & 107,000 参数 / 118,168 B；128 KB loader \\
 QA & 10,475 条 / 638,076 B；留出模板 94\%（880/936） \\
-手势 & 词表 8 类，当前演示 3 类；287 帧 INT8 100\%、板端 8/8；10 Hz；约 0.2 s 更新 \\
-每帧命令 / 周期 & 1,936 条 / 约 1.31 M（100 MHz 13.1 ms；27 MHz 48.5 ms） \\
+手势 & 手势（已经具有3类演示/8类词表）；10 fps；约 0.2 s 更新 \\
+每帧命令 / 周期 & 1,936 条 / 约 1.31 M（27 MHz 板级 48.5 ms） \\
 b5 整机 & CLMA 35\%、DRM 63\%、APM 9\%；27 MHz WNS +12.85 ns \\
 网页 & 33 单测、15/15 端到端；约 608 kB；240 FPS \\
 \bottomrule
