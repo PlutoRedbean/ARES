@@ -311,6 +311,8 @@ def main() -> int:
                     help="output directory (default build/coremark_crc or "
                          "build/coremark_array with --array-list)")
     ap.add_argument("--jobs", type=int, default=4)
+    ap.add_argument("--stage-only", action="store_true",
+                    help="generate src_port without building the AbstractMachine image")
     ap.add_argument("--array-list", action="store_true",
                     help="also replace core_bench_list with the array-shadow TU")
     ap.add_argument("--list-engine", action="store_true",
@@ -392,6 +394,9 @@ def main() -> int:
         makefile_append += MAKEFILE_APPEND_SMALL_CODE
     with (src_port / "Makefile").open("a") as f:
         f.write(makefile_append)
+
+    if args.stage_only:
+        return 0
 
     cmd = [sys.executable, str(ROOT / "scripts/build_coremark_image.py"),
            "--port", str(src_port), "--out", str(out), "--jobs", str(args.jobs)]

@@ -14,6 +14,7 @@ void rps_stage_gold_image(int idx);
 int rps_forward(const uint8_t *p32, int32_t *scores);
 int rps_forward_image(int idx, int32_t *scores);
 int rps_selftest(int idx, int32_t *scores);
+int rps_check_golden(int idx, int32_t *scores);
 #endif
 
 #endif

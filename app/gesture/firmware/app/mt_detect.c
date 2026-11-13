@@ -17,6 +17,7 @@
 #include "mt_net.h"
 #ifdef RPS_WEIGHTS
 #include "rps_weights.h"      /* three-class gesture head */
+#define DET_IMG_COUNT (sizeof(rps_imgs) / DET_IMG_BYTES)
 #else
 #include "mt_detect_weights.h"
 #endif
@@ -115,6 +116,17 @@ int rps_forward_image(int idx, int32_t *scores)
 {
     g_rps_img = idx;
     return rps_forward(0, scores);
+}
+
+int rps_check_golden(int idx, int32_t *scores)
+{
+    if (rps_forward_image(idx, scores) < 0)
+        return -1;
+
+    int differences = 0;
+    for (uint32_t i = 0; i < DET_OUT_BYTES; i++)
+        differences += det_rd8(MID_BUF + i) != rps_gold[idx * DET_OUT_BYTES + i];
+    return differences;
 }
 
 int rps_forward(const uint8_t *p32, int32_t *scores)

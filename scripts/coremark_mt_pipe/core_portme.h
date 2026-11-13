@@ -6,9 +6,16 @@
 #ifndef CORE_PORTME_H
 #define CORE_PORTME_H
 
+#ifdef ARES_RTOS_AMP
+#include <stddef.h>
+#include <stdint.h>
+int printf(const char *fmt, ...);
+void ioe_init(void);
+#else
 #include <am.h>
 #include <klib.h>
 #include <klib-macros.h>
+#endif
 
 /* ARES pipeline 2/4-hart MULTITHREAD overlay (staged copy only).
  *
@@ -30,7 +37,9 @@
 /* Reported total iterations must stay consistent across CORES. */
 #define ITERATIONS ARES_MT_ITERATIONS
 #define MEM_METHOD MEM_STACK
+#ifndef COREMARK_CLOCK_HZ
 #define COREMARK_CLOCK_HZ 100000000u
+#endif
 
 /************************/
 /* Data types and settings */

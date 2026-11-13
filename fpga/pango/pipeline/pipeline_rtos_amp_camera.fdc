@@ -1,0 +1,87 @@
+# OV5640 CMOS1 constraints from the PG2L200H video board profile.
+create_clock -name cmos1_pclk -period 11.905 [get_ports {cmos1_pclk}]
+create_generated_clock -name gesture_pixel_clk -source [get_ports {cmos1_pclk}] \
+    -divide_by 2 [get_pins {u_capture/u_dvp/u_div/CLKDIVOUT}]
+create_generated_clock -name gesture_sccb_clk -source [get_pins {u_clk_reset/u_pll/u_gpll/CLKOUT1}] \
+    -divide_by 2 [get_nets {clk_cam}]
+set_clock_groups -asynchronous \
+    -group [get_clocks {cmos1_pclk gesture_pixel_clk}] \
+    -group [get_clocks {sys_clk cpu_clk periph_clk gesture_sccb_clk}]
+set_false_path -from [get_ports {cmos1_scl cmos1_sda}]
+
+define_attribute {p:cmos1_data[7]} {PAP_IO_DIRECTION} {INPUT}
+define_attribute {p:cmos1_data[7]} {PAP_IO_LOC} {V14}
+define_attribute {p:cmos1_data[7]} {PAP_IO_VCCIO} {2.5}
+define_attribute {p:cmos1_data[7]} {PAP_IO_STANDARD} {LVCMOS25}
+define_attribute {p:cmos1_data[7]} {PAP_IO_NONE} {TRUE}
+define_attribute {p:cmos1_data[6]} {PAP_IO_DIRECTION} {INPUT}
+define_attribute {p:cmos1_data[6]} {PAP_IO_LOC} {V18}
+define_attribute {p:cmos1_data[6]} {PAP_IO_VCCIO} {2.5}
+define_attribute {p:cmos1_data[6]} {PAP_IO_STANDARD} {LVCMOS25}
+define_attribute {p:cmos1_data[6]} {PAP_IO_NONE} {TRUE}
+define_attribute {p:cmos1_data[5]} {PAP_IO_DIRECTION} {INPUT}
+define_attribute {p:cmos1_data[5]} {PAP_IO_LOC} {Y21}
+define_attribute {p:cmos1_data[5]} {PAP_IO_VCCIO} {2.5}
+define_attribute {p:cmos1_data[5]} {PAP_IO_STANDARD} {LVCMOS25}
+define_attribute {p:cmos1_data[5]} {PAP_IO_NONE} {TRUE}
+define_attribute {p:cmos1_data[4]} {PAP_IO_DIRECTION} {INPUT}
+define_attribute {p:cmos1_data[4]} {PAP_IO_LOC} {T15}
+define_attribute {p:cmos1_data[4]} {PAP_IO_VCCIO} {2.5}
+define_attribute {p:cmos1_data[4]} {PAP_IO_STANDARD} {LVCMOS25}
+define_attribute {p:cmos1_data[4]} {PAP_IO_NONE} {TRUE}
+define_attribute {p:cmos1_data[3]} {PAP_IO_DIRECTION} {INPUT}
+define_attribute {p:cmos1_data[3]} {PAP_IO_LOC} {W25}
+define_attribute {p:cmos1_data[3]} {PAP_IO_VCCIO} {2.5}
+define_attribute {p:cmos1_data[3]} {PAP_IO_STANDARD} {LVCMOS25}
+define_attribute {p:cmos1_data[3]} {PAP_IO_NONE} {TRUE}
+define_attribute {p:cmos1_data[2]} {PAP_IO_DIRECTION} {INPUT}
+define_attribute {p:cmos1_data[2]} {PAP_IO_LOC} {Y26}
+define_attribute {p:cmos1_data[2]} {PAP_IO_VCCIO} {2.5}
+define_attribute {p:cmos1_data[2]} {PAP_IO_STANDARD} {LVCMOS25}
+define_attribute {p:cmos1_data[2]} {PAP_IO_NONE} {TRUE}
+define_attribute {p:cmos1_data[1]} {PAP_IO_DIRECTION} {INPUT}
+define_attribute {p:cmos1_data[1]} {PAP_IO_LOC} {U20}
+define_attribute {p:cmos1_data[1]} {PAP_IO_VCCIO} {2.5}
+define_attribute {p:cmos1_data[1]} {PAP_IO_STANDARD} {LVCMOS25}
+define_attribute {p:cmos1_data[1]} {PAP_IO_NONE} {TRUE}
+define_attribute {p:cmos1_data[0]} {PAP_IO_DIRECTION} {INPUT}
+define_attribute {p:cmos1_data[0]} {PAP_IO_LOC} {T14}
+define_attribute {p:cmos1_data[0]} {PAP_IO_VCCIO} {2.5}
+define_attribute {p:cmos1_data[0]} {PAP_IO_STANDARD} {LVCMOS25}
+define_attribute {p:cmos1_data[0]} {PAP_IO_NONE} {TRUE}
+define_attribute {p:cmos1_href} {PAP_IO_DIRECTION} {INPUT}
+define_attribute {p:cmos1_href} {PAP_IO_LOC} {W18}
+define_attribute {p:cmos1_href} {PAP_IO_VCCIO} {2.5}
+define_attribute {p:cmos1_href} {PAP_IO_STANDARD} {LVCMOS25}
+define_attribute {p:cmos1_href} {PAP_IO_NONE} {TRUE}
+define_attribute {p:cmos1_pclk} {PAP_IO_DIRECTION} {INPUT}
+define_attribute {p:cmos1_pclk} {PAP_IO_LOC} {Y22}
+define_attribute {p:cmos1_pclk} {PAP_IO_VCCIO} {2.5}
+define_attribute {p:cmos1_pclk} {PAP_IO_STANDARD} {LVCMOS25}
+define_attribute {p:cmos1_pclk} {PAP_IO_NONE} {TRUE}
+define_attribute {p:cmos1_reset} {PAP_IO_DIRECTION} {OUTPUT}
+define_attribute {p:cmos1_reset} {PAP_IO_LOC} {T20}
+define_attribute {p:cmos1_reset} {PAP_IO_VCCIO} {2.5}
+define_attribute {p:cmos1_reset} {PAP_IO_STANDARD} {LVCMOS25}
+define_attribute {p:cmos1_reset} {PAP_IO_DRIVE} {4}
+define_attribute {p:cmos1_reset} {PAP_IO_NONE} {TRUE}
+define_attribute {p:cmos1_reset} {PAP_IO_SLEW} {FAST}
+define_attribute {p:cmos1_scl} {PAP_IO_DIRECTION} {INOUT}
+define_attribute {p:cmos1_scl} {PAP_IO_LOC} {W21}
+define_attribute {p:cmos1_scl} {PAP_IO_VCCIO} {2.5}
+define_attribute {p:cmos1_scl} {PAP_IO_STANDARD} {LVCMOS25}
+define_attribute {p:cmos1_scl} {PAP_IO_DRIVE} {4}
+define_attribute {p:cmos1_scl} {PAP_IO_NONE} {TRUE}
+define_attribute {p:cmos1_scl} {PAP_IO_SLEW} {FAST}
+define_attribute {p:cmos1_sda} {PAP_IO_DIRECTION} {INOUT}
+define_attribute {p:cmos1_sda} {PAP_IO_LOC} {U14}
+define_attribute {p:cmos1_sda} {PAP_IO_VCCIO} {2.5}
+define_attribute {p:cmos1_sda} {PAP_IO_STANDARD} {LVCMOS25}
+define_attribute {p:cmos1_sda} {PAP_IO_DRIVE} {4}
+define_attribute {p:cmos1_sda} {PAP_IO_NONE} {TRUE}
+define_attribute {p:cmos1_sda} {PAP_IO_SLEW} {FAST}
+define_attribute {p:cmos1_vsync} {PAP_IO_DIRECTION} {INPUT}
+define_attribute {p:cmos1_vsync} {PAP_IO_LOC} {Y23}
+define_attribute {p:cmos1_vsync} {PAP_IO_VCCIO} {2.5}
+define_attribute {p:cmos1_vsync} {PAP_IO_STANDARD} {LVCMOS25}
+define_attribute {p:cmos1_vsync} {PAP_IO_NONE} {TRUE}

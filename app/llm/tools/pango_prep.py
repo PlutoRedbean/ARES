@@ -104,10 +104,6 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SRC_DIR = ROOT / "rtl"
-OUT_DIR = ROOT / "build" / "pango" / "syn" / "rtl"
-NOTE_DIR = ROOT / "build" / "pango" / "syn"
-NOTES = NOTE_DIR / "PORT_NOTES.md"
 
 # Files that are deliberately not part of the FPGA build (see flow_compile.tcl).
 # The miniTensor is part of the FPGA build from B5 on: its CV-X-IF interface
@@ -837,18 +833,23 @@ def convert_strings(text, report, relpath):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--check", action="store_true", help="report only, write nothing")
+    ap.add_argument("--source-root", type=Path, default=ROOT, help="application root containing rtl/")
+    ap.add_argument("--output-dir", type=Path, help="directory for converted RTL and port notes")
     args = ap.parse_args()
+    src_dir = args.source_root / "rtl"
+    note_dir = args.output_dir or args.source_root / "build" / "pango" / "syn"
+    out_dir = note_dir / "rtl"
 
-    if not SRC_DIR.is_dir():
-        sys.exit("error: %s not found" % SRC_DIR)
+    if not src_dir.is_dir():
+        sys.exit("error: %s not found" % src_dir)
 
-    srcs = sorted(SRC_DIR.rglob("*.sv"))
+    srcs = sorted(src_dir.rglob("*.sv"))
     if not srcs:
-        sys.exit("error: no .sv files under %s" % SRC_DIR)
+        sys.exit("error: no .sv files under %s" % src_dir)
 
     sources = {}
     for f in srcs:
-        rel = f.relative_to(ROOT).as_posix()
+        rel = f.relative_to(args.source_root).as_posix()
         if any(rel.startswith(d) for d in EXCLUDED_DIRS):
             continue
         if any(rel.endswith(e) for e in EXCLUDED_FILES):
@@ -889,16 +890,16 @@ def main():
         report["files"].append(rel)
 
     if not args.check:
-        if OUT_DIR.exists():
-            shutil.rmtree(OUT_DIR)
+        if out_dir.exists():
+            shutil.rmtree(out_dir)
         for rel, text in out_text.items():
-            dst = (OUT_DIR / Path(rel).relative_to("rtl")).with_suffix(".v")
+            dst = (out_dir / Path(rel).relative_to("rtl")).with_suffix(".v")
             dst.parent.mkdir(parents=True, exist_ok=True)
             dst.write_text(text, encoding="utf-8", newline="\n")
 
     print("=" * 74)
-    print("pango_prep: %s" % SRC_DIR)
-    print("        ->  %s" % OUT_DIR)
+    print("pango_prep: %s" % src_dir)
+    print("        ->  %s" % out_dir)
     print("  files converted       : %d" % len(report["files"]))
     print("  enums converted       : %d" % totals["enum"])
     print("  sized casts rewritten : %d" % totals["cast"])
@@ -914,7 +915,7 @@ def main():
     print("=" * 74)
 
     if not args.check:
-        write_notes(report, totals)
+        write_notes(report, totals, note_dir)
     return 0
 
 
@@ -963,8 +964,8 @@ ERROR_LOG = [
 ]
 
 
-def write_notes(report, totals):
-    NOTE_DIR.mkdir(parents=True, exist_ok=True)
+def write_notes(report, totals, note_dir):
+    note_dir.mkdir(parents=True, exist_ok=True)
     L = []
     A = L.append
     A("# ARES-P4 -> Pango Design Suite 2022.2-SP6.4 (ADS) port notes")
@@ -1118,7 +1119,7 @@ def write_notes(report, totals):
     for f in report["files"]:
         A("- %s" % f)
     A("")
-    NOTES.write_text("\n".join(L) + "\n", encoding="utf-8", newline="\n")
+    (note_dir / "PORT_NOTES.md").write_text("\n".join(L) + "\n", encoding="utf-8", newline="\n")
 
 
 if __name__ == "__main__":

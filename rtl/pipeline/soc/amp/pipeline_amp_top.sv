@@ -1,24 +1,17 @@
 //=============================================================================
 // ARES pipeline SoC v2 - parameterized private-memory AMP top
 //-----------------------------------------------------------------------------
-// CORES=2/4 harts with one shared read-only instruction image, private
+// CORES=2/4 harts with private copies of the read-only instruction image, private
 // per-hart data/accelerators and one shared uncached mailbox.
 //
-//   * IROM: USE_ICACHE=1 instantiates one shared 32 KiB bank plus a
-//     round-robin refill arbiter; every hart has a private 16 KiB direct-
-//     mapped I$ (Phase 3) whose refills come from the shared bank.
-//     USE_ICACHE=0 is the Phase 2 profile: one replicated 32 KiB bank per
-//     hart, reached through the 1-cycle instruction-fetch passthrough.
-//   * Every hart uses the shared req/rsp front-end handshake
-//     (req_valid/req_ready, rsp_valid/rsp_data/rsp_ready, flush); the AMP I$
-//     is the pipeline_amp_icache variant, kept separate from the mainline
-//     single-hart pipeline_icache module.
+//   * IROM and the optional set-associative I-cache live inside student_top.
 //   * DRAM: each hart owns a private 32 KiB window inside its local BRAM
 //     address space, selected by DATA_OFFSET = hart * DATA_STRIDE.
 //   * MMIO: UART/timer/cycle counter and the matrix/state accelerators stay
 //     private per hart inside student_top.
 //   * Mailbox: one shared uncached window at 0xA000_F000 (slot h per hart)
 //     plus the hart id at 0xA000_0FF0.
+//   * RTOS_AI gives hart 0 its own larger image, console RX and miniTensor.
 //
 // No L2, no coherence, no atomics.  Code memory is read-only, so the I$s
 // need no coherence or FENCE.I invalidation.
@@ -36,7 +29,11 @@ module pipeline_amp_top #(
     // AMP build only needs 2**DRAM_AW words per hart instead of the
     // single-hart 256 KiB.  Keep DRAM_AW = log2(DATA_STRIDE/4).
     parameter integer DRAM_AW           = 13,
-    parameter         DRAM_INIT_FILE    = "build/pipeline/dram_amp.hex"
+    parameter         DRAM_INIT_FILE    = "build/pipeline/dram_amp.hex",
+    parameter         IROM_INIT_FILE    = "build/pipeline/irom.hex",
+    parameter         RTOS_AI           = 1'b0,
+    parameter         HART0_IROM_FILE   = "build/rtos_amp/irom.hex",
+    parameter         HART0_DRAM_FILE   = "build/rtos_amp/dram.hex"
 ) (
     input  wire                     clk,
     input  wire                     rst,
@@ -53,7 +50,14 @@ module pipeline_amp_top #(
     // Board console/debug.  Only hart 0 is brought out; the other harts'
     // UART streams are private to the simulation/debug environment.
     output wire                     uart_tx,
-    output wire [31:0]              led
+    output wire [31:0]              led,
+    input  wire                     periph_clk,
+    input  wire                     periph_rst,
+    input  wire                     uart_rx,
+    output wire                     rx_full,
+    output wire                     rx_overflow,
+    input  wire                     pixel_clk, pixel_rst, pixel_vsync, pixel_de,
+    input  wire [15:0]              pixel_rgb565
 );
     localparam integer MEM_AW = `CONFIG_IROM_ADDR_WIDTH + 1;
 
@@ -67,26 +71,6 @@ module pipeline_amp_top #(
             DRAM_AW_is_smaller_than_the_hart_window u_geometry_error ();
         end
     endgenerate
-
-    // Core-facing fetch handshake, one set per hart.
-    wire [CORES-1:0][31:0]                      hart_req_addr;
-    wire [CORES-1:0]                            hart_req_valid;
-    wire [CORES-1:0]                            hart_req_ready;
-    wire [CORES-1:0]                            hart_rsp_valid;
-    wire [CORES-1:0][31:0]                      hart_rsp_data;
-    wire [CORES-1:0]                            hart_rsp_ready;
-    wire [CORES-1:0]                            hart_flush;
-
-    // Cached (Phase 3) profile: one shared bank behind the refill arbiter.
-    wire [CORES-1:0]                            ic_req;
-    wire [CORES-1:0][`CONFIG_IROM_ADDR_WIDTH:0] ic_req_addr;
-    wire [CORES-1:0]                            ic_gnt;
-    wire [31:0]                                 shared_data;
-    wire [`CONFIG_IROM_ADDR_WIDTH:0]            shared_addr;
-
-    // No-cache (Phase 2) profile: private bank per hart.
-    wire [CORES-1:0][`CONFIG_IROM_ADDR_WIDTH:0] bank_addr_direct;
-    wire [CORES-1:0][31:0]                      bank_data_direct;
 
     // Boot flag from the shared mailbox: it clears its 64-word window one word
     // per cycle through its own write port (no reset on the 2,048-bit array).
@@ -107,18 +91,48 @@ module pipeline_amp_top #(
     wire [CORES-1:0][31:0]  mbox_req_wdata;
     wire [CORES-1:0][ 3:0]  mbox_req_wstrb;
     wire [CORES-1:0][31:0]  mbox_rsp_data;
+    wire [7:0] rx_data;
+    wire rx_ready;
+    wire [CORES-1:0] rx_consumed;
 
     genvar g;
     generate
         for (g = 0; g < CORES; g = g + 1) begin : g_hart
-            // The mainline set-associative I-cache lives inside student_top
-            // (EXTERNAL_IROM=0).  The old top-level AMP I-cache and its shared
-            // IROM are no longer used; these ties keep the external fetch port
-            // of student_top harmless.
-            assign hart_req_ready[g] = 1'b1;
-            assign hart_rsp_valid[g] = 1'b0;
-            assign hart_rsp_data[g]  = 32'd0;
+            localparam HOST = RTOS_AI && g == 0;
+            wire hart_rst = rst | ~core_en[g] | ~mbox_init_done;
+            wire mt_valid, mt_ready, mt_write;
+            wire [31:0] mt_addr, mt_wdata, mt_rdata;
+            wire [3:0] mt_wstrb;
+            if (HOST) begin : g_mt
+                wire camera_sel = mt_addr[31:28] == 4'hd;
+                wire tensor_ready;
+                wire [31:0] tensor_rdata, camera_rdata;
+                reg camera_read_q, camera_read_r2;
 
+                assign mt_ready = camera_sel ? !hart_rst : tensor_ready;
+                assign mt_rdata = camera_read_r2 ? camera_rdata : tensor_rdata;
+
+                always @(posedge clk) begin
+                    camera_read_q <= !hart_rst && mt_valid && mt_ready && !mt_write && camera_sel;
+                    camera_read_r2 <= camera_read_q;
+                end
+
+                pipeline_amp_minitensor u_mt (
+                    .clk(clk), .rst(hart_rst), .cpu_valid(mt_valid && !camera_sel),
+                    .cpu_ready(tensor_ready), .cpu_write(mt_write), .cpu_addr(mt_addr),
+                    .cpu_wdata(mt_wdata), .cpu_wstrb(mt_wstrb), .cpu_rdata(tensor_rdata)
+                );
+
+                pipeline_amp_camera u_camera (
+                    .pixel_clk(pixel_clk), .pixel_rst(pixel_rst),
+                    .pixel_vsync(pixel_vsync), .pixel_de(pixel_de), .pixel_rgb565(pixel_rgb565),
+                    .clk(clk), .rst(rst), .cpu_valid(mt_valid && mt_ready && camera_sel),
+                    .cpu_write(mt_write), .cpu_addr(mt_addr), .cpu_rdata(camera_rdata)
+                );
+            end else begin : g_no_mt
+                assign mt_ready = 1'b0;
+                assign mt_rdata = 32'b0;
+            end
             student_top #(
                 .DATA_OFFSET     (g * DATA_STRIDE),
                 .HART_ID         (g),
@@ -128,16 +142,20 @@ module pipeline_amp_top #(
                 .ICACHE_SETS     (ICACHE_LINES / 4),
                 .ICACHE_WAYS     (4),
                 .ICACHE_LINE_BYTES (ICACHE_LINE_BYTES),
-                .DRAM_AW         (DRAM_AW),
-                .DRAM_INIT_FILE  (DRAM_INIT_FILE)
+                .DRAM_AW         (HOST ? 15 : DRAM_AW),
+                .DRAM_INIT_FILE  (HOST ? HART0_DRAM_FILE : DRAM_INIT_FILE),
+                .IROM_INIT_FILE  (HOST ? HART0_IROM_FILE : IROM_INIT_FILE),
+                .IROM_WORD_AW    (HOST ? 14 : MEM_AW),
+                .MT_MMIO         (HOST)
             ) u_core (
                 .w_cpu_clk     (clk),
-                .w_clk_50Mhz   (clk),
-                .w_clk_rst     (rst | ~core_en[g] | ~mbox_init_done),
+                .w_clk_50Mhz   (HOST ? periph_clk : clk),
+                .w_clk_rst     (hart_rst),
                 .virtual_key   ({8{1'b0}}),
                 .virtual_sw    ({64{1'b0}}),
-                .uart_rx_data  (8'd0),
-                .uart_rx_ready (1'b0),
+                .uart_rx_data  (HOST ? rx_data : 8'd0),
+                .uart_rx_ready (HOST && rx_ready),
+                .uart_rx_consumed(rx_consumed[g]),
                 .uart_tx_busy  (hart_uart_tx_busy[g]),
 
                 .uart_tx_data  (hart_uart_tx_data[g]),
@@ -154,20 +172,23 @@ module pipeline_amp_top #(
                 .retire_wdata    (retire_wdata[g]),
                 .retire_is_ebreak(retire_is_ebreak[g]),
 
-                .irom_req_valid  (hart_req_valid[g]),
-                .irom_req_addr   (hart_req_addr[g]),
-                .irom_req_ready  (hart_req_ready[g]),
-                .irom_rsp_valid  (hart_rsp_valid[g]),
-                .irom_rsp_data   (hart_rsp_data[g]),
-                .irom_rsp_ready  (hart_rsp_ready[g]),
-                .irom_flush      (hart_flush[g]),
+                .irom_req_valid  (),
+                .irom_req_addr   (),
+                .irom_req_ready  (1'b1),
+                .irom_rsp_valid  (1'b0),
+                .irom_rsp_data   (32'b0),
+                .irom_rsp_ready  (),
+                .irom_flush      (),
 
                 .shared_rdata     (mbox_rsp_data[g]),
                 .shared_req_valid (mbox_req_valid[g]),
                 .shared_req_write (mbox_req_write[g]),
                 .shared_req_addr  (mbox_req_addr[g]),
                 .shared_req_wdata (mbox_req_wdata[g]),
-                .shared_req_wstrb (mbox_req_wstrb[g])
+                .shared_req_wstrb (mbox_req_wstrb[g]),
+                .mt_req_valid(mt_valid), .mt_req_ready(mt_ready), .mt_req_write(mt_write),
+                .mt_req_addr(mt_addr), .mt_req_wdata(mt_wdata), .mt_req_wstrb(mt_wstrb),
+                .mt_rdata(mt_rdata)
             );
         end
     endgenerate
@@ -187,13 +208,11 @@ module pipeline_amp_top #(
     );
 
     // ------------------------------------------------------------------
-    // Board UART: hart 0 only.  The pipeline board uses a 100 MHz core
-    // clock for both the core and the console; CoreMark's time base is
-    // frozen at 100 MHz.  RX is tied idle because the board profile does
-    // not define a UART RX pin.
+    // Only hart 0 drives the UART. The RTOS board uses the 50 MHz peripheral
+    // clock for UART and RTOS ticks. The benchmark counter uses the CPU clock.
     // ------------------------------------------------------------------
-    wire [7:0] uart_rx_data_unused;
-    wire       uart_rx_ready_unused;
+    wire [7:0] uart_raw_data;
+    wire       uart_raw_ready;
     wire       uart_tx_busy;
 
     assign hart_uart_tx_busy[0] = uart_tx_busy;
@@ -206,19 +225,35 @@ module pipeline_amp_top #(
     endgenerate
 
     uart #(
-        .CLK_FREQ  (100_000_000),
+        .CLK_FREQ  (RTOS_AI ? 50_000_000 : 100_000_000),
         .BAUD_RATE (115_200)
     ) u_uart (
-        .clk      (clk),
-        .rst_n    (~rst),
-        .rx       (1'b1),
-        .rx_data  (uart_rx_data_unused),
-        .rx_ready (uart_rx_ready_unused),
+        .clk      (RTOS_AI ? periph_clk : clk),
+        .rst_n    (RTOS_AI ? ~periph_rst : ~rst),
+        .rx       (RTOS_AI ? uart_rx : 1'b1),
+        .rx_data  (uart_raw_data),
+        .rx_ready (uart_raw_ready),
         .tx       (uart_tx),
         .tx_data  (hart_uart_tx_data[0]),
         .tx_start (hart_uart_tx_start[0]),
         .tx_busy  (uart_tx_busy)
     );
+
+    generate
+        if (RTOS_AI) begin : g_rx
+            pipeline_uart_rx_fifo u_rx_fifo (
+                .cpu_clk(clk), .cpu_rst(rst), .consumed(rx_consumed[0]),
+                .clk(periph_clk), .rst(periph_rst),
+                .raw_data(uart_raw_data), .raw_ready(uart_raw_ready),
+                .data(rx_data), .ready(rx_ready), .full(rx_full), .overflow(rx_overflow)
+            );
+        end else begin : g_no_rx
+            assign rx_data = 8'b0;
+            assign rx_ready = 1'b0;
+            assign rx_full = 1'b0;
+            assign rx_overflow = 1'b0;
+        end
+    endgenerate
 
     assign led = hart_led[0];
 endmodule

@@ -22,6 +22,8 @@ module student_top#(
     parameter integer                   ICACHE_LINE_BYTES   = 32,
     // Per-hart private DRAM geometry (forwarded to perip_bridge/bram_driver).
     parameter                           IROM_INIT_FILE      = "build/pipeline/irom.hex",
+    parameter integer                   IROM_WORD_AW        = `CONFIG_IROM_ADDR_WIDTH + 1,
+    parameter                           MT_MMIO             = 1'b0,
     parameter integer                   DRAM_AW             = 16,
     parameter                           DRAM_INIT_FILE      = "build/pipeline/dram.hex"
 ) (
@@ -68,7 +70,14 @@ module student_top#(
     output wire [31:0] shared_req_addr,
     output wire [31:0] shared_req_wdata,
     output wire [3:0]  shared_req_wstrb,
-    output wire        uart_rx_consumed
+    output wire        uart_rx_consumed,
+    output wire        mt_req_valid,
+    input  wire        mt_req_ready,
+    output wire        mt_req_write,
+    output wire [31:0] mt_req_addr,
+    output wire [31:0] mt_req_wdata,
+    output wire [3:0]  mt_req_wstrb,
+    input  wire [31:0] mt_rdata
 );
 
     // Core fetch handshake and the selected instruction-memory path.
@@ -80,7 +89,7 @@ module student_top#(
     wire        core_irom_rsp_ready;
     wire        core_irom_flush;
 
-    wire [`CONFIG_IROM_ADDR_WIDTH:0] inst_addr;
+    wire [IROM_WORD_AW-1:0] inst_addr;
     wire [31:0]                      instruction;
 
     // perip
@@ -138,7 +147,7 @@ module student_top#(
             assign core_irom_rsp_data  = irom_rsp_data;
             assign irom_rsp_ready      = core_irom_rsp_ready;
             assign irom_flush          = core_irom_flush;
-            assign inst_addr           = {(`CONFIG_IROM_ADDR_WIDTH+1){1'b0}};
+            assign inst_addr           = {IROM_WORD_AW{1'b0}};
         end else begin : g_internal_irom
             assign irom_req_valid = 1'b0;
             assign irom_req_addr  = 32'd0;
@@ -190,7 +199,7 @@ module student_top#(
                 // Reuse the 1-cycle passthrough as the IROM refill adapter.
                 pipeline_irom_passthrough #(
                     .ADDR_WIDTH           (32),
-                    .IROM_WORD_ADDR_WIDTH (`CONFIG_IROM_ADDR_WIDTH + 1)
+                    .IROM_WORD_ADDR_WIDTH (IROM_WORD_AW)
                 ) u_irom_refill (
                     .clk              (w_cpu_clk),
                     .rst              (w_clk_rst),
@@ -208,7 +217,7 @@ module student_top#(
                 // Baseline path: original direct-IROM timing, same handshake.
                 pipeline_irom_passthrough #(
                     .ADDR_WIDTH           (32),
-                    .IROM_WORD_ADDR_WIDTH (`CONFIG_IROM_ADDR_WIDTH + 1)
+                    .IROM_WORD_ADDR_WIDTH (IROM_WORD_AW)
                 ) u_irom_passthrough (
                     .clk              (w_cpu_clk),
                     .rst              (w_clk_rst),
@@ -224,7 +233,7 @@ module student_top#(
                 );
             end
 
-            IROM_BMEM32 #(.IROM_INIT_FILE(IROM_INIT_FILE)) Mem_IROM (
+            IROM_BMEM32 #(.IROM_INIT_FILE(IROM_INIT_FILE), .WORD_AW(IROM_WORD_AW)) Mem_IROM (
                 .addra            (inst_addr  ),
                 .clka             (w_cpu_clk  ),
                 .douta            (instruction)
@@ -235,6 +244,7 @@ module student_top#(
     perip_bridge #(
         .HART_ID        (HART_ID),
         .HART_COUNT     (HART_COUNT),
+        .MT_MMIO        (MT_MMIO),
         .DRAM_AW        (DRAM_AW),
         .DRAM_INIT_FILE (DRAM_INIT_FILE)
     ) bridge_inst (
@@ -266,7 +276,14 @@ module student_top#(
         .shared_req_write   (shared_req_write),
         .shared_req_addr    (shared_req_addr),
         .shared_req_wdata   (shared_req_wdata),
-        .shared_req_wstrb   (shared_req_wstrb)
+        .shared_req_wstrb   (shared_req_wstrb),
+        .mt_req_valid      (mt_req_valid),
+        .mt_req_ready      (mt_req_ready),
+        .mt_req_write      (mt_req_write),
+        .mt_req_addr       (mt_req_addr),
+        .mt_req_wdata      (mt_req_wdata),
+        .mt_req_wstrb      (mt_req_wstrb),
+        .mt_rdata          (mt_rdata)
     );
 
 endmodule

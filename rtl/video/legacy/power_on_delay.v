@@ -26,12 +26,11 @@ module power_on_delay(
     output camera1_rstn   ,
     output camera2_rstn   ,
     output camera_pwnd    ,
-    output initial_en
+    output reg initial_en
 );
 reg [18:0]cnt1;
 reg [15:0]cnt2;
 reg [19:0]cnt3;
-reg initial_en;
 reg camera_rstn_reg;
 reg camera_pwnd_reg;
 

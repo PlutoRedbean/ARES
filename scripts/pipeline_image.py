@@ -129,6 +129,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="IROM readmemh output (default build/pipeline/irom.hex)")
     parser.add_argument("--dram", type=Path, default=Path("build/pipeline/dram.hex"),
                         help="DRAM readmemh output (default build/pipeline/dram.hex)")
+    parser.add_argument("--irom-kib", type=int, default=IROM_BYTES // 1024)
+    parser.add_argument("--dram-kib", type=int, default=DRAM_BYTES // 1024)
     parser.add_argument("--json", type=Path,
                         help="optional build-info JSON output")
     parser.add_argument("--replicate-dram-words", type=int, default=0,
@@ -146,8 +148,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: ELF not found: {args.elf}", file=sys.stderr)
         return 1
 
-    irom = Region("irom", IROM_BASE, IROM_BYTES)
-    dram = Region("dram", DRAM_BASE, DRAM_BYTES)
+    if args.irom_kib <= 0 or args.dram_kib <= 0:
+        parser.error("IROM and DRAM sizes must be positive")
+    irom = Region("irom", IROM_BASE, args.irom_kib * 1024)
+    dram = Region("dram", DRAM_BASE, args.dram_kib * 1024)
 
     try:
         data = args.elf.read_bytes()

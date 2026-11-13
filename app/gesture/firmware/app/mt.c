@@ -1,4 +1,5 @@
 #include "mt.h"
+#include "ares_soc.h"
 
 /* Read MT_STATUS until the adapter is idle.  The final read (taken while BUSY
  * is clear) consumes the sticky flags and is the one whose value we report. */

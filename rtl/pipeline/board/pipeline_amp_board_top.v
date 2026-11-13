@@ -77,7 +77,14 @@ module pipeline_amp_board_top #(
         .retire_is_ebreak(),
 
         .uart_tx         (uart_tx),
-        .led             (soc_led)
+        .led             (soc_led),
+        .periph_clk      (1'b0),
+        .periph_rst      (1'b0),
+        .uart_rx         (1'b1),
+        .rx_full         (),
+        .rx_overflow     (),
+        .pixel_clk(1'b0), .pixel_rst(1'b1), .pixel_vsync(1'b0),
+        .pixel_de(1'b0), .pixel_rgb565(16'b0)
     );
 
     // LED[0] = PLL lock, LED[1] = heartbeat, LED[7:2] = hart 0 LED register.

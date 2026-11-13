@@ -83,3 +83,42 @@ pipeline-rtos-shell-pango-lint: rtos-shell-image
 	@verilator --lint-only --timing -U__VERILATOR__ -Wall -Wno-fatal \
 	    --top-module pipeline_rtos_shell_board_top -f build/rtos_shell/sim.f \
 	    rtl/pipeline/board/pipeline_uart_rx_fifo.v rtl/pipeline/board/pipeline_rtos_shell_board_top.v
+
+.PHONY: rtos-amp-image pipeline-rtos-amp-build pipeline-rtos-amp pipeline-rtos-amp-test \
+        pipeline-rtos-amp-pango-prep pipeline-rtos-amp-pango-lint
+rtos-amp-image:
+	@$(MAKE) -C $(ARES_HOME)/rtthread-nano/rt-thread/bsp/ARES PROFILE=amp
+	@python3 scripts/pipeline_image.py --elf build/rtos_amp/ares-rtos.elf \
+	    --irom-kib 64 --dram-kib 128 --irom build/rtos_amp/irom.hex \
+	    --dram build/rtos_amp/dram.hex --json build/rtos_amp/image.json
+	@python3 scripts/pipeline_image.py --elf build/rtos_amp/worker.elf \
+	    --dram-kib 32 --irom build/rtos_amp/worker_irom.hex \
+	    --dram build/rtos_amp/worker_dram.hex --json build/rtos_amp/worker.json
+
+pipeline-rtos-amp-build: rtos-amp-image
+	@sed 's@rtl/pipeline/board/pipeline_pll.v@rtl/pipeline/board/pipeline_pll_sim.v@' \
+	    rtl/pipeline/pipeline_amp_pango.f > build/rtos_amp/sim.f
+	@CCACHE_DISABLE=1 verilator --cc --exe --build --timing -j 6 -U__VERILATOR__ \
+	    -DARES_RTOS_AMP -DVIDEO_SIM -Wno-fatal --top-module tb_pipeline_shell \
+	    -f build/rtos_amp/sim.f -f rtl/pipeline/pipeline_rtos_amp_extra.f \
+	    rtl/video/sim/GTP_IOCLKDIV_E2.v \
+	    rtl/pipeline/test/tb_pipeline_shell.sv $(ARES_HOME)/rtl/pipeline/test/sim_shell_main.cpp \
+	    --Mdir $(ARES_HOME)/build/rtos_amp/model -o run
+
+pipeline-rtos-amp: pipeline-rtos-amp-build
+	@$(ARES_HOME)/build/rtos_amp/model/run
+
+pipeline-rtos-amp-test: pipeline-rtos-amp-build
+	@python3 scripts/test_rtos_amp.py
+
+pipeline-rtos-amp-pango-prep: rtos-amp-image
+	@python3 app/llm/tools/pango_prep.py --source-root app/gesture --output-dir build/rtos_amp/pango
+	@sed 's@^app/gesture/rtl/\(.*\)\.sv$$@build/rtos_amp/pango/rtl/\1.v@' \
+	    rtl/pipeline/pipeline_rtos_amp_extra.f > build/rtos_amp/pango_extra.f
+
+pipeline-rtos-amp-pango-lint: pipeline-rtos-amp-pango-prep
+	@sed 's@rtl/pipeline/board/pipeline_pll.v@rtl/pipeline/board/pipeline_pll_sim.v@' \
+	    rtl/pipeline/pipeline_amp_pango.f > build/rtos_amp/pango_lint.f
+	@verilator --lint-only --timing -U__VERILATOR__ -DARES_FPGA -Wno-fatal \
+	    --top-module pipeline_rtos_amp_board_top -f build/rtos_amp/pango_lint.f \
+	    -f build/rtos_amp/pango_extra.f rtl/video/sim/GTP_IOCLKDIV_E2.v

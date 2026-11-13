@@ -61,6 +61,14 @@ static int ares_head_idx, ares_tail;
 static core_results *ares_res;
 static list_head *ares_head_ptr;
 
+#ifdef ARES_RTOS_AMP
+void coremark_reset_list_shadow(void)
+{
+    /* A new job may recreate the list at the same addresses. */
+    ares_n = 0;
+}
+#endif
+
 /*---------------------------------------------------------------------------
  * Array tail: the arrays always hold the list in logical (forward) order.
  *---------------------------------------------------------------------------*/

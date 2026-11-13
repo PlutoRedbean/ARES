@@ -8,3 +8,6 @@
 交互式 MSH 使用 `make pipeline-rtos-shell`；`PROFILE=shell` 输出到独立的 `build/rtos_shell/`，
 支持 `help`、`ps`、`tick`、`irq`、`led`、`echo`、`sleep`、`ecall` 和模拟器退出命令 `quit`。
 完整内存/中断契约、测试结果和 PDS 入口见 [单核 RTOS 文档](../../../../docs/pipeline_rtos.md)。
+
+`make pipeline-rtos-amp-test` 验证 hart0 的 RT-Thread 和 miniTensor，
+以及四 hart 的 CoreMark 聚合跑分。见 [RTOS AMP 构建与验收](../../../../docs/pipeline_rtos_amp.md)。

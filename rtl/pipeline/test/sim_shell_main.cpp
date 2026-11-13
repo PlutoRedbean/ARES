@@ -39,6 +39,7 @@ int main(int argc,char **argv) {
     uint64_t max_ms=0;
     bool burst=false;
     for(int i=1;i<argc;i++) {
+        if(argv[i][0]=='+') continue;
         if(std::string(argv[i])=="--burst") burst=true;
         else if(std::string(argv[i])=="--max-ms" && i+1<argc) {
             char *end;

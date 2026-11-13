@@ -14,7 +14,8 @@
  *   hart1..N  portable_init() worker: waits for GO on its own mailbox slot,
  *             re-initialises a private data block exactly like core_main did
  *             for that context, runs iterate() and publishes the CRCs through
- *             the shared MMIO mailbox, then EBREAKs with a0=0.
+ *             the shared MMIO mailbox. The standalone image then EBREAKs;
+ *             the RT-Thread AMP image returns to the mailbox wait loop.
  *
  * The mailbox is uncached MMIO (memory.md 3.1): it bypasses the private L1 D$
  * and every access is a strongly ordered commit-head device operation, so no
@@ -23,6 +24,22 @@
  *===========================================================================*/
 #include "coremark.h"
 #include <ares.h>
+#ifdef ARES_RTOS_AMP
+#include "board.h"
+
+static ee_u32 start_context, stop_context;
+static uint32_t round_id;
+static ee_u16 final_crc;
+static int workers_ok;
+void coremark_reset_list_shadow(void);
+
+int coremark_workers_ok(void)
+{
+  return workers_ok;
+}
+
+void ioe_init(void) {}
+#endif
 
 #if VALIDATION_RUN
 	volatile ee_s32 seed1_volatile=0x3415;
@@ -54,8 +71,16 @@ static CORE_TICKS read_cycles(void) {
 }
 
 void start_time(void) {
+#ifdef ARES_RTOS_AMP
+  start_context = 0;
+  stop_context = 0;
+  round_id++;
+  if (round_id == 0)
+    round_id++;
+#else
   /* Finish the startup banner before entering the timed section. */
   while (inl(SERIAL_STATUS) & 1u) {}
+#endif
   __asm__ volatile("fence iorw, iorw" ::: "memory");
   start_time_val = read_cycles();
   __asm__ volatile("" ::: "memory");
@@ -94,7 +119,14 @@ static void print_ratio(const char *label, uint64_t numerator, uint64_t denomina
 }
 
 void coremark_report_time(CORE_TICKS ticks, ee_u32 iterations) {
+#ifdef ARES_RTOS_AMP
+  if (ticks == 0)
+    halt(2);
+  if (ticks < 10ull * COREMARK_CLOCK_HZ)
+    ee_printf("CoreMark short run: CRC check only (under 10 seconds)\n");
+#else
   assert(ticks != 0);
+#endif
   ee_printf("CPU clock (MHz) : %d\n", COREMARK_CLOCK_HZ / 1000000u);
   ee_printf("Total ticks     : ");
   print_u64(ticks);
@@ -129,13 +161,14 @@ static void mbox_put(uint32_t hart, uint32_t off, uint32_t value) {
 static core_results mt_results;
 static ee_u8 mt_memblock[TOTAL_DATA_SIZE] __attribute__((aligned(8)));
 
-static void coremark_hart(uint32_t id) {
-  ee_u32 size;
-
+static void coremark_hart(uint32_t id)
+{
+#ifndef ARES_RTOS_AMP
   while (mbox_get(id, MBOX_GO) == 0u) {}
+#endif
   __asm__ volatile("" ::: "memory");
 
-  size = mbox_get(id, MBOX_SIZE);
+  ee_u32 size = mbox_get(id, MBOX_SIZE);
   mt_results.size       = size;
   mt_results.iterations = mbox_get(id, MBOX_ITER);
   mt_results.execs      = mbox_get(id, MBOX_EXECS);
@@ -156,6 +189,9 @@ static void coremark_hart(uint32_t id) {
                          &(mt_results.mat));
   core_init_state(size, mt_results.seed1, (ee_u8 *)mt_results.memblock[3]);
 
+#ifdef ARES_RTOS_AMP
+  coremark_reset_list_shadow();
+#endif
   iterate(&mt_results);
 
   mbox_put(id, MBOX_CRCLIST,   mt_results.crclist);
@@ -166,18 +202,40 @@ static void coremark_hart(uint32_t id) {
   /* MMIO stores are strongly ordered by the in-order perip port; a fence is
    * not required and would stall behind the pending device store. */
   __asm__ volatile("" ::: "memory");
-  mbox_put(id, MBOX_DONE,      1u);
-
+#ifndef ARES_RTOS_AMP
+  mbox_put(id, MBOX_DONE, 1u);
   /* Same retire signature as halt(0): a0 = 0 + EBREAK, then spin. */
   __asm__ volatile("li a0, 0\n\tebreak\n1: j 1b" ::: "a0", "memory");
   while (1) {}
+#endif
 }
+
+#ifdef ARES_RTOS_AMP
+void coremark_worker(void)
+{
+  uint32_t id = hart_id();
+  uint32_t completed = 0;
+
+  for (;;) {
+    uint32_t round = mbox_get(id, MBOX_GO);
+    if (round != completed) {
+      coremark_hart(id);
+      mbox_put(id, MBOX_DONE, round);
+      completed = round;
+    }
+  }
+}
+#endif
 
 /*---------------------------------------------------------------------------
  * CoreMark parallel hooks (called by core_main.c when MULTITHREAD>1)
  *-------------------------------------------------------------------------*/
 ee_u8 core_start_parallel(core_results *res) {
+#ifdef ARES_RTOS_AMP
+  ee_u32 ctx = start_context++;
+#else
   static ee_u32 ctx; /* 0 = context 0 (runs inline on hart0) */
+#endif
 
   if (ctx >= 1u && ctx < ARES_MT_CORES) {
     mbox_put(ctx, MBOX_ITER,  res->iterations);
@@ -189,29 +247,60 @@ ee_u8 core_start_parallel(core_results *res) {
     /* Descriptor stores and GO use the same in-order MMIO port, so GO can
      * never be observed before the descriptors it depends on. */
     __asm__ volatile("" ::: "memory");
-    mbox_put(ctx, MBOX_GO,    1u);
+#ifdef ARES_RTOS_AMP
+    mbox_put(ctx, MBOX_GO, round_id);
+#else
+    mbox_put(ctx, MBOX_GO, 1u);
+#endif
   }
+#ifndef ARES_RTOS_AMP
   ctx++;
+#endif
   return 0;
 }
 
 ee_u8 core_stop_parallel(core_results *res) {
+#ifdef ARES_RTOS_AMP
+  ee_u32 ctx = stop_context++;
+#else
   static ee_u32 ctx;
+#endif
 
   if (ctx == 0u) {
     /* Context 0 runs on this hart between start and stop so that it overlaps
      * the workers released by core_start_parallel(&results[1..N-1]). */
     iterate(res);
+#ifdef ARES_RTOS_AMP
+    final_crc = res->crc;
+#endif
   } else if (ctx < ARES_MT_CORES) {
+#ifdef ARES_RTOS_AMP
+    const CORE_TICKS join_start = read_cycles();
+    while (mbox_get(ctx, MBOX_DONE) != round_id) {
+      if (read_cycles() - join_start >= 30ull * COREMARK_CLOCK_HZ) {
+        ee_printf("CoreMark: timeout waiting for hart %u\n", ctx);
+        halt(3);
+      }
+    }
+#else
     while (mbox_get(ctx, MBOX_DONE) == 0u) {}
+#endif
     __asm__ volatile("" ::: "memory");
     res->crclist   = (ee_u16)mbox_get(ctx, MBOX_CRCLIST);
     res->crcmatrix = (ee_u16)mbox_get(ctx, MBOX_CRCMATRIX);
     res->crcstate  = (ee_u16)mbox_get(ctx, MBOX_CRCSTATE);
     res->crc       = (ee_u16)mbox_get(ctx, MBOX_CRCFINAL);
     res->err       = (ee_s16)mbox_get(ctx, MBOX_ERR);
+#ifdef ARES_RTOS_AMP
+    if (res->crc != final_crc || res->err != 0) {
+      ee_printf("CoreMark: result mismatch from hart %u\n", ctx);
+      workers_ok = 0;
+    }
+#endif
   }
+#ifndef ARES_RTOS_AMP
   ctx++;
+#endif
   return 0;
 }
 
@@ -221,8 +310,9 @@ ee_u8 core_stop_parallel(core_results *res) {
 */
 void portable_init(core_portable *p, int *argc, char *argv[])
 {
+#ifndef ARES_RTOS_AMP
 	uint32_t id = hart_id();
-
+#endif
 	(void)argc;
 	(void)argv;
 	if (sizeof(ee_ptr_int) != sizeof(ee_u8 *)) {
@@ -232,9 +322,14 @@ void portable_init(core_portable *p, int *argc, char *argv[])
 		ee_printf("ERROR! Please define ee_u32 to a 32b unsigned type!\n");
 	}
 	p->portable_id=1;
+#ifdef ARES_RTOS_AMP
+	workers_ok = 1;
+	coremark_reset_list_shadow();
+#else
 	if (id >= 1u && id < ARES_MT_CORES) {
 		coremark_hart(id);
 	}
+#endif
 }
 /* Function : portable_fini
 	Target specific final code

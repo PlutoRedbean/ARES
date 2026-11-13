@@ -15,24 +15,25 @@
 `include "autoconf.vh"
 
 module IROM_BMEM32 #(
-    parameter IROM_INIT_FILE = "build/pipeline/irom.hex"
+    parameter IROM_INIT_FILE = "build/pipeline/irom.hex",
+    parameter integer WORD_AW = `CONFIG_IROM_ADDR_WIDTH + 1
 ) (
-    input  wire [`CONFIG_IROM_ADDR_WIDTH:0] addra,
+    input  wire [WORD_AW-1:0]                addra,
     input  wire                              clka,
     output reg  [31:0]                       douta
 );
-    localparam integer DEPTH = 1 << (`CONFIG_IROM_ADDR_WIDTH + 1);
+    localparam integer DEPTH = 1 << WORD_AW;
 
 `ifdef __VERILATOR__
     // Simulation model used by the jyd testbench (DPI vaddr_read).
     import "DPI-C" function int vaddr_read(input int raddr);
 
-    wire [31:0] word_index = {{(31-`CONFIG_IROM_ADDR_WIDTH){1'b0}}, addra};
+    wire [31:0] word_index = {{(32-WORD_AW){1'b0}}, addra};
     wire [31:0] byte_addr  = 32'h8000_0000 + (word_index << 2);
 
     always @(posedge clka) begin
         if (byte_addr >= 32'h8000_0000 &&
-            byte_addr < 32'h8000_0000 + `CONFIG_IROM_SIZE_BYTES) begin
+            byte_addr < 32'h8000_0000 + DEPTH * 4) begin
             douta <= vaddr_read(byte_addr);
         end else begin
             douta <= 32'd0;

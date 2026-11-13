@@ -25,6 +25,7 @@ module perip_bridge #(
     // CoreMark port.  The single-hart profile keeps the defaults.
     parameter [31:0] HART_ID    = 32'd0,
     parameter [31:0] HART_COUNT = 32'd1,
+    parameter MT_MMIO = 1'b0,
     // Per-hart private DRAM geometry, forwarded to bram_driver.  The AMP
     // profile narrows it to the 32 KiB window each hart actually owns; see
     // soc/pango/pipeline_bram.v for why the address slice is enough.
@@ -69,7 +70,15 @@ module perip_bridge #(
     output wire         shared_req_write,
     output wire [31:0]  shared_req_addr,
     output wire [31:0]  shared_req_wdata,
-    output wire [3:0]   shared_req_wstrb
+    output wire [3:0]   shared_req_wstrb,
+
+    output wire         mt_req_valid,
+    input  wire         mt_req_ready,
+    output wire         mt_req_write,
+    output wire [31:0]  mt_req_addr,
+    output wire [31:0]  mt_req_wdata,
+    output wire [3:0]   mt_req_wstrb,
+    input  wire [31:0]  mt_rdata
 );
     localparam [31:0] DRAM_ADDR_START = 32'h8010_0000;
     localparam [31:0] DRAM_ADDR_END   = 32'h8013_FFFF;
@@ -109,6 +118,7 @@ module perip_bridge #(
     localparam [2:0] RESP_CNT   = 3'd3;
     localparam [2:0] RESP_ACCEL = 3'd4;
     localparam [2:0] RESP_SHARED = 3'd5;
+    localparam [2:0] RESP_MT     = 3'd6;
 
     localparam integer STORE_QUEUE_DEPTH = `CONFIG_STORE_BUFFER_DEPTH;
     localparam integer STORE_QUEUE_PTR_WIDTH =
@@ -294,6 +304,15 @@ module perip_bridge #(
     assign store_empty = store_count_q == 0;
     assign store_full = store_count_q == STORE_QUEUE_DEPTH;
     assign dram_load_request = perip_valid && !perip_wen && dram_read_hit;
+    wire mt_hit = MT_MMIO && (perip_addr[31:16] == 16'h1000 ||
+                             perip_addr[31:5] == 27'h7000000 ||
+                             perip_addr == 32'hD000_3000 ||
+                             (perip_addr >= 32'hD010_0000 && perip_addr < 32'hD014_B000));
+    assign mt_req_valid = perip_valid && mt_hit && store_empty && !bram_write_valid_q;
+    assign mt_req_write = perip_wen;
+    assign mt_req_addr  = perip_addr;
+    assign mt_req_wstrb = store_byte_enable(perip_addr[17:0], perip_mask);
+    assign mt_req_wdata = store_word_data(perip_wdata, perip_mask);
     // No reset term: during reset the core cannot present perip_valid and the
     // queue count is 0, so the gate was redundant -- and it put the global
     // reset net inside this combinational cone.
@@ -302,7 +321,9 @@ module perip_bridge #(
     always @(*) begin
         perip_ready = 1'b1;
         if (perip_valid) begin
-            if (perip_wen) begin
+            if (mt_hit) begin
+                perip_ready = mt_req_valid && mt_req_ready;
+            end else if (perip_wen) begin
                 if (dram_write_hit) begin
                     // A full queue can still accept when its head is staged.
                     perip_ready = (~store_full) || store_dequeue;
@@ -688,6 +709,8 @@ module perip_bridge #(
         if (read_accept) begin
             if (dram_write_hit) begin
                 response_tag_next = RESP_DRAM;
+            end else if (mt_hit) begin
+                response_tag_next = RESP_MT;
             end else if (accel_hit) begin
                 response_tag_next = RESP_ACCEL;
             end else if (shared_hit) begin
@@ -931,6 +954,7 @@ module perip_bridge #(
                 : cnt_rdata_r2;
             RESP_ACCEL:  perip_rdata = accel_rsp_data;
             RESP_SHARED: perip_rdata = shared_rdata;
+            RESP_MT:     perip_rdata = mt_rdata;
             default:     perip_rdata = 32'd0;
         endcase
     end

@@ -30,7 +30,11 @@ module tb_pipeline_coremark_amp #(
         .retire_pc(retire_pc), .retire_pc_next(retire_pc_next),
         .retire_rd_wen(retire_rd_wen), .retire_rd(retire_rd),
         .retire_wdata(retire_wdata),
-        .retire_is_ebreak(retire_is_ebreak)
+        .retire_is_ebreak(retire_is_ebreak),
+        .uart_tx(), .led(), .periph_clk(1'b0), .periph_rst(1'b0),
+        .uart_rx(1'b1), .rx_full(), .rx_overflow(),
+        .pixel_clk(1'b0), .pixel_rst(1'b1), .pixel_vsync(1'b0),
+        .pixel_de(1'b0), .pixel_rgb565(16'b0)
     );
 
     logic [CORES-1:0]        done_q;

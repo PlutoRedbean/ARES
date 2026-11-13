@@ -82,6 +82,10 @@ static int quit_command(int argc, char **argv)
 MSH_CMD_EXPORT_ALIAS(quit_command, quit, exit the interactive simulator);
 int main(void)
 {
+#ifdef ARES_RTOS_AMP
+    void amp_apps_init(void);
+    amp_apps_init();
+#endif
     rt_kprintf("ARES MSH ready. Type help.\n");
     return finsh_system_init();
 }
