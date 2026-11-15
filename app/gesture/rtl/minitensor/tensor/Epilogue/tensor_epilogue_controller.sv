@@ -2,6 +2,13 @@
 
 // Reads four C rows, four bias rows, and one quantization-config row from UB,
 // then writes one packed INT8 output row.
+//
+// The packed row is registered before it reaches the UB write port.  The whole
+// requantization datapath (bias add, scale multiply, shift, clamp, pack) is one
+// combinational cone after the C/bias registers, so driving UB write data
+// directly from it put a 25-level, 13 ns path on the BRAM write port.  The
+// register costs one cycle per 4x4 tile and splits the cone into
+// "datapath -> FF" and "FF -> write port".
 module tensor_epilogue_controller #(
   parameter int unsigned UB_ADDR_WIDTH = 8
 ) (
@@ -26,13 +33,13 @@ module tensor_epilogue_controller #(
 );
   typedef enum logic [3:0] {
     S_IDLE, S_READ_C, S_WAIT_C, S_READ_B, S_WAIT_B,
-    S_READ_CFG, S_WAIT_CFG, S_WRITE, S_DONE
+    S_READ_CFG, S_WAIT_CFG, S_WRITE, S_WRITE_DONE, S_DONE
   } state_t;
   state_t state_q;
   logic [UB_ADDR_WIDTH-1:0] c_addr_q, bias_addr_q, config_addr_q, output_addr_q;
   logic [1:0] row_q;
   logic [511:0] c_data_q, bias_data_q;
-  logic [127:0] config_data_q, output_data;
+  logic [127:0] config_data_q, output_data, output_q;
 
   tensor_epilogue_core u_core (
     .c_data(c_data_q), .bias_data(bias_data_q),
@@ -46,9 +53,9 @@ module tensor_epilogue_controller #(
       (state_q == S_READ_CFG);
   assign ub_rd_addr = (state_q == S_READ_C) ? c_addr_q + UB_ADDR_WIDTH'(row_q) :
       ((state_q == S_READ_B) ? bias_addr_q + UB_ADDR_WIDTH'(row_q) : config_addr_q);
-  assign ub_wr_en = (state_q == S_WRITE);
+  assign ub_wr_en = (state_q == S_WRITE_DONE);
   assign ub_wr_addr = output_addr_q;
-  assign ub_wr_data = output_data;
+  assign ub_wr_data = output_q;
   assign ub_wr_be = '1;
 
   always_ff @(posedge clk) begin
@@ -62,6 +69,7 @@ module tensor_epilogue_controller #(
       c_data_q <= '0;
       bias_data_q <= '0;
       config_data_q <= '0;
+      output_q <= '0;
     end else begin
       case (state_q)
         S_IDLE: if (cmd_valid && cmd_ready) begin
@@ -89,7 +97,11 @@ module tensor_epilogue_controller #(
           config_data_q <= ub_rd_data;
           state_q <= S_WRITE;
         end
-        S_WRITE: state_q <= S_DONE;
+        S_WRITE: begin
+          output_q <= output_data;
+          state_q <= S_WRITE_DONE;
+        end
+        S_WRITE_DONE: state_q <= S_DONE;
         S_DONE: state_q <= S_IDLE;
         default: state_q <= S_IDLE;
       endcase
