@@ -13,7 +13,10 @@
 | 本机开发平台（仿真/金标/语料/一致性测试） | ✅ 就绪 |
 | L1 规则层：身份证 18/15、手机、银行卡、邮箱、IPv4、USCC、车牌 | ✅ 1000 例 / 2670 span 全一致，另 43 例手工边界 |
 | 顶层 `l1_engine`（5 引擎并行）+ 吞吐基准 | ✅ 1 字节/拍，150 MB/s @150 MHz |
-| span 回退替换 + 审计 JSON + 关键词 AC | ⬜（M2） |
+| 红action 金标：重叠合并 + token/mask + 审计 JSON | ✅（M2，见 [docs/m2-results.md](docs/m2-results.md)） |
+| 关键词提示（8 词，金标 + RTL 并行匹配） | ✅ |
+| 端到端 demo（文本进 → 脱敏 + 审计 JSON，RTL 检测在环） | ✅ `make demo` |
+| RTL hold-and-forward 替换器 | ⬜（M2 下一刀） |
 | L2（INT4 语义层） | ⬜（M3） |
 
 ## 快速开始
@@ -24,6 +27,10 @@ make test        # 金标单测 + 生成向量 + Verilator 一致性仿真
 make golden      # 只跑 Python 单测
 make vectors     # 只生成 build/vectors
 make sim         # 只跑仿真（需要先有向量）
+make kw          # 关键词匹配器一致性
+make harness     # 构建 Verilator C++ 驱动（Vdetect）
+make demo        # 端到端 demo：examples/sample.txt → 脱敏 + build/audit.json
+make demo-check  # RTL 检测 + 金标红action 的端到端比对（200 例）
 make bench       # 吞吐基准（1 字节/拍）
 make edges       # 手工边界集（邮箱/IPv4/USCC/车牌/超长/空串）
 make lint        # Verilator lint
@@ -55,8 +62,9 @@ guard/
 │   └── l1_engine.sv          # 顶层（5 引擎同流并行）
 ├── sim/                  # Verilator testbench（一致性 + 吞吐）
 ├── host/
-│   ├── golden/           # 金标规则引擎（Python，逐条对齐 RTL）+ CLI
+│   ├── golden/           # 金标：规则引擎 + 红action/审计 + 关键词 + CLI
 │   └── corpus/           # 合成 PII 语料
+├── examples/sample.txt   # demo 用样例文本
 ├── tools/gen_vectors.py  # 语料 → .in/.exp/manifest 向量 + bench 语料
 ├── tools/gen_edges.py    # 手工边界集
 ├── tests/                # 金标单测（unittest）

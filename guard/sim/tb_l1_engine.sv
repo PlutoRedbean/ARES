@@ -24,6 +24,10 @@ module tb_l1_engine;
     wire [7:0]  digit_len;
     wire [2:0]  digit_type;
     wire        email_valid, ipv4_valid, uscc_valid, plate_valid;
+    wire        kw_valid;
+    wire [31:0] kw_start;
+    wire [7:0]  kw_len;
+    wire [2:0]  kw_kid;
     wire [31:0] email_start, ipv4_start, uscc_start, plate_start;
     wire [7:0]  email_len, ipv4_len, uscc_len, plate_len;
 
@@ -34,7 +38,8 @@ module tb_l1_engine;
         .email_valid(email_valid), .email_start(email_start), .email_len(email_len),
         .ipv4_valid(ipv4_valid),   .ipv4_start(ipv4_start),   .ipv4_len(ipv4_len),
         .uscc_valid(uscc_valid),   .uscc_start(uscc_start),   .uscc_len(uscc_len),
-        .plate_valid(plate_valid), .plate_start(plate_start), .plate_len(plate_len)
+        .plate_valid(plate_valid), .plate_start(plate_start), .plate_len(plate_len),
+        .kw_valid(kw_valid), .kw_start(kw_start), .kw_len(kw_len), .kw_kid(kw_kid)
     );
 
     // 每类型一份命中记录

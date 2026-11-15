@@ -41,7 +41,13 @@ module l1_engine (
     // 车牌
     output logic        plate_valid,
     output logic [31:0] plate_start,
-    output logic [7:0]  plate_len
+    output logic [7:0]  plate_len,
+
+    // 关键词提示（kid 见 host/golden/keywords.py）
+    output logic        kw_valid,
+    output logic [31:0] kw_start,
+    output logic [7:0]  kw_len,
+    output logic [2:0]  kw_kid
 );
 
     l1_digit_engine u_digit (
@@ -87,6 +93,18 @@ module l1_engine (
         .out_valid(uscc_valid),
         .out_start(uscc_start),
         .out_len  (uscc_len)
+    );
+
+    l1_keyword_match u_kw (
+        .clk      (clk),
+        .rst_n    (rst_n),
+        .in_valid (in_valid),
+        .in_char  (in_char),
+        .in_last  (in_last),
+        .out_valid(kw_valid),
+        .out_start(kw_start),
+        .out_len  (kw_len),
+        .out_kid  (kw_kid)
     );
 
     l1_plate_engine u_plate (

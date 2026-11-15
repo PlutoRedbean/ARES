@@ -10,7 +10,13 @@ VERILATOR ?= verilator
 PYTHON    ?= python3
 BUILD     := build
 
-L1_RTL := rtl/l1/l1_digit_engine.sv rtl/l1/l1_text_engines.sv rtl/l1/l1_engine.sv
+KW_PKG := $(BUILD)/gen/l1_keywords_pkg.sv
+
+$(KW_PKG): tools/gen_keywords.py host/golden/keywords.py
+	$(PYTHON) tools/gen_keywords.py $(KW_PKG)
+
+L1_RTL := $(KW_PKG) rtl/l1/l1_digit_engine.sv rtl/l1/l1_text_engines.sv \
+          rtl/l1/l1_keyword_match.sv rtl/l1/l1_engine.sv
 L1_TB  := sim/tb_l1_engine.sv
 OBJ_L1 := $(BUILD)/obj_l1
 TOP    := tb_l1_engine
@@ -18,7 +24,7 @@ VEC    := $(BUILD)/vectors
 
 VFLAGS := --binary --timing -j 0 -O2 -Wall -Wno-fatal --top-module
 
-.PHONY: all test golden vectors sim bench edges lint clean tools
+.PHONY: all test golden vectors sim bench edges kw demo demo-check harness lint clean tools
 
 all: test
 
@@ -54,10 +60,34 @@ edges:
 	$(PYTHON) tools/gen_edges.py $(BUILD)/edges
 	$(OBJ_L1)/V$(TOP) +dir=$(BUILD)/edges
 
+KW := $(BUILD)/kw
+$(KW)/manifest.txt: tools/gen_keyword_vectors.py host/golden/keywords.py host/corpus/synth.py
+	$(PYTHON) tools/gen_keyword_vectors.py $(KW)
+
+$(OBJ_L1)/Vtb_l1_keywords: $(L1_RTL) sim/tb_l1_keywords.sv
+	$(VERILATOR) $(VFLAGS) tb_l1_keywords --Mdir $(OBJ_L1) -o Vtb_l1_keywords $(L1_RTL) sim/tb_l1_keywords.sv
+
+kw: $(OBJ_L1)/Vtb_l1_keywords $(KW)/manifest.txt
+	$(OBJ_L1)/Vtb_l1_keywords +dir=$(KW)
+
+OBJ_DET := $(BUILD)/obj_detect
+
+$(OBJ_DET)/Vdetect: $(L1_RTL) sim/main_detect.cpp
+	$(VERILATOR) --cc --exe --build -j 0 -O2 -Wall -Wno-fatal --top-module l1_engine \
+	    --Mdir $(OBJ_DET) -o Vdetect $(L1_RTL) sim/main_detect.cpp
+
+harness: $(OBJ_DET)/Vdetect
+
+demo: harness
+	$(PYTHON) tools/demo.py --in examples/sample.txt --rtl --policy token --json $(BUILD)/audit.json
+
+demo-check: harness
+	$(PYTHON) tools/verify_demo.py $(VEC) 200
+
 lint:
 	$(VERILATOR) --lint-only -Wall -Wno-fatal --top-module l1_engine $(L1_RTL)
 
-test: golden vectors sim edges
+test: golden vectors sim edges kw demo-check
 
 clean:
 	rm -rf $(BUILD)

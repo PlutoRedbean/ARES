@@ -28,10 +28,11 @@
 
 ## M2 脱敏与审计
 
-- [ ] hold-and-forward 替换器（32 字符回退窗口，`[ID_1]` / 掩码尾 4 位两种策略）
-- [ ] 审计 JSON（type/start/len/rule_id/action/档位）
-- [ ] 关键词 AC 自动机（给 L2 提供上下文提示，BRAM 表）
-- [ ] 端到端 demo：文本文件进 → 脱敏文本 + 审计出（先走 PC 侧字节环回，后接 UART）
+- [ ] hold-and-forward 替换器（RTL；金标已实现 token/mask，见 docs/m2-results.md）
+- [ ] 分隔符透明导致的超长游程漏报（`138... 138...`）：有界分隔符 + 分隔符处重启
+- [x] 审计 JSON（type/start/len/rule_id/action/档位）—— host 侧，见 `docs/m2-results.md`
+- [x] 关键词提示（8 词并行匹配器；扩表时换 AC + BRAM，接口不变）
+- [x] 端到端 demo（`make demo`：RTL 检测 + 金标红action + 审计 JSON）
 - [ ] 降级档位 T0/T1 的 RTL 开关与输出头
 
 ## M3 INT4 语义引擎
