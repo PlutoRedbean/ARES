@@ -24,7 +24,7 @@ VEC    := $(BUILD)/vectors
 
 VFLAGS := --binary --timing -j 0 -O2 -Wall -Wno-fatal --top-module
 
-.PHONY: all test golden vectors sim bench edges kw demo demo-check harness lint clean tools
+.PHONY: all test golden vectors sim bench edges kw redact demo demo-check harness lint clean tools
 
 all: test
 
@@ -70,24 +70,39 @@ $(OBJ_L1)/Vtb_l1_keywords: $(L1_RTL) sim/tb_l1_keywords.sv
 kw: $(OBJ_L1)/Vtb_l1_keywords $(KW)/manifest.txt
 	$(OBJ_L1)/Vtb_l1_keywords +dir=$(KW)
 
+RED_RTL := $(L1_RTL) rtl/l1/l1_redact.sv
+OBJ_RED := $(BUILD)/obj_red
+
+$(OBJ_RED)/Vtb_l1_redact: $(RED_RTL) sim/tb_l1_redact.sv
+	$(VERILATOR) $(VFLAGS) tb_l1_redact --Mdir $(OBJ_RED) -o Vtb_l1_redact $(RED_RTL) sim/tb_l1_redact.sv
+
+redact: $(OBJ_RED)/Vtb_l1_redact $(VEC)/manifest.txt
+	$(OBJ_RED)/Vtb_l1_redact +dir=$(VEC)
+
 OBJ_DET := $(BUILD)/obj_detect
 
 $(OBJ_DET)/Vdetect: $(L1_RTL) sim/main_detect.cpp
 	$(VERILATOR) --cc --exe --build -j 0 -O2 -Wall -Wno-fatal --top-module l1_engine \
 	    --Mdir $(OBJ_DET) -o Vdetect $(L1_RTL) sim/main_detect.cpp
 
+$(BUILD)/obj_redtop/Vredact: $(RED_RTL) sim/main_redact.cpp
+	$(VERILATOR) --cc --exe --build -j 0 -O2 -Wall -Wno-fatal --top-module l1_redact_top \
+	    --Mdir $(BUILD)/obj_redtop -o Vredact $(RED_RTL) sim/main_redact.cpp
+
+redact-harness: $(BUILD)/obj_redtop/Vredact
+
 harness: $(OBJ_DET)/Vdetect
 
-demo: harness
+demo: harness redact-harness
 	$(PYTHON) tools/demo.py --in examples/sample.txt --rtl --policy token --json $(BUILD)/audit.json
 
-demo-check: harness
+demo-check: harness redact-harness
 	$(PYTHON) tools/verify_demo.py $(VEC) 200
 
 lint:
 	$(VERILATOR) --lint-only -Wall -Wno-fatal --top-module l1_engine $(L1_RTL)
 
-test: golden vectors sim edges kw demo-check
+test: golden vectors sim edges kw redact demo-check
 
 clean:
 	rm -rf $(BUILD)

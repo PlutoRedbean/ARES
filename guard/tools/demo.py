@@ -21,9 +21,10 @@ sys.path.insert(0, str(ROOT))
 
 from host.golden.keywords import KEYWORDS, find_keywords  # noqa: E402
 from host.golden.pii_rules import TYPE_NAMES, Span, scan  # noqa: E402
-from host.golden.redact import audit_json, redact  # noqa: E402
+from host.golden.redact import Audit, RULE_IDS, audit_json, redact  # noqa: E402
 
 RTL_BIN = ROOT / "build" / "obj_detect" / "Vdetect"
+RED_BIN = ROOT / "build" / "obj_redtop" / "Vredact"
 
 
 def detect_rtl(path: Path) -> tuple[list[Span], list[tuple[int, int, int]]]:
@@ -51,10 +52,40 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--json", help="审计 JSON 输出文件")
     ap.add_argument("--policy", choices=["token", "mask"], default="token")
     ap.add_argument("--rtl", action="store_true", help="用 RTL 检测（需要 make harness）")
+    ap.add_argument("--rtl-full", action="store_true", help="全 RTL：检测+合并+mask 替换（需要 make redact-harness）")
     args = ap.parse_args(argv)
 
     path = Path(args.inp)
     data = path.read_bytes()
+
+    if args.rtl_full:
+        if not RED_BIN.exists():
+            raise SystemExit(f"RTL redactor not built: {RED_BIN}\nrun: make redact-harness")
+        tmp = path.with_suffix(path.suffix + ".rtl")
+        proc = subprocess.run([str(RED_BIN), str(path), str(tmp)], capture_output=True, text=True, check=True)
+        out = tmp.read_bytes()
+        tmp.unlink(missing_ok=True)
+        audits = []
+        for i, line in enumerate((l for l in proc.stdout.splitlines() if l.strip()), 1):
+            st, ln, ty = (int(x) for x in line.split())
+            seg = data[st : st + ln]
+            keep = min(4, ln)
+            repl = b"*" * (ln - keep) + seg[ln - keep :]
+            audits.append(
+                Audit(index=i, type=TYPE_NAMES[ty], type_id=ty, rule=RULE_IDS[ty],
+                      start=st, length=ln, action="mask", replacement=repl.decode("utf-8", "replace"))
+            )
+        if args.out:
+            Path(args.out).write_bytes(out)
+        else:
+            sys.stdout.buffer.write(out)
+            sys.stdout.buffer.write(b"\n")
+        if args.json:
+            Path(args.json).write_text(audit_json(audits) + "\n", encoding="utf-8")
+        kinds = sorted({a.type for a in audits})
+        print(f"[demo:rtl-full] in={len(data)}B out={len(out)}B spans={len(audits)} "
+              f"types={','.join(kinds) if kinds else '-'}", file=sys.stderr)
+        return 0
 
     if args.rtl:
         spans, kws = detect_rtl(path)

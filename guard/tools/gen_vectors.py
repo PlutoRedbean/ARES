@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from host.corpus.synth import build_case  # noqa: E402
 from host.golden.pii_rules import scan  # noqa: E402
+from host.golden.redact import merge, redact  # noqa: E402
 
 
 def main() -> int:
@@ -46,6 +47,12 @@ def main() -> int:
             with (out / f"{name}.exp").open("w", encoding="utf-8") as ef:
                 for s in spans:
                     ef.write(f"{s.start} {s.length} {s.type}\n")
+            merged = merge(spans)
+            masked, _ = redact(data, policy="mask", keep_spans=merged)
+            (out / f"{name}.mask").write_bytes(masked)
+            with (out / f"{name}.audit").open("w", encoding="utf-8") as af:
+                for s2 in merged:
+                    af.write(f"{s2.start} {s2.length} {s2.type}\n")
             mf.write(f"{i}\n")
             bench_chunks.append(data + b"\n")
 

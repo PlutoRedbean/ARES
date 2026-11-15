@@ -14,7 +14,8 @@
 | 关键词表单一来源（Python → 生成 SV package） | `tools/gen_keywords.py` | ✅ |
 | Verilator C++ 驱动（文件进、检测结果出） | `sim/main_detect.cpp`、`make harness` | ✅ |
 | 端到端 demo（文本进 → 脱敏文本 + 审计 JSON） | `tools/demo.py` | ✅ golden / `--rtl` 两种模式 |
-| RTL 内的 hold-and-forward 替换器 | — | ⬜ 下一刀 |
+| RTL 内合并 + mask 替换器（`l1_merge` / `l1_redactor` / `l1_redact_top`） | `rtl/l1/l1_redact.sv` | ✅ 1000 例字节+审计全一致 |
+| 全 RTL 驱动 `Vredact` + `demo --rtl-full` | `sim/main_redact.cpp`、`tools/demo.py` | ✅ |
 
 ## 2. 证据
 
@@ -23,7 +24,8 @@ Ran 44 tests in 0.029s                       # 金标单测（含 merge/策略/�
 PASS: L1 engine matches golden vectors       # 1000 例 / 2670 span
 PASS: L1 engine matches golden vectors       # 43 例手工边界 / 27 span
 PASS: L1 keyword matcher matches golden      # 108 例关键词（含手工 8 例）
-PASS: RTL detection + golden redaction agree end to end   # 200 例
+redact cases=1000 errors=0                   # RTL 合并+mask：字节流 + 审计记录
+PASS: RTL detection + golden redaction agree end to end   # 200 例（含全 RTL 脱敏）
 ```
 
 `make demo`（走 RTL 检测 + 金标红action）在 `examples/sample.txt` 上的输出：
@@ -69,10 +71,31 @@ demo 的 stderr 摘要：
 - mask 是**字节级**的：数字类型效果正确（尾 4 位保留），中文类型可能切出半个 UTF-8 字符。
 - 重叠合并只在金标里实现；RTL 侧待 hold-and-forward 替换器一起做。
 
-## 6. 下一刀（M2 收尾）
+## 6. M2 第二刀：合并与替换已经进 RTL
 
-1. RTL `l1_redactor`：96 字节回退窗口 + 96 字节延迟，命中到达时回填替换，
-   输出脱敏字节流 + 二进制审计记录（type/start/len/action）；
-2. 合并逻辑搬进 RTL（窗口内按左端点+优先级裁决）；
-3. 关键词扩表 + AC 化（可选）；
-4. demo 改成全 RTL：`Vredact file in out`，host 只负责把审计记录格式化成 JSON。
+`rtl/l1/l1_redact.sv`：
+
+- **`l1_merge`**：8 个 pending slot；命中到达先查重（`start < last_end` 直接丢），
+  按 `(start, 优先级, 长度)` 选最早可提交者；当 `pos - start >= 64` 时提交，
+  并清掉与它重叠的 slot；`in_last` 后进入 flush，逐个提交到空。
+- **`l1_redactor`**：128 字节循环缓冲，输出滞后 `64+2` 字节（`+2` 是为了让提交比出队早一拍到）；
+  span 起点匹配后按 mask 策略输出（长度 >4 时保留最后 4 字节，其余 `*`）；1 字节/拍无停顿。
+  span 队列 8 深，字节缓冲 128 深，`ovf` 会置位（当前 1000 例从未触发）。
+- **审计**：提交时即输出 `(start, len, type)` 脉冲；host 侧格式化成 JSON。
+
+全 RTL 驱动：`make redact-harness` → `build/obj_redtop/Vredact <in> <out>`，
+脱敏文件写 `out`，审计打到 stdout。`tools/demo.py --rtl-full` 就是用它：
+
+```
+[demo:rtl-full] in=375B out=375B spans=7 types=bank,email,id18,ipv4,mobile,plate,uscc
+```
+
+`examples/sample.txt` 上的输出与金标 `redact(policy="mask")` **逐字节相同**。
+
+## 7. 还差什么
+
+1. **token 策略（`[MOBILE_1]`）仍在 host**：RTL 目前只做 1:1 的 mask；token 是变长输出，
+   需要反压/令牌表，放下一刀；
+2. 关键词仍不参与替换（只是提示），扩表后换 AC；
+3. 空格分隔的双号码漏报（见 §4.1）待修；
+4. 上板（PDS/时序/引脚）按计划留到最后，PC 侧流程先用仿真闭环。

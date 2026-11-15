@@ -28,12 +28,21 @@
 
 ## M2 脱敏与审计
 
-- [ ] hold-and-forward 替换器（RTL；金标已实现 token/mask，见 docs/m2-results.md）
+- [x] RTL 合并 + mask 替换器（`l1_redact_top`，1000 例字节/审计一致）
+- [ ] RTL token 策略（变长输出 + 反压/令牌表）
 - [ ] 分隔符透明导致的超长游程漏报（`138... 138...`）：有界分隔符 + 分隔符处重启
 - [x] 审计 JSON（type/start/len/rule_id/action/档位）—— host 侧，见 `docs/m2-results.md`
 - [x] 关键词提示（8 词并行匹配器；扩表时换 AC + BRAM，接口不变）
 - [x] 端到端 demo（`make demo`：RTL 检测 + 金标红action + 审计 JSON）
 - [ ] 降级档位 T0/T1 的 RTL 开关与输出头
+
+## 上板预留（等 Windows + PDS 环境，最后做）
+
+- [ ] PDS/ADS 兼容性改造：`l1_redact.sv` / `l1_keyword_match.sv` 里的块内声明、`for (int ...)`、`automatic`
+      先过一遍 ADS 语法；目前只有 Verilator 验证过，**没综合过**
+- [ ] 资源/时序报告（LUT/DRAM/APM、100/150 MHz），与 plan 的预算表对账
+- [ ] 引脚：补 `uart_rx`；文本入口先 3 Mbaud 环回
+- [ ] DDR3 AXI 桥 + 带宽实测（M3 需要）
 
 ## M3 INT4 语义引擎
 

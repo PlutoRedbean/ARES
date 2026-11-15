@@ -20,6 +20,7 @@ from host.golden.pii_rules import Span, scan  # noqa: E402
 from host.golden.redact import redact  # noqa: E402
 
 BIN = ROOT / "build" / "obj_detect" / "Vdetect"
+RED_BIN = ROOT / "build" / "obj_redtop" / "Vredact"
 
 
 def parse(out: str) -> tuple[list[Span], list[tuple[int, int, int]]]:
@@ -79,6 +80,22 @@ def main() -> int:
             errors += 1
             if errors <= 3:
                 print(f"FAIL case {idx}: redacted bytes differ")
+        # 全 RTL 脱敏：字节与审计都要与金标一致
+        mask_path = vdir / f"case_{idx:04d}.mask"
+        tmp_out = vdir / f"case_{idx:04d}.rtlmask"
+        proc2 = subprocess.run([str(RED_BIN), str(path), str(tmp_out)], capture_output=True, text=True)
+        rtl_mask = tmp_out.read_bytes()
+        gold_mask = mask_path.read_bytes()
+        if rtl_mask != gold_mask:
+            errors += 1
+            if errors <= 3:
+                print(f"FAIL case {idx}: RTL mask differs ({len(rtl_mask)} vs {len(gold_mask)} B)")
+        rtl_audit = [tuple(int(x) for x in line.split()) for line in proc2.stdout.splitlines() if line.strip()]
+        gold_audit = [tuple(int(x) for x in line.split()) for line in (vdir / f"case_{idx:04d}.audit").read_text().splitlines() if line.strip()]
+        if rtl_audit != gold_audit:
+            errors += 1
+            if errors <= 3:
+                print(f"FAIL case {idx}: RTL audit differs")
         cases += 1
 
     print(f"demo-check: cases={cases} errors={errors}")

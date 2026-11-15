@@ -16,7 +16,8 @@
 | 红action 金标：重叠合并 + token/mask + 审计 JSON | ✅（M2，见 [docs/m2-results.md](docs/m2-results.md)） |
 | 关键词提示（8 词，金标 + RTL 并行匹配） | ✅ |
 | 端到端 demo（文本进 → 脱敏 + 审计 JSON，RTL 检测在环） | ✅ `make demo` |
-| RTL hold-and-forward 替换器 | ⬜（M2 下一刀） |
+| RTL 合并 + mask 替换器（`l1_redact_top`，1 字节/拍） | ✅ 1000 例字节+审计全一致 |
+| 全 RTL 脱敏驱动 + `demo --rtl-full` | ✅ |
 | L2（INT4 语义层） | ⬜（M3） |
 
 ## 快速开始
@@ -30,6 +31,7 @@ make sim         # 只跑仿真（需要先有向量）
 make kw          # 关键词匹配器一致性
 make harness     # 构建 Verilator C++ 驱动（Vdetect）
 make demo        # 端到端 demo：examples/sample.txt → 脱敏 + build/audit.json
+make redact-harness  # 全 RTL 脱敏驱动（build/obj_redtop/Vredact）
 make demo-check  # RTL 检测 + 金标红action 的端到端比对（200 例）
 make bench       # 吞吐基准（1 字节/拍）
 make edges       # 手工边界集（邮箱/IPv4/USCC/车牌/超长/空串）
@@ -39,6 +41,8 @@ make lint        # Verilator lint
 当前结论与数字见 [docs/m1-results.md](docs/m1-results.md)。
 
 依赖：`verilator >= 5.0`（本机 5.040）、`python3 >= 3.10`（本机 3.12，只用标准库）、`make`。
+当前一切都在 PC 仿真里闭环；**RTL 还没有过 PDS 综合**，上板（Windows + PDS）留到流程在 PC 上验证满意之后，
+相关事项记在 TODO 的「上板预留」。
 **目前不需要 torch**：L1 是纯规则，L2 上板前的量化评估才会用到（可复用 `gesture-env` 里的 venv）。
 
 金标命令行（在 guard 根目录运行）：
