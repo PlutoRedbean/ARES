@@ -27,7 +27,7 @@
 | 手工边界集 | **43 例 / 27 span**，全一致（`make edges`） |
 | 吞吐 | **1 字节/拍**，165,834 字节 / 165,834 拍 |
 | 折算 150 MHz | **150 MB/s（1.2 Gbps）**，覆盖 1G 线速；`6.667 ns/字节` |
-| 命中时延 | 终止字符的**下一拍**输出（寄存器 1 拍）；span 本身要等窗口结束才能确定 |
+| 命中时延 | **1 拍**（6.67 ns @150 MHz）：终止字符被采样的下一拍 `out_valid` 可见；span 本身要等窗口结束才能确定 |
 | DDR3 流量 | **0 字节**（全片上 BRAM/FF） |
 
 `make bench` 输出：
@@ -38,7 +38,11 @@ bench: chars=165834 cycles=165834 hits=2670
   ns/char@150MHz= 6.667
   MB/s@150MHz   = 150.0
   hits: id18=216 id15=110 mobile=632 bank=455 email=509 ipv4=273 uscc=243 plate=232
+  hit latency   = 1 cycle(s) terminator->visible (6.67 ns @150MHz)
 ```
+
+> 注意：`' '`/`'-'` 是**透明分隔符**，不会关闭游程；流末尾要靠 `in_last` 冲刷。
+> 这也是基准探针用 `;` 而不是空格做终止符的原因（Python 侧等价于 `scan()` 末尾的 `close()`）。
 
 ## 3. 规则边界（与 RTL 逐条对齐，都有测试）
 

@@ -85,6 +85,31 @@ module tb_l1_bench;
         $display("  MB/s@150MHz   = %0.1f", real'(chars) / (real'(cycles) * 6.667e-9) / 1.0e6);
         $display("  hits: id18=%0d id15=%0d mobile=%0d bank=%0d email=%0d ipv4=%0d uscc=%0d plate=%0d",
                  hits[1], hits[2], hits[3], hits[4], hits[5], hits[6], hits[7], hits[8]);
+
+        // 命中时延探针：身份证 + ';' 终止符（';' 是非分隔符，会关闭游程），
+        // 数"终止字符被采样"到"out_valid 可见"的拍数（寄存器输出 => 1 拍）。
+        begin
+            string probe = "11010519491231002X;";
+            int lat = 0;
+            in_valid = 1'b0;
+            in_last  = 1'b0;
+            rst_n = 1'b0;
+            repeat (3) @(negedge clk);
+            rst_n = 1'b1;
+            repeat (2) @(negedge clk);
+            for (int i = 0; i < probe.len(); i++) begin
+                in_valid = 1'b1;
+                in_char  = probe.getc(i);
+                @(negedge clk);
+            end
+            in_valid = 1'b0;
+            while (!digit_valid && lat < 32) begin
+                @(negedge clk);
+                lat++;
+            end
+            $display("  hit latency   = %0d cycle(s) terminator->visible (%0.2f ns @150MHz)",
+                     lat + 1, real'(lat + 1) * 6.667);
+        end
         $finish;
     end
 
