@@ -1,7 +1,10 @@
 # 盘古 200Pro+「隐私守门人」：可行性评估与实施计划
 
-> 状态：Draft v0.1（计划稿，未开始实现）
-> 日期：2026-11-15
+> 状态：Draft v0.2（M1/M2 已落地；板上 UART 原型已跑通 —— 见
+> [m1-results.md](m1-results.md)、[m2-results.md](m2-results.md)、[board-uart.md](board-uart.md)。
+> 实测把 §3.3 的"150 MHz / 150 MB/s"拉回现实：规则层单周期校验链 ≈75 ns，
+> 27 MHz 不收敛，当前板上核心 10 MHz（UART 仍是瓶颈）。校验链流水化后才能提频。）
+> 日期：2026-11-15（v0.2 同日修订）
 > 器件：PG2L200H-6IFBB676（Pangu 200Pro+ / MES2L676-200HP）
 > 复用：ARES 单发射流水核（8 级寄存器 / 9 功能单元）+ miniTensor
 > 目标：本地离线、先脱敏再出网的分层降级 PII 网关

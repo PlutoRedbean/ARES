@@ -105,15 +105,19 @@ module l1_merge (
     logic [3:0]       nst [0:NSLOT-1];
     logic [31:0]      nlast_end;
     logic [15:0]      ndrop;
-    int               free_list [0:NSLOT-1];
-    int               nfree;
+
+    // 循环变量用模块级 integer：ADS 对 always_comb 里的 int 临时数组
+    // （原来的 free_list）会推出锁存器，锁存器在 PDS 里"没有时钟"，
+    // 既不参与时序分析也不是我们想要的行为。改成"每次扫描空闲位、取编号
+    // 最小的空槽"，与原 free_list[0] 语义完全相同，但不需要临时数组。
+    integer           mi, mj, mtgt;
 
     always_comb begin
         nv = sv;
-        for (int i = 0; i < NSLOT; i++) begin
-            nss[i] = ss[i];
-            nsl[i] = sl[i];
-            nst[i] = st[i];
+        for (mi = 0; mi < NSLOT; mi = mi + 1) begin
+            nss[mi] = ss[mi];
+            nsl[mi] = sl[mi];
+            nst[mi] = st[mi];
         end
         nlast_end = last_end_q;
         ndrop = 16'd0;
@@ -129,36 +133,30 @@ module l1_merge (
             c_len   = sl[sel];
             c_type  = st[sel];
             nlast_end = ss[sel] + {24'd0, sl[sel]};
-            for (int i = 0; i < NSLOT; i++) begin
-                if (sv[i] && (ss[i] < nlast_end) && (ss[i] + {24'd0, sl[i]} > ss[sel]))
-                    nv[i] = 1'b0;   // 与刚提交的 span 重叠
+            for (mi = 0; mi < NSLOT; mi = mi + 1) begin
+                if (sv[mi] && (ss[mi] < nlast_end) && (ss[mi] + {24'd0, sl[mi]} > ss[sel]))
+                    nv[mi] = 1'b0;   // 与刚提交的 span 重叠
             end
         end
 
-        // 收集空闲槽
-        nfree = 0;
-        for (int i = 0; i < NSLOT; i++) begin
-            if (!nv[i]) begin
-                free_list[nfree] = i;
-                nfree = nfree + 1;
-            end
-        end
-
-        // 依次插入 5 路新命中
-        for (int j = 0; j < 5; j++) begin
-            if (src_valid[j]) begin
-                if (src_start[j] < nlast_end) begin
+        // 依次插入 5 路新命中：每个都占"编号最小的空槽"（原 free_list[0]）
+        for (mj = 0; mj < 5; mj = mj + 1) begin
+            if (src_valid[mj]) begin
+                if (src_start[mj] < nlast_end) begin
                     ndrop = ndrop + 16'd1;
-                end else if (nfree > 0) begin
-                    automatic int tgt = free_list[0];
-                    nv[tgt]  = 1'b1;
-                    nss[tgt] = src_start[j];
-                    nsl[tgt] = src_len[j];
-                    nst[tgt] = src_type[j];
-                    for (int k = 1; k < NSLOT; k++) free_list[k - 1] = free_list[k];
-                    nfree = nfree - 1;
                 end else begin
-                    ndrop = ndrop + 16'd1;
+                    mtgt = -1;
+                    for (mi = 0; mi < NSLOT; mi = mi + 1) begin
+                        if (!nv[mi] && (mtgt < 0)) mtgt = mi;
+                    end
+                    if (mtgt >= 0) begin
+                        nv[mtgt]  = 1'b1;
+                        nss[mtgt] = src_start[mj];
+                        nsl[mtgt] = src_len[mj];
+                        nst[mtgt] = src_type[mj];
+                    end else begin
+                        ndrop = ndrop + 16'd1;
+                    end
                 end
             end
         end
@@ -205,6 +203,7 @@ module l1_redactor (
     input  logic [31:0] s_start,
     input  logic [7:0]  s_len,
     input  logic [3:0]  s_type,
+    input  logic        s_hold,     // 帧尾保持输出：等合并器把最后几个 span 交出来
 
     output logic        out_valid,
     output logic [7:0]  out_char,
@@ -305,7 +304,12 @@ module l1_redactor (
             end
 
             // ---- 出队 ----
-            if (ncount > 0 && (eos_q || ((pos_q - nout_pos) >= 32'(WINDOW + 2)))) begin
+            // 帧尾（eos）不能立刻 1:1 泄流：最后一个 span 要晚 1–2 拍才由合并器
+            // 提交（见 l1_redact_top 的 quiet 计数器）。否则从这个位置直接外发，
+            // span 起点已经过去了，它会永远留在队列里（漏脱敏 + done 卡死）。
+            // 正常通路有 66 字节余量，不受影响。
+            if (ncount > 0 && (((pos_q - nout_pos) >= 32'(WINDOW + 2)) ||
+                               (eos_q && !s_hold))) begin
                 out_valid <= 1'b1;
                 if (active_q) begin
                     if (sp_len_q > 8'd4 && idx_q < sp_len_q - 8'd4)
@@ -402,6 +406,24 @@ module l1_redact_top (
     wire [3:0]  c_type;
     wire        pending, quiet;
 
+    // 帧尾沉降：最后一个 span 在 in_last 之后 1–2 拍才提交，提交那一刻 pending
+    // 还会短暂为 0。等 quiet 连续保持 RIPEN 拍，才认为合并器真的交完了，
+    // 替换器这时才开始泄流。
+    localparam logic [3:0] RIPEN = 4'd4;
+
+    logic [3:0] quiet_cnt;
+    always_ff @(posedge clk) begin
+        if (!rst_n) begin
+            quiet_cnt <= 4'd0;
+        end else if (quiet && (quiet_cnt != 4'd15)) begin
+            quiet_cnt <= quiet_cnt + 4'd1;
+        end else if (!quiet) begin
+            quiet_cnt <= 4'd0;
+        end
+    end
+
+    wire flush_hold = (quiet_cnt < RIPEN);
+
     l1_merge u_merge (
         .clk(clk), .rst_n(rst_n),
         .in_valid(in_valid), .in_last(in_last),
@@ -417,6 +439,7 @@ module l1_redact_top (
         .clk(clk), .rst_n(rst_n),
         .in_valid(in_valid), .in_char(in_char), .in_last(in_last),
         .s_valid(c_valid), .s_start(c_start), .s_len(c_len), .s_type(c_type),
+        .s_hold(flush_hold),
         .out_valid(out_valid), .out_char(out_char),
         .a_valid(a_valid), .a_start(a_start), .a_len(a_len), .a_type(a_type),
         .done(done), .ovf(ovf)

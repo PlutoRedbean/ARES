@@ -1,14 +1,32 @@
-# guard —— 本机开发平台入口
+# guard —— PC 本机 + 板级验证入口
 #
-#   make test     金标单测 + 生成向量 + Verilator 一致性仿真
-#   make golden   只跑 Python 金标单测
-#   make vectors  只生成 RTL 向量到 build/vectors
-#   make lint     Verilator lint（本工程新增 RTL）
+# PC 侧（Verilator）：
+#   make test        全套：金标单测 + 向量 + 一致性仿真 + demo + 板级 + 摘要格式
+#   make golden      只跑 Python 金标单测
+#   make vectors     只生成 RTL 向量到 build/vectors
+#   make sim         只回放向量（需先有 vectors）
+#   make edges / kw  手工边界集 / 关键词匹配器
+#   make redact      合并+mask 替换一致性（1000 例）
+#   make demo-check  RTL 检测 + 金标脱敏端到端（200 例）
+#   make demo        端到端 demo（examples/sample.txt → 脱敏 + build/audit.json）
+#   make bench       吞吐基准（1 字节/拍）
+#   make lint        Verilator lint（规则层）
+#
+# 板级（盘古 200Pro+）：
+#   make board-vectors  生成 build/board 向量（.in/.exp/.pace）
+#   make board-sim     位级 UART 端到端（18 例，真实位定时）
+#   make report-sim    审计摘要格式化穷举（0..255）
+#   make board-lint    含板级桥 + PLL 仿真模型的 lint
+#   （出位流 / 烧写不在这里：用 tools/build_guard.ps1 / tools/program_guard.ps1，
+#     见 docs/board-bringup.md）
+#
 #   make clean
 
 VERILATOR ?= verilator
 PYTHON    ?= python3
 BUILD     := build
+# Verilator 的并行度。0 = 全部核；受限机器（或 5.020 的线程池 bug）可以 JOBS=2。
+JOBS      ?= 0
 
 KW_PKG := $(BUILD)/gen/l1_keywords_pkg.sv
 
@@ -22,9 +40,9 @@ OBJ_L1 := $(BUILD)/obj_l1
 TOP    := tb_l1_engine
 VEC    := $(BUILD)/vectors
 
-VFLAGS := --binary --timing -j 0 -O2 -Wall -Wno-fatal --top-module
+VFLAGS := --binary --timing -j $(JOBS) -O2 -Wall -Wno-fatal --top-module
 
-.PHONY: all test golden vectors sim bench edges kw redact demo demo-check harness run serve cli-smoke lint clean tools
+.PHONY: all test golden vectors sim bench edges kw redact demo demo-check harness run serve cli-smoke lint clean tools board-vectors board-sim board-lint report-sim
 
 all: test
 
@@ -81,13 +99,19 @@ redact: $(OBJ_RED)/Vtb_l1_redact $(VEC)/manifest.txt
 
 OBJ_DET := $(BUILD)/obj_detect
 
+# 注意：C++ 源用 $(abspath) 传给 Verilator。Verilator 5.020 的 --build 会把
+# 相对路径原样写进生成的 makefile，然后 make -C <Mdir> 就找不到文件了
+# （5.040 没这个问题）。绝对路径两边都对。
+CPP_DET := $(abspath sim/main_detect.cpp)
+CPP_RED := $(abspath sim/main_redact.cpp)
+
 $(OBJ_DET)/Vdetect: $(L1_RTL) sim/main_detect.cpp
-	$(VERILATOR) --cc --exe --build -j 0 -O2 -Wall -Wno-fatal --top-module l1_engine \
-	    --Mdir $(OBJ_DET) -o Vdetect $(L1_RTL) sim/main_detect.cpp
+	$(VERILATOR) --cc --exe --build -j $(JOBS) -O2 -Wall -Wno-fatal --top-module l1_engine \
+	    --Mdir $(OBJ_DET) -o Vdetect $(L1_RTL) $(CPP_DET)
 
 $(BUILD)/obj_redtop/Vredact: $(RED_RTL) sim/main_redact.cpp
-	$(VERILATOR) --cc --exe --build -j 0 -O2 -Wall -Wno-fatal --top-module l1_redact_top \
-	    --Mdir $(BUILD)/obj_redtop -o Vredact $(RED_RTL) sim/main_redact.cpp
+	$(VERILATOR) --cc --exe --build -j $(JOBS) -O2 -Wall -Wno-fatal --top-module l1_redact_top \
+	    --Mdir $(BUILD)/obj_redtop -o Vredact $(RED_RTL) $(CPP_RED)
 
 redact-harness: $(BUILD)/obj_redtop/Vredact
 
@@ -113,7 +137,43 @@ demo-check: harness redact-harness
 lint:
 	$(VERILATOR) --lint-only -Wall -Wno-fatal --top-module l1_engine $(L1_RTL)
 
-test: harness redact-harness golden vectors sim edges kw redact demo-check cli-smoke
+# ---------------------------------------------------------------------------
+# 板级（盘古 200Pro+）：串口进 → L1 脱敏 → 串口出
+# ---------------------------------------------------------------------------
+BOARD_RTL := $(KW_PKG) rtl/l1/l1_digit_engine.sv rtl/l1/l1_text_engines.sv \
+             rtl/l1/l1_keyword_match.sv rtl/l1/l1_engine.sv rtl/l1/l1_redact.sv \
+             rtl/board/guard_uart_baud.sv rtl/board/guard_uart_rx.sv \
+             rtl/board/guard_uart_tx.sv rtl/board/guard_fifo.sv \
+             rtl/board/guard_report.sv rtl/board/guard_uart_core.sv \
+             rtl/board/guard_pll_sim.sv rtl/board/guard_board_top.sv
+BOARD_VEC := $(BUILD)/board
+OBJ_BOARD := $(BUILD)/obj_board
+
+board-vectors: $(BOARD_VEC)/manifest.txt
+
+$(BOARD_VEC)/manifest.txt: tools/gen_board_vectors.py host/golden/board_proto.py \
+                           host/golden/redact.py host/golden/pii_rules.py \
+                           host/corpus/synth.py examples/sample.txt examples/clean.txt
+	$(PYTHON) tools/gen_board_vectors.py --out $(BOARD_VEC)
+
+$(OBJ_BOARD)/Vtb_guard_uart: $(BOARD_RTL) sim/tb_guard_uart.sv
+	$(VERILATOR) $(VFLAGS) tb_guard_uart --Mdir $(OBJ_BOARD) -o Vtb_guard_uart \
+	    $(BOARD_RTL) sim/tb_guard_uart.sv
+
+board-sim: $(OBJ_BOARD)/Vtb_guard_uart $(BOARD_VEC)/manifest.txt
+	$(OBJ_BOARD)/Vtb_guard_uart +dir=$(BOARD_VEC)
+
+$(OBJ_BOARD)/Vtb_guard_report: rtl/board/guard_report.sv sim/tb_guard_report.sv
+	$(VERILATOR) $(VFLAGS) tb_guard_report --Mdir $(OBJ_BOARD) -o Vtb_guard_report \
+	    rtl/board/guard_report.sv sim/tb_guard_report.sv
+
+report-sim: $(OBJ_BOARD)/Vtb_guard_report
+	$(OBJ_BOARD)/Vtb_guard_report
+
+board-lint:
+	$(VERILATOR) --lint-only -Wall -Wno-fatal --top-module guard_board_top $(BOARD_RTL)
+
+test: harness redact-harness golden vectors sim edges kw redact demo-check cli-smoke board-sim report-sim
 
 clean:
 	rm -rf $(BUILD)

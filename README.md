@@ -27,4 +27,6 @@ make test
 - 手势线：[gesture/README.md](gesture/README.md)、[gesture/docs/GESTURE.md](gesture/docs/GESTURE.md)；
   训练/数据工作区在仓库外（`$QS_GESTURE_HOME`，位置规则见 GESTURE.md §2）。
 - guard 线：[guard/README.md](guard/README.md)、规划 [guard/docs/plan-pii-gateway.md](guard/docs/plan-pii-gateway.md)、
-  任务清单 [guard/TODO.md](guard/TODO.md)。
+  任务清单 [guard/TODO.md](guard/TODO.md)；**已上板**（串口进 → 脱敏 → 串口出，
+  盘古 200Pro+，115200 8N1）：操作手册 [guard/docs/board-bringup.md](guard/docs/board-bringup.md)，
+  设计与验证 [guard/docs/board-uart.md](guard/docs/board-uart.md)。

@@ -6,10 +6,17 @@
 #   ./run.sh file examples/sample.txt --policy token
 #   ./run.sh repl
 #   ./run.sh report examples/sample.txt
+#   ./run.sh serial -p COM3 --text "手机 13800138000"   # 上板（串口）
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$HERE"
+
+# 上板：串口直通 tools/serial_host.py（不依赖 Verilator 构建）
+if [ "${1:-}" = "serial" ]; then
+    shift
+    exec python3 tools/serial_host.py "$@"
+fi
 
 RED="build/obj_redtop/Vredact"
 DET="build/obj_detect/Vdetect"

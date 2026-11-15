@@ -20,6 +20,16 @@ prj_tasks/
 **/tools/smoke/*.pds
 **/tools/smoke/impl.tcl
 
+# ---- guard 板级 PDS 流程（落在 guard/ 根目录） ----
+guard/*.pds
+guard/impl.tcl
+# cdt_cfg 运行时生成的展开副本 / 它自己的日志（可随手删）
+guard/fpga/pango/*_run.tcl
+guard/fpga/pango/configuration_tcl.log
+guard/fpga/pango/log/
+guard/generate_bitstream/
+guard/logbackup/
+
 # local PnR outputs (not committed)
 **/bitstreams/*.sbit
 
@@ -51,5 +61,12 @@ gesture-env/
 **/fpga/rtl_rv/fw/out/
 
 # ---- guard (PII gateway) ----
-# 模型权重/量化产物不入库，放仓库外或 models/（已忽略）
+# 模型权重 / 量化产物不入库：放仓库外，或放在 models/（下面这行忽略）
 guard/models/
+# guard 板级 PDS 流程在 guard/ 根目录留下的中间产物
+guard/prj_tasks/
+guard/generate_bitstream/
+guard/log/
+guard/logbackup/
+guard/*.pds
+guard/impl.tcl
