@@ -56,6 +56,7 @@ module state9_engine (
     localparam logic [11:0] TRACK0 = 12'h740;
 
     localparam logic [2:0] ST_IDLE    = 3'd0;
+    localparam logic [2:0] ST_CLEAR   = 3'd7;
     localparam logic [2:0] ST_SCAN1   = 3'd1;
     localparam logic [2:0] ST_CORRUPT = 3'd2;
     localparam logic [2:0] ST_SCAN2   = 3'd3;
@@ -401,7 +402,7 @@ module state9_engine (
             scan_done    <= 1'b0;
             corr_p       <= 12'h0;
             crc_idx      <= 7'h0;
-            // final_q/track_q are deliberately not reset: start_pulse clears
+            // final_q/track_q are deliberately not reset: ST_CLEAR clears
             // them below before the scan that produces them, and they are only
             // read back by the CRC pass afterwards.  Keeping 512 reset loads
             // out of this block matters -- it is the densest congestion source
@@ -410,7 +411,7 @@ module state9_engine (
             unique case (state_q)
                 ST_IDLE: begin
                     if (start_pulse) begin
-                        state_q      <= ST_SCAN1;
+                        state_q      <= ST_CLEAR;
                         busy_q       <= 1'b1;
                         done_q       <= 1'b0;
                         crco_q       <= crcin_q;
@@ -422,11 +423,24 @@ module state9_engine (
                         scan_done     <= 1'b0;
                         corr_p        <= 12'h0;
                         crc_idx       <= 7'h0;
-                        for (start_i = 0; start_i < 8; start_i = start_i + 1) begin
-                            final_q[start_i] <= 32'h0;
-                            track_q[start_i] <= 32'h0;
-                        end
                     end
+                end
+
+                // The per-element clear() lives in its own state so that the
+                // write enable of final_q/track_q is "state == ST_CLEAR | scan
+                // step" instead of "host CTRL write decode | scan step".  The
+                // old form made the CPU store-address cone (perip addr ->
+                // accel page decode -> haddr == CTRL -> 64-entry select) part
+                // of a 32-bit clock enable, which showed up as the third
+                // 13 ns cone in the PnR report.  Cost: one cycle per start,
+                // and done_q is still cleared on the CTRL write cycle so the
+                // host poll contract does not move.
+                ST_CLEAR: begin
+                    for (start_i = 0; start_i < 8; start_i = start_i + 1) begin
+                        final_q[start_i] <= 32'h0;
+                        track_q[start_i] <= 32'h0;
+                    end
+                    state_q <= ST_SCAN1;
                 end
 
                 ST_SCAN1, ST_SCAN2: begin
