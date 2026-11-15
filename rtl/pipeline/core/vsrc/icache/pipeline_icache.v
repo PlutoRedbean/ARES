@@ -100,6 +100,18 @@ module pipeline_icache #(
     reg [TAG_WIDTH-1:0]       tag_mem [0:NR_SETS*NR_WAYS-1];
     reg [AGE_W-1:0]           age_mem [0:NR_SETS*NR_WAYS-1];
 
+    // Age (pseudo-LRU) update is applied one cycle after the hit commits, from
+    // these registers instead of from hit_way/req_index_r directly.  Juggling
+    // 4 ways of 2-bit age per set on the tag-compare result put the whole
+    // hit_way fanout (also the way-select mux for the data array) plus the
+    // age mux tree plus the age_mem write enable into a single cycle, which
+    // was the second-worst cone in the PnR report (12.7 ns, 68% route).  A
+    // hit is never followed by an eviction on the next cycle, so the extra
+    // cycle of age staleness is unobservable.
+    reg                       age_we_r;
+    reg [INDEX_WIDTH-1:0]     age_index_r;
+    reg [WAY_IDX_W-1:0]       age_hit_way_r;
+
     reg [NR_WAYS-1:0]         hit_vec;
     reg [WAY_IDX_W-1:0]       hit_way;
     reg                       hit;
@@ -274,6 +286,7 @@ module pipeline_icache #(
         if (rst) begin
             state          <= S_IDLE;
             rsp_valid_r    <= 1'b0;
+            age_we_r       <= 1'b0;
             hit_count_r    <= 64'd0;
             miss_count_r   <= 64'd0;
             refill_count_r <= 64'd0;
@@ -311,15 +324,25 @@ module pipeline_icache #(
 
             // Age update on hit: accessed way -> 0, ways that were more
             // recent than it age by one.  The ages stay a permutation, so the
-            // victim (age NR_WAYS-1) is unique.
+            // victim (age NR_WAYS-1) is unique.  The update runs one cycle
+            // after the hit commits so it never shares the tag-compare cycle;
+            // the deferred order still matches the access order, so the
+            // permutation invariant holds.
             if (hit_commit) begin
+                age_we_r      <= 1'b1;
+                age_index_r   <= req_index_r;
+                age_hit_way_r <= hit_way;
+            end else
+                age_we_r <= 1'b0;
+
+            if (age_we_r) begin
                 for (age_i = 0; age_i < NR_WAYS; age_i = age_i + 1) begin
-                    if (age_i[WAY_IDX_W-1:0] == hit_way)
-                        age_mem[req_index_r*NR_WAYS + age_i] <= {AGE_W{1'b0}};
-                    else if (age_mem[req_index_r*NR_WAYS + age_i] <
-                             age_mem[req_index_r*NR_WAYS + hit_way])
-                        age_mem[req_index_r*NR_WAYS + age_i] <=
-                            age_mem[req_index_r*NR_WAYS + age_i] + 1'b1;
+                    if (age_i[WAY_IDX_W-1:0] == age_hit_way_r)
+                        age_mem[age_index_r*NR_WAYS + age_i] <= {AGE_W{1'b0}};
+                    else if (age_mem[age_index_r*NR_WAYS + age_i] <
+                             age_mem[age_index_r*NR_WAYS + age_hit_way_r])
+                        age_mem[age_index_r*NR_WAYS + age_i] <=
+                            age_mem[age_index_r*NR_WAYS + age_i] + 1'b1;
                 end
             end
 
