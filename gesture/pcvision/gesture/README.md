@@ -22,7 +22,7 @@
 
 ## 最短流程
 
-    cd /home/ccy/Documents/qs/QS
+    cd /home/ccy/Documents/qs/QS/gesture
     bash pcvision/gesture/gesture.sh setup
     bash pcvision/gesture/gesture.sh doctor
     bash pcvision/gesture/gesture.sh app
@@ -42,7 +42,8 @@ hold / swipe / seq；预览下方有“自拍镜像”开关（默认原始非�
 
 ## 工作区
 
-默认 <repo>/../gesture-env：venv、data、runs、out 都在这里；
+默认 <repo>/../gesture-env，仓库搬到 `QS/gesture/` 后回退到
+<repo>/../../gesture-env：venv、data、runs、out 都在这里；
 仓库只放代码。gesture.sh manifest 看体积，gesture.sh clean 清理。
 
 主文档：[docs/GESTURE.md](../../docs/GESTURE.md)。

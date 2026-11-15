@@ -4,24 +4,24 @@ build/
 prj_tasks/
 *.log
 
-# ---- PDS outputs ----
-fpga/prj_pds/compile/
-fpga/prj_pds/synthesize/
-fpga/prj_pds/device_map/
-fpga/prj_pds/place_route/
-fpga/prj_pds/report_timing/
-fpga/prj_pds/report_power/
-fpga/prj_pds/generate_bitstream/
-fpga/prj_pds/build/
-fpga/prj_pds/build_rv.pds
-fpga/prj_pds/impl.tcl
-cam/fpga/pango/*.pds
-cam/fpga/pango/impl.tcl
-tools/smoke/*.pds
-tools/smoke/impl.tcl
+# ---- PDS outputs (paths are relative to the project root, any depth) ----
+**/fpga/prj_pds/compile/
+**/fpga/prj_pds/synthesize/
+**/fpga/prj_pds/device_map/
+**/fpga/prj_pds/place_route/
+**/fpga/prj_pds/report_timing/
+**/fpga/prj_pds/report_power/
+**/fpga/prj_pds/generate_bitstream/
+**/fpga/prj_pds/build/
+**/fpga/prj_pds/build_rv.pds
+**/fpga/prj_pds/impl.tcl
+**/cam/fpga/pango/*.pds
+**/cam/fpga/pango/impl.tcl
+**/tools/smoke/*.pds
+**/tools/smoke/impl.tcl
 
 # local PnR outputs (not committed)
-bitstreams/*.sbit
+**/bitstreams/*.sbit
 
 # ---- python ----
 __pycache__/
@@ -41,9 +41,9 @@ desktop.ini
 *.swp
 *.bak
 
-# ---- local env / data ----
-pcvision/.venv/
-pcvision/data/
+# ---- local env / data (huge, kept outside git) ----
+**/.venv/
+**/pcvision/data/
 
 # future RV build
-fpga/rtl_rv/fw/out/
+**/fpga/rtl_rv/fw/out/

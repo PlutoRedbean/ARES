@@ -27,7 +27,7 @@
 ### 最短路径（推荐工作台）
 
 ```bash
-cd /home/ccy/Documents/qs/QS
+cd /home/ccy/Documents/qs/QS/gesture
 bash pcvision/gesture/gesture.sh app
 # 工作台 http://127.0.0.1:8765 ／ 演示页 http://127.0.0.1:8765/demo
 ```
@@ -122,7 +122,7 @@ bash pcvision/gesture/gesture.sh app
 ### 首次安装
 
 ```bash
-cd /home/ccy/Documents/qs/QS
+cd /home/ccy/Documents/qs/QS/gesture
 bash pcvision/gesture/gesture.sh setup          # CUDA 版（本机 RTX 4060）
 bash pcvision/gesture/gesture.sh doctor             # 包 / CUDA / 摄像头 / 显示 自检
 ```

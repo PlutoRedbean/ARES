@@ -41,8 +41,16 @@ DEFAULT_NAMES = [
 
 
 def workspace() -> Path:
+    """Training workspace (<repo>/../gesture-env, legacy <repo>/../../gesture-env)."""
     env = os.environ.get("QS_GESTURE_HOME")
-    return Path(env) if env else REPO.parent / "gesture-env"
+    if env:
+        return Path(env)
+    primary = REPO.parent / "gesture-env"
+    if not primary.exists():
+        legacy = REPO.parent.parent / "gesture-env"
+        if legacy.exists():
+            return legacy
+    return primary
 
 
 def data_dir() -> Path:
