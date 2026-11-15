@@ -34,6 +34,7 @@
 - [x] 审计 JSON（type/start/len/rule_id/action/档位）—— host 侧，见 `docs/m2-results.md`
 - [x] 关键词提示（8 词并行匹配器；扩表时换 AC + BRAM，接口不变）
 - [x] 端到端 demo（`make demo`：RTL 检测 + 金标红action + 审计 JSON）
+- [x] 本机可跑入口 `./run.sh`（demo / text / file / repl / report）+ `cli-smoke`
 - [ ] 降级档位 T0/T1 的 RTL 开关与输出头
 
 ## 上板预留（等 Windows + PDS 环境，最后做）

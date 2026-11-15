@@ -18,12 +18,25 @@
 | 端到端 demo（文本进 → 脱敏 + 审计 JSON，RTL 检测在环） | ✅ `make demo` |
 | RTL 合并 + mask 替换器（`l1_redact_top`，1 字节/拍） | ✅ 1000 例字节+审计全一致 |
 | 全 RTL 脱敏驱动 + `demo --rtl-full` | ✅ |
+| 本机入口 `./run.sh`（demo/text/file/repl/report） | ✅ 见下方快速开始 |
 | L2（INT4 语义层） | ⬜（M3） |
 
 ## 快速开始
 
+最短路径（自动构建 + 跑样例，输出脱敏文本、审计表、关键词提示、统计）：
+
 ```bash
 cd /home/ccy/Documents/qs/QS/guard
+./run.sh demo                                   # 全 RTL：检测 + 合并 + mask 替换
+./run.sh text "手机 13800138000 邮箱 a@b.co"     # 一段文本
+./run.sh file 某个.txt --policy token --json audit.json
+./run.sh repl                                   # 交互模式
+./run.sh report examples/sample.txt              # 只统计
+```
+
+完整验证：
+
+```bash
 make test        # 金标单测 + 生成向量 + Verilator 一致性仿真
 make golden      # 只跑 Python 单测
 make vectors     # 只生成 build/vectors
@@ -68,7 +81,8 @@ guard/
 ├── host/
 │   ├── golden/           # 金标：规则引擎 + 红action/审计 + 关键词 + CLI
 │   └── corpus/           # 合成 PII 语料
-├── examples/sample.txt   # demo 用样例文本
+├── run.sh                # 本地入口（自动构建 → tools/guard_cli.py）
+├── examples/             # sample.txt（含 PII）/ clean.txt（无 PII）
 ├── tools/gen_vectors.py  # 语料 → .in/.exp/manifest 向量 + bench 语料
 ├── tools/gen_edges.py    # 手工边界集
 ├── tests/                # 金标单测（unittest）

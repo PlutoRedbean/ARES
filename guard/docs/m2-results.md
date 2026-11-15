@@ -92,7 +92,40 @@ demo 的 stderr 摘要：
 
 `examples/sample.txt` 上的输出与金标 `redact(policy="mask")` **逐字节相同**。
 
-## 7. 还差什么
+## 7. 本机可跑入口（`./run.sh`）
+
+```bash
+./run.sh demo                                   # examples/sample.txt，全 RTL
+./run.sh text "手机 13800138000 邮箱 a@b.co"     # 一段文本
+./run.sh file 某个.txt --policy token --json audit.json
+./run.sh repl                                   # 交互（:policy token|mask 切换，:q 退出）
+./run.sh report examples/sample.txt              # 只统计
+```
+
+`mask` 走全 RTL（`Vredact`）；`token` 走金标渲染（RTL 的变长输出还没做）。
+`make test` 里加了 `cli-smoke`：demo 输出必须含 `*`、无 PII 文件必须原样透传。
+
+在 `examples/sample.txt` 上的实际输出：
+
+```
+── 审计 (7) ────────────────────────────────────────────
+ #  type   span        rule              action  replacement
+ 1  mobile 54+13       prefix.mobile     mask    *********8000
+ 2  email  83+16       syntax.email      mask    ************.com
+ 3  id18   116+18      iso7064.mod11_2   mask    **************002X
+ 4  bank   147+19      luhn.bank         mask    ***************1111
+ 5  uscc   250+18      gb32100.mod31     mask    **************0Y43
+ 6  ipv4   281+9       syntax.ipv4       mask    *****0.21
+ 7  plate  300+9       syntax.plate      mask    *****2345
+
+── 关键词提示 ──────────────────────────────────────────
+邮箱、身份证、银行卡、密码、账号
+
+── 统计 ────────────────────────────────────────────────
+mode=rtl-mask  in=375B  out=375B  spans=7  bank=1 email=1 id18=1 ipv4=1 mobile=1 plate=1 uscc=1
+```
+
+## 8. 还差什么
 
 1. **token 策略（`[MOBILE_1]`）仍在 host**：RTL 目前只做 1:1 的 mask；token 是变长输出，
    需要反压/令牌表，放下一刀；

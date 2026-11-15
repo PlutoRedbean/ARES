@@ -24,7 +24,7 @@ VEC    := $(BUILD)/vectors
 
 VFLAGS := --binary --timing -j 0 -O2 -Wall -Wno-fatal --top-module
 
-.PHONY: all test golden vectors sim bench edges kw redact demo demo-check harness lint clean tools
+.PHONY: all test golden vectors sim bench edges kw redact demo demo-check harness run cli-smoke lint clean tools
 
 all: test
 
@@ -93,6 +93,14 @@ redact-harness: $(BUILD)/obj_redtop/Vredact
 
 harness: $(OBJ_DET)/Vdetect
 
+run: redact-harness
+	./run.sh demo
+
+cli-smoke: redact-harness
+	./run.sh demo -q | grep -q '\*'
+	./run.sh file examples/clean.txt -q | grep -q '下周二的评审'
+	@echo "PASS: guard CLI smoke"
+
 demo: harness redact-harness
 	$(PYTHON) tools/demo.py --in examples/sample.txt --rtl --policy token --json $(BUILD)/audit.json
 
@@ -102,7 +110,7 @@ demo-check: harness redact-harness
 lint:
 	$(VERILATOR) --lint-only -Wall -Wno-fatal --top-module l1_engine $(L1_RTL)
 
-test: golden vectors sim edges kw redact demo-check
+test: golden vectors sim edges kw redact demo-check cli-smoke
 
 clean:
 	rm -rf $(BUILD)
