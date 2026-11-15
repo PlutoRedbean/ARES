@@ -16,7 +16,7 @@ DET="build/obj_detect/Vdetect"
 
 if [ ! -x "$RED" ] || [ ! -x "$DET" ]; then
     echo "[guard] 首次运行，构建 Verilator 驱动（约 10s）..." >&2
-    make -s redact-harness harness >/dev/null
+    make -s redact-harness harness >/dev/null 2>&1
 fi
 
 exec python3 tools/guard_cli.py "$@"
