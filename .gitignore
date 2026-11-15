@@ -49,3 +49,7 @@ gesture-env/
 
 # future RV build
 **/fpga/rtl_rv/fw/out/
+
+# ---- guard (PII gateway) ----
+# 模型权重/量化产物不入库，放仓库外或 models/（已忽略）
+guard/models/

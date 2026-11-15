@@ -1,0 +1,54 @@
+//=============================================================================
+// ARES pipeline SoC - 32-bit IROM wrapper (64-bit pair path removed)
+//-----------------------------------------------------------------------------
+// The jyd SoC originally exposed a 64-bit IROM pair to myCPU.  The 5-stage
+// Mundus core fetches one 32-bit instruction per cycle, so the pipeline SoC
+// uses this 32-bit wrapper and removes the 64-bit pair path entirely.
+//
+// CONFIG_IROM_ADDR_WIDTH is kept as the jyd 64-bit-pair index width (12 for
+// 32 KiB).  One extra bit indexes the 8192 32-bit words.
+//
+// Simulation (__VERILATOR__) reads through the DPI memory model used by the
+// pipeline TBs.  Synthesis infers one-cycle BRAM and initializes it from the
+// 8192-word readmemh file produced by scripts/pipeline_image.py.
+//=============================================================================
+`include "autoconf.vh"
+
+module IROM_BMEM32 #(
+    parameter IROM_INIT_FILE = "build/pipeline/irom.hex",
+    parameter integer WORD_AW = `CONFIG_IROM_ADDR_WIDTH + 1
+) (
+    input  wire [WORD_AW-1:0]                addra,
+    input  wire                              clka,
+    output reg  [31:0]                       douta
+);
+    localparam integer DEPTH = 1 << WORD_AW;
+
+`ifdef __VERILATOR__
+    // Simulation model used by the jyd testbench (DPI vaddr_read).
+    import "DPI-C" function int vaddr_read(input int raddr);
+
+    wire [31:0] word_index = {{(32-WORD_AW){1'b0}}, addra};
+    wire [31:0] byte_addr  = 32'h8000_0000 + (word_index << 2);
+
+    always @(posedge clka) begin
+        if (byte_addr >= 32'h8000_0000 &&
+            byte_addr < 32'h8000_0000 + DEPTH * 4) begin
+            douta <= vaddr_read(byte_addr);
+        end else begin
+            douta <= 32'd0;
+        end
+    end
+`else
+    (* syn_ramstyle = "block_ram", ram_style = "block" *)
+    reg [31:0] mem [0:DEPTH-1];
+
+    initial begin
+        $readmemh(IROM_INIT_FILE, mem);
+    end
+
+    always @(posedge clka) begin
+        douta <= mem[addra];
+    end
+`endif
+endmodule

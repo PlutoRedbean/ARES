@@ -1,0 +1,112 @@
+//=============================================================================
+// ARES pipeline SoC - Pango PG2L200H board top
+//-----------------------------------------------------------------------------
+// Board profile: clk_27m D18, rst_n C22, uart_tx C24, uart_rx B24, led[7:0].
+//
+// Clocks: 100 MHz CPU (CoreMark time base), 50 MHz peripheral/UART.
+// Interactive RTOS profile: UART RX is external; image and constraints
+// belong to this profile, independently of the CoreMark board top.
+//
+// Verilog-2001.
+//=============================================================================
+`timescale 1ns / 1ps
+
+module pipeline_rtos_shell_board_top #(
+    parameter UART_BAUD = 115200,
+    parameter IROM_INIT_FILE = "build/rtos_shell/irom.hex",
+    parameter DRAM_INIT_FILE = "build/rtos_shell/dram.hex"
+) (
+    input  wire       clk_27m,
+    input  wire       rst_n,
+    input  wire       uart_rx,
+    output wire       uart_tx,
+    output wire [7:0] led
+);
+    wire cpu_clk;
+    wire periph_clk;
+    wire pll_lock;
+    wire cpu_rst;
+    wire periph_rst;
+
+    pipeline_clk_reset u_clk_reset (
+        .clk_27m   (clk_27m),
+        .rst_n     (rst_n),
+        .cpu_clk   (cpu_clk),
+        .periph_clk(periph_clk),
+        .pll_lock  (pll_lock),
+        .cpu_rst   (cpu_rst),
+        .periph_rst(periph_rst)
+    );
+
+    wire [7:0] uart_raw_data;
+    wire uart_raw_ready, uart_rx_consumed, rx_full, rx_overflow;
+    wire [7:0] uart_rx_data;
+    wire       uart_rx_ready;
+    wire [7:0] uart_tx_data;
+    wire       uart_tx_start;
+    wire       uart_tx_busy;
+
+    uart #(
+        .CLK_FREQ (50_000_000),
+        .BAUD_RATE(UART_BAUD)
+    ) u_uart (
+        .clk      (periph_clk),
+        .rst_n    (~periph_rst),
+        .rx       (uart_rx),
+        .rx_data  (uart_raw_data),
+        .rx_ready (uart_raw_ready),
+        .tx       (uart_tx),
+        .tx_data  (uart_tx_data),
+        .tx_start (uart_tx_start),
+        .tx_busy  (uart_tx_busy)
+    );
+
+    pipeline_uart_rx_fifo u_rx_fifo (
+        .cpu_clk(cpu_clk), .cpu_rst(cpu_rst), .consumed(uart_rx_consumed),
+        .clk(periph_clk), .rst(periph_rst),
+        .raw_data(uart_raw_data), .raw_ready(uart_raw_ready),
+        .data(uart_rx_data), .ready(uart_rx_ready), .full(rx_full), .overflow(rx_overflow)
+    );
+    wire [31:0] virtual_led;
+
+    student_top #(
+        .IROM_INIT_FILE(IROM_INIT_FILE),
+        .DRAM_INIT_FILE(DRAM_INIT_FILE)
+    ) u_soc (
+        .uart_rx_consumed(uart_rx_consumed),
+        .w_cpu_clk      (cpu_clk),
+        .w_clk_50Mhz    (periph_clk),
+        .w_clk_rst      (cpu_rst),
+        .virtual_key    (8'd0),
+        .virtual_sw     (64'd0),
+        .uart_rx_data   (uart_rx_data),
+        .uart_rx_ready  (uart_rx_ready),
+        .uart_tx_busy   (uart_tx_busy),
+        .uart_tx_data   (uart_tx_data),
+        .uart_tx_start  (uart_tx_start),
+        .virtual_led    (virtual_led),
+        .virtual_seg    (),
+        .retire_valid   (),
+        .retire_pc      (),
+        .retire_pc_next (),
+        .retire_rd_wen  (),
+        .retire_rd      (),
+        .retire_wdata   (),
+        .retire_is_ebreak(),
+        .irom_req_valid (),
+        .irom_req_addr  (),
+        .irom_req_ready (1'b0),
+        .irom_rsp_valid (1'b0),
+        .irom_rsp_data  (32'd0),
+        .irom_rsp_ready (),
+        .irom_flush     (),
+        .shared_rdata   (32'd0),
+        .shared_req_valid(),
+        .shared_req_write(),
+        .shared_req_addr (),
+        .shared_req_wdata(),
+        .shared_req_wstrb()
+    );
+
+    assign led = virtual_led[7:0] | {rx_overflow, 7'b0};
+endmodule

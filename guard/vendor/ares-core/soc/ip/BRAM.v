@@ -1,0 +1,95 @@
+//-----------------------------------------------------------------------------
+// Simulation model (DPI backed).  The AMP board synthesises
+// soc/pango/pipeline_bram.v instead; both modules share the name, the port
+// list and the DRAM geometry parameters.
+//
+// The model keeps ONE flat 256 KiB array addressed by the full byte address,
+// so hart N's window (0x8010_0000 + N*0x8000) lands in its own slice.  The
+// hardware gives every hart a private BRAM and drops addr[16:15] (DRAM_AW=13);
+// the two agree because the image replicates the 32 KiB region at every
+// window and the linker never lets a hart leave its own 32 KiB window.
+// DRAM_AW / DRAM_INIT_FILE are therefore accepted and ignored here.
+//-----------------------------------------------------------------------------
+module BRAM #(
+    parameter integer DRAM_AW        = 16,
+    parameter         DRAM_INIT_FILE = "build/pipeline/dram.hex"
+)(
+    input         clka  ,
+    input  [15:0] addra ,
+    input  [ 3:0] wea   ,
+    input  [31:0] dina  ,
+    input         clkb  ,
+    input  [15:0] addrb ,
+    output [31:0] doutb
+);
+
+import "DPI-C" function int vaddr_read(input int raddr);
+import "DPI-C" function void vaddr_write(input int waddr, input int wdata, input byte len);
+
+  wire [31:0] raddr ;
+  wire [31:0] waddr ;
+  wire        wen   ;
+  reg  [ 1:0] offset;
+  reg  [ 1:0] len   ;
+  reg  [31:0] wdata ;
+  reg  [31:0] rdata ;
+  reg  [31:0] rdata_q;
+
+  assign raddr = { 14'b1000_0000_0001_00, addrb, 2'b00  };
+  assign waddr = { 14'b1000_0000_0001_00, addra, offset };
+  assign wen   = wea != 4'b0000;
+  // Match the FPGA Block Memory Generator with its core output register
+  // enabled: one cycle for the memory array and one cycle for doutb.
+  assign doutb = rdata_q;
+
+  always @(*) begin
+    case (wea)
+      4'b0001 : offset = 2'b00;
+      4'b0010 : offset = 2'b01;
+      4'b0100 : offset = 2'b10;
+      4'b1000 : offset = 2'b11;
+      4'b0011 : offset = 2'b00;
+      4'b1100 : offset = 2'b10;
+      4'b1111 : offset = 2'b00;
+      default : offset = 2'b00;
+    endcase
+  end
+
+  always @(*) begin
+    case (wea)
+      4'b0001 : len = 2'b00;
+      4'b0010 : len = 2'b00;
+      4'b0100 : len = 2'b00;
+      4'b1000 : len = 2'b00;
+      4'b0011 : len = 2'b01;
+      4'b1100 : len = 2'b01;
+      4'b1111 : len = 2'b10;
+      default : len = 2'b11;
+    endcase
+  end
+
+  always @(*) begin
+    case (wea)
+      4'b0001 : wdata = { 24'd0, dina[ 7: 0] };
+      4'b0010 : wdata = { 24'd0, dina[15: 8] };
+      4'b0100 : wdata = { 24'd0, dina[23:16] };
+      4'b1000 : wdata = { 24'd0, dina[31:24] };
+      4'b0011 : wdata = { 16'd0, dina[15: 0] };
+      4'b1100 : wdata = { 16'd0, dina[31:16] };
+      4'b1111 : wdata = dina ;
+      default : wdata = 32'b0;
+    endcase
+  end
+
+  always @(posedge clkb) begin
+    rdata <= vaddr_read(raddr);
+    rdata_q <= rdata;
+  end
+
+  always @(posedge clka) begin
+    if (wen) begin
+      vaddr_write(waddr, wdata, {6'h0, len});
+    end
+  end
+
+endmodule

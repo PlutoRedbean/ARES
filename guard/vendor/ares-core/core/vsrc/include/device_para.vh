@@ -1,0 +1,14 @@
+`ifndef __DEVICE_PARA_VH__
+`define __DEVICE_PARA_VH__
+
+`define M_IFU   0
+`define M_LSU   1
+
+`define S_CLINT 0
+
+`define CLINT_ADDR        `CONFIG_CLINT_BASE
+`define CLINT_LOWER_ADDR  `CONFIG_CLINT_BASE + 'h00000000
+`define CLINT_UPPER_ADDR  `CONFIG_CLINT_BASE + 'h00000004
+`define CLINT_SIZE        `CONFIG_CLINT_SIZE
+
+`endif
