@@ -14,12 +14,32 @@ TYPE_ID18 = 1
 TYPE_ID15 = 2
 TYPE_MOBILE = 3
 TYPE_BANK = 4
+TYPE_EMAIL = 5
+TYPE_IPV4 = 6
+TYPE_USCC = 7
+TYPE_PLATE = 8
 
 TYPE_NAMES = {
     TYPE_ID18: "id18",
     TYPE_ID15: "id15",
     TYPE_MOBILE: "mobile",
     TYPE_BANK: "bank",
+    TYPE_EMAIL: "email",
+    TYPE_IPV4: "ipv4",
+    TYPE_USCC: "uscc",
+    TYPE_PLATE: "plate",
+}
+
+# 同一"终止位置"上的多个命中的输出顺序（RTL 侧同拍多引擎命中按此顺序排）
+PRIORITY = {
+    TYPE_EMAIL: 1,
+    TYPE_PLATE: 2,
+    TYPE_USCC: 3,
+    TYPE_IPV4: 4,
+    TYPE_ID18: 5,
+    TYPE_ID15: 6,
+    TYPE_MOBILE: 7,
+    TYPE_BANK: 8,
 }
 NAME_TO_TYPE = {v: k for k, v in TYPE_NAMES.items()}
 
@@ -115,8 +135,171 @@ def _classify(digits: list[int], has_x: bool, too_long: bool) -> int:
     return 0
 
 
+# --------------------------------------------------------------------------
+# 文本类（非纯数字）规则：邮箱、IPv4、统一社会信用代码、车牌
+# --------------------------------------------------------------------------
+
+EMAIL_CHARS = frozenset(
+    b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz._%+-@"
+)
+IPV4_CHARS = frozenset(b"0123456789.")
+USCC_CHARS = "0123456789ABCDEFGHJKLMNPQRTUWXY"
+USCC_WEIGHTS = (1, 3, 9, 27, 19, 26, 16, 17, 20, 29, 25, 13, 8, 24, 10, 30, 28)
+PLATE_LETTERS = frozenset(b"ABCDEFGHJKLMNPQRSTUVWXYZ")  # 无 I / O
+PLATE_TAIL = frozenset(b"0123456789ABCDEFGHJKLMNPQRSTUVWXYZ")
+_UPPER = frozenset(b"ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+_LOWER = frozenset(b"abcdefghijklmnopqrstuvwxyz")
+_DIGIT = frozenset(b"0123456789")
+_ALNUM = _UPPER | _LOWER | _DIGIT
+
+
+def _email_ok(run: bytes) -> bool:
+    if run.count(b"@") != 1:
+        return False
+    local, domain = run.split(b"@")
+    if not (1 <= len(local) <= 32):
+        return False
+    if local[:1] == b"." or local[-1:] == b"." or b".." in local:
+        return False
+    labels = domain.split(b".")
+    if len(labels) < 2:
+        return False
+    for lab in labels[:-1]:
+        if not (1 <= len(lab) <= 63):
+            return False
+        if lab[:1] == b"-" or lab[-1:] == b"-":
+            return False
+        if any(ch not in _ALNUM and ch != 0x2D for ch in lab):
+            return False
+    tld = labels[-1]
+    if not (2 <= len(tld) <= 24):
+        return False
+    return all(ch in _UPPER or ch in _LOWER for ch in tld)
+
+
+def _ipv4_ok(run: bytes) -> bool:
+    parts = run.split(b".")
+    if len(parts) != 4:
+        return False
+    for p in parts:
+        if not (1 <= len(p) <= 3) or not p.isdigit():
+            return False
+        if len(p) > 1 and p[:1] == b"0":
+            return False
+        if int(p) > 255:
+            return False
+    return True
+
+
+def _uscc_ok(run: bytes) -> bool:
+    if len(run) != 18:
+        return False
+    text = run.decode("ascii", "replace")
+    if any(ch not in USCC_CHARS for ch in text):
+        return False
+    if all(ch in _DIGIT for ch in run):  # 全数字交给身份证/银行卡规则
+        return False
+    idx = [USCC_CHARS.index(ch) for ch in text]
+    total = sum(USCC_WEIGHTS[k] * idx[k] for k in range(17))
+    return idx[17] == (31 - total % 31) % 31
+
+
+def _plate_at(data: bytes, pos: int) -> int:
+    """pos 处若是一个车牌，返回 9（3 字节汉字 + 字母 + 5 位），否则 0。"""
+    if pos + 8 >= len(data):
+        return 0
+    lead = data[pos]
+    if not (0xE4 <= lead <= 0xE9):
+        return 0
+    if not (0x80 <= data[pos + 1] <= 0xBF and 0x80 <= data[pos + 2] <= 0xBF):
+        return 0
+    if data[pos + 3] not in PLATE_LETTERS:
+        return 0
+    if any(data[pos + 3 + k] not in PLATE_TAIL for k in range(1, 6)):
+        return 0
+    if pos + 9 < len(data) and data[pos + 9] in _ALNUM:
+        return 0
+    return 9
+
+
+def _scan_text(data: bytes) -> list[tuple[int, int]]:
+    """返回 (type, start, len) 三元组列表（未排序）。"""
+    out: list[tuple[int, int, int]] = []
+
+    # 邮箱：EMAIL_CHARS 极大游程，去掉尾部 '.' 后校验
+    i, n = 0, len(data)
+    while i < n:
+        if data[i] in EMAIL_CHARS:
+            j = i
+            while j < n and data[j] in EMAIL_CHARS:
+                j += 1
+            run = data[i:j]
+            k = len(run)
+            while k > 0 and run[k - 1] == 0x2E:
+                k -= 1
+            if 0 < k <= 64 and _email_ok(run[:k]):
+                out.append((TYPE_EMAIL, i, k))
+            i = j
+        else:
+            i += 1
+
+    # IPv4：数字 + '.' 极大游程，去尾部 '.' 后校验
+    i = 0
+    while i < n:
+        if data[i] in IPV4_CHARS:
+            j = i
+            while j < n and data[j] in IPV4_CHARS:
+                j += 1
+            run = data[i:j]
+            k = len(run)
+            while k > 0 and run[k - 1] == 0x2E:
+                k -= 1
+            if 0 < k <= 15 and _ipv4_ok(run[:k]):
+                out.append((TYPE_IPV4, i, k))
+            i = j
+        else:
+            i += 1
+
+    # 统一社会信用代码：18 位 base31 游程
+    i = 0
+    while i < n:
+        ch = chr(data[i])
+        if ch in USCC_CHARS:
+            j = i
+            while j < n and chr(data[j]) in USCC_CHARS:
+                j += 1
+            run = data[i:j]
+            if len(run) == 18 and _uscc_ok(run):
+                out.append((TYPE_USCC, i, 18))
+            i = j
+        else:
+            i += 1
+
+    # 车牌：汉字 + 字母 + 5 位
+    i = 0
+    while i < n:
+        ln = _plate_at(data, i)
+        if ln:
+            out.append((TYPE_PLATE, i, ln))
+            i += ln
+        else:
+            i += 1
+
+    return out
+
+
 def scan(data: bytes) -> list[Span]:
-    """扫描字节流，返回按出现顺序排列的命中 span。"""
+    """扫描字节流，返回按 (终止位置, 类型优先级) 排序的命中 span。"""
+    hits: list[tuple[int, int, Span]] = []
+    for s in _scan_digits(data):
+        hits.append((s.start + s.length, PRIORITY[s.type], s))
+    for t, start, ln in _scan_text(data):
+        hits.append((start + ln, PRIORITY[t], Span(t, start, ln)))
+    hits.sort(key=lambda h: (h[0], h[1]))
+    return [h[2] for h in hits]
+
+
+def _scan_digits(data: bytes) -> list[Span]:
     spans: list[Span] = []
 
     active = False

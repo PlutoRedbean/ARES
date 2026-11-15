@@ -110,9 +110,9 @@ module l1_digit_engine (
     endfunction
 
     logic [15:0] y18;
-    logic [4:0]  m18, dd18;
+    logic [6:0]  m18, dd18;
     logic [7:0]  y15;
-    logic [4:0]  m15, dd15;
+    logic [6:0]  m15, dd15;
     logic        leap18, leap15;
 
     always_comb begin
@@ -141,15 +141,15 @@ module l1_digit_engine (
         m18  = dleft(10, 18) * 4'd10 + dleft(11, 18);
         dd18 = dleft(12, 18) * 4'd10 + dleft(13, 18);
         leap18 = (y18[1:0] == 2'b00);
-        date18_ok = (m18 >= 4'd1) && (m18 <= 4'd12) &&
-                    (dd18 >= 4'd1) && (dd18 <= days_in_month(m18[3:0], leap18));
+        date18_ok = (m18 >= 7'd1) && (m18 <= 7'd12) &&
+                    (dd18 >= 7'd1) && (dd18 <= {2'b0, days_in_month(m18[3:0], leap18)});
 
         y15  = dleft(6, 15) * 8'd10 + dleft(7, 15);
         m15  = dleft(8, 15) * 4'd10 + dleft(9, 15);
         dd15 = dleft(10, 15) * 4'd10 + dleft(11, 15);
         leap15 = (y15[1:0] == 2'b00);
-        date15_ok = (m15 >= 4'd1) && (m15 <= 4'd12) &&
-                    (dd15 >= 4'd1) && (dd15 <= days_in_month(m15[3:0], leap15));
+        date15_ok = (m15 >= 7'd1) && (m15 <= 7'd12) &&
+                    (dd15 >= 7'd1) && (dd15 <= {2'b0, days_in_month(m15[3:0], leap15)});
     end
 
     // ID18 的校验收敛：ISO 7064 MOD 11-2 要求 sum + check ≡ 1 (mod 11)，

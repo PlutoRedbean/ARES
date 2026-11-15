@@ -11,9 +11,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from host.corpus.synth import build_case, make_id18  # noqa: E402
 from host.golden.pii_rules import (  # noqa: E402
     TYPE_BANK,
+    TYPE_EMAIL,
     TYPE_ID15,
     TYPE_ID18,
+    TYPE_IPV4,
     TYPE_MOBILE,
+    TYPE_PLATE,
+    TYPE_USCC,
     id18_check_digit,
     scan,
 )
@@ -97,6 +101,68 @@ class TestOffsets(unittest.TestCase):
         self.assertLess(spans[0].start, spans[1].start)
         for s in spans:
             self.assertEqual(text.encode()[s.start : s.start + s.length].decode()[:1].isdigit(), True)
+
+
+class TestTextTypes(unittest.TestCase):
+    def _types(self, s: bytes):
+        return [(x.type, x.start, x.length) for x in scan(s)]
+
+    def test_email(self):
+        self.assertEqual(self._types(b"user@example.com"), [(TYPE_EMAIL, 0, 16)])
+
+    def test_email_trailing_dot_trimmed(self):
+        self.assertEqual(self._types(b"a@b.com."), [(TYPE_EMAIL, 0, 7)])
+
+    def test_email_invalid_shapes(self):
+        for bad in (b"a..b@x.com", b"a@b", b"a@-b.com", b"@example.com", b"a@b-.com"):
+            self.assertEqual(self._types(bad), [], bad)
+
+    def test_email_too_long_run(self):
+        self.assertEqual(self._types(b"a@" + b"x" * 64 + b".com"), [])
+
+    def test_ipv4(self):
+        self.assertEqual(self._types(b"10.0.0.1"), [(TYPE_IPV4, 0, 8)])
+
+    def test_ipv4_invalid(self):
+        for bad in (b"256.1.1.1", b"01.2.3.4", b"1.2.3", b"1.2.3.4.5"):
+            self.assertEqual(self._types(bad), [], bad)
+
+    def test_uscc(self):
+        self.assertEqual(self._types(b"91350100M000100Y43"), [(TYPE_USCC, 0, 18)])
+
+    def test_uscc_invalid_check(self):
+        self.assertEqual(self._types(b"91350100M000100Y44"), [])
+
+    def test_uscc_all_digits_not_uscc(self):
+        self.assertEqual(self._types(b"913501000000100043"), [])
+        # 18 位全数字仍会走身份证/银行卡分支，这里只断言没有 USCC
+        self.assertFalse([x for x in scan(b"913501000000100043") if x.type == TYPE_USCC])
+
+    def test_plate(self):
+        self.assertEqual(self._types("京A12345".encode()), [(TYPE_PLATE, 0, 9)])
+
+    def test_plate_bad_letter(self):
+        self.assertEqual(self._types("京A1234I".encode()), [])
+
+    def test_plate_followed_by_alnum_rejected(self):
+        self.assertEqual(self._types("京A12345A".encode()), [])
+
+    def test_plate_followed_by_chinese_ok(self):
+        self.assertEqual(self._types("京A12345的快递".encode()), [(TYPE_PLATE, 0, 9)])
+
+    def test_plate_two_in_a_row(self):
+        self.assertEqual(
+            [(x.type, x.length) for x in scan("京A12345沪B67890".encode())],
+            [(TYPE_PLATE, 9), (TYPE_PLATE, 9)],
+        )
+
+    def test_mixed_offsets(self):
+        text = "手机 13800138000，卡 4111111111111111，邮箱 a@b.co，IP 10.0.0.1"
+        spans = scan(text.encode())
+        self.assertEqual([s.type for s in spans], [TYPE_MOBILE, TYPE_BANK, TYPE_EMAIL, TYPE_IPV4])
+        data = text.encode()
+        for s in spans:
+            self.assertTrue(data[s.start : s.start + s.length])
 
 
 class TestInvariants(unittest.TestCase):

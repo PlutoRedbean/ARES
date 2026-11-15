@@ -11,10 +11,10 @@
 | 阶段 | 状态 |
 |---|---|
 | 本机开发平台（仿真/金标/语料/一致性测试） | ✅ 就绪 |
-| L1 首个可验证切片：数字类 PII（身份证 18/15、手机、银行卡） | ✅ 金标 ↔ RTL 200 例 289 span 全一致 |
-| 邮箱 / IPv4 / 车牌 / 统一社会信用代码 | ⬜ |
-| span 回退替换 + 审计 JSON + 关键词 AC | ⬜ |
-| L2（INT4 语义层） | ⬜ |
+| L1 规则层：身份证 18/15、手机、银行卡、邮箱、IPv4、USCC、车牌 | ✅ 1000 例 / 2670 span 全一致，另 43 例手工边界 |
+| 顶层 `l1_engine`（5 引擎并行）+ 吞吐基准 | ✅ 1 字节/拍，150 MB/s @150 MHz |
+| span 回退替换 + 审计 JSON + 关键词 AC | ⬜（M2） |
+| L2（INT4 语义层） | ⬜（M3） |
 
 ## 快速开始
 
@@ -24,8 +24,12 @@ make test        # 金标单测 + 生成向量 + Verilator 一致性仿真
 make golden      # 只跑 Python 单测
 make vectors     # 只生成 build/vectors
 make sim         # 只跑仿真（需要先有向量）
+make bench       # 吞吐基准（1 字节/拍）
+make edges       # 手工边界集（邮箱/IPv4/USCC/车牌/超长/空串）
 make lint        # Verilator lint
 ```
+
+当前结论与数字见 [docs/m1-results.md](docs/m1-results.md)。
 
 依赖：`verilator >= 5.0`（本机 5.040）、`python3 >= 3.10`（本机 3.12，只用标准库）、`make`。
 **目前不需要 torch**：L1 是纯规则，L2 上板前的量化评估才会用到（可复用 `gesture-env` 里的 venv）。
@@ -45,13 +49,16 @@ guard/
 ├── TODO.md               # 按路线的任务清单（勾选式）
 ├── docs/
 │   └── plan-pii-gateway.md
-├── rtl/l1/               # 本工程新增 RTL（从 L1 开始）
-│   └── l1_digit_engine.sv
-├── sim/                  # Verilator testbench
+├── rtl/l1/               # 本工程新增 RTL
+│   ├── l1_digit_engine.sv    # 数字类（身份证/手机/银行卡）
+│   ├── l1_text_engines.sv    # 邮箱 / IPv4 / USCC / 车牌
+│   └── l1_engine.sv          # 顶层（5 引擎同流并行）
+├── sim/                  # Verilator testbench（一致性 + 吞吐）
 ├── host/
 │   ├── golden/           # 金标规则引擎（Python，逐条对齐 RTL）+ CLI
 │   └── corpus/           # 合成 PII 语料
-├── tools/gen_vectors.py  # 语料 → .in/.exp/manifest 向量
+├── tools/gen_vectors.py  # 语料 → .in/.exp/manifest 向量 + bench 语料
+├── tools/gen_edges.py    # 手工边界集
 ├── tests/                # 金标单测（unittest）
 └── vendor/               # ARES core / miniTensor 拷贝，见 PROVENANCE.md
 ```

@@ -33,6 +33,8 @@ def main() -> int:
     rng = random.Random(args.seed)
 
     manifest = out / "manifest.txt"
+    bench = out / "bench.txt"
+    bench_chunks: list[bytes] = []
     total_spans = 0
     with manifest.open("w", encoding="utf-8") as mf:
         for i in range(args.n):
@@ -45,8 +47,10 @@ def main() -> int:
                 for s in spans:
                     ef.write(f"{s.start} {s.length} {s.type}\n")
             mf.write(f"{i}\n")
+            bench_chunks.append(data + b"\n")
 
-    print(f"vectors: {args.n} cases, {total_spans} spans -> {out}")
+    bench.write_bytes(b"".join(bench_chunks))
+    print(f"vectors: {args.n} cases, {total_spans} spans, bench {bench.stat().st_size} B -> {out}")
     return 0
 
 

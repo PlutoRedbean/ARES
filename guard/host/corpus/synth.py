@@ -9,13 +9,16 @@ from __future__ import annotations
 
 import random
 
-from host.golden.pii_rules import id18_check_digit
+from host.golden.pii_rules import USCC_CHARS, USCC_WEIGHTS, id18_check_digit
 
 SURNAMES = "赵钱孙李周吴郑王冯陈褚卫蒋沈韩杨朱秦尤许何吕施张孔曹严华金魏陶姜"
 GIVEN = ["伟", "芳", "娜", "敏", "静", "磊", "洋", "艳", "勇", "军", "杰", "娟"]
 CITIES = ["北京", "上海", "广州", "深圳", "杭州", "成都", "武汉", "西安", "南京"]
 DISTRICTS = ["朝阳区", "海淀区", "浦东新区", "天河区", "西湖区", "武侯区"]
 STREETS = ["建国路", "中关村大街", "人民路", "科技园路", "解放大道"]
+PROVINCES = "京津冀晋蒙辽吉黑沪苏浙皖闽赣鲁豫鄂湘粤桂琼渝川贵云藏陕甘青宁新"
+PLATE_LETTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ"
+PLATE_TAIL = "0123456789ABCDEFGHJKLMNPQRSTUVWXYZ"
 COMPANIES = ["鼎新科技有限公司", "云栖数据服务有限公司", "恒远贸易有限公司", "北辰信息技术有限公司"]
 FILLERS = ["请把资料发给", "合同联系人写", "备注里留了", "快递寄到", "开票信息是", "客服登记的是"]
 SUFFIXES = ["。", "，谢谢。", "（工作日联系）。", ""]
@@ -76,6 +79,32 @@ def make_bank(rng: random.Random, *, bad_check: bool = False, length: int = 16) 
     return card
 
 
+def make_email(rng: random.Random) -> str:
+    return f"user{rng.randint(1, 9999)}@{rng.choice(['example.com', 'mail.cn', 'corp.example.org'])}"
+
+
+def make_ipv4(rng: random.Random) -> str:
+    return ".".join(str(rng.randint(0, 255)) for _ in range(4))
+
+
+def make_uscc(rng: random.Random, *, invalid_check: bool = False) -> str:
+    body = "".join(rng.choice(USCC_CHARS) for _ in range(17))
+    if not any(ch in USCC_CHARS[10:] for ch in body):
+        body = "9" + body[1:]
+    total = sum(USCC_WEIGHTS[k] * USCC_CHARS.index(body[k]) for k in range(17))
+    check = USCC_CHARS[(31 - total % 31) % 31]
+    if invalid_check:
+        check = "0" if check != "0" else "1"
+    return body + check
+
+
+def make_plate(rng: random.Random, *, bad_tail: bool = False) -> str:
+    tail = "".join(rng.choice(PLATE_TAIL) for _ in range(5))
+    if bad_tail:
+        tail = tail[:4] + "I"  # I 不合法
+    return f"{rng.choice(PROVINCES)}{rng.choice(PLATE_LETTERS)}{tail}"
+
+
 def _group(num: str, rng: random.Random, sep: str = " ") -> str:
     """把数字按 3–4 位切段插入分隔符，保持原来的数字顺序。"""
     out, i = [], 0
@@ -126,7 +155,13 @@ def render_scene(rng: random.Random) -> str:
     if rng.random() < 0.3:
         parts.append(f"公司：{rng.choice(COMPANIES)}")
     if rng.random() < 0.5:
-        parts.append(f"邮箱 user{rng.randint(1, 99)}@example.com")
+        parts.append(f"邮箱 {make_email(rng)}")
+    if rng.random() < 0.3:
+        parts.append(f"服务器 {make_ipv4(rng)}")
+    if rng.random() < 0.3:
+        parts.append(f"信用代码 {make_uscc(rng, invalid_check=rng.random() < 0.25)}")
+    if rng.random() < 0.3:
+        parts.append(f"车牌 {make_plate(rng, bad_tail=rng.random() < 0.2)}")
 
     rng.shuffle(parts)
     lead = rng.choice(FILLERS)
