@@ -44,6 +44,8 @@ desktop.ini
 # ---- local env / data (huge, kept outside git) ----
 **/.venv/
 **/pcvision/data/
+# training workspace must stay outside the repo; ignore it if someone drops it in
+gesture-env/
 
 # future RV build
 **/fpga/rtl_rv/fw/out/

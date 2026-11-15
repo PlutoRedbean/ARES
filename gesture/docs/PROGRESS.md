@@ -101,14 +101,15 @@
 | D-005 | 纳入 Git，模型数据一并入库 | 保证仓库自包含 |
 | D-006 | 核定位为**小调度器（档 B）** | 只做帧级取数/去抖/放行，不碰数据通路；开关 WITH_RV |
 | D-007 | 控制器与视觉**共位一个位流** | 实测只多 124 LUT，没有必要拆两块板 |
-| D-008 | 手势训练链放 `pcvision/gesture/`，环境放仓库外 `../gesture-env` | torch/CUDA 与缓存数 GB，隔离后一条 `cleanup.sh` 即可腾空；仓库只留脚本 |
+| D-008 | 手势训练链放 `pcvision/gesture/`，环境放仓库外工作区（`$QS_GESTURE_HOME`，见 `docs/GESTURE.md` §2） | torch/CUDA 与缓存数 GB，隔离后一条 `cleanup.sh` 即可腾空；仓库只留脚本 |
 | D-009 | 训练归一化改为 `(x-128)/128` | 与 RTL/`hw_emulate` 的 `int-128` 一致，float 与位精确结论可直接对照 |
 | D-010 | 手势=静态分类，动作=PC 时序层 | 现有 RTL 无时序单元；hold/swipe 先由 `actions.py` 产生，接口与板端 argmax 输出一致 |
-| D-011 | 平台收成单一入口 `gesture.sh`，环境仍在仓库外 `../gesture-env` | 之前多个脚本/文档入口太乱；日常只记一个命令，仓库只留代码 |
+| D-011 | 平台收成单一入口 `gesture.sh`，环境仍在仓库外工作区（同上） | 之前多个脚本/文档入口太乱；日常只记一个命令，仓库只留代码 |
 | D-012 | 线 B 先 PC 本地跑通，板子/RV/HDMI 暂停 | 先验证模型/动作/实时效果；板子迁移等效果满意后再做 |
 | D-013 | 动作层加 SEQUENCE，且默认接受负 logit | 模型输出是原始 logit（常为负）；原来 conf_threshold=0 会把所有帧过滤掉 |
 | D-014 | 镜像做成开关：默认原始非镜像，勾选=自拍镜像 | 预览和新录制一起翻转；已有数据方向不变，避免悄悄改数据 |
 | D-015 | 偏置量化按累积激活尺度 `c_in` 修正 | 只按 1/scale 缩放会让 7 类模型全判背景（int 11%）；修正后 float/int 均 89.04% |
+| D-016 | 仓库改成单仓多线：手势工程整体收进 `gesture/`，新增 `llm/`，git 根留在 `QS/` | 两线共用一套版本管理；代码全在仓库内，工作区仍在仓库外（位置规则见 §2 与 `docs/GESTURE.md`） |
 
 ---
 
@@ -239,8 +240,10 @@ powershell -File tools/program.ps1 -Bitstream bitstreams/<xxx>.sbit
 
 - Git：feat/gesture-pipeline 已 fast-forward 合并进 main 并推送 origin；
   当前在 main 上继续，每次改动单独提交。
+- 结构：单仓多线（D-016）——`QS/gesture/` 是本工程，`QS/llm/` 是新线占位，
+  两线共用 `QS/.git`；入口与目录说明见仓库根 `README.md`。
 - 平台：单一入口 pcvision/gesture/gesture.sh；工作台 8765、演示页 /demo；
-  隔离工作区 ../gesture-env（约 7.1 GB）。
+  隔离工作区 `$QS_GESTURE_HOME`（本机约 7.1 GB，见 `docs/GESTURE.md` §2）。
 - 数据：7 类 / 370 帧；1 个完整轮次 + 部分轮次。
 - 模型：float 89.04% / 位精确 89.04% / 一致率 100%；阈值 none。
 - 动作：HOLD / SWIPE / SEQUENCE 已接入演示页，工作台可调

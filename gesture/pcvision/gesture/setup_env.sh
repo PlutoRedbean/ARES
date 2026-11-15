@@ -4,9 +4,9 @@
 #   bash pcvision/gesture/setup_env.sh            # CUDA build (default)
 #   bash pcvision/gesture/setup_env.sh --cpu      # CPU-only build
 #
-# Everything is installed under $QS_GESTURE_HOME (default:
-# <repo>/../gesture-env, falling back to <repo>/../../gesture-env).
-# Nothing touches the system Python or ~/.cache.
+# Everything is installed under $QS_GESTURE_HOME (outside the repo; the
+# location rule lives in docs/GESTURE.md §2).  Nothing touches the system
+# Python or ~/.cache.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

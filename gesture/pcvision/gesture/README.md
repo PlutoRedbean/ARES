@@ -42,8 +42,8 @@ hold / swipe / seq；预览下方有“自拍镜像”开关（默认原始非�
 
 ## 工作区
 
-默认 <repo>/../gesture-env，仓库搬到 `QS/gesture/` 后回退到
-<repo>/../../gesture-env：venv、data、runs、out 都在这里；
+默认 `$QS_GESTURE_HOME`（仓库外，位置规则见
+[../../docs/GESTURE.md](../../docs/GESTURE.md) §2）：venv、data、runs、out 都在这里；
 仓库只放代码。gesture.sh manifest 看体积，gesture.sh clean 清理。
 
 主文档：[docs/GESTURE.md](../../docs/GESTURE.md)。

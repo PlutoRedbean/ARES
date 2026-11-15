@@ -16,9 +16,8 @@ fi
 
 QS_GESTURE_REPO="${QS_GESTURE_REPO:-$(cd "$(dirname "$_qs_src")/../.." 2>/dev/null && pwd)}"
 
-# Workspace default: <repo>/../gesture-env.  When the repo itself sits one level
-# deeper (QS/gesture/), fall back to the legacy sibling (QS/../gesture-env) so an
-# existing multi-GB workspace keeps working without being moved.
+# Workspace: $QS_GESTURE_HOME if set, else <repo>/../gesture-env, else the
+# legacy <repo>/../../gesture-env (rule and rationale: docs/GESTURE.md §2).
 if [ -z "${QS_GESTURE_HOME:-}" ]; then
   _qs_parent="$(cd "$QS_GESTURE_REPO/.." 2>/dev/null && pwd)"
   QS_GESTURE_HOME="$_qs_parent/gesture-env"

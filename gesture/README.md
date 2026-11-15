@@ -49,7 +49,8 @@
     bash pcvision/gesture/gesture.sh manifest            # 安装清单
     bash pcvision/gesture/gesture.sh clean               # 清理（--yes 才删）
 
-数据/模型/venv 都在仓库外的 **../../gesture-env**（更名前的 `../gesture-env` 仍兼容），仓库只放代码；
+数据/模型/venv 都在仓库外的工作区（`$QS_GESTURE_HOME`，位置规则见
+[docs/GESTURE.md](docs/GESTURE.md) §2），仓库只放代码；
 删除工作区即可释放空间，不影响代码。
 
 详细流程、阈值、数据要求见 **[docs/GESTURE.md](docs/GESTURE.md)**。

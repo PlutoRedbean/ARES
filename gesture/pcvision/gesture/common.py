@@ -41,7 +41,8 @@ DEFAULT_NAMES = [
 
 
 def workspace() -> Path:
-    """Training workspace (<repo>/../gesture-env, legacy <repo>/../../gesture-env)."""
+    """Training workspace: $QS_GESTURE_HOME, else <repo>/../gesture-env,
+    else <repo>/../../gesture-env (rule: docs/GESTURE.md §2)."""
     env = os.environ.get("QS_GESTURE_HOME")
     if env:
         return Path(env)

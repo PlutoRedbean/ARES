@@ -105,7 +105,7 @@ bash pcvision/gesture/gesture.sh app
 
 训练环境**完全隔离**在仓库之外的一个工作区，不污染系统 Python、不写 `~/.cache`：
 
-    /home/ccy/Documents/qs/gesture-env/      # 默认 $QS_GESTURE_HOME
+    /home/ccy/Documents/qs/gesture-env/      # 本机默认 $QS_GESTURE_HOME
     ├── env/            Python venv（torch cu124 + opencv …）
     ├── cache/          pip / torch / xdg 缓存（全部重定向到这里）
     ├── data/           classes.json、raw/ 图片与 labels.csv
@@ -114,7 +114,12 @@ bash pcvision/gesture/gesture.sh app
     ├── MANIFEST.md     自动生成的“装了哪些东西 + 各占多大”
     └── install_manifest.tsv
 
-可用 `QS_GESTURE_HOME=/path/to/ws` 换位置。**仓库只保留脚本，不存图片和权重。**
+**工作区位置规则**（`env.sh` 与 `common.py` 同一套，本文档是唯一出处）：
+显式设置 `QS_GESTURE_HOME` 时直接用它；否则优先 `<repo>/../gesture-env`，
+不存在再回退到 `<repo>/../../gesture-env`。仓库收进 `QS/gesture/` 之后，
+本机实际命中的就是 `/home/ccy/Documents/qs/gesture-env`。
+其他文档一律写 `$QS_GESTURE_HOME` 并指向本节，不再重复具体路径。
+**仓库只保留脚本，不存图片和权重。**
 
 > 工作区要放在 **ext4 本地盘**（默认就是）。不要放到 NTFS / `/mnt/e`
 > 或 WSL 挂载上：venv 的权限位和文件锁会出问题，速度也差很多。
