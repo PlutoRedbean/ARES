@@ -24,55 +24,14 @@ sys.path.insert(0, str(ROOT))
 
 from host.golden.keywords import KEYWORDS, find_keywords  # noqa: E402
 from host.golden.pii_rules import TYPE_NAMES, scan  # noqa: E402
-from host.golden.redact import RULE_IDS, Audit, audit_json, redact  # noqa: E402
+from host.golden.redact import Audit, audit_json  # noqa: E402
+from host.golden.pipeline import run_golden, run_rtl_mask  # noqa: E402
 
 RED_BIN = ROOT / "build" / "obj_redtop" / "Vredact"
 MASK = 1  # 显示用
 
 
-# --------------------------------------------------------------------- 引擎
-def _parse_audit(text: str) -> list[tuple[int, int, int]]:
-    out = []
-    for line in text.splitlines():
-        p = line.split()
-        if len(p) == 3:
-            out.append((int(p[0]), int(p[1]), int(p[2])))
-    return out
-
-
-def rtl_mask(data: bytes) -> tuple[bytes, list[tuple[int, int, int]]]:
-    if not RED_BIN.exists():
-        raise SystemExit(f"RTL 驱动没编译：{RED_BIN}\n先跑 make redact-harness")
-    with tempfile.NamedTemporaryFile(suffix=".in", delete=False) as inf:
-        inf.write(data)
-        inp = Path(inf.name)
-    with tempfile.NamedTemporaryFile(suffix=".mask", delete=False) as tf:
-        tmp = Path(tf.name)
-    try:
-        proc = subprocess.run([str(RED_BIN), str(inp), str(tmp)], capture_output=True)
-        if proc.returncode != 0:
-            raise SystemExit(proc.stderr.decode("utf-8", "replace") or "Vredact failed")
-        return tmp.read_bytes(), _parse_audit(proc.stdout.decode())
-    finally:
-        inp.unlink(missing_ok=True)
-        tmp.unlink(missing_ok=True)
-
-
-def golden(data: bytes, policy: str) -> tuple[bytes, list[Audit]]:
-    spans = scan(data)
-    return redact(data, policy=policy, keep_spans=spans)
-
-
-def to_audits(data: bytes, tuples: list[tuple[int, int, int]]) -> list[Audit]:
-    out = []
-    for i, (st, ln, ty) in enumerate(tuples, 1):
-        seg = data[st : st + ln]
-        keep = min(4, ln)
-        repl = b"*" * (ln - keep) + seg[ln - keep :]
-        out.append(
-            Audit(i, TYPE_NAMES[ty], ty, RULE_IDS[ty], st, ln, "mask", repl.decode("utf-8", "replace"))
-        )
-    return out
+# 检测/脱敏实现在 host/golden/pipeline.py（CLI、demo、server 共用）
 
 
 # --------------------------------------------------------------------- 展示
@@ -114,11 +73,10 @@ def render(data: bytes, out: bytes, audits: list[Audit], mode: str, quiet: bool 
 
 def run_bytes(data: bytes, policy: str, json_path: str | None, out_path: str | None, quiet: bool) -> None:
     if policy == "token":
-        out, audits = golden(data, "token")
+        out, audits = run_golden(data, "token")
         mode = "golden-token"
     else:
-        out, tuples = rtl_mask(data)
-        audits = to_audits(data, tuples)
+        out, audits = run_rtl_mask(data)
         mode = "rtl-mask"
 
     if out_path:
@@ -148,8 +106,7 @@ def cmd_file(args) -> int:
 
 def cmd_report(args) -> int:
     data = Path(args.path).read_bytes()
-    out, tuples = rtl_mask(data)
-    audits = to_audits(data, tuples)
+    out, audits = run_rtl_mask(data)
     kinds: dict[str, int] = {}
     for a in audits:
         kinds[a.type] = kinds.get(a.type, 0) + 1
@@ -188,6 +145,12 @@ def cmd_repl(args) -> int:
     return 0
 
 
+def cmd_serve(args) -> int:
+    from tools.guard_server import main as serve_main  # noqa: PLC0415
+
+    return serve_main(["--port", str(args.port), "--host", args.host])
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="guard", description="PII 脱敏网关本地 demo")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -215,6 +178,11 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("report", help="只统计")
     p.add_argument("path")
     p.set_defaults(func=cmd_report)
+
+    p = sub.add_parser("serve", help="本地工作台（网页，实时脱敏）")
+    p.add_argument("--port", type=int, default=8766)
+    p.add_argument("--host", default="127.0.0.1")
+    p.set_defaults(func=cmd_serve)
 
     p = sub.add_parser("repl", help="交互模式")
     p.add_argument("--policy", choices=["mask", "token"], default="mask")

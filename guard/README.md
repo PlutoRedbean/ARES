@@ -18,15 +18,20 @@
 | 端到端 demo（文本进 → 脱敏 + 审计 JSON，RTL 检测在环） | ✅ `make demo` |
 | RTL 合并 + mask 替换器（`l1_redact_top`，1 字节/拍） | ✅ 1000 例字节+审计全一致 |
 | 全 RTL 脱敏驱动 + `demo --rtl-full` | ✅ |
-| 本机入口 `./run.sh`（demo/text/file/repl/report） | ✅ 见下方快速开始 |
+| 本机入口 `./run.sh`（serve/demo/text/file/repl/report） | ✅ 网页工作台 ≈5 ms 出结果 |
 | L2（INT4 语义层） | ⬜（M3） |
 
 ## 快速开始
+
+**边打边看**：`./run.sh serve` 起一个本地网页（仅监听 127.0.0.1），
+左边输入/粘贴文本，右边约 5 ms 出脱敏结果（全 RTL），下方是审计表与关键词提示；
+可切换 mask（全 RTL）/ token（金标渲染）。
 
 最短路径（自动构建 + 跑样例，输出脱敏文本、审计表、关键词提示、统计）：
 
 ```bash
 cd /home/ccy/Documents/qs/QS/guard
+./run.sh serve                                  # 网页工作台 http://127.0.0.1:8766
 ./run.sh demo                                   # 全 RTL：检测 + 合并 + mask 替换
 ./run.sh text "手机 13800138000 邮箱 a@b.co"     # 一段文本
 ./run.sh file 某个.txt --policy token --json audit.json

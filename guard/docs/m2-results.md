@@ -94,6 +94,24 @@ demo 的 stderr 摘要：
 
 ## 7. 本机可跑入口（`./run.sh`）
 
+### 7.1 网页工作台（边打边看）
+
+```bash
+./run.sh serve            # http://127.0.0.1:8766（只监听本机）
+```
+
+左侧输入/粘贴，右侧约 **5–6 ms** 出结果（全 RTL：检测+合并+mask），下方是审计表
+（类型/位置/规则/动作/替换）与关键词提示；右上角显示 `mode · ms · bytes · hits`；
+可切换 `mask`（全 RTL）/ `token`（金标渲染）。接口：
+
+- `GET /`：单页工作台
+- `POST /api/redact {"text","policy"}` → `{redacted, html, audits, keywords, mode, bytes, ms}`
+- `GET /health` → `ok`
+
+`make test` 里的 `test_server.py` 会起线程打这几个接口（页面 200、mask 打码、token 编号、无 PII 原样透传）。
+
+### 7.2 命令行
+
 ```bash
 ./run.sh demo                                   # examples/sample.txt，全 RTL
 ./run.sh text "手机 13800138000 邮箱 a@b.co"     # 一段文本
