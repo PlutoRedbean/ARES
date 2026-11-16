@@ -29,6 +29,7 @@ def vectors():
         (identity, limits, zero),
         ([-128] * 16, [-128] * 16, [0x7FFFFFFF] * 16),
         (corner, [127] * 16, zero),
+        (corner, corner, zero),  # Only the very last PE product is nonzero.
         (first_row, limits, [r * 4 + c for r in range(4) for c in range(4)]),
     ]
     for _ in range(128):
@@ -59,6 +60,78 @@ module tb_minitensor_gemm;
   logic [511:0] cmd_acc_init = 0, result_data;
   integer cases_checked = 0, outputs_checked = 0;
 
+  logic pe_rst = 1, pe_clear = 0, pe_step = 0;
+  logic signed [7:0] pe_a = 0, pe_b = 0, pe_a_out, pe_b_out;
+  logic signed [31:0] pe_init = 0, pe_acc;
+  logic signed [31:0] ref_acc = 0;
+  logic signed [15:0] ref_product = 0;
+  logic signed [7:0] ref_a = 0, ref_b = 0;
+  bit ref_valid = 0;
+  integer pe_checks = 0;
+  tensor_pe pe (
+    .clk, .rst(pe_rst), .clear(pe_clear), .step(pe_step),
+    .acc_init(pe_init), .a_in(pe_a), .b_in(pe_b),
+    .a_out(pe_a_out), .b_out(pe_b_out), .acc_out(pe_acc)
+  );
+
+  task automatic pe_tick(
+    input bit reset, clear_acc, issue,
+    input logic signed [7:0] a, b,
+    input logic signed [31:0] initial_acc
+  );
+    @(negedge clk);
+    pe_rst = reset;
+    pe_clear = clear_acc;
+    pe_step = issue;
+    pe_a = a;
+    pe_b = b;
+    pe_init = initial_acc;
+    if (reset || clear_acc) begin
+      ref_acc = initial_acc;
+      ref_a = 0;
+      ref_b = 0;
+      ref_valid = 0;
+    end else begin
+      if (ref_valid) ref_acc = ref_acc + {{16{ref_product[15]}}, ref_product};
+      if (issue) begin
+        ref_a = a;
+        ref_b = b;
+      end
+      ref_valid = issue;
+    end
+    ref_product = a * b;
+    @(posedge clk);
+    #1;
+    if (pe_acc !== ref_acc || pe_a_out !== ref_a || pe_b_out !== ref_b)
+      $fatal(1, "PE cycle %0d: acc=%0d expected=%0d", pe_checks, pe_acc, ref_acc);
+    pe_checks++;
+  endtask
+
+  task automatic abort_case(input integer clocks_after_accept);
+    @(negedge clk);
+    cmd_valid = 1;
+    cmd_a_tile = '1;
+    cmd_b_tile = '1;
+    cmd_acc_init = '0;
+    result_ready = 1;
+    @(negedge clk);
+    cmd_valid = 0;
+    repeat (clocks_after_accept) @(negedge clk);
+    rst = 1;
+    @(posedge clk);
+    #1;
+    if (result_valid || !cmd_ready)
+      $fatal(1, "reset failed at compute cycle %0d", clocks_after_accept);
+    @(negedge clk);
+    rst = 0;
+    repeat (2) begin
+      @(posedge clk);
+      #1;
+      if (result_valid || !cmd_ready)
+        $fatal(1, "stale result after reset");
+    end
+  endtask
+
   tensor_gemm_core dut (
     .clk, .rst, .cmd_valid, .cmd_ready, .cmd_a_tile, .cmd_b_tile,
     .cmd_acc_init, .result_valid, .result_ready, .result_data
@@ -77,7 +150,7 @@ module tb_minitensor_gemm;
     cmd_b_tile = b;
     cmd_acc_init = initial_acc;
     cmd_valid = 1;
-    result_ready = 0;
+    result_ready = (hold_cycles == 0);
     @(posedge clk);
     #1;
     @(negedge clk);
@@ -100,8 +173,8 @@ module tb_minitensor_gemm;
           $signed(expected[32*i +: 32]));
       outputs_checked++;
     end
-    if (compute_cycles != 10)
-      $fatal(1, "case %0d: got %0d compute cycles expected 10",
+    if (compute_cycles != 11)
+      $fatal(1, "case %0d: got %0d compute cycles expected 11",
         case_id, compute_cycles);
     repeat (hold_cycles) begin
       @(posedge clk);
@@ -121,9 +194,28 @@ module tb_minitensor_gemm;
   initial begin
     repeat (3) @(negedge clk);
     rst = 0;
+    // Bubbles must drain a pending product once; clear/reset must discard it.
+    pe_tick(1, 0, 0, 0, 0, 32'sh7fffffff);
+    pe_tick(0, 0, 1, -128, -128, 0);
+    pe_tick(0, 0, 1, 127, -128, 0);
+    pe_tick(0, 0, 0, 17, 19, 0);
+    pe_tick(0, 0, 0, 23, 29, 0);
+    pe_tick(0, 0, 1, -7, 11, 0);
+    pe_tick(0, 1, 1, 100, 100, -37);
+    pe_tick(0, 0, 0, 0, 0, 0);
+    pe_tick(0, 0, 1, -128, 127, 0);
+    pe_tick(1, 0, 0, 0, 0, 42);
+    pe_tick(0, 0, 0, 0, 0, 0);
+    for (int cycle = 0; cycle < 100; cycle++)
+      pe_tick(0, cycle == 53, (cycle % 3) != 0,
+              8'(cycle * 17), 8'(cycle * 29), 32'sh80000000);
+    pe_tick(0, 0, 0, 0, 0, 0);
+    pe_tick(0, 0, 0, 0, 0, 0);
+    for (int cycle = 0; cycle <= 11; cycle++)
+      abort_case(cycle);
 __CASES__
-    $display("GEMM PASS: %0d cases, %0d output checks",
-      cases_checked, outputs_checked);
+    $display("GEMM PASS: %0d cases, %0d output checks, %0d PE cycles, 12 reset phases",
+      cases_checked, outputs_checked, pe_checks);
     $finish;
   end
 endmodule

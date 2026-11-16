@@ -1,7 +1,8 @@
 `timescale 1ns/1ps
 
-// Non-pipelined 4x4 signed INT8 GEMM. A and B are row-major packed tiles;
-// the sixteen signed INT32 results remain stable until result_ready.
+// One-command-at-a-time 4x4 signed INT8 GEMM with pipelined PE products.
+// A and B are row-major packed tiles; the sixteen signed INT32 results
+// remain stable until result_ready.
 module tensor_gemm_core (
   input  logic clk,
   input  logic rst,
@@ -14,10 +15,11 @@ module tensor_gemm_core (
   input  logic result_ready,
   output logic [tensor_pkg::TENSOR_RESULT_WIDTH-1:0] result_data
 );
-  // The last product reaches PE[3][3] at step k + row + col = 9.
+  // The last product is registered at step k + row + col = 9, then
+  // accumulated during S_DRAIN before result_valid can be asserted.
   localparam int unsigned RUN_CYCLES = 10;
 
-  typedef enum logic [1:0] {S_IDLE, S_RUN, S_RESULT} state_t;
+  typedef enum logic [1:0] {S_IDLE, S_RUN, S_DRAIN, S_RESULT} state_t;
   state_t state_q;
   logic [tensor_pkg::TENSOR_TILE_WIDTH-1:0] a_tile_q, b_tile_q;
   logic [tensor_pkg::TENSOR_RESULT_WIDTH-1:0] acc_init_q;
@@ -65,11 +67,12 @@ module tensor_gemm_core (
         end
         S_RUN: begin
           if (cycle_q == 4'(RUN_CYCLES - 1)) begin
-            state_q <= S_RESULT;
+            state_q <= S_DRAIN;
           end else begin
             cycle_q <= cycle_q + 1'b1;
           end
         end
+        S_DRAIN: state_q <= S_RESULT;
         S_RESULT: begin
           if (result_fire)
             state_q <= S_IDLE;

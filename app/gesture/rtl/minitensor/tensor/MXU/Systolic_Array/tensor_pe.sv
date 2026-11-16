@@ -14,19 +14,29 @@ module tensor_pe (
   output logic signed [7:0] b_out,
   output logic signed [31:0] acc_out
 );
-  logic signed [15:0] product;
+  logic signed [15:0] product_q;
+  logic product_valid_q;
 
-  always_comb product = a_in * b_in;
+  // The product is consumed one clock after its systolic step.  Its valid
+  // bit also drains the final product when step goes low.
+  always_ff @(posedge clk) begin
+    product_q <= a_in * b_in;
+  end
 
   always_ff @(posedge clk) begin
     if (rst || clear) begin
       a_out <= '0;
       b_out <= '0;
       acc_out <= acc_init;
-    end else if (step) begin
-      a_out <= a_in;
-      b_out <= b_in;
-      acc_out <= acc_out + {{16{product[15]}}, product};
+      product_valid_q <= 1'b0;
+    end else begin
+      product_valid_q <= step;
+      if (step) begin
+        a_out <= a_in;
+        b_out <= b_in;
+      end
+      if (product_valid_q)
+        acc_out <= acc_out + {{16{product_q[15]}}, product_q};
     end
   end
 endmodule
