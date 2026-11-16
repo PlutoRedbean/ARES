@@ -317,6 +317,10 @@ pipeline-isa: pipeline-isa-sim
 	done; \
 	echo "ISA pass=$$pass fail=$$fail"; test $$fail -eq 0
 
+.PHONY: pipeline-bpu-test
+pipeline-bpu-test:
+	@python3 scripts/test_pipeline_bpu.py
+
 pipeline-coremark: pipeline-isa-sim
 	@test -f $(ARES_HOME)/build/coremark/coremark.bin || \
 	  { echo "error: build/coremark/coremark.bin missing; run 'make coremark-image'"; exit 1; }

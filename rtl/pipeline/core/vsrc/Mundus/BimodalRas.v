@@ -31,11 +31,15 @@ module BimodalRas#(parameter ADDR_WIDTH=32, parameter BTB_WIDTH=4, parameter DAT
     localparam ENTRIES = 1 << BTB_WIDTH;
     localparam TAG_WIDTH = ADDR_WIDTH - BTB_WIDTH - 2;
 
-    (* ram_style = "distributed" *) reg valid [0:ENTRIES-1];
-    (* ram_style = "distributed" *) reg [TAG_WIDTH-1:0] tag [0:ENTRIES-1];
-    (* ram_style = "distributed" *) reg [ADDR_WIDTH-1:0] target [0:ENTRIES-1];
-    (* ram_style = "distributed" *) reg [1:0] counter [0:ENTRIES-1];
-    (* ram_style = "distributed" *) reg is_return [0:ENTRIES-1];
+    // Keep the small BTB in distributed RAM to shorten the next-PC feedback
+    // path. Pango ADS uses select_ram (Logos2 CLM guide UG040001, section 3.2);
+    // ram_style alone allowed tag/target to map to a timing-critical DRM.
+    // Retain the registered read and old-data read/write collision semantics.
+    (* ram_style = "distributed" *) reg valid [0:ENTRIES-1] /* synthesis syn_ramstyle = "select_ram" */;
+    (* ram_style = "distributed" *) reg [TAG_WIDTH-1:0] tag [0:ENTRIES-1] /* synthesis syn_ramstyle = "select_ram" */;
+    (* ram_style = "distributed" *) reg [ADDR_WIDTH-1:0] target [0:ENTRIES-1] /* synthesis syn_ramstyle = "select_ram" */;
+    (* ram_style = "distributed" *) reg [1:0] counter [0:ENTRIES-1] /* synthesis syn_ramstyle = "select_ram" */;
+    (* ram_style = "distributed" *) reg is_return [0:ENTRIES-1] /* synthesis syn_ramstyle = "select_ram" */;
 
     wire [BTB_WIDTH-1:0] pred_idx = fetch_pc[BTB_WIDTH+1:2];
     wire [BTB_WIDTH-1:0] update_idx = update_pc[BTB_WIDTH+1:2];
