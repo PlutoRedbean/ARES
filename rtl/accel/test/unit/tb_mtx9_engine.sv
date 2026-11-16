@@ -131,6 +131,7 @@ module tb_mtx9_engine;
     logic signed [15:0] A [0:80];
     logic signed [15:0] B [0:80];
     logic signed [31:0] C_ref [0:80];
+    logic signed [31:0] sum_inputs_ref [0:3][0:80];
     logic signed [15:0] sum_ref [0:3];
     logic [15:0]        crc_ref;
 
@@ -148,6 +149,7 @@ module tb_mtx9_engine;
 
         for (int i = 0; i < 81; i++)
             c[i] = $signed(a[i]) * $signed(val);
+        for (int i = 0; i < 81; i++) sum_inputs_ref[0][i] = c[i];
         sum_ref[0] = ref_sum(c, clipv);
         crc = ref_crc16(sum_ref[0], 16'h0);
 
@@ -157,6 +159,7 @@ module tb_mtx9_engine;
                 acc = acc + ($signed(a[i*9+j]) * $signed(B[j]));
             c[i] = acc;
         end
+        for (int i = 0; i < 81; i++) sum_inputs_ref[1][i] = c[i];
         sum_ref[1] = ref_sum(c, clipv);
         crc = ref_crc16(sum_ref[1], crc);
 
@@ -167,6 +170,7 @@ module tb_mtx9_engine;
                     acc = acc + ($signed(a[i*9+k]) * $signed(B[k*9+j]));
                 c[i*9+j] = acc;
             end
+        for (int i = 0; i < 81; i++) sum_inputs_ref[2][i] = c[i];
         sum_ref[2] = ref_sum(c, clipv);
         crc = ref_crc16(sum_ref[2], crc);
 
@@ -181,6 +185,7 @@ module tb_mtx9_engine;
                 end
                 c[i*9+j] = acc;
             end
+        for (int i = 0; i < 81; i++) sum_inputs_ref[3][i] = c[i];
         sum_ref[3] = ref_sum(c, clipv);
         crc = ref_crc16(sum_ref[3], crc);
 
@@ -192,6 +197,39 @@ module tb_mtx9_engine;
 
     int unsigned checks;
     int unsigned errors;
+    bit monitor_sum = 0;
+    int sum_pass, sum_element, sum_samples, busy_cycles;
+
+    // Check the actual recurrence input sequence, not just the final checksum:
+    // each pass must consume 81 ordered values and commit on the last token.
+    always @(posedge clk) begin
+        if (!rst && monitor_sum) begin
+            if (dut.busy_q) busy_cycles++;
+            if (dut.sum_value_valid_q) begin
+                if (sum_pass >= 4)
+                    $fatal(1, "extra sum token after all four passes");
+                if (dut.sum_value_q !== sum_inputs_ref[sum_pass][sum_element])
+                    $fatal(1, "sum pass %0d element %0d: got %08x expected %08x",
+                           sum_pass, sum_element, dut.sum_value_q,
+                           sum_inputs_ref[sum_pass][sum_element]);
+                if (dut.sum_value_last_q !== (sum_element == 80))
+                    $fatal(1, "last-item token misaligned at pass %0d element %0d",
+                           sum_pass, sum_element);
+                sum_samples++;
+                if (sum_element == 80) begin
+                    #1;
+                    if (dut.state_q !== dut.ST_CRC1 ||
+                        dut.sum_q[sum_pass] !== sum_ref[sum_pass] ||
+                        dut.crc_in_q !== sum_ref[sum_pass])
+                        $fatal(1, "sum/CRC commit misaligned at pass %0d", sum_pass);
+                    sum_pass++;
+                    sum_element = 0;
+                end else begin
+                    sum_element++;
+                end
+            end
+        end
+    end
 
     task automatic check32(input string name, input logic [31:0] got,
                            input logic [31:0] exp);
@@ -217,8 +255,17 @@ module tb_mtx9_engine;
         end
         host_wr(N_REG, 32'd9);
         host_wr(VAL,   {16'h0, val});
+        sum_pass = 0;
+        sum_element = 0;
+        sum_samples = 0;
+        busy_cycles = 0;
+        monitor_sum = 1;
         host_wr(CTRL,  32'd1);
         wait_done();
+        monitor_sum = 0;
+        if (sum_pass != 4 || sum_samples != 324)
+            $fatal(1, "case %0d: missing sum tokens (%0d passes, %0d values)",
+                   case_id, sum_pass, sum_samples);
 
         host_rd(CRC, d);
         check32("crc", {16'h0, d[15:0]}, {16'h0, crc_ref});
@@ -244,8 +291,38 @@ module tb_mtx9_engine;
             checks++;
         end
 
-        $display("case %0d: val=%04x crc=%04x %s",
-                 case_id, val, crc_ref, (errors == 0) ? "ok" : "ERROR");
+        $display("case %0d: val=%04x crc=%04x busy_cycles=%0d sum_tokens=%0d %s",
+                 case_id, val, crc_ref, busy_cycles, sum_samples,
+                 (errors == 0) ? "ok" : "ERROR");
+    endtask
+
+    task automatic abort_sum_pass(input int pass_index, input bit last_pending);
+        logic [4:0] drain_state;
+        case (pass_index)
+            0: drain_state = dut.ST_MUL_CONST_DR;
+            1: drain_state = dut.ST_SUM1_DR;
+            2: drain_state = dut.ST_SUM2_DR;
+            3: drain_state = dut.ST_SUM3_DR;
+            default: $fatal(1, "invalid test pass");
+        endcase
+        for (int j = 0; j < 81; j++) begin
+            host_wr(A_BASE + 4*j, {16'h0, A[j]});
+            host_wr(B_BASE + 4*j, {16'h0, B[j]});
+        end
+        host_wr(VAL, 32'hfff8);
+        host_wr(CTRL, 32'd1);
+        while (dut.state_q != drain_state ||
+               dut.sum_value_last_q != last_pending) @(negedge clk);
+        rst = 1;
+        @(negedge clk);
+        rst = 0;
+        repeat (3) begin
+            @(negedge clk);
+            if (dut.busy_q || dut.done_q || dut.sum_valid_q || dut.sum_value_valid_q)
+                $fatal(1, "stale sum token after reset in pass %0d", pass_index);
+        end
+        // A/B are reloaded because reset can interrupt an in-place A update.
+        run_case(200 + 2*pass_index + int'(last_pending), -16'sd8);
     endtask
 
     logic [31:0] seed;
@@ -295,18 +372,22 @@ module tb_mtx9_engine;
         end
         run_case(104, -16'sd8);
 
+        for (int pass_index = 0; pass_index < 4; pass_index++) begin
+            abort_sum_pass(pass_index, 0);
+            abort_sum_pass(pass_index, 1);
+        end
+
         $display("==============================================");
         if (errors == 0)
             $display("ALL TESTS PASSED: %0d checks - mtx9_engine", checks);
         else
-            $display("FAILED: %0d errors / %0d checks", errors, checks);
+            $fatal(1, "FAILED: %0d errors / %0d checks", errors, checks);
         $finish;
     end
 
     initial begin
         #20_000_000;
-        $display("TIMEOUT: mtx9_engine testbench");
-        $finish;
+        $fatal(1, "TIMEOUT: mtx9_engine testbench");
     end
 
 endmodule

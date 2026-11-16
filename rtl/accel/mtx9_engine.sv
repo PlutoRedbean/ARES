@@ -78,9 +78,9 @@ module mtx9_engine (
     // Two CRC cycles at the end of a pass (low byte, high byte).
     localparam logic [4:0] ST_CRC1       = 5'd16;
     localparam logic [4:0] ST_CRC2       = 5'd17;
-    // One extra cycle per matrix_sum pass: the A/C array output is registered
-    // before the multiply/accumulate stage.  This breaks the RAM -> multiplier
-    // -> 32-bit sum -> compare path that limited the SoC to ~108 MHz.
+    // Two drain cycles per matrix_sum pass: register the A/C read, then the
+    // product (or C bypass), before the sum/compare recurrence.  The last-item
+    // token travels with the data and ends each drain state.
     localparam logic [4:0] ST_MUL_CONST_DR = 5'd18;
     localparam logic [4:0] ST_SUM1_DR      = 5'd19;
     localparam logic [4:0] ST_SUM2_DR      = 5'd20;
@@ -278,10 +278,13 @@ module mtx9_engine (
     logic signed [31:0] sum_tmp, sum_prev;
     logic signed [31:0] sum_cur_q;
     logic               sum_valid_q;
+    logic               sum_mul_q, sum_last_q;
+    logic signed [31:0] sum_value_q;
+    logic               sum_value_valid_q, sum_value_last_q;
     logic signed [15:0] v_a_q, v_b_q;
     logic               v_valid_q;
     logic signed [15:0] sum_ret;
-    logic signed [31:0] sum_cur, sum_tmp_n, sum_tmp_n2, sum_prev_n;
+    logic signed [31:0] sum_tmp_n, sum_tmp_n2, sum_prev_n;
     logic signed [15:0] sum_ret_n;
     logic signed [15:0] clipval_s16;
     logic signed [31:0] clipval_s32;
@@ -580,50 +583,50 @@ module mtx9_engine (
         clipval_s16 = 16'hF000 | val_reg;
         clipval_s32 = {{16{clipval_s16[15]}}, clipval_s16};
 
-        unique case (state_q)
-            ST_MUL_CONST, ST_MUL_CONST_DR:
-                sum_cur = $signed(sum_cur_q) * $signed(val_reg);
-            ST_SUM1, ST_SUM1_DR, ST_SUM2, ST_SUM2_DR,
-            ST_SUM3, ST_SUM3_DR:
-                sum_cur = sum_cur_q;
-            default:
-                sum_cur = c_rd_data;
-        endcase
-
-        sum_tmp_n = sum_tmp + sum_cur;
+        sum_tmp_n = sum_tmp + sum_value_q;
         if (sum_tmp_n > clipval_s32) begin
             sum_ret_n  = sum_ret + 16'sd10;
             sum_tmp_n2 = 32'sd0;
         end else begin
-            sum_ret_n  = sum_ret + ((sum_cur > sum_prev) ? 16'sd1 : 16'sd0);
+            sum_ret_n  = sum_ret + ((sum_value_q > sum_prev) ? 16'sd1 : 16'sd0);
             sum_tmp_n2 = sum_tmp_n;
         end
-        sum_prev_n = sum_cur;
+        sum_prev_n = sum_value_q;
     end
 
-    // Sum-input pipeline register.  The RAM output is captured here so the
-    // multiplier / 32-bit accumulate / compare cone starts from a flop instead
-    // of from the distributed-RAM output.  ST_*_DR consumes the final element
-    // after the last RAM read; the state machine only adds one cycle per pass.
+    // Stage 1: capture each RAM element exactly once, including its operation
+    // and last-item marker.  Drain states do not issue additional elements.
     always_ff @(posedge clk) begin
         if (rst) begin
             sum_cur_q   <= 32'sd0;
             sum_valid_q <= 1'b0;
         end else begin
             if (state_q == ST_MUL_CONST)
-                sum_cur_q <= a_rd_data;
+                sum_cur_q <= {{16{a_rd_data[15]}}, a_rd_data};
             else if (state_q == ST_SUM1 || state_q == ST_SUM2 || state_q == ST_SUM3)
                 sum_cur_q <= c_rd_data;
 
             sum_valid_q <= (state_q == ST_MUL_CONST) ||
-                           (state_q == ST_MUL_CONST_DR) ||
                            (state_q == ST_SUM1) ||
-                           (state_q == ST_SUM1_DR) ||
                            (state_q == ST_SUM2) ||
-                           (state_q == ST_SUM2_DR) ||
-                           (state_q == ST_SUM3) ||
-                           (state_q == ST_SUM3_DR);
+                           (state_q == ST_SUM3);
         end
+    end
+
+    // Stage 2: keep the multiplier out of the feedback recurrence.  A holds
+    // signed int16 values; C bypasses the multiply without losing its 32 bits.
+    // Payload/markers need no reset because the valid bits qualify consumption.
+    always_ff @(posedge clk) begin
+        sum_mul_q        <= (state_q == ST_MUL_CONST);
+        sum_last_q       <= (idx == 7'd80);
+        sum_value_q      <= sum_mul_q
+                            ? $signed(sum_cur_q[15:0]) * $signed(val_reg)
+                            : sum_cur_q;
+        sum_value_last_q <= sum_last_q;
+        if (rst)
+            sum_value_valid_q <= 1'b0;
+        else
+            sum_value_valid_q <= sum_valid_q;
     end
 
     // Vector path pipeline: capture A and the bcol operand before the
@@ -705,14 +708,9 @@ module mtx9_engine (
             for (sum_i = 0; sum_i < 4; sum_i = sum_i + 1)
                 sum_q[sum_i] <= 16'sd0;
         end else begin
-            // Common pipeline-stage-2 update: only consume sum_cur_q on the
-            // cycle after the corresponding RAM read.  The first cycle of a
-            // sum state is the fill cycle and is ignored.
-            if (sum_valid_q &&
-                (state_q == ST_MUL_CONST || state_q == ST_MUL_CONST_DR ||
-                 state_q == ST_SUM1 || state_q == ST_SUM1_DR ||
-                 state_q == ST_SUM2 || state_q == ST_SUM2_DR ||
-                 state_q == ST_SUM3 || state_q == ST_SUM3_DR)) begin
+            // Stage 3 consumes one registered value per valid token.  The
+            // recurrence remains single-cycle; the two fill cycles are bubbles.
+            if (sum_value_valid_q) begin
                 sum_tmp  <= sum_tmp_n2;
                 sum_prev <= sum_prev_n;
                 sum_ret  <= sum_ret_n;
@@ -785,14 +783,16 @@ module mtx9_engine (
                 end
 
                 ST_MUL_CONST_DR: begin
-                    sum_q[0]         <= sum_ret_n;
-                    crc_in_q         <= sum_ret_n;
-                    crc_next_state_q <= ST_VECT;
-                    state_q          <= ST_CRC1;
-                    idx      <= 7'd0;
-                    vi       <= 4'd0;
-                    vj       <= 4'd0;
-                    v_acc    <= 32'sd0;
+                    if (sum_value_valid_q && sum_value_last_q) begin
+                        sum_q[0]         <= sum_ret_n;
+                        crc_in_q         <= sum_ret_n;
+                        crc_next_state_q <= ST_VECT;
+                        state_q          <= ST_CRC1;
+                        idx      <= 7'd0;
+                        vi       <= 4'd0;
+                        vj       <= 4'd0;
+                        v_acc    <= 32'sd0;
+                    end
                 end
 
                 ST_VECT: begin
@@ -827,13 +827,15 @@ module mtx9_engine (
                 end
 
                 ST_SUM1_DR: begin
-                    sum_q[1]         <= sum_ret_n;
-                    crc_in_q         <= sum_ret_n;
-                    crc_next_state_q <= ST_MATMUL;
-                    state_q          <= ST_CRC1;
-                    idx      <= 7'd0;
-                    mi       <= 4'd0;
-                    mk       <= 4'd0;
+                    if (sum_value_valid_q && sum_value_last_q) begin
+                        sum_q[1]         <= sum_ret_n;
+                        crc_in_q         <= sum_ret_n;
+                        crc_next_state_q <= ST_MATMUL;
+                        state_q          <= ST_CRC1;
+                        idx      <= 7'd0;
+                        mi       <= 4'd0;
+                        mk       <= 4'd0;
+                    end
                 end
 
                 ST_MATMUL: begin
@@ -883,13 +885,15 @@ module mtx9_engine (
                 end
 
                 ST_SUM2_DR: begin
-                    sum_q[2]         <= sum_ret_n;
-                    crc_in_q         <= sum_ret_n;
-                    crc_next_state_q <= ST_BITEXT;
-                    state_q          <= ST_CRC1;
-                    idx      <= 7'd0;
-                    mi       <= 4'd0;
-                    mk       <= 4'd0;
+                    if (sum_value_valid_q && sum_value_last_q) begin
+                        sum_q[2]         <= sum_ret_n;
+                        crc_in_q         <= sum_ret_n;
+                        crc_next_state_q <= ST_BITEXT;
+                        state_q          <= ST_CRC1;
+                        idx      <= 7'd0;
+                        mi       <= 4'd0;
+                        mk       <= 4'd0;
+                    end
                 end
 
                 ST_BITEXT: begin
@@ -934,11 +938,13 @@ module mtx9_engine (
                 end
 
                 ST_SUM3_DR: begin
-                    sum_q[3]         <= sum_ret_n;
-                    crc_in_q         <= sum_ret_n;
-                    crc_next_state_q <= ST_RESTORE;
-                    state_q          <= ST_CRC1;
-                    idx      <= 7'd0;
+                    if (sum_value_valid_q && sum_value_last_q) begin
+                        sum_q[3]         <= sum_ret_n;
+                        crc_in_q         <= sum_ret_n;
+                        crc_next_state_q <= ST_RESTORE;
+                        state_q          <= ST_CRC1;
+                        idx      <= 7'd0;
+                    end
                 end
 
                 ST_RESTORE: begin
