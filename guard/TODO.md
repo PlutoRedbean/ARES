@@ -1,4 +1,4 @@
-# TODO —— 按 docs/plan-pii-gateway.md 的路线
+# TODO —— 下一步清单（按里程碑分组）
 
 > 勾选以仓库实际状态为准；每完成一项，同时在 `docs/` 里补一句结论（数字要能复现）。
 
@@ -24,7 +24,7 @@
 - [x] 邮箱 / IPv4 / 车牌 / 统一社会信用代码
 - [x] `l1_engine` 顶层（5 引擎并行）+ 吞吐/延迟 cycle 基准（1 字节/拍，150 MB/s @150 MHz）
 - [x] 覆盖率：1000 例随机语料（2670 span）+ 43 例手工边界集，全部一致
-- [x] 结论写入 `docs/m1-results.md`
+- [x] 结论写入 `docs/board-uart.md`（板级设计与验证）
 
 ## M2 脱敏与审计
 
@@ -37,7 +37,7 @@
 - [ ] 连续三个以上号码被空格连在一起时，中间那个仍会丢（快照只保留"最后一个分隔符之前"的
       前缀，中间段的数字已经不在了）——要根治得缓存两段数字
 
-- [x] 审计 JSON（type/start/len/rule_id/action/档位）—— host 侧，见 `docs/m2-results.md`
+- [x] 审计 JSON（type/start/len/rule_id/action/档位）—— host 侧，见 `guard/README.md`
 - [x] 关键词提示（8 词并行匹配器；扩表时换 AC + BRAM，接口不变）
 - [x] 端到端 demo（`make demo`：RTL 检测 + 金标红action + 审计 JSON）
 - [x] 本机可跑入口 `./run.sh`（serve / demo / text / file / repl / report）+ `cli-smoke`

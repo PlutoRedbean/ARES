@@ -3,8 +3,7 @@
 > 2026-11-15。板级 RTL + PDS 流程 + Verilator 端到端仿真都已就位。
 > **只想上手操作**（出位流 → 烧写 → 串口验收）看
 > [board-bringup.md](board-bringup.md)；这份讲设计与验证细节。
-> 本文只讲**上板这一层**怎么用、怎么验，规则层/金标仍见 [m1-results.md](m1-results.md) /
-> [m2-results.md](m2-results.md)。
+> 本文只讲**上板这一层**怎么用、怎么验；规则层与金标见 [../README.md](../README.md)。
 >
 > 复现仿真：`cd guard && make board-sim`（18 个用例，位级 UART 在环）。
 

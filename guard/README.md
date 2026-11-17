@@ -3,7 +3,7 @@
 部署在数据源头、在文本离开设备前完成脱敏的分层降级网关原型。目标平台盘古 200Pro+
 （PG2L200H），控制面复用 ARES 单发射流水核，数据面在 miniTensor 上扩展。
 
-规划与预算见 [docs/plan-pii-gateway.md](docs/plan-pii-gateway.md)。
+路线与预算见 `TODO.md`。
 **只想上手**：PC 上 `./run.sh demo`；板子上看 [docs/board-bringup.md](docs/board-bringup.md)。
 
 ## 当前状态（2026-11-15）
@@ -13,7 +13,7 @@
 | 本机开发平台（仿真/金标/语料/一致性测试） | ✅ 就绪 |
 | L1 规则层：身份证 18/15、手机、银行卡、邮箱、IPv4、USCC、车牌 | ✅ 1000 例 / 2670 span 全一致，另 43 例手工边界 |
 | 顶层 `l1_engine`（5 引擎并行）+ 吞吐基准 | ✅ 1 字节/拍，150 MB/s @150 MHz（吞吐折算，非 Fmax） |
-| 红action 金标：重叠合并 + token/mask + 审计 JSON | ✅ M2，见 [docs/m2-results.md](docs/m2-results.md) |
+| 红action 金标：重叠合并 + token/mask + 审计 JSON | ✅ |
 | 关键词提示（8 词，金标 + RTL 并行匹配） | ✅ 108 例一致 |
 | 端到端 demo（文本进 → 脱敏 + 审计 JSON，RTL 检测在环） | ✅ `make demo` |
 | RTL 合并 + mask 替换器（`l1_redact_top`，1 字节/拍） | ✅ 1000 例字节+审计全一致 |
@@ -108,9 +108,6 @@ python guard\tools\serial_host.py -p COM5 --file guard\examples\sample.txt --che
 
 | 文档 | 内容 |
 |---|---|
-| [docs/plan-pii-gateway.md](docs/plan-pii-gateway.md) | 可行性、资源/带宽预算、里程碑、风险 |
-| [docs/m1-results.md](docs/m1-results.md) | L1 规则层结论与数字、规则边界、修掉的 bug |
-| [docs/m2-results.md](docs/m2-results.md) | 合并/替换/审计/关键词/端到端 demo |
 | [docs/board-uart.md](docs/board-uart.md) | 上板设计与验证：串口协议、三个机制、资源时序、PDS 流程、这一轮修掉的问题 |
 | [docs/board-bringup.md](docs/board-bringup.md) | **上板操作手册**：出位流 → 烧写 → 串口第一测 → 验收 → 故障表 |
 | [TODO.md](TODO.md) | 按路线的任务清单 |
