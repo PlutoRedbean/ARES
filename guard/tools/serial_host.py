@@ -109,6 +109,24 @@ def _wait_for(pred, deadline: float, step: float = 0.002) -> bool:
     return pred()
 
 
+def next_chunk_end(gates: list[int], i: int, avail: int, chunk: int = CHUNK) -> int:
+    """从第 i 个字节开始，能立刻写出的结束下标（左闭右开）。
+
+    `gates[k]` = "发第 k 个字节之前，至少要收到多少字节"。写的时候不能越过
+    放行范围，否则会把板上 RX FIFO 灌爆。返回 `i` 表示一个都放行不了（要等）。
+
+    这个函数单独拎出来是为了可测：真实板的第一次上板就是栽在这里——原来按
+    "这一块最后一个字节的门槛"等，第一块还没发出去就要求已经收到回读，直接
+    死等到超时（已写 0/375 B）。仿真 TB 用自己的 .pace 逻辑，绕过了这段代码，
+    所以只有上板才能暴露。
+    """
+    n = len(gates) - 1                      # gates 末尾多一个，对应"发完"
+    j = i
+    while j < n and (j - i) < chunk and gates[j] <= avail:
+        j += 1
+    return j
+
+
 def send_and_collect(ser, data: bytes, *, baud: int, pace: bool, expect: bytes | None) -> bytes:
     """按回读节奏把 data 发出去，返回收到的字节流。"""
     reader = Reader(ser)
@@ -120,14 +138,18 @@ def send_and_collect(ser, data: bytes, *, baud: int, pace: bool, expect: bytes |
 
         i = 0
         while i < len(data):
-            j = min(i + CHUNK, len(data))
-            # 这一块最后那个字节的门槛：先等它满足，再整块写出去
-            if gates[j - 1] > 0:
-                if not _wait_for(lambda g=gates[j - 1]: reader.count() >= g, deadline):
+            # 门槛是"发第 k 个字节之前至少要收到多少字节"。按当前回读量
+            # 能放行多少就写多少（最多 CHUNK），不要写超过放行范围的字节——
+            # 否则会把板上 RX FIFO 灌爆（ovf=1）。
+            j = next_chunk_end(gates, i, reader.count())
+            if j == i:
+                # 一个都放行不了：等这个字节的门槛
+                if not _wait_for(lambda g=gates[i]: reader.count() >= g, deadline):
                     raise SystemExit(
-                        f"等回读超时（已写 {i}/{len(data)} B，收到 {reader.count()} B）。"
-                        "板子在正常跑吗？串口/波特率对吗？"
+                        f"等回读超时（已写 {i}/{len(data)} B，收到 {reader.count()} B，"
+                        f"门槛 {gates[i]} B）。板子在正常跑吗？串口/波特率对吗？"
                     )
+                continue
             ser.write(data[i:j])
             ser.flush()
             i = j

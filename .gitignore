@@ -42,6 +42,9 @@ __pycache__/
 .coverage
 htmlcov/
 
+# ---- Pango PDS/IDE 的解析缓存（每次跑 PDS 会重新生成） ----
+.dide/
+
 # ---- editors / os ----
 .vscode/
 .idea/

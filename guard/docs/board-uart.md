@@ -47,6 +47,7 @@
 | 关键词提示上板 | ✅ | 摘要行里带 `kw=`（命中次数）与 `kwm=`（位图） |
 | 降级档位输出头 | ✅ | 摘要行 `mode=1`（T1：L1 生效）；T0 直通开关预留 |
 | 3 Mbaud 通路 | ✅ 仿真 | `make board-sim-3m`（8× 过采样，18 例全过）；要 USB-UART 支持 3 Mbaud |
+| **真板验收** | ✅ 2026-11-17 | USB-UART 枚举成 **CP210x → COM9**；`sample.txt` **PASS 1229/1229 B**，5 倍拼接 **PASS 6145/6145 B**（35 帧、无 ovf） |
 
 ---
 
@@ -407,6 +408,30 @@ TB 和 `serial_host.py` 共用；同时把空闲冲刷从 40 位时间提到 300
 这四条都写进了脚本和 [board-bringup.md](board-bringup.md) §6 的故障表。
 
 ---
+
+### 10.8 2026-11-17：第一次上板（真板）暴露的上位机 bug
+
+位流烧进去、`led[7]` 常亮、发 `abc` 立刻回 `abc\r\n` + 摘要行 —— 但
+`serial_host.py -p COM9 --file examples/sample.txt --check` 报
+`等回读超时（已写 0/375 B，收到 0 B）`。
+
+原因在**上位机的 pace 循环**：原来按"这一块最后一个字节的门槛"等待，第一块
+64 字节还没发出去，就要求已经收到 61 B 回读（门槛按 `k - lag` 算），直接自己
+锁死。仿真 TB 用的是自己的 `.pace` 文件逻辑，完全绕过了这段代码，所以
+`make board-sim` 全绿也照样有这个 bug —— **只有真板能暴露**。
+
+修法：门槛按**即将写的那个字节** `gates[i]` 判断，并且"当前回读量能放行多少
+就写多少"（新增纯函数 `next_chunk_end`），并用 `tests/test_serial_pace.py`
+5 个单测钉住（含"第一个字节不得有回读前提"）。
+
+修完的结果：
+
+```
+$ python tools/serial_host.py -p COM9 --file examples/sample.txt --check
+PASS  收到 1229 B，期望 1229 B
+$ python tools/serial_host.py -p COM9 --file build_bulk.txt --check   # 375 B x 5
+PASS  收到 6145 B，期望 6145 B
+```
 
 ### 10.7 2026-11-17：把时钟从 10 MHz 抬到 25 MHz（+ 摘要行 v2）
 

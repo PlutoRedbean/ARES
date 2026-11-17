@@ -75,7 +75,10 @@
 - [ ] `l1_merge` 的 5 路插入流水化（现在是整板最深的 31.5 ns；做完能上 50 MHz）
 - [x] 位级端到端仿真 `make board-sim`（18 例 / 10491 B 输入 / 309 span，逐字节一致）
 - [x] 上位机 `tools/serial_host.py`（发文本 / 读回 / `--check` / 审计 JSON / pace 流控）
-- [ ] 真板子跑一遍 §8 验收清单（回环、sample.txt `--check`、ovf 触发）
+- [x] 真板验收（2026-11-17）：USB-UART 枚举成 CP210x → **COM9**，
+      `sample.txt --check` **PASS 1229/1229 B**，5 倍拼接 **PASS 6145/6145 B**
+      （35 帧、ovf 全 0）；顺带修掉上位机 pace 死锁（board-uart.md §10.8）。
+      **还没测**：`--no-pace` 灌爆触发 `ovf=001`、拔插/复位后的行为
 - [x] 3 Mbaud **仿真**通路：OV 从 16 降到 8，`make board-sim-3m`（同一套 18 例，位时间
       9 个 27 MHz 周期）全过
 - [ ] 3 Mbaud **板级环回**：要 USB-UART 支持 3 Mbaud（FT232 可以，CH340/CP2102 不行）
