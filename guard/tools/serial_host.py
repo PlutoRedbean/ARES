@@ -146,8 +146,8 @@ def send_and_collect(ser, data: bytes, *, baud: int, pace: bool, expect: bytes |
                 # 一个都放行不了：等这个字节的门槛
                 if not _wait_for(lambda g=gates[i]: reader.count() >= g, deadline):
                     raise SystemExit(
-                        f"等回读超时（已写 {i}/{len(data)} B，收到 {reader.count()} B，"
-                        f"门槛 {gates[i]} B）。板子在正常跑吗？串口/波特率对吗？"
+                        f"Read-back timeout (wrote {i}/{len(data)} B, received {reader.count()} B, "
+                        f"gate {gates[i]} B). Is the board alive? Right port/baud?"
                     )
                 continue
             ser.write(data[i:j])
@@ -177,9 +177,9 @@ def send_and_collect(ser, data: bytes, *, baud: int, pace: bool, expect: bytes |
 def show(raw: bytes, *, quiet: bool = False, as_json: str | None = None) -> int:
     text, reports = split_stream(raw)
     if not quiet:
-        print("── 板子回显（脱敏后）" + "─" * 40)
+        print("── masked echo from the board " + "─" * 36)
         sys.stdout.write(text.decode("utf-8", "replace").rstrip("\r\n") + "\n")
-        print("\n── 审计行（板子发的）" + "─" * 38)
+        print("\n── audit line(s) from the board " + "─" * 34)
         if reports:
             print(f"{'#':>2}  {'n':>4}  {'id18':>4} {'id15':>4} {'mob':>4} {'bank':>4} "
                   f"{'mail':>4} {'ipv4':>4} {'uscc':>4} {'plate':>5}  {'kw':>3} {'kwm':>3} ovf mode")
@@ -189,18 +189,18 @@ def show(raw: bytes, *, quiet: bool = False, as_json: str | None = None) -> int:
                       f"{r.get('ipv4',0):>4} {r.get('uscc',0):>4} {r.get('plate',0):>5}  "
                       f"{r.get('kw',0):>3} {r.get('kwm',0):>3}  {r['ovf']:>3} {r.get('mode',1):>4}")
         else:
-            print("(没有收到审计行)")
+            print("(no audit line received)")
         flags = [i for i, r in enumerate(reports, 1) if r.get("ovf")]
         if flags:
-            print(f"\n⚠ 第 {flags} 行 ovf=1：板子报过错（RX FIFO 溢出 / 输出丢字节）。"
-                  "多半是上位机发太快，去掉 --no-pace 再试。")
+            print(f"\n!! audit line(s) {flags} report ovf=1 (RX FIFO overflow / dropped bytes)."
+                  " The host probably sent too fast; drop --no-pace and retry.")
     else:
         sys.stdout.buffer.write(text)
 
     if as_json:
         Path(as_json).write_text(json.dumps(reports, ensure_ascii=False, indent=2) + "\n",
                                  encoding="utf-8")
-        print(f"\n审计行已写入 {as_json}")
+        print(f"\nAudit written to {as_json}")
     return 0 if not any(r.get("ovf") for r in reports) else 1
 
 
@@ -208,7 +208,7 @@ def cmd_ports() -> int:
     _, list_ports = _import_serial()
     ports = list(list_ports.comports())
     if not ports:
-        print("没有发现串口。")
+        print("No serial port found.")
         return 1
     for p in ports:
         print(f"{p.device:12s} {p.description}")
@@ -224,26 +224,42 @@ def run_text(args, data: bytes) -> int:
     except SystemExit:
         raise
     except Exception as exc:  # noqa: BLE001
-        raise SystemExit(f"串口打开/读写失败：{exc}") from exc
+        raise SystemExit(f"Cannot open/read serial port: {exc}") from exc
 
     rc = show(raw, quiet=args.raw and args.quiet, as_json=args.json)
     if args.raw:
-        print("── 原始字节 " + "─" * 46)
+        print("── raw bytes " + "─" * 49)
         print(raw.hex(" "))
 
     if expect is not None:
         ok = raw == expect
-        print(f"\n── 校验 " + "─" * 48)
-        print(f"{'PASS' if ok else 'FAIL'}  收到 {len(raw)} B，期望 {len(expect)} B")
+        print(f"\n── verify " + "─" * 52)
+        print(f"{'PASS' if ok else 'FAIL'}  received {len(raw)} B, expected {len(expect)} B")
         if not ok:
             n = min(len(raw), len(expect))
             bad = next((i for i in range(n) if raw[i] != expect[i]), n)
-            print(f"  第一个不同：偏移 {bad}")
-            print(f"  期望: {expect[max(0,bad-16):bad+16]!r}")
-            print(f"  收到: {raw[max(0,bad-16):bad+16]!r}")
+            print(f"  first difference at offset {bad}")
+            print(f"  expected: {expect[max(0,bad-16):bad+16]!r}")
+            print(f"  received: {raw[max(0,bad-16):bad+16]!r}")
             return 1
     return rc
 
+
+LOGO = r"""
+    _    ____  _____ ____     ____ _   _    _    ____  ____
+   / \  |  _ \| ____/ ___|   / ___| | | |  / \  |  _ \|  _ \
+  / _ \ | |_) |  _| \___ \  | |  _| | | | / _ \ | |_) | | | |
+ / ___ \|  _ <| |___ ___) | | |_| | |_| |/ ___ \|  _ <| |_| |
+/_/   \_\_| \_\_____|____/   \____|\___//_/   \_\_| \_\____/
+"""
+
+TAGLINE = "  PII redaction, on the wire - UART in, masked text + audit out"
+
+
+def print_logo(out=None) -> None:
+    """Demo splash. Pure ASCII so it renders in any terminal or log file."""
+    stream = out or sys.stdout
+    stream.write("\n" + LOGO.lstrip("\n") + TAGLINE + "\n\n")
 
 SHELLISH = ("python", "python3", "powershell", "pwsh", "cmd", "cd", "dir", "ls",
             "git", "pip", "make", "wsl")
@@ -257,12 +273,13 @@ def _looks_like_shell(line: str) -> bool:
 
 def cmd_repl(args) -> int:
     serial, _ = _import_serial()
-    bar = "─" * 62
+    bar = "─" * 66
+    print_logo()
     print(bar)
-    print(f" guard 板级交互 —— {args.port} @ {args.baud} 8N1（输入的是**文本**，不是 shell 命令）")
-    print(" · 直接键入文字，按回车发送 → 板子回显脱敏结果 + 一行审计")
-    print(" · 退出：单独的 :q（或 Ctrl-C / Ctrl-D）；空行 = 发一个空帧")
-    print(" · 中文按 UTF-8 发，逐字节进 L1；板子按回车（LF）切帧")
+    print(f" interactive mode - {args.port} @ {args.baud} 8N1  (you type TEXT, not shell commands)")
+    print(" - type a line, press Enter -> the board echoes masked text + one audit line")
+    print(" - quit: :q (also Ctrl-C / Ctrl-D); an empty line sends an empty frame")
+    print(" - UTF-8 goes in byte by byte; the board frames on Enter (LF)")
     print(bar)
     with serial.Serial(args.port, args.baud, timeout=0.05, write_timeout=5) as ser:
         while True:
@@ -275,46 +292,45 @@ def cmd_repl(args) -> int:
             if s in (":q", "quit", "exit"):
                 break
             if not s:
-                print("（空行退出）")
+                print("(empty line - bye)")
                 break
             if _looks_like_shell(line):
-                print("  这看起来是 shell 命令 —— 你现在在 guard 的交互里，"
-                      "板子只会把它当文本发出去。")
-                print("  先 :q 退出，再在 PowerShell 里运行它。")
+                print("  That looks like a shell command. You are inside the guard REPL;")
+                print("  the board would just receive it as text. Type :q first, then run it.")
                 continue
             data = (line + "\n").encode("utf-8")
             raw = send_and_collect(ser, data, baud=args.baud, pace=True, expect=None)
             if not raw:
-                print("  （没收到任何回读：板子上电了吗？位流烧了吗？COM 口对吗？）")
+                print("  (no read-back: board powered? bitstream loaded? right COM port?)")
             else:
                 show(raw)
                 print()
-    print("已断开。")
+    print("Disconnected.")
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
     _stdout_utf8()
     ap = argparse.ArgumentParser(
-        prog="serial_host", description="guard 板级串口上位机（发文本、收脱敏结果与审计行）"
+        prog="serial_host", description="ARES GUARD host tool: send text, read masked text + audit"
     )
-    ap.add_argument("-p", "--port", help="串口号，如 COM3 / /dev/ttyUSB0")
-    ap.add_argument("-b", "--baud", type=int, default=115200, help="波特率（默认 115200）")
-    ap.add_argument("--text", help="发一行文本（自动补换行）")
-    ap.add_argument("--file", help="发一个文件的全部内容（每行一帧）")
-    ap.add_argument("--repl", action="store_true", help="交互模式")
-    ap.add_argument("--check", action="store_true", help="和板级金标逐字节比对")
-    ap.add_argument("--json", help="把审计行写成 JSON")
-    ap.add_argument("--raw", action="store_true", help="打印原始字节（hex）")
-    ap.add_argument("-q", "--quiet", action="store_true", help="只打印脱敏文本")
-    ap.add_argument("--no-pace", action="store_true", help="不按回读节奏发（可能溢出）")
-    ap.add_argument("--ports", action="store_true", help="列出串口后退出")
+    ap.add_argument("-p", "--port", help="serial port, e.g. COM9 / /dev/ttyUSB0")
+    ap.add_argument("-b", "--baud", type=int, default=115200, help="baud rate (default 115200)")
+    ap.add_argument("--text", help="send one line of text (newline appended)")
+    ap.add_argument("--file", help="send a whole file (one frame per line)")
+    ap.add_argument("--repl", action="store_true", help="interactive mode")
+    ap.add_argument("--check", action="store_true", help="compare byte for byte with the golden model")
+    ap.add_argument("--json", help="write the audit lines as JSON")
+    ap.add_argument("--raw", action="store_true", help="also dump raw bytes (hex)")
+    ap.add_argument("-q", "--quiet", action="store_true", help="print masked text only")
+    ap.add_argument("--no-pace", action="store_true", help="do not pace by read-back (may overflow)")
+    ap.add_argument("--ports", action="store_true", help="list serial ports and exit")
     args = ap.parse_args(argv)
 
     if args.ports:
         return cmd_ports()
     if not args.port:
-        ap.error("需要 --port（或用 --ports 看有哪些串口）")
+        ap.error("need --port (or --ports to list them)")
     if args.repl:
         return cmd_repl(args)
     if args.file:
