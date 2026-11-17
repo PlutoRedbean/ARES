@@ -45,6 +45,8 @@ module guard_uart_core #(
     parameter int LF_TO_CRLF = 1,          // 输出把 LF 补成 CRLF（终端友好）
     parameter int REPORT_EN  = 1,          // 每帧结束回一行审计摘要
     parameter int IDLE_BITS  = 300000,      // 空闲多少个位时间后强制冲刷（≈2.6 s @115200）
+    parameter int TERM_CHAR  = 8'h0A,       // 帧结束字符（默认 LF；0x04 = Ctrl-D 也行）
+    parameter int TERM_KEEP  = 1,           // 结束字符是否算进脱敏文本（LF 保留 → CRLF）
     parameter int MODE_T1    = 1            // 档位：1 = T1（L1 生效）；0 = T0（直通，预留）
 ) (
     input  logic       clk,
@@ -246,8 +248,15 @@ module guard_uart_core #(
     assign flow_ok   = (sum_level <= {7'd0, LIMIT}) && (inflight < 16'd128);
     assign accept    = (fst == F_RUN) && !rxq_empty && flow_ok;
 
+    // 帧结束字符：LF 一定算（行协议），外加可配置的 TERM_CHAR。
+    // TERM_KEEP=0 时结束字符只用于判定结束，不进脱敏文本、也不回显。
+    localparam logic [7:0] TERM_BYTE = TERM_CHAR[7:0];
+    wire is_term_byte = (rxq_dout == TERM_BYTE);
+    wire is_term      = is_term_byte || (rxq_dout == 8'h0A);
+    wire pass_char    = accept && ((TERM_KEEP != 0) || !is_term_byte);
+
     assign rxq_pop  = accept;
-    assign in_valid = accept;
+    assign in_valid = pass_char;
     assign in_char  = rxq_dout;
     assign in_last  = in_last_r;
 
@@ -356,10 +365,10 @@ module guard_uart_core #(
             // ---- 帧状态机 ----
             case (fst)
                 F_RUN: begin
-                    if (accept) begin
+                    if (pass_char) begin
                         frame_bytes <= frame_bytes + 8'd1;
                     end
-                    if (accept && (in_char == 8'h0A)) begin
+                    if (accept && is_term) begin
                         fst       <= F_FLUSH;
                         in_last_r <= 1'b1;
                     end else if (idle_flush) begin

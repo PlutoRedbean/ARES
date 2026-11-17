@@ -127,13 +127,15 @@ def next_chunk_end(gates: list[int], i: int, avail: int, chunk: int = CHUNK) -> 
     return j
 
 
-def send_and_collect(ser, data: bytes, *, baud: int, pace: bool, expect: bytes | None) -> bytes:
+def send_and_collect(ser, data: bytes, *, baud: int, pace: bool, expect: bytes | None,
+                    term: int = 0x0A, keep: bool = True) -> bytes:
     """按回读节奏把 data 发出去，返回收到的字节流。"""
     reader = Reader(ser)
     reader.start()
     try:
         reader.clear()
-        gates = output_thresholds(data) if pace else [0] * (len(data) + 1)
+        gates = (output_thresholds(data, term=term, keep=keep) if pace
+                 else [0] * (len(data) + 1))
         deadline = time.monotonic() + len(data) * 10.0 / baud + 30.0
 
         i = 0
@@ -217,10 +219,13 @@ def cmd_ports() -> int:
 
 def run_text(args, data: bytes) -> int:
     serial, _ = _import_serial()
-    expect = expected_stream(data) if args.check else None
+    term = _term_byte(args.term)
+    keep = not args.drop_term
+    expect = expected_stream(data, term=term, keep=keep) if args.check else None
     try:
         with serial.Serial(args.port, args.baud, timeout=0.05, write_timeout=5) as ser:
-            raw = send_and_collect(ser, data, baud=args.baud, pace=not args.no_pace, expect=expect)
+            raw = send_and_collect(ser, data, baud=args.baud, pace=not args.no_pace,
+                                   expect=expect, term=term, keep=keep)
     except SystemExit:
         raise
     except Exception as exc:  # noqa: BLE001
@@ -262,6 +267,16 @@ def cmd_repl(args) -> int:
     return 0
 
 
+def _term_byte(s: str) -> int:
+    try:
+        v = int(s, 16)
+    except ValueError:
+        raise SystemExit(f"--term 要两位十六进制，例如 0a / 04 / 1a（收到 {s!r}）") from None
+    if not 0 <= v <= 0xFF:
+        raise SystemExit("--term 必须是 0x00..0xFF")
+    return v
+
+
 def main(argv: list[str] | None = None) -> int:
     _stdout_utf8()
     ap = argparse.ArgumentParser(
@@ -277,6 +292,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--raw", action="store_true", help="打印原始字节（hex）")
     ap.add_argument("-q", "--quiet", action="store_true", help="只打印脱敏文本")
     ap.add_argument("--no-pace", action="store_true", help="不按回读节奏发（可能溢出）")
+    ap.add_argument("--term", default="0a",
+                    help="帧结束字符（两位十六进制，默认 0a = LF；0x04 = Ctrl-D）")
+    ap.add_argument("--drop-term", action="store_true",
+                    help="结束字符不算进正文（板子要按 TERM_KEEP=0 出位流）")
     ap.add_argument("--ports", action="store_true", help="列出串口后退出")
     args = ap.parse_args(argv)
 
@@ -290,8 +309,16 @@ def main(argv: list[str] | None = None) -> int:
         data = Path(args.file).read_bytes()
     elif args.text is not None:
         data = args.text.encode("utf-8")
-        if not data.endswith(b"\n"):
-            data += b"\n"
+        term = _term_byte(args.term)
+        if not args.drop_term:
+            # 保留结束字符：默认补 LF；--term 指定了别的就补那个
+            if term == 0x0A:
+                if not data.endswith(b"\n"):
+                    data += b"\n"
+            elif not data.endswith(bytes([term])):
+                data += bytes([term])
+        else:
+            data += bytes([term])
     else:
         ap.error("需要 --text / --file / --repl 之一")
     return run_text(args, data)

@@ -57,7 +57,7 @@
 
 | 资源 | 用量 | 器件占比 | plan 预算 |
 |---|---|---|---|
-| LUT | **3,893** | 2.44% | 12–15k |
+| LUT | **3,889** | 2.43% | 12–15k |
 | FF | **2,113** | 0.66% | — |
 | DRM36K | **0.5** | 0.12% | 25 |
 | APM（18×18） | **10** | 1.35% | 0–8 |
@@ -66,9 +66,9 @@
 | 时序 | 结果 |
 |---|---|
 | 时钟 | 27 MHz（D18）→ GTP_GPLL（VCO 1000 / 40）→ **25 MHz** 核心 |
-| 最差 setup slack（WNS） | **+5.0 ns（MET）**，TNS = 0 |
+| 最差 setup slack（WNS） | **+4.8 ns（MET）**，TNS = 0 |
 | 最差 hold slack（WHS） | +0.037 ns（MET），THS = 0 |
-| 推算 Fmax | ≈ 28.7 MHz（40 ns − 5.0 ns） |
+| 推算 Fmax | ≈ 28.7 MHz（40 ns − 4.8 ns） |
 
 位流：`guard/generate_bitstream/guard_board_top.sbit`。
 
@@ -102,7 +102,7 @@ IPv4 维护 `grp/ndig/val/lead/bad`，USCC 维护 16 位加权和 + 是否含字
 语义与金标逐条一致，由 1000 例语料 + 43 例边界 + 200 例端到端兜住。
 
 结果：文本块 **−37.9 ns → +22.4 ns**；整板 27 MHz 只剩 merge 的 31.5 ns 路径，
-25 MHz（40 ns）下 **WNS +5.0 ns**、LUT 从 6,912 降到 3,893、FF 从 2,578 降到 2,113、APM 37 → 10。
+25 MHz（40 ns）下 **WNS +4.8 ns**、LUT 从 6,912 降到 3,889、FF 从 2,578 降到 2,113、APM 37 → 10。
 25 MHz + 8× 过采样还能跑 3 Mbaud（`make board-sim-3m` 已验证）。
 
 下一步还可以把 `l1_merge` 的 5 路插入拆成流水（现在是整板最深的 31.5 ns），
@@ -185,8 +185,15 @@ IPv4 维护 `grp/ndig/val/lead/bad`，USCC 维护 16 位加权和 + 是否含字
 
 | 触发 | 说明 |
 |---|---|
-| 收到 `LF`（0x0A） | 立即结束当前帧 —— 交互/按行发送走这条 |
-| 空闲 ≥ `IDLE_BITS` 位时间 | 兜底：最后一行没有换行也能出结果（≈2.6 s @115200，够慢慢打字） |
+| 收到 `LF`（0x0A） | 立即结束当前帧；LF 本身**留在正文里**（输出时变 CRLF）—— 按行发送走这条 |
+| 收到 `TERM_CHAR`（板子默认 **0x04 = Ctrl-D**） | 立即结束当前帧；`TERM_KEEP=0` 时这个字符**不进正文、也不回显**，纯当结束符 |
+| 空闲 ≥ `IDLE_BITS` 位时间 | 兜底：没有结束符也能出结果（≈2.6 s @115200，够慢慢打字） |
+
+`TERM_CHAR` / `TERM_KEEP` 是 `guard_board_top` 的参数（默认 `0x04` / `0`）：
+想换别的结束符（例如 `0x1A` Ctrl-Z）改参数重出位流即可；改回 `0x0A`/`1` 就是纯按行模式。
+
+所以互动打字的用法是：**随便敲，敲完按 Ctrl-D** —— 板子立刻吐出这一段的脱敏结果 + 一行摘要，
+正文里不会多出那个 Ctrl-D（`serial_host.py --term 04 --drop-term` 走的就是这条）。
 
 一帧结束后依次输出：本帧 mask 后的文本 → 一行审计摘要。
 **摘要行固定格式**（计数一律 3 位零填充、超过 255 截到 255；档位是 1 位）：
@@ -244,6 +251,7 @@ python3 tools/serial_host.py -p COM3 --text "手机 13800138000"
 python3 tools/serial_host.py -p COM3 --file examples/sample.txt --check
 python3 tools/serial_host.py -p COM3 --file examples/sample.txt --check --json audit.json
 python3 tools/serial_host.py -p COM3 --repl
+python3 tools/serial_host.py -p COM9 --term 04 --drop-term --text "手机 13800138000" --check
 ```
 
 | 选项 | 作用 |
@@ -438,7 +446,7 @@ PASS  收到 6145 B，期望 6145 B
 1. **分块时序定位**：整板 −38.2 ns 时先把 digit / merge / text 各自做成顶层量一遍，
    发现是 `l1_text_engines`（−37.9 ns）。教训：别猜，逐块量。
 2. **三个文本引擎重写成逐字节增量校验**（邮箱/IPv4/USCC），文本块 −37.9 → +22.4 ns；
-   整板 25 MHz 收敛（+5.0 ns），LUT 6,912 → 3,893、FF 2,578 → 2,113、APM 37 → 10。
+   整板 25 MHz 收敛（+4.8 ns），LUT 6,912 → 3,889、FF 2,578 → 2,113、APM 37 → 10。
    重写过程中踩到两个 RTL 平移 bug（新游程忘了置 `run_q`、命中没按 `run_q` 门控），
    都是 1000 例向量立刻抓出来的——这类错误光看"模型对着金标"是抓不到的
    （模型对 ≠ RTL 对）。

@@ -72,18 +72,38 @@ def expand_lf(data: bytes) -> bytes:
     return data.replace(b"\n", b"\r\n")
 
 
-def split_frames(data: bytes) -> list[bytes]:
-    """按板子的规则切帧：每个 LF 结束一帧，末尾残余算最后一帧。"""
-    frames: list[bytes] = []
+def frames_with_spans(
+    data: bytes, term: int = LF, keep: bool = True
+) -> list[tuple[bytes, int]]:
+    """切帧，同时给出每帧"吃掉了多少个输入字节"。
+
+    板子的帧结束条件（guard_uart_core）：**LF 一定算**，外加可配置的结束字符
+    `TERM_CHAR`（默认也是 LF）。`keep=False`（TERM_KEEP=0）时结束字符只用于
+    判定结束、不进脱敏文本，但它仍然消耗一个输入字节 —— 所以这里把"消耗的
+    输入字节数"单独返回，供 pace 门槛按输入下标对齐。
+    """
+    out: list[tuple[bytes, int]] = []
     cur = bytearray()
-    for b in data:
+    start = 0
+    for i, b in enumerate(data):
+        if b == term and not keep:
+            out.append((bytes(cur), i + 1 - start))
+            start = i + 1
+            cur = bytearray()
+            continue
         cur.append(b)
-        if b == LF:
-            frames.append(bytes(cur))
+        if b == LF or b == term:
+            out.append((bytes(cur), i + 1 - start))
+            start = i + 1
             cur = bytearray()
     if cur:
-        frames.append(bytes(cur))
-    return frames
+        out.append((bytes(cur), len(data) - start))
+    return out
+
+
+def split_frames(data: bytes, term: int = LF, keep: bool = True) -> list[bytes]:
+    """按板子的规则切帧（只看载荷，丢掉"吃了多少输入字节"的信息）。"""
+    return [f for f, _ in frames_with_spans(data, term=term, keep=keep)]
 
 
 def kw_stats(frame: bytes) -> tuple[int, int]:
@@ -117,14 +137,14 @@ def frame_stream(frame: bytes, policy: str = "mask", at_line_start: bool = True)
     return expand_lf(bytes(out))
 
 
-def expected_stream(data: bytes, policy: str = "mask") -> bytes:
+def expected_stream(data: bytes, policy: str = "mask", term: int = LF, keep: bool = True) -> bytes:
     """整段输入（可含多帧）对应的完整 TX 字节流。
 
     注意：摘要行在模型里也只写 LF，最后统一 expand_lf —— 与 RTL 一致
     （CR 由 core 的 LF→CRLF 整形补，RTL 侧自己再写 CR 会变成 \r\r\n）。
     """
     out = bytearray()
-    for frame in split_frames(data):
+    for frame in split_frames(data, term=term, keep=keep):
         red, audits = redact(frame, policy=policy)
         kw, kwm = kw_stats(frame)
         out += red
@@ -138,7 +158,8 @@ def expected_stream(data: bytes, policy: str = "mask") -> bytes:
 ECHO_LAG = 66
 
 
-def output_thresholds(data: bytes, slack: int = 32, lag: int = ECHO_LAG) -> list[int]:
+def output_thresholds(data: bytes, slack: int = 32, lag: int = ECHO_LAG,
+                      term: int = LF, keep: bool = True) -> list[int]:
     """每个输入字节的"发送门槛"：已经收到这么多**输出**字节，才能发第 i 个。
 
     为什么需要：摘要行让输出字节数 > 输入字节数（一帧 130 字节的文本会多出
@@ -148,14 +169,13 @@ def output_thresholds(data: bytes, slack: int = 32, lag: int = ECHO_LAG) -> list
     门槛 = 已完成帧的**全部**输出（文本 + 摘要 + LF→CRLF） + 本帧已回显的文本，
     再减掉 slack。帧内用 acc[j - lag] 是因为脱敏器的回声比输入滞后 66 字节
     （l1_redactor 的 64+2 窗口）；不减这个 lag 会把自己锁死（等不到回声）。
-    帧尾把摘要也计入，于是"发下一帧之前先把上一帧的回读收干净"。
     """
     n = len(data)
     out = [0] * (n + 1)
     done = 0            # 已完成帧的输出字节数（已做 LF→CRLF）
     at_ls = True        # 行首状态（第一个字节前当作行首）
     k = 0
-    for frame in split_frames(data):
+    for frame, consumed in frames_with_spans(data, term=term, keep=keep):
         red, audits = redact(frame, policy="mask")
         prefix = b"" if at_ls else b"\n"
         report = expand_lf(prefix + report_line(type_counts(audits)) + b"\n")
@@ -165,7 +185,10 @@ def output_thresholds(data: bytes, slack: int = 32, lag: int = ECHO_LAG) -> list
             acc[j + 1] = acc[j] + (2 if red[j] == 0x0A else 1)
         for j in range(m + 1):
             out[k + j] = max(0, done + acc[max(0, j - lag)] - slack)
-        k += m
+        # 被"吞掉"的结束字符：跟本帧最后一个字节一个门槛，保证不会抢跑
+        for j in range(m, consumed):
+            out[k + j] = out[k + m]
+        k += consumed
         done += acc[m] + len(report)
         at_ls = True
     return out
