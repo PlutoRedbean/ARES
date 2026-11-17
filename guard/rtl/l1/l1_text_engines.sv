@@ -6,6 +6,13 @@
 //
 // 与 host/golden/pii_rules.py 的 _email_ok / _ipv4_ok / _uscc_ok / _plate_at
 // 逐条对齐。
+//
+// 时序（2026-11-17 重写）：邮箱 / IPv4 / USCC 原来是"游程结束那一拍对整个缓冲
+// 做组合校验"——邮箱是 64 次迭代的 ok/nat/ndots 链、IPv4 是 16 级分组状态链、
+// USCC 是 17 项加权和链。PDS 实测这个文件的最差路径 ≈75 ns，27 MHz 不收敛
+// （见 docs/board-uart.md §2.1）。现在改成**逐字节增量校验**：每来一个字节只
+// 更新几个小寄存器，游程结束时只做几次比较，路径深度从 ~64 级降到 ~10 级。
+// 语义不变，由 1000 例语料 + 43 例边界逐条兜住。
 
 `timescale 1ns/1ps
 
@@ -30,6 +37,12 @@ package l1_text_pkg;
 endpackage
 
 // ---------------------------------------------------------------- email
+//
+// 游程 = EMAIL_CHARS 极大游程，尾部 '.' 裁掉后校验（与金标一致）。
+// 增量状态（每字节更新）：nat('@' 个数) / at(第一个 '@' 位置) / bad(结构违规) /
+// lab(当前 label 长度) / tld,tlda(最后一段长度、是否全字母) / ndots。
+// 尾部 '.' 用快照处理：每遇到非 '.' 的接受字节就把整体状态拷进 g_*，
+// 游程结束时只看 g_*。
 module l1_email_engine (
     input  logic        clk,
     input  logic        rst_n,
@@ -46,125 +59,162 @@ module l1_email_engine (
     localparam int MAXLEN = 64;
 
     logic [31:0] pos_q;
-    logic        run_q, good_q;
-    logic [31:0] start_q, last_good_q;
-    logic [6:0]  len_q;
+    logic        run_q;
+    logic [31:0] start_q;
+    logic [6:0]  len_q;         // 游程已收字节数
     logic        too_long_q;
-    logic [63:0][7:0] buf_q;
+
+    logic [1:0]  nat_q;
+    logic [6:0]  at_q;
+    logic [7:0]  prev_q;
+    logic        bad_q;
+    logic [6:0]  lab_q;
+    logic [6:0]  tld_q;
+    logic        tlda_q;
+    logic [6:0]  ndots_q;
+
+    logic [1:0]  g_nat;
+    logic [6:0]  g_at;
+    logic        g_bad;
+    logic [6:0]  g_tld;
+    logic        g_tlda;
+    logic [6:0]  g_ndots;
+    logic [6:0]  g_len;
+    logic [31:0] g_last;
 
     logic accept;
     assign accept = is_alnum(in_char) || in_char == 8'h2E || in_char == 8'h5F ||
                     in_char == 8'h25 || in_char == 8'h2B || in_char == 8'h2D ||
                     in_char == 8'h40;
 
-    // ---------------- validation (combinational over the buffered run) ----
-    logic [6:0] slen;
-    logic [5:0] at_pos, last_dot;
-    integer     nat, ndots, tld_len;
-    logic       ok;
-    integer     i;
+    // ---- "本字节之前"的状态（新游程用初值） ----
+    wire        b_first = ~run_q;
+    wire [1:0]  b_nat   = run_q ? nat_q   : 2'd0;
+    wire [7:0]  b_prev  = run_q ? prev_q  : 8'h00;
+    wire [6:0]  b_lab   = run_q ? lab_q   : 7'd0;
+    wire [6:0]  b_tld   = run_q ? tld_q   : 7'd0;
+    wire        b_tlda  = run_q ? tlda_q  : 1'b1;
+    wire [6:0]  b_ndots = run_q ? ndots_q : 7'd0;
+    wire        b_bad   = run_q ? bad_q   : 1'b0;
+    wire [6:0]  b_len   = run_q ? len_q   : 7'd0;    // 本字节在游程里的下标
 
-    always_comb begin
-        ok       = 1'b0;
-        at_pos   = 6'd0;
-        nat      = 0;
-        ndots    = 0;
-        last_dot = 6'd0;
-        tld_len  = 0;
-        slen     = 7'd0;
+    // ---- 本字节事件 ----
+    wire c_dot   = (in_char == 8'h2E);
+    wire c_at    = (in_char == 8'h40);
+    wire c_alnum = is_alnum(in_char);
+    wire c_alpha = is_alpha(in_char);
+    wire c_hyph  = (in_char == 8'h2D);
+    wire c_domch = c_alnum || c_hyph || c_dot;
 
-        if (run_q && !too_long_q && good_q && (last_good_q >= start_q)) begin
-            slen = 7'(last_good_q - start_q + 32'd1);
-            if (slen >= 7'd5 && slen <= 7'd64) begin
-                for (i = 0; i < MAXLEN; i = i + 1) begin
-                    if (i < slen && buf_q[i] == 8'h40) begin
-                        at_pos = 6'(i);
-                        nat    = nat + 1;
-                    end
-                end
-                if (nat == 1 && at_pos >= 1 && at_pos <= 32) begin
-                    ok = 1'b1;
-                    if (buf_q[0] == 8'h2E) ok = 1'b0;
-                    if (buf_q[at_pos - 1] == 8'h2E) ok = 1'b0;
-                    for (i = 0; i < MAXLEN - 1; i = i + 1) begin
-                        if (i + 1 < at_pos && buf_q[i] == 8'h2E && buf_q[i + 1] == 8'h2E)
-                            ok = 1'b0;
-                    end
-                    if (int'(at_pos) + 1 >= int'(slen)) ok = 1'b0;
-                    if (ok && buf_q[at_pos + 1] == 8'h2E) ok = 1'b0;
-                    if (ok && buf_q[at_pos + 1] == 8'h2D) ok = 1'b0;
-                    if (ok && buf_q[slen - 1] == 8'h2E) ok = 1'b0;
-                    for (i = 0; i < MAXLEN; i = i + 1) begin
-                        if (ok && i > at_pos && i < slen) begin
-                            if (buf_q[i] == 8'h2E) begin
-                                ndots    = ndots + 1;
-                                last_dot = 6'(i);
-                                if (i + 1 < slen && buf_q[i + 1] == 8'h2E) ok = 1'b0;
-                                if (i + 1 < slen && buf_q[i + 1] == 8'h2D) ok = 1'b0;
-                                if (i > 0 && buf_q[i - 1] == 8'h2D) ok = 1'b0;
-                            end else if (!is_alnum(buf_q[i]) && buf_q[i] != 8'h2D) begin
-                                ok = 1'b0;
-                            end
-                        end
-                    end
-                    if (ok && ndots < 1) ok = 1'b0;
-                    if (ok) begin
-                        tld_len = int'(slen) - 1 - int'(last_dot);
-                        if (tld_len < 2 || tld_len > 24) ok = 1'b0;
-                    end
-                    for (i = 0; i < MAXLEN; i = i + 1) begin
-                        if (ok && i > last_dot && i < slen && !is_alpha(buf_q[i])) ok = 1'b0;
-                    end
-                end
-            end
-        end
-    end
+    wire in_dom  = (b_nat != 2'd0);
+    wire lab_new = in_dom && ((b_prev == 8'h40) || (b_prev == 8'h2E));
 
-    // ---------------- sequential -----------------------------------------
+    wire [1:0] n_nat = (c_at && !in_dom) ? 2'd1 :
+                       (c_at &&  in_dom) ? 2'd2 : b_nat;
+    wire [6:0] n_at  = (c_at && !in_dom) ? b_len : (in_dom ? at_q : 7'd0);
+
+    wire bad_ev =
+        (b_first && c_dot)                                     // 本地部分以 '.' 开头
+      || (!in_dom && !b_first && (b_prev == 8'h2E) && c_dot)    // 本地部分 ".."
+      || (in_dom && c_at)                                       // 第二个 '@'
+      || (c_at && !b_first && (b_prev == 8'h2E))                // 本地部分以 '.' 结尾
+      || (in_dom && !c_at && !c_domch)                          // domain 非法字符
+      || (in_dom && !c_at && lab_new && c_hyph)                 // label 以 '-' 开头
+      || (in_dom && c_dot && (b_prev == 8'h2D))                 // label 以 '-' 结尾
+      || (in_dom && c_dot && ((b_prev == 8'h2E) || (b_prev == 8'h40)));  // 空 label
+
+    wire [6:0] n_lab   = c_dot ? 7'd0 : (in_dom ? (b_lab + 7'd1) : b_lab);
+    wire [6:0] n_tld   = !in_dom ? b_tld : (c_dot ? 7'd0 : (b_tld + 7'd1));
+    wire       n_tlda  = !in_dom ? b_tlda : (c_dot ? 1'b1 : (b_tlda && c_alpha));
+    wire [6:0] n_ndots = (in_dom && c_dot) ? (b_ndots + 7'd1) : b_ndots;
+    wire       n_bad   = b_bad || bad_ev;
+
+    // ---- 游程结束判定（只看快照，几级比较） ----
+    wire ok = run_q && !g_bad && (g_nat == 2'd1) &&
+              (g_len >= 7'd5) && (g_len <= 7'd64) &&
+              (g_at >= 7'd1) && (g_at <= 7'd32) &&
+              (g_ndots >= 7'd1) &&
+              (g_tld >= 7'd2) && (g_tld <= 7'd24) && g_tlda;
+
     always_ff @(posedge clk) begin
         if (!rst_n) begin
-            pos_q <= 32'd0; run_q <= 1'b0; good_q <= 1'b0;
-            start_q <= 32'd0; last_good_q <= 32'd0;
-            len_q <= 7'd0; too_long_q <= 1'b0; buf_q <= '0;
+            pos_q <= 32'd0; run_q <= 1'b0; start_q <= 32'd0;
+            len_q <= 7'd0; too_long_q <= 1'b0;
+            nat_q <= 2'd0; at_q <= 7'd0; prev_q <= 8'd0; bad_q <= 1'b0;
+            lab_q <= 7'd0; tld_q <= 7'd0; tlda_q <= 1'b1; ndots_q <= 7'd0;
+            g_nat <= 2'd0; g_at <= 7'd0; g_bad <= 1'b1; g_tld <= 7'd0;
+            g_tlda <= 1'b0; g_ndots <= 7'd0; g_len <= 7'd0; g_last <= 32'd0;
             out_valid <= 1'b0; out_start <= 32'd0; out_len <= 8'd0;
         end else begin
             out_valid <= 1'b0;
             if (in_valid) pos_q <= pos_q + 32'd1;
 
             if (in_last) begin
-                if (ok) begin
+                if (ok && !too_long_q) begin
                     out_valid <= 1'b1;
                     out_start <= start_q;
-                    out_len   <= 8'(slen);
+                    out_len   <= 8'(g_len);
                 end
                 run_q <= 1'b0;
             end else if (in_valid) begin
-                if (accept) begin
-                    if (!run_q) begin
-                        run_q      <= 1'b1;
-                        start_q    <= pos_q;
-                        len_q      <= 7'd1;
-                        too_long_q <= 1'b0;
-                        buf_q[0]   <= in_char;
-                        good_q     <= (in_char != 8'h2E);
-                        last_good_q <= pos_q;
-                    end else if (len_q < 7'd64) begin
-                        buf_q[len_q] <= in_char;
-                        len_q <= len_q + 7'd1;
-                        if (in_char != 8'h2E) begin
-                            last_good_q <= pos_q;
-                            good_q      <= 1'b1;
-                        end
-                    end else begin
-                        too_long_q <= 1'b1;
-                    end
-                end else begin
-                    if (ok) begin
+                if (!accept) begin
+                    if (ok && !too_long_q) begin
                         out_valid <= 1'b1;
                         out_start <= start_q;
-                        out_len   <= 8'(slen);
+                        out_len   <= 8'(g_len);
                     end
                     run_q <= 1'b0;
+                end else if (!run_q) begin
+                    // 新游程：本字节下标 0
+                    run_q      <= 1'b1;
+                    start_q    <= pos_q;
+                    len_q      <= 7'd1;
+                    too_long_q <= 1'b0;
+                    nat_q      <= n_nat;
+                    at_q       <= n_at;
+                    prev_q     <= in_char;
+                    bad_q      <= n_bad;
+                    lab_q      <= n_lab;
+                    tld_q      <= n_tld;
+                    tlda_q     <= n_tlda;
+                    ndots_q    <= n_ndots;
+                    // 新游程先作废快照：全是 '.' 的游程不该复用上一轮的结果
+                    g_bad      <= 1'b1;
+                    g_len      <= 7'd0;
+                    if (!c_dot) begin
+                        g_nat   <= n_nat;
+                        g_at    <= n_at;
+                        g_bad   <= n_bad;
+                        g_tld   <= n_tld;
+                        g_tlda  <= n_tlda;
+                        g_ndots <= n_ndots;
+                        g_len   <= 7'd1;
+                        g_last  <= pos_q;
+                    end
+                end else if (too_long_q) begin
+                    // 已溢出：丢弃
+                end else if (b_len == 7'(MAXLEN)) begin
+                    too_long_q <= 1'b1;
+                end else begin
+                    len_q   <= len_q + 7'd1;
+                    nat_q   <= n_nat;
+                    at_q    <= n_at;
+                    prev_q  <= in_char;
+                    bad_q   <= n_bad;
+                    lab_q   <= n_lab;
+                    tld_q   <= n_tld;
+                    tlda_q  <= n_tlda;
+                    ndots_q <= n_ndots;
+                    if (!c_dot) begin
+                        g_nat   <= n_nat;
+                        g_at    <= n_at;
+                        g_bad   <= n_bad;
+                        g_tld   <= n_tld;
+                        g_tlda  <= n_tlda;
+                        g_ndots <= n_ndots;
+                        g_len   <= b_len + 7'd1;
+                        g_last  <= pos_q;
+                    end
                 end
             end
         end
@@ -173,6 +223,10 @@ module l1_email_engine (
 endmodule
 
 // ---------------------------------------------------------------- IPv4
+//
+// 游程 = [0-9.] 极大游程（<=15），尾部 '.' 裁掉后校验。
+// 增量状态：grp(已完成的段数) / ndig(当前段位数) / val(当前段值) / lead(前导零) /
+// bad。'.' 处结算上一段（空段、前导零、>255 都算违规）。
 module l1_ipv4_engine (
     input  logic        clk,
     input  logic        rst_n,
@@ -186,90 +240,129 @@ module l1_ipv4_engine (
 
     import l1_text_pkg::*;
 
+    localparam int MAXLEN = 15;
+
     logic [31:0] pos_q;
-    logic        run_q, good_q;
-    logic [31:0] start_q, last_good_q;
-    logic [5:0]  len_q;
+    logic        run_q;
+    logic [31:0] start_q;
+    logic [4:0]  len_q;
     logic        too_long_q;
-    logic [15:0][7:0] buf_q;
+
+    logic [2:0]  grp_q;
+    logic [2:0]  ndig_q;
+    logic [8:0]  val_q;
+    logic        lead_q;
+    logic        bad_q;
+
+    logic [2:0]  g_grp;
+    logic [2:0]  g_ndig;
+    logic [8:0]  g_val;
+    logic        g_lead;
+    logic        g_bad;
+    logic [4:0]  g_len;
+    logic [31:0] g_last;
 
     logic accept;
     assign accept = is_digit(in_char) || in_char == 8'h2E;
 
-    logic [5:0] slen;
-    logic       ok;
-    integer     i, groups, ndig, val, lead_zero;
+    wire       b_first = ~run_q;
+    wire [2:0] b_grp   = run_q ? grp_q  : 3'd0;
+    wire [2:0] b_ndig  = run_q ? ndig_q : 3'd0;
+    wire [8:0] b_val   = run_q ? val_q  : 9'd0;
+    wire       b_lead  = run_q ? lead_q : 1'b0;
+    wire       b_bad   = run_q ? bad_q  : 1'b0;
+    wire [4:0] b_len   = run_q ? len_q  : 5'd0;
 
-    always_comb begin
-        ok = 1'b0; slen = 6'd0;
-        groups = 0; ndig = 0; val = 0; lead_zero = 0;
-        if (run_q && !too_long_q && good_q && (last_good_q >= start_q)) begin
-            slen = 6'(last_good_q - start_q + 32'd1);
-            if (slen >= 6'd7 && slen <= 6'd15) begin
-                ok = 1'b1;
-                for (i = 0; i < 16; i = i + 1) begin
-                    if (ok && i < slen) begin
-                        if (buf_q[i] == 8'h2E) begin
-                            if (ndig == 0) ok = 1'b0;
-                            if (lead_zero != 0 && ndig > 1) ok = 1'b0;
-                            if (val > 255) ok = 1'b0;
-                            groups = groups + 1;
-                            ndig = 0; val = 0; lead_zero = 0;
-                        end else begin
-                            if (ndig == 0 && buf_q[i] == 8'h30) lead_zero = 1;
-                            val = val * 10 + int'(buf_q[i] - 8'h30);
-                            ndig = ndig + 1;
-                            if (ndig > 3) ok = 1'b0;
-                        end
-                    end
-                end
-                if (ok) begin
-                    if (groups != 3) ok = 1'b0;
-                    if (ndig == 0) ok = 1'b0;
-                    if (lead_zero != 0 && ndig > 1) ok = 1'b0;
-                    if (val > 255) ok = 1'b0;
-                end
-            end
-        end
-    end
+    wire c_dot  = (in_char == 8'h2E);
+    wire [3:0] d = in_char[3:0];
+
+    // 本字节之后的状态
+    wire [2:0] n_grp  = c_dot ? (b_grp + 3'd1) : b_grp;
+    wire [2:0] n_ndig = c_dot ? 3'd0 : (b_ndig + 3'd1);
+    wire [8:0] n_val  = c_dot ? 9'd0 :
+                        (b_ndig == 3'd0) ? {5'd0, d} :
+                        (b_val * 9'd10 + {5'd0, d});
+    wire       n_lead = c_dot ? 1'b0 :
+                        (b_ndig == 3'd0) ? (d == 4'd0) : b_lead;
+
+    wire bad_ev = c_dot
+                ? ((b_ndig == 3'd0) || ((b_ndig > 3'd1) && b_lead) || (b_val > 9'd255))
+                : ((b_ndig + 3'd1) > 3'd3);
+    wire n_bad = b_bad || bad_ev;
+
+    // 游程结束判定（快照 = 最后一个数字字节处的状态）
+    wire ok = run_q && !g_bad && (g_grp == 3'd3) && (g_ndig != 3'd0) &&
+              !((g_ndig > 3'd1) && g_lead) && (g_val <= 9'd255) &&
+              (g_len >= 5'd7) && (g_len <= 5'd15);
 
     always_ff @(posedge clk) begin
         if (!rst_n) begin
-            pos_q <= 32'd0; run_q <= 1'b0; good_q <= 1'b0;
-            start_q <= 32'd0; last_good_q <= 32'd0;
-            len_q <= 6'd0; too_long_q <= 1'b0; buf_q <= '0;
+            pos_q <= 32'd0; run_q <= 1'b0; start_q <= 32'd0;
+            len_q <= 5'd0; too_long_q <= 1'b0;
+            grp_q <= 3'd0; ndig_q <= 3'd0; val_q <= 9'd0; lead_q <= 1'b0; bad_q <= 1'b0;
+            g_grp <= 3'd0; g_ndig <= 3'd0; g_val <= 9'd0; g_lead <= 1'b0;
+            g_bad <= 1'b1; g_len <= 5'd0; g_last <= 32'd0;
             out_valid <= 1'b0; out_start <= 32'd0; out_len <= 8'd0;
         end else begin
             out_valid <= 1'b0;
             if (in_valid) pos_q <= pos_q + 32'd1;
 
             if (in_last) begin
-                if (ok) begin
-                    out_valid <= 1'b1; out_start <= start_q; out_len <= 8'(slen);
+                if (ok && !too_long_q) begin
+                    out_valid <= 1'b1;
+                    out_start <= start_q;
+                    out_len   <= 8'(g_len);
                 end
                 run_q <= 1'b0;
             end else if (in_valid) begin
-                if (accept) begin
-                    if (!run_q) begin
-                        run_q <= 1'b1; start_q <= pos_q; len_q <= 6'd1;
-                        too_long_q <= 1'b0; buf_q[0] <= in_char;
-                        good_q <= (in_char != 8'h2E);
-                        last_good_q <= pos_q;
-                    end else if (len_q < 6'd16) begin
-                        buf_q[len_q] <= in_char;
-                        len_q <= len_q + 6'd1;
-                        if (in_char != 8'h2E) begin
-                            last_good_q <= pos_q;
-                            good_q      <= 1'b1;
-                        end
-                    end else begin
-                        too_long_q <= 1'b1;
-                    end
-                end else begin
-                    if (ok) begin
-                        out_valid <= 1'b1; out_start <= start_q; out_len <= 8'(slen);
+                if (!accept) begin
+                    if (ok && !too_long_q) begin
+                        out_valid <= 1'b1;
+                        out_start <= start_q;
+                        out_len   <= 8'(g_len);
                     end
                     run_q <= 1'b0;
+                end else if (!run_q) begin
+                    run_q      <= 1'b1;
+                    start_q    <= pos_q;
+                    len_q      <= 5'd1;
+                    too_long_q <= 1'b0;
+                    grp_q      <= n_grp;
+                    ndig_q     <= n_ndig;
+                    val_q      <= n_val;
+                    lead_q     <= n_lead;
+                    bad_q      <= n_bad;
+                    g_bad      <= 1'b1;
+                    g_len      <= 5'd0;
+                    if (!c_dot) begin
+                        g_grp  <= n_grp;
+                        g_ndig <= n_ndig;
+                        g_val  <= n_val;
+                        g_lead <= n_lead;
+                        g_bad  <= n_bad;
+                        g_len  <= 5'd1;
+                        g_last <= pos_q;
+                    end
+                end else if (too_long_q) begin
+                    // 已溢出：丢弃
+                end else if (b_len == 5'(MAXLEN)) begin
+                    too_long_q <= 1'b1;
+                end else begin
+                    len_q  <= len_q + 5'd1;
+                    grp_q  <= n_grp;
+                    ndig_q <= n_ndig;
+                    val_q  <= n_val;
+                    lead_q <= n_lead;
+                    bad_q  <= n_bad;
+                    if (!c_dot) begin
+                        g_grp  <= n_grp;
+                        g_ndig <= n_ndig;
+                        g_val  <= n_val;
+                        g_lead <= n_lead;
+                        g_bad  <= n_bad;
+                        g_len  <= b_len + 5'd1;
+                        g_last <= pos_q;
+                    end
                 end
             end
         end
@@ -278,6 +371,9 @@ module l1_ipv4_engine (
 endmodule
 
 // ---------------------------------------------------------------- USCC
+//
+// 18 位 base31。增量：按位加权和（前 17 位）+ 是否含字母 + 第 18 位的 idx；
+// 游程结束比对校验位。
 module l1_uscc_engine (
     input  logic        clk,
     input  logic        rst_n,
@@ -291,12 +387,17 @@ module l1_uscc_engine (
 
     import l1_text_pkg::*;
 
+    localparam int MAXLEN = 18;
+
     logic [31:0] pos_q;
     logic        run_q;
     logic [31:0] start_q;
     logic [5:0]  len_q;
     logic        too_long_q;
-    logic [17:0][7:0] buf_q;
+
+    logic [15:0] tot_q;
+    logic        alpha_q;
+    logic [5:0]  last_idx_q;
 
     function automatic logic [5:0] uscc_idx(input logic [7:0] c);
         case (c)
@@ -338,53 +439,62 @@ module l1_uscc_engine (
     logic accept;
     assign accept = (uscc_idx(in_char) != 6'h3F);
 
-    logic [15:0] total_w;
-    logic        has_alpha;
-    logic [5:0]  check;
-    logic        ok;
-    integer      i;
+    wire       b_first = ~run_q;
+    wire [15:0] b_tot  = run_q ? tot_q : 16'd0;
+    wire       b_alpha = run_q ? alpha_q : 1'b0;
+    wire [5:0] b_last  = run_q ? last_idx_q : 6'd0;
+    wire [5:0] b_len   = run_q ? len_q : 6'd0;
 
-    always_comb begin
-        total_w   = 16'd0;
-        has_alpha = 1'b0;
-        check     = 6'd0;
-        ok        = 1'b0;
-        if (run_q && !too_long_q && (len_q == 6'd18)) begin
-            for (i = 0; i < 18; i = i + 1) begin
-                if (i < 17) total_w = total_w + uscc_weight(5'(i)) * uscc_idx(buf_q[i]);
-                if (is_alpha(buf_q[i])) has_alpha = 1'b1;
-            end
-            check = 6'(31 - (total_w % 16'd31));
-            if (check == 6'd31) check = 6'd0;
-            if (has_alpha && uscc_idx(buf_q[17]) == check) ok = 1'b1;
-        end
-    end
+    wire [5:0] idx = uscc_idx(in_char);
+
+    wire [15:0] n_tot   = (b_len < 6'd17) ? (b_tot + {11'd0, uscc_weight(b_len[4:0])} * {10'd0, idx})
+                                          : b_tot;
+    wire        n_alpha = b_alpha || is_alpha(in_char);
+    wire [5:0]  n_last  = (b_len == 6'd17) ? idx : b_last;
+
+    wire [15:0] chk_raw = 16'd31 - (tot_q % 16'd31);
+    wire [5:0]  chk     = (chk_raw[5:0] == 6'd31) ? 6'd0 : chk_raw[5:0];
+
+    wire ok = run_q && !too_long_q && (len_q == 6'd18) && alpha_q && (last_idx_q == chk);
 
     always_ff @(posedge clk) begin
         if (!rst_n) begin
-            pos_q <= 32'd0; run_q <= 1'b0; start_q <= 32'd0; len_q <= 6'd0;
-            too_long_q <= 1'b0; buf_q <= '0;
+            pos_q <= 32'd0; run_q <= 1'b0; start_q <= 32'd0;
+            len_q <= 6'd0; too_long_q <= 1'b0;
+            tot_q <= 16'd0; alpha_q <= 1'b0; last_idx_q <= 6'd0;
             out_valid <= 1'b0; out_start <= 32'd0; out_len <= 8'd0;
         end else begin
             out_valid <= 1'b0;
             if (in_valid) pos_q <= pos_q + 32'd1;
 
             if (in_last) begin
-                if (ok) begin out_valid <= 1'b1; out_start <= start_q; out_len <= 8'd18; end
+                if (ok) begin
+                    out_valid <= 1'b1; out_start <= start_q; out_len <= 8'd18;
+                end
                 run_q <= 1'b0;
             end else if (in_valid) begin
-                if (accept) begin
-                    if (!run_q) begin
-                        run_q <= 1'b1; start_q <= pos_q; len_q <= 6'd1;
-                        too_long_q <= 1'b0; buf_q[0] <= in_char;
-                    end else if (len_q < 6'd18) begin
-                        buf_q[len_q] <= in_char; len_q <= len_q + 6'd1;
-                    end else begin
-                        too_long_q <= 1'b1;
+                if (!accept) begin
+                    if (ok) begin
+                        out_valid <= 1'b1; out_start <= start_q; out_len <= 8'd18;
                     end
-                end else begin
-                    if (ok) begin out_valid <= 1'b1; out_start <= start_q; out_len <= 8'd18; end
                     run_q <= 1'b0;
+                end else if (!run_q) begin
+                    run_q      <= 1'b1;
+                    start_q    <= pos_q;
+                    len_q      <= 6'd1;
+                    too_long_q <= 1'b0;
+                    tot_q      <= n_tot;
+                    alpha_q    <= n_alpha;
+                    last_idx_q <= n_last;
+                end else if (too_long_q) begin
+                    // 已溢出：丢弃
+                end else if (b_len == 6'(MAXLEN)) begin
+                    too_long_q <= 1'b1;
+                end else begin
+                    len_q      <= len_q + 6'd1;
+                    tot_q      <= n_tot;
+                    alpha_q    <= n_alpha;
+                    last_idx_q <= n_last;
                 end
             end
         end

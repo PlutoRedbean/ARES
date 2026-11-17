@@ -160,12 +160,12 @@ def show(raw: bytes, *, quiet: bool = False, as_json: str | None = None) -> int:
         print("\n── 审计行（板子发的）" + "─" * 38)
         if reports:
             print(f"{'#':>2}  {'n':>4}  {'id18':>4} {'id15':>4} {'mob':>4} {'bank':>4} "
-                  f"{'mail':>4} {'ipv4':>4} {'uscc':>4} {'plate':>5}  ovf")
+                  f"{'mail':>4} {'ipv4':>4} {'uscc':>4} {'plate':>5}  {'kw':>3} {'kwm':>3} ovf mode")
             for i, r in enumerate(reports, 1):
                 print(f"{i:>2}  {r['n']:>4}  {r.get('id18',0):>4} {r.get('id15',0):>4} "
                       f"{r.get('mobile',0):>4} {r.get('bank',0):>4} {r.get('email',0):>4} "
                       f"{r.get('ipv4',0):>4} {r.get('uscc',0):>4} {r.get('plate',0):>5}  "
-                      f"{r['ovf']}")
+                      f"{r.get('kw',0):>3} {r.get('kwm',0):>3}  {r['ovf']:>3} {r.get('mode',1):>4}")
         else:
             print("(没有收到审计行)")
         flags = [i for i, r in enumerate(reports, 1) if r.get("ovf")]

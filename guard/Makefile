@@ -14,7 +14,8 @@
 #
 # 板级（盘古 200Pro+）：
 #   make board-vectors  生成 build/board 向量（.in/.exp/.pace）
-#   make board-sim     位级 UART 端到端（18 例，真实位定时）
+#   make board-sim     位级 UART 端到端（18 例，真实位定时，1 Mbaud 仿真）
+#   make board-sim-3m  同一套向量跑 3 Mbaud 通路（8× 过采样）
 #   make report-sim    审计摘要格式化穷举（0..255）
 #   make board-lint    含板级桥 + PLL 仿真模型的 lint
 #   （出位流 / 烧写不在这里：用 tools/build_guard.ps1 / tools/program_guard.ps1，
@@ -42,7 +43,7 @@ VEC    := $(BUILD)/vectors
 
 VFLAGS := --binary --timing -j $(JOBS) -O2 -Wall -Wno-fatal --top-module
 
-.PHONY: all test golden vectors sim bench edges kw redact demo demo-check harness run serve cli-smoke lint clean tools board-vectors board-sim board-lint report-sim
+.PHONY: all test golden vectors sim bench edges kw redact demo demo-check harness run serve cli-smoke lint clean tools board-vectors board-sim board-sim-3m board-lint report-sim
 
 all: test
 
@@ -163,6 +164,17 @@ $(OBJ_BOARD)/Vtb_guard_uart: $(BOARD_RTL) sim/tb_guard_uart.sv
 board-sim: $(OBJ_BOARD)/Vtb_guard_uart $(BOARD_VEC)/manifest.txt
 	$(OBJ_BOARD)/Vtb_guard_uart +dir=$(BOARD_VEC)
 
+# 3 Mbaud 通路：同一套向量，位时间 9 个 27 MHz 周期（8× 过采样，25 MHz 核心）。
+# USB-UART 那头要支持 3 Mbaud（FT232 可以，CH340/CP2102 不行）。
+OBJ_BOARD3 := $(BUILD)/obj_board3m
+
+$(OBJ_BOARD3)/Vtb_guard_uart: $(BOARD_RTL) sim/tb_guard_uart.sv
+	$(VERILATOR) $(VFLAGS) tb_guard_uart -GBAUD=3000000 --Mdir $(OBJ_BOARD3) -o Vtb_guard_uart \
+	    $(BOARD_RTL) sim/tb_guard_uart.sv
+
+board-sim-3m: $(OBJ_BOARD3)/Vtb_guard_uart $(BOARD_VEC)/manifest.txt
+	$(OBJ_BOARD3)/Vtb_guard_uart +dir=$(BOARD_VEC)
+
 $(OBJ_BOARD)/Vtb_guard_report: rtl/board/guard_report.sv sim/tb_guard_report.sv
 	$(VERILATOR) $(VFLAGS) tb_guard_report --Mdir $(OBJ_BOARD) -o Vtb_guard_report \
 	    rtl/board/guard_report.sv sim/tb_guard_report.sv
@@ -173,7 +185,7 @@ report-sim: $(OBJ_BOARD)/Vtb_guard_report
 board-lint:
 	$(VERILATOR) --lint-only -Wall -Wno-fatal --top-module guard_board_top $(BOARD_RTL)
 
-test: harness redact-harness golden vectors sim edges kw redact demo-check cli-smoke board-sim report-sim
+test: harness redact-harness golden vectors sim edges kw redact demo-check cli-smoke board-sim board-sim-3m report-sim
 
 clean:
 	rm -rf $(BUILD)

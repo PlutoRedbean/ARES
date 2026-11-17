@@ -12,19 +12,19 @@
 //   LED：0=收到字节 1=发出字节 2=出错（粘滞） 3=帧未结束 4=命中 span
 //        5/6=0  7=PLL 锁定（常亮；不亮说明 PLL 没锁，整块设计还在复位里）
 //
-// 时钟：27 MHz → PLL → 10 MHz 核心时钟（guard_pll）。
-//   L1 规则层的单周期校验链实测最差路径 ~75 ns，27 MHz 不收敛；UART 只要
-//   ~1.8 MHz 就能 16× 过采样 115200，所以核心压到 10 MHz（100 ns）留 25 ns 余量，
-//   带宽 10 MB/s 仍是 UART 线速的 ~87 倍。细节见 docs/board-uart.md §2。
+// 时钟：27 MHz → PLL → 25 MHz 核心时钟（guard_pll）。
+//   2026-11-17 把邮箱/IPv4/USCC 三个引擎改成逐字节增量校验，文本块从
+//   −37.9 ns 变成 +22.4 ns（27 MHz）。整板在 **25 MHz** 收敛（WNS 见
+//   docs/board-uart.md §2）；25 MHz + OV=8 也够跑 3 Mbaud。
 //
 // 复位：按键或者 PLL 未锁定都保持复位；进核心时钟域后同步释放。
 
 `timescale 1ns/1ps
 
 module guard_board_top #(
-    parameter int CLK_FREQ   = 10_000_000,  // PLL 出来的核心时钟
+    parameter int CLK_FREQ   = 25_000_000,  // PLL 出来的核心时钟
     parameter int BAUD       = 115200,
-    parameter int OV         = 16,          // 过采样倍数：需要 CLK_FREQ > BAUD*OV
+    parameter int OV         = 8,           // 过采样倍数：需要 CLK_FREQ > BAUD*OV（8× 够 3 Mbaud）
     parameter int AW         = 8,
     parameter int LF_TO_CRLF = 1,
     parameter int REPORT_EN  = 1,
@@ -37,7 +37,7 @@ module guard_board_top #(
     output wire [7:0] led
 );
 
-    // ---------------- PLL：27 MHz → 10 MHz ----------------
+    // ---------------- PLL：27 MHz → 25 MHz ----------------
     wire clk_core;
     wire pll_lock;
 
@@ -82,7 +82,7 @@ module guard_board_top #(
     );
 
     // ---------------- LED：活动脉冲拉长到 ~100 ms ----------------
-    localparam int STRETCH = 20;   // 2^20 / 10 MHz ≈ 105 ms
+    localparam int STRETCH = 21;   // 2^21 / 25 MHz ≈ 84 ms
 
     logic [STRETCH-1:0] led_rx, led_tx, led_hit;
 

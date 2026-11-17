@@ -18,23 +18,24 @@
 | 端到端 demo（文本进 → 脱敏 + 审计 JSON，RTL 检测在环） | ✅ `make demo` |
 | RTL 合并 + mask 替换器（`l1_redact_top`，1 字节/拍） | ✅ 1000 例字节+审计全一致 |
 | 本机入口 `./run.sh`（serve/demo/text/file/repl/report/serial） | ✅ 网页工作台 ≈5 ms 出结果 |
-| **上板：串口进 → 脱敏 → 串口出（盘古 200Pro+）** | ✅ 位流已出并过时序，见 [docs/board-uart.md](docs/board-uart.md) |
+| **上板：串口进 → 脱敏 → 串口出（盘古 200Pro+）** | ✅ 25 MHz 过时序、位流已出，见 [docs/board-uart.md](docs/board-uart.md) |
+| 关键词提示 / 档位头上串口（摘要行 `kw`/`kwm`/`mode`） | ✅ 金标+上位机+TB 同源 |
 | L2（INT4 语义层） | ⬜ M3 |
 
 **上板实测**（PDS 2025.2-SP3，`guard_board_top`）：
 
 | 项 | 值 |
 |---|---|
-| 资源 | 6,912 LUT (4.3%) / 2,578 FF / 37 APM / 0.5 DRM / 1 PLL |
-| 时钟 | 27 MHz → GTP_GPLL → **10 MHz** 核心 |
-| 时序 | WNS **+15.1 ns**（MET）、TNS 0、WHS +0.038 ns → Fmax ≈ 11.8 MHz |
-| 串口 | 115200 8N1，RX **B24** / TX **C24** |
+| 资源 | **3,893 LUT (2.4%) / 2,113 FF / 10 APM / 0.5 DRM / 1 PLL** |
+| 时钟 | 27 MHz → GTP_GPLL → **25 MHz** 核心 |
+| 时序 | WNS **+5.0 ns**（MET）、TNS 0 → Fmax ≈ 28.7 MHz |
+| 串口 | 115200 8N1（8× 过采样；3 Mbaud 通路已仿真），RX **B24** / TX **C24** |
 | 帧边界 | LF 或空闲 300000 位时间（≈2.6 s） |
 | 位流 | `generate_bitstream/guard_board_top.sbit`（9,188,552 B） |
 
-> ⚠ **27 MHz 直接跑不收敛**（PnR WNS = −38.2 ns，最差路径 ≈75 ns，来自规则层的
-> 单周期校验链：19 位 Luhn / 17 位加权和 / 64 字节邮箱扫描）。这是上板这一轮
-> 最重要的发现，原因与改法（校验链流水化）见
+> 27 MHz 一开始不收敛（WNS −38.2 ns，≈75 ns 路径）。2026-11-17 分块定位到
+> **文本引擎**，把邮箱/IPv4/USCC 改成**逐字节增量校验**后文本块 +22.4 ns，
+> 整板 25 MHz 收敛（+5.0 ns），LUT 6,912 → 3,893。过程与数据见
 > [docs/board-uart.md §2.1](docs/board-uart.md)。
 
 ## 快速开始：PC 本机
@@ -87,6 +88,7 @@ python guard\tools\serial_host.py -p COM5 --file guard\examples\sample.txt --che
 | `make bench` | 吞吐基准（1 字节/拍） |
 | `make lint` | Verilator lint（规则层） |
 | `make board-vectors` / `make board-sim` | 板级向量 / 位级 UART 端到端（18 例） |
+| `make board-sim-3m` | 同一套 18 例跑 **3 Mbaud** 通路（8× 过采样） |
 | `make report-sim` | 审计摘要格式化穷举（0..255，257 例） |
 | `make board-lint` | Verilator lint（含板级桥 + PLL 仿真模型） |
 | `make clean` | 清 `build/` |
@@ -126,12 +128,12 @@ guard/
 │   ├── l1_engine.sv          # 顶层（5 引擎同流并行）
 │   └── l1_redact.sv          # 合并 + mask 替换 + 审计
 ├── rtl/board/            # 板级：串口桥（不进 PC 回环）
-│   ├── guard_uart_baud.sv    # 分数分频波特率（16× 过采样）
+│   ├── guard_uart_baud.sv    # 分数分频波特率（8× 过采样）
 │   ├── guard_uart_rx.sv / guard_uart_tx.sv
 │   ├── guard_fifo.sv         # 8 位同步 FIFO（FWFT）
 │   ├── guard_report.sv       # 审计摘要格式化（BCD 比较树）
 │   ├── guard_uart_core.sv    # 帧边界 / 流控 / 帧间软复位 / TX 整形
-│   ├── guard_pll.v           # PDS：GTP_GPLL 27 MHz → 10 MHz
+│   ├── guard_pll.v           # PDS：GTP_GPLL 27 MHz → 25 MHz
 │   ├── guard_pll_sim.sv      # 同端口的行为级模型（Verilator 用）
 │   └── guard_board_top.sv    # 引脚、复位同步、LED
 ├── fpga/pango/           # PDS 流程

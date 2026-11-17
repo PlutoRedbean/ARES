@@ -9,15 +9,15 @@
 #   uart_tx   C24   USB-UART 发送，115200 8N1
 #   led[7:0]  A20 C18 C19 E18 A17 A18 C17 B17
 #
-# 时钟：27 MHz → GTP_GPLL（guard_pll）→ 10 MHz 核心时钟。
-#   VCO = 27 MHz × 2 × 18.5185 = 1000 MHz，CLKOUT0 = 1000 / 100.0 = 10 MHz。
+# 时钟：27 MHz → GTP_GPLL（guard_pll）→ 25 MHz 核心时钟。
+#   VCO = 27 MHz × 2 × 18.5185 = 1000 MHz，CLKOUT0 = 1000 / 40.0 = 25 MHz。
 #   全部逻辑都在 core_clk 上；clk_27m 只进 PLL。
 # =============================================================================
 
 create_clock -name sys_clk -period 37.037 -waveform {0.000 18.5185} [get_ports {clk_27m}]
 
 create_generated_clock -name core_clk -source [get_ports {clk_27m}] \
-    [get_pins {u_pll/u_gpll/CLKOUT0}] -multiply_by 10 -divide_by 27
+    [get_pins {u_pll/u_gpll/CLKOUT0}] -multiply_by 25 -divide_by 27
 
 set_clock_uncertainty 0.300 -from [get_clocks {core_clk}] -to [get_clocks {core_clk}]
 
@@ -26,7 +26,7 @@ set_false_path -from [get_ports {rst_n}]
 # UART RX 是异步串行输入，guard_uart_rx 里先过两级同步再采样
 set_false_path -from [get_ports {uart_rx}]
 
-# 输出端给个宽松的板级延迟（10 MHz，100 ns 周期，5 ns 足够）
+# 输出端给个宽松的板级延迟（25 MHz，40 ns 周期，5 ns 足够）
 set_output_delay -clock [get_clocks {core_clk}] 5.000 [get_ports {uart_tx}]
 set_output_delay -clock [get_clocks {core_clk}] 5.000 [get_ports {led[*]}]
 

@@ -8,9 +8,11 @@
 3. 再输出一行审计摘要：
 
        [guard] n=NNN id18=NNN id15=NNN mobile=NNN bank=NNN email=NNN
-               ipv4=NNN uscc=NNN plate=NNN ovf=NNN
+               ipv4=NNN uscc=NNN plate=NNN kw=NNN kwm=NNN ovf=NNN mode=N
 
-   数字一律 3 位零填充；若上一个输出字节不是 LF，行首补 CRLF。
+   数字一律 3 位零填充（mode 是 1 位）；若上一个输出字节不是 LF，行首补 CRLF。
+   kw = 关键词命中次数；kwm = 命中的关键词位图（bit k = kid k，见 keywords.py）；
+   mode = 降级档位（1 = T1 规则层生效，0 = T0 直通）。
 4. 计数超过 255 截到 255（RTL 的计数器是 8 位）。
 
 这是唯一实现：tools/gen_board_vectors.py（生成 TB 期望）与 tools/serial_host.py
@@ -19,6 +21,7 @@
 
 from __future__ import annotations
 
+from host.golden.keywords import find_keywords
 from host.golden.redact import redact
 
 # 与 rtl/board/guard_report.sv 的字段顺序一致（type_id, 字段名）
@@ -42,13 +45,25 @@ def _clamp(v: int) -> int:
     return min(max(int(v), 0), MAX_COUNT)
 
 
-def report_line(counts: dict[int, int], err: int = 0) -> bytes:
-    """一行审计摘要（不含行尾 CRLF）。counts 按 type_id 计数。"""
+def report_line(
+    counts: dict[int, int],
+    err: int = 0,
+    *,
+    kw: int = 0,
+    kwm: int = 0,
+    mode: int = 1,
+) -> bytes:
+    """一行审计摘要（不含行尾 LF）。counts 按 type_id 计数。
+
+    kw / kwm / mode 与 RTL（rtl/board/guard_report.sv）字段顺序一致：
+    kw = 关键词命中次数，kwm = 命中的关键词位图，mode = 档位（1 位十进制）。
+    """
     n = sum(counts.values())
     fields = [("n", n)]
     fields += [(name, counts.get(t, 0)) for t, name in BOARD_FIELDS]
-    fields.append(("ovf", 1 if err else 0))
+    fields += [("kw", kw), ("kwm", kwm), ("ovf", 1 if err else 0)]
     body = " ".join(f"{name}={_clamp(v):03d}" for name, v in fields)
+    body += f" mode={_clamp(mode) % 10:d}"
     return REPORT_PREFIX + body.encode("ascii")
 
 
@@ -71,6 +86,19 @@ def split_frames(data: bytes) -> list[bytes]:
     return frames
 
 
+def kw_stats(frame: bytes) -> tuple[int, int]:
+    """本帧的关键词提示：(命中次数, 位图)。位图 bit k = 关键词 kid k。
+
+    与 RTL（l1_keyword_match）逐条对齐：同一结束位置最多一个命中、按 kid 升序
+    取第一个（见 host/golden/keywords.find_keywords）。
+    """
+    hits = find_keywords(frame)
+    mask = 0
+    for h in hits:
+        mask |= 1 << h.kid
+    return min(len(hits), MAX_COUNT), min(mask, MAX_COUNT)
+
+
 def type_counts(audits) -> dict[int, int]:
     counts: dict[int, int] = {}
     for a in audits:
@@ -81,10 +109,11 @@ def type_counts(audits) -> dict[int, int]:
 def frame_stream(frame: bytes, policy: str = "mask", at_line_start: bool = True) -> bytes:
     """一帧的完整输出：脱敏文本 + 摘要行（已做 LF→CRLF）。"""
     red, audits = redact(frame, policy=policy)
+    kw, kwm = kw_stats(frame)
     out = bytearray(red)
     if not at_line_start:
         out += b"\n"
-    out += report_line(type_counts(audits)) + b"\n"
+    out += report_line(type_counts(audits), kw=kw, kwm=kwm) + b"\n"
     return expand_lf(bytes(out))
 
 
@@ -97,10 +126,11 @@ def expected_stream(data: bytes, policy: str = "mask") -> bytes:
     out = bytearray()
     for frame in split_frames(data):
         red, audits = redact(frame, policy=policy)
+        kw, kwm = kw_stats(frame)
         out += red
         if out and out[-1:] != b"\n":
             out += b"\n"
-        out += report_line(type_counts(audits)) + b"\n"
+        out += report_line(type_counts(audits), kw=kw, kwm=kwm) + b"\n"
     return expand_lf(bytes(out))
 
 

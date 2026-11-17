@@ -31,15 +31,23 @@
 - [x] RTL 合并 + mask 替换器（`l1_redact_top`，1000 例字节/审计一致）
 - [ ] RTL token 策略（变长输出 + 反压/令牌表）——上板后优先级提高：
       板上现在只能 mask，token 要等这一项
-- [ ] 分隔符透明导致的超长游程漏报（`138... 138...`）：有界分隔符 + 分隔符处重启
+- [x] 分隔符透明导致的超长游程漏报（`13800138000 13800138001` 整段 >19 位被丢弃）：
+      分隔符处存"分类快照"+ 影子游程，超长时先结算快照再用影子顶替；金标与 RTL 同步改，
+      新增 5 例边界（48 例）专测这个语义
+- [ ] 连续三个以上号码被空格连在一起时，中间那个仍会丢（快照只保留"最后一个分隔符之前"的
+      前缀，中间段的数字已经不在了）——要根治得缓存两段数字
+
 - [x] 审计 JSON（type/start/len/rule_id/action/档位）—— host 侧，见 `docs/m2-results.md`
 - [x] 关键词提示（8 词并行匹配器；扩表时换 AC + BRAM，接口不变）
 - [x] 端到端 demo（`make demo`：RTL 检测 + 金标红action + 审计 JSON）
 - [x] 本机可跑入口 `./run.sh`（serve / demo / text / file / repl / report）+ `cli-smoke`
 - [x] 网页工作台 `./run.sh serve`（实时脱敏，含审计表/关键词/高亮）+ 接口测试
-- [ ] 降级档位 T0/T1 的 RTL 开关与输出头（板级摘要行预留了 `ovf` 位，档位位待加）
+- [x] 降级档位**输出头**：摘要行 `mode=N`（1 = T1 规则层生效，0 = T0 直通）
+- [ ] 降级档位 **T0 直通开关**的运行时控制（现在只有构建期参数 MODE_T1；
+      要真正切换得先有控制通道：XON/XOFF 帧或"长度前缀"帧，见下一条）
 - [ ] 板级软流控（XON/XOFF）或长度前缀成帧，让裸终端也能安全灌大文件
-- [ ] 关键词提示上串口（现在只在 RTL 里跑，摘要行没有关键词位）
+- [x] 关键词提示上串口：摘要行 `kw=`（命中次数）+ `kwm=`（8 词位图），
+      金标/上位机/TB 三处同源（`board_proto.kw_stats`）
 
 ## 上板（串口进 → 脱敏 → 串口出）✅ 2026-11-15
 
@@ -48,25 +56,29 @@
 - [x] PDS/ADS 兼容性：`package`/`always_ff`/`for (int ...)`/`automatic` 在
       PDS 2025.2 `-verilog_standard SystemVerilog` 下**一次通过**，规则层 RTL 没改
       （结论写在 docs/board-uart.md §2）
-- [x] 板级顶层 `guard_board_top`：27 MHz → PLL → 10 MHz + 复位同步 + LED（led[7]=PLL 锁）
-- [x] 串口桥：分数分频波特率（16× 过采样）、RX/TX FIFO、LF/空闲冲刷、帧间软复位、
+- [x] 板级顶层 `guard_board_top`：27 MHz → PLL → **25 MHz** + 复位同步 + LED（led[7]=PLL 锁）
+- [x] 串口桥：分数分频波特率（8× 过采样）、RX/TX FIFO、LF/空闲冲刷、帧间软复位、
       LF→CRLF 整形、每帧一行审计摘要
 - [x] 引脚：`uart_rx` = **B24**（ARES MSH 顶层用过），TX C24，clk D18，rst C22
-- [x] 资源（synthesize -ads + dev_map + pnr）：**6,912 LUT / 2,578 FF / 0.5 DRM / 37 APM / 1 PLL**
-- [x] 时序：核心 **10 MHz**（27 MHz → PLL），WNS **+15.1 ns**、TNS 0、WHS +0.038 ns（Fmax ≈ 11.8 MHz）
+- [x] 资源（synthesize -ads + dev_map + pnr，25 MHz 版）：**3,893 LUT / 2,113 FF / 0.5 DRM / 10 APM / 1 PLL**
+- [x] 时序：核心 **25 MHz**（27 MHz → PLL），WNS **+5.0 ns**、TNS 0、WHS +0.037 ns（Fmax ≈ 28.7 MHz）
 - [x] 位流：`pnr` + `gen_bit_stream` → `generate_bitstream/guard_board_top.sbit`（9,188,552 B）
 - [x] 烧写链路：`tools/program_guard.ps1` 跑通并修掉 cdt_cfg 的四个坑
       （tcl 必须 ASCII-only / 只能一个 `%s` / GUI 子系统 exe 要 `Start-Process -Wait` /
       `-file` 与 `-args` 都要绝对路径）——见 docs/board-uart.md §10.6
 - [x] 综合暴露的问题：`l1_merge` 的 `free_list` 被推成 32 个锁存器（改写成扫描空槽）、
       `guard_report` 的 BCD 25 级串行链（改成比较树 + 独热 TB）
-- [ ] **规则层校验链流水化**：27 MHz 不收敛（最差路径 ~75 ns），要把 Luhn/加权和/
-      邮箱游程检查拆拍，才能把时钟从 10 MHz 抬回 27/50 MHz（见 docs/board-uart.md §2.1）
+- [x] **规则层时序重构**（2026-11-17）：分块定位到 `l1_text_engines`（−37.9 ns），
+      把邮箱/IPv4/USCC 从"游程结束整缓冲组合校验"改成**逐字节增量校验** →
+      文本块 +22.4 ns，整板 27 MHz 只剩 merge 的 31.5 ns。核心时钟 10 → **25 MHz**，
+      LUT 6,912 → 3,893、FF 2,578 → 2,113、APM 37 → 10，WNS +5.0 ns（见 docs/board-uart.md §2.1）
+- [ ] `l1_merge` 的 5 路插入流水化（现在是整板最深的 31.5 ns；做完能上 50 MHz）
 - [x] 位级端到端仿真 `make board-sim`（18 例 / 10491 B 输入 / 309 span，逐字节一致）
 - [x] 上位机 `tools/serial_host.py`（发文本 / 读回 / `--check` / 审计 JSON / pace 流控）
 - [ ] 真板子跑一遍 §8 验收清单（回环、sample.txt `--check`、ovf 触发）
-- [ ] 3 Mbaud 环回（10 MHz 下 16× 只能到 625 kbaud：把 OV 降到 8，或提 PLL 输出——
-      后者得先解决规则层时序）
+- [x] 3 Mbaud **仿真**通路：OV 从 16 降到 8，`make board-sim-3m`（同一套 18 例，位时间
+      9 个 27 MHz 周期）全过
+- [ ] 3 Mbaud **板级环回**：要 USB-UART 支持 3 Mbaud（FT232 可以，CH340/CP2102 不行）
 - [ ] DDR3 AXI 桥 + 带宽实测（M3 需要）
 
 ## M3 INT4 语义引擎

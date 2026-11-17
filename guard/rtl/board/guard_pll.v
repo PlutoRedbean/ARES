@@ -1,22 +1,23 @@
 // guard/rtl/board/guard_pll.v
 //
-// PDS 综合用的 PLL 包装：27 MHz 晶振 → 10 MHz 核心时钟。
+// PDS 综合用的 PLL 包装：27 MHz 晶振 → 25 MHz 核心时钟。
 //
 // 为什么不是 27 MHz：L1 规则层的校验链（19 位 Luhn / 17 位加权和 / 64 字节
 // 邮箱扫描）是单周期组合逻辑，PDS 2025.2 实测最差路径 ~75 ns，27 MHz（37 ns）
-// 不收敛。UART 只要 ~1.8 MHz 就能 16× 过采样 115200，所以把核心压到 10 MHz，
+// 不收敛。UART 只要 ~1.8 MHz 就能 16× 过采样 115200；2026-11-17 把三个文本引擎
+// 改成逐字节增量校验后，文本块从 −37.9 ns 变成 +22.4 ns，整板在 25 MHz 收敛。
 // 带宽仍是 10 MB/s（≈ 87 倍 UART 线速）。把校验链流水化后可以回到 27/50 MHz，
 // 见 docs/board-uart.md §2。
 //
 // 参数沿用 ARES 板上已验证的 GTP_GPLL 配置（VCO = 27 MHz × 2 × 18.5185 = 1000 MHz）：
-//   CLKOUT0 = 1000 / 100.0 = 10 MHz
+//   CLKOUT0 = 1000 / 40.0 = 25 MHz
 //
 // 仿真用 guard_pll_sim.sv（同名同端口），PDS 用本文件。
 
 `timescale 1ns / 10fs
 
 module guard_pll (
-    output wire clkout0,   // 10 MHz 核心时钟
+    output wire clkout0,   // 25 MHz 核心时钟
     input  wire clkin1,    // 27 MHz 板载时钟
     output wire lock
 );
@@ -25,7 +26,7 @@ module guard_pll (
     localparam         LOCK_MODE        = 0;
     localparam integer STATIC_RATIOI    = 1;
     localparam integer STATIC_RATIOM    = 2;
-    localparam real    STATIC_RATIO0    = 100.0;
+    localparam real    STATIC_RATIO0    = 40.0;
     localparam real    STATIC_RATIO1    = 20.0;
     localparam integer STATIC_RATIO2    = 21;
     localparam integer STATIC_RATIO3    = 21;
@@ -33,7 +34,7 @@ module guard_pll (
     localparam integer STATIC_RATIO5    = 21;
     localparam integer STATIC_RATIO6    = 21;
     localparam real    STATIC_RATIOF    = 18.5185;
-    localparam integer STATIC_DUTY0     = 100;
+    localparam integer STATIC_DUTY0     = 40;
     localparam integer STATIC_DUTY1     = 20;
     localparam integer STATIC_DUTY2     = 21;
     localparam integer STATIC_DUTY3     = 21;

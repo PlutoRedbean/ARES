@@ -28,6 +28,33 @@ def b(s: str) -> bytes:
     return s.encode("utf-8")
 
 
+class TestSeparatorRuns(unittest.TestCase):
+    """分隔符透明的两种结局：号码内部分组 vs 两个号码被空格连着。"""
+
+    def test_grouped_mobile_is_one_span(self) -> None:
+        spans = scan(b("138 0013 8000"))
+        self.assertEqual([(s.type, s.start, s.length) for s in spans],
+                         [(TYPE_MOBILE, 0, 13)])
+
+    def test_grouped_card_is_one_span(self) -> None:
+        spans = scan(b("4111 1111 1111 1111"))
+        self.assertEqual([(s.type, s.start, s.length) for s in spans],
+                         [(TYPE_BANK, 0, 19)])
+
+    def test_two_numbers_separated_by_space(self) -> None:
+        spans = scan(b("13800138000 13800138001"))
+        self.assertEqual([(s.type, s.start, s.length) for s in spans],
+                         [(TYPE_MOBILE, 0, 11), (TYPE_MOBILE, 12, 11)])
+
+    def test_three_numbers_separated_by_space(self) -> None:
+        spans = scan(b("13800138000 13800138001 13800138002"))
+        self.assertEqual([s.start for s in spans], [0, 12, 24])
+
+    def test_really_too_long_run_still_dropped(self) -> None:
+        self.assertEqual(scan(b"12345678901234567890"), [])
+        self.assertEqual(scan(b"1" * 30), [])
+
+
 class TestChecksums(unittest.TestCase):
     def test_id18_check_digit(self):
         # 国标示例：11010519491231002X

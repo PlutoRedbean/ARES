@@ -17,7 +17,9 @@ module tb_guard_report;
     logic [7:0] v_n = 8'd0, v_id18 = 8'd0, v_id15 = 8'd0, v_mobile = 8'd0;
     logic [7:0] v_bank = 8'd0, v_email = 8'd0, v_ipv4 = 8'd0, v_uscc = 8'd0;
     logic [7:0] v_plate = 8'd0;
+    logic [7:0] v_kw = 8'd0, v_kwm = 8'd0;
     logic       v_err = 1'b0;
+    logic [3:0] v_mode = 4'd1;
 
     wire        byte_valid;
     wire [7:0]  byte_out;
@@ -29,7 +31,7 @@ module tb_guard_report;
         .clk(clk), .rst_n(rst_n), .start(start), .at_line_start(at_ls),
         .v_n(v_n), .v_id18(v_id18), .v_id15(v_id15), .v_mobile(v_mobile),
         .v_bank(v_bank), .v_email(v_email), .v_ipv4(v_ipv4), .v_uscc(v_uscc),
-        .v_plate(v_plate), .v_err(v_err),
+        .v_plate(v_plate), .v_kw(v_kw), .v_kwm(v_kwm), .v_err(v_err), .v_mode(v_mode),
         .byte_out(byte_out), .byte_valid(byte_valid), .fifo_full(fifo_full),
         .busy(busy), .finished(finished)
     );
@@ -68,10 +70,10 @@ module tb_guard_report;
                 end
             end
 
-            // 整行 97 字节 + 行尾 LF = 98
-            if (n != 98) begin
+            // 整行 119 字节 + 行尾 LF = 120
+            if (n != 120) begin
                 errors = errors + 1;
-                $display("FAIL v=%0d: line length %0d (exp 98)", v, n);
+                $display("FAIL v=%0d: line length %0d (exp 120)", v, n);
             end else begin
                 // "[guard] n=HHH" → 下标 10..12
                 h = v / 100;
@@ -84,11 +86,20 @@ module tb_guard_report;
                     $display("FAIL v=%0d: n digits got %c%c%c", v,
                              line[10], line[11], line[12]);
                 end
-                // 结尾 " ovf=00X" → 下标 89..96，行尾 LF 在 97
-                if (line[89] !== 8'h20 || line[90] !== 8'h6F || line[91] !== 8'h76 ||
-                    line[92] !== 8'h66 || line[93] !== 8'h3D ||
-                    line[94] !== 8'h30 || line[95] !== 8'h30 ||
-                    line[96] !== (8'h30 + {7'd0, err}) || line[97] !== 8'h0A) begin
+                // " kw=NNN kwm=NNN ovf=NNN mode=N" + LF：
+                //   kw 在 90，kwm 在 97，ovf 在 105（数字 108..110），
+                //   mode 在 113（数字 118），行尾 LF 在 119
+                if (line[89] !== 8'h20 || line[90] !== 8'h6B || line[91] !== 8'h77 ||
+                    line[92] !== 8'h3D ||
+                    line[96] !== 8'h20 || line[97] !== 8'h6B || line[98] !== 8'h77 ||
+                    line[99] !== 8'h6D || line[100] !== 8'h3D ||
+                    line[104] !== 8'h20 || line[105] !== 8'h6F || line[106] !== 8'h76 ||
+                    line[107] !== 8'h66 || line[108] !== 8'h3D ||
+                    line[109] !== 8'h30 || line[110] !== 8'h30 ||
+                    line[111] !== (8'h30 + {7'd0, err}) ||
+                    line[112] !== 8'h20 || line[113] !== 8'h6D || line[114] !== 8'h6F ||
+                    line[115] !== 8'h64 || line[116] !== 8'h65 || line[117] !== 8'h3D ||
+                    line[118] !== 8'h31 || line[119] !== 8'h0A) begin
                     errors = errors + 1;
                     $display("FAIL v=%0d err=%0d: ovf field wrong (%c%c%c%c%c%c%c%c)",
                              v, err, line[89], line[90], line[91], line[92],

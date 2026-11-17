@@ -2,18 +2,17 @@
 //
 // 每帧脱敏结束后的一行审计摘要（ASCII，固定宽度数字）：
 //
-//   \r\n[guard] n=NNN id18=NNN id15=NNN mobile=NNN bank=NNN email=NNN
-//           ipv4=NNN uscc=NNN plate=NNN ovf=NNN\r\n
+//   [guard] n=NNN id18=NNN id15=NNN mobile=NNN bank=NNN email=NNN
+//           ipv4=NNN uscc=NNN plate=NNN kw=NNN kwm=NNN ovf=NNN mode=N
 //
-// 数字统一 3 位零填充（0..255），所以整行长度固定 = 10 个字段 × (label+3)。
-// 行首是否补 \r\n 取决于上一个输出字节是不是 LF（at_line_start），
-// 这样纯文本行后面不会多出空行，而没换行结尾的文本也不会把摘要粘在行尾。
+// kw / kwm 是关键词提示：本帧命中次数、命中的关键词位图（bit k = kid k）。
+// mode 是降级档位：1 = T1（L1 规则层生效），0 = T0（直通，预留）。
 //
-// 只做“格式化”，不带任何判断：值由 core 在报告开始那一拍锁存。
+// 数字统一零填充（计数 3 位、档位 1 位），所以整行长度固定。
+// 行首/行尾只发 LF；CR 由 guard_uart_core 的 LF→CRLF 整形统一补。
+// 行首是否补 LF 取决于上一个输出字节是不是 LF（at_line_start）。
 //
-// 目标：盘古 200Pro+/PG2L200H，PDS 2025.2（ADS）与 Verilator 双栈验证。
-// 约定：只用可综合的 SystemVerilog 子集（logic/always_ff/always_comb/函数），
-// 不用 interface/struct/动态数组。
+// 只做"格式化"，不带任何判断：值由 core 在报告开始那一拍锁存。
 
 `timescale 1ns/1ps
 
@@ -32,7 +31,10 @@ module guard_report (
     input  logic [7:0] v_ipv4,
     input  logic [7:0] v_uscc,
     input  logic [7:0] v_plate,
+    input  logic [7:0] v_kw,
+    input  logic [7:0] v_kwm,
     input  logic       v_err,
+    input  logic [3:0] v_mode,         // 1 = T1（L1），0 = T0（直通）
 
     output logic [7:0] byte_out,
     output logic       byte_valid,     // 有字节待送（还要看 fifo_full）
@@ -41,7 +43,7 @@ module guard_report (
     output logic       finished        // 1 拍：最后一个字节已送走
 );
 
-    localparam logic [3:0] F_TAIL = 4'd10;
+    localparam logic [3:0] F_TAIL = 4'd13;
 
     logic [3:0]  fld;
     logic [4:0]  pos;
@@ -50,12 +52,13 @@ module guard_report (
     logic        fin_q;
 
     logic [7:0]  n_q, id18_q, id15_q, mob_q, bank_q, mail_q, ip_q, uscc_q, plate_q;
+    logic [7:0]  kw_q, kwm_q;
     logic        err_q;
+    logic [3:0]  mode_q;
 
     // ---------------- 十进制 3 位（BIN → BCD），v <= 255 ----------------
     // 不能用"减 10 循环 25 次"：那是 25 级串行依赖，ADS 综合出来是几十级
-    // 逻辑，直接成为时序关键路径。这里用比较树 + 一次减法，
-    // 约 4–5 级。
+    // 逻辑，直接成为时序关键路径。这里用比较树 + 一次减法，约 4–5 级。
     function automatic logic [11:0] bcd3(input logic [7:0] v);
         logic [7:0] r, t10, u;
         logic [3:0] t, h;
@@ -84,15 +87,17 @@ module guard_report (
     endfunction
 
     // ---------------- 字段表 ----------------
-    logic [95:0] lab;       // 最多 12 字节：[guard] n= 前补 CRLF 正好 12 字节
+    logic [95:0] lab;       // 最多 12 字节（"[guard] n=" 前补 LF 是 11）
     logic [3:0]  lab_len;
     logic [7:0]  fval;
+    logic [1:0]  ndig;      // 该字段几位十进制（3 或 1）
     logic [11:0] bcd;
 
     always_comb begin
         lab     = 96'd0;
         lab_len = 4'd0;
         fval    = 8'd0;
+        ndig    = 2'd3;
         case (fld)
             4'd0: begin
                 // 只发 LF：core 的 TX 整形会把每个 LF 补成 CRLF（包括摘要行），
@@ -109,13 +114,16 @@ module guard_report (
             4'd6: begin lab = " ipv4=";   lab_len = 4'd6; fval = ip_q;   end
             4'd7: begin lab = " uscc=";   lab_len = 4'd6; fval = uscc_q; end
             4'd8: begin lab = " plate=";  lab_len = 4'd7; fval = plate_q; end
-            4'd9: begin lab = " ovf=";    lab_len = 4'd5; fval = {7'd0, err_q}; end
+            4'd9: begin lab = " kw=";     lab_len = 4'd4; fval = kw_q;   end
+            4'd10: begin lab = " kwm=";   lab_len = 4'd5; fval = kwm_q;  end
+            4'd11: begin lab = " ovf=";   lab_len = 4'd5; fval = {7'd0, err_q}; end
+            4'd12: begin lab = " mode=";  lab_len = 4'd6; fval = {4'd0, mode_q}; ndig = 2'd1; end
             default: begin lab = 96'd0; lab_len = 4'd0; fval = 8'd0; end
         endcase
         bcd = bcd3(fval);
     end
 
-    wire [3:0] fld_len = (fld == F_TAIL) ? 4'd1 : (lab_len + 4'd3);
+    wire [3:0] fld_len = (fld == F_TAIL) ? 4'd1 : (lab_len + {2'b0, ndig});
 
     // ---------------- 当前字节 ----------------
     // 字符串字面量赋给 96 位向量时是右对齐的：第 0 个字符在 bit 8*(len-1)。
@@ -134,11 +142,16 @@ module guard_report (
             lab_sh  = lab >> shamt;
             byte_out = lab_sh[7:0];
         end else begin
-            case (pos - {1'b0, lab_len})
-                5'd0:    byte_out = 8'h30 + {4'd0, bcd[11:8]};
-                5'd1:    byte_out = 8'h30 + {4'd0, bcd[7:4]};
-                default: byte_out = 8'h30 + {4'd0, bcd[3:0]};
-            endcase
+            // 数字：ndig=3 时依次百/十/个；ndig=1 时只发个位
+            if (ndig == 2'd1) begin
+                byte_out = 8'h30 + {4'd0, bcd[3:0]};
+            end else begin
+                case (pos - {1'b0, lab_len})
+                    5'd0:    byte_out = 8'h30 + {4'd0, bcd[11:8]};
+                    5'd1:    byte_out = 8'h30 + {4'd0, bcd[7:4]};
+                    default: byte_out = 8'h30 + {4'd0, bcd[3:0]};
+                endcase
+            end
         end
     end
 
@@ -154,7 +167,8 @@ module guard_report (
             fin_q <= 1'b0;
             n_q <= 8'd0; id18_q <= 8'd0; id15_q <= 8'd0; mob_q <= 8'd0;
             bank_q <= 8'd0; mail_q <= 8'd0; ip_q <= 8'd0; uscc_q <= 8'd0;
-            plate_q <= 8'd0; err_q <= 1'b0;
+            plate_q <= 8'd0; kw_q <= 8'd0; kwm_q <= 8'd0;
+            err_q <= 1'b0; mode_q <= 4'd1;
         end else begin
             fin_q <= 1'b0;
             if (start) begin
@@ -171,7 +185,10 @@ module guard_report (
                 ip_q    <= v_ipv4;
                 uscc_q  <= v_uscc;
                 plate_q <= v_plate;
+                kw_q    <= v_kw;
+                kwm_q   <= v_kwm;
                 err_q   <= v_err;
+                mode_q  <= v_mode;
             end else if (run && !fifo_full) begin
                 if (pos + 5'd1 >= {1'b0, fld_len}) begin
                     pos <= 5'd0;

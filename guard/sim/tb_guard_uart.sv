@@ -15,13 +15,14 @@
 
 module tb_guard_uart;
 
-    // 板级真实参数：27 MHz 晶振 → PLL → 10 MHz 核心；115200 8N1。
-    // 仿真把波特率提到 500 kbaud（位时间 2 µs）只是为了跑得快，
-    // 20 个核心时钟/位，过采样仍是 16 倍，和板上同一条通路。
+    // 板级真实参数：27 MHz 晶振 → PLL → 25 MHz 核心；115200 8N1。
+    // 仿真把波特率提到 1 Mbaud（位时间 1 µs）只是为了跑得快：27 个 27 MHz
+    // 周期/位 = 25 个核心时钟/位，8× 过采样，和板上同一条通路。
     localparam int CRYSTAL_HZ   = 27_000_000;
-    localparam int CLK_FREQ     = 10_000_000;   // PLL 输出（guard_pll_sim）
-    localparam int BAUD         = 500_000;
-    localparam int CLKS_PER_BIT = CRYSTAL_HZ / BAUD;   // 54 个 27 MHz 周期
+    localparam int CLK_FREQ     = 25_000_000;   // PLL 输出（guard_pll_sim）
+    // BAUD 留成参数，方便 -GBAUD=3000000 跑 3 Mbaud 通路（见 make board-sim-3m）
+    parameter  int BAUD         = 1_000_000;
+    localparam int CLKS_PER_BIT = CRYSTAL_HZ / BAUD;   // 27 个 27 MHz 周期
     localparam int MAXB         = 16384;
     localparam int IDLE_BITS    = 4000;         // 板上是 300000（≈2.6 s）；仿真取小值
     localparam int IDLE_CYCLES  = CLKS_PER_BIT * IDLE_BITS;
@@ -37,7 +38,7 @@ module tb_guard_uart;
     guard_board_top #(
         .CLK_FREQ  (CLK_FREQ),
         .BAUD      (BAUD),
-        .OV        (16),
+        .OV        (8),
         .AW        (8),
         .LF_TO_CRLF(1),
         .REPORT_EN (1),
@@ -218,7 +219,8 @@ module tb_guard_uart;
             uart_rx = 1'b1;
             repeat (8) @(negedge clk);
             rst_n = 1'b1;
-            repeat (8) @(negedge clk);
+            // PLL 锁定 + 复位同步释放：等够再开始发，否则头一个字节会撞在复位里
+            repeat (200) @(negedge clk);
             obytes = 0;
             rx_en  = 1'b1;
 

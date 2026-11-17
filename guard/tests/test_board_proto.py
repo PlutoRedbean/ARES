@@ -27,7 +27,11 @@ class TestReportLine(unittest.TestCase):
         line = report_line({})
         self.assertTrue(line.startswith(b"[guard] n=000 "))
         self.assertIn(b"ovf=000", line)
-        self.assertEqual(line.count(b"="), 1 + len(BOARD_FIELDS) + 1)
+        self.assertIn(b"kw=000", line)
+        self.assertIn(b"kwm=000", line)
+        self.assertTrue(line.endswith(b"mode=1"))
+        # n + 8 个类型 + kw + kwm + ovf + mode
+        self.assertEqual(line.count(b"="), 1 + len(BOARD_FIELDS) + 4)
 
     def test_counts_and_clamp(self) -> None:
         line = report_line({3: 2, 1: 1, 5: 300})
@@ -40,14 +44,25 @@ class TestReportLine(unittest.TestCase):
         self.assertIn(b"ovf=001", report_line({}, err=1))
 
     def test_parse_roundtrip(self) -> None:
-        line = report_line({1: 1, 4: 2})
+        line = report_line({1: 1, 4: 2}, kw=5, kwm=0x24, mode=1)
         got = parse_report(line)
         self.assertIsNotNone(got)
         assert got is not None
         self.assertEqual(got["n"], 3)
         self.assertEqual(got["id18"], 1)
         self.assertEqual(got["bank"], 2)
+        self.assertEqual(got["kw"], 5)
+        self.assertEqual(got["kwm"], 36)
         self.assertEqual(got["ovf"], 0)
+        self.assertEqual(got["mode"], 1)
+
+    def test_kw_stats(self) -> None:
+        from host.golden.board_proto import kw_stats
+
+        self.assertEqual(kw_stats(b"no keyword here"), (0, 0))
+        kw, kwm = kw_stats("身份证 手机号 邮箱".encode())
+        self.assertEqual(kw, 3)
+        self.assertEqual(kwm, (1 << 0) | (1 << 2) | (1 << 3))
 
     def test_parse_rejects_other_lines(self) -> None:
         self.assertIsNone(parse_report(b"hello world"))

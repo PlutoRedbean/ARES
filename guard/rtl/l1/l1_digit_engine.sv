@@ -50,6 +50,20 @@ module l1_digit_engine (
     logic        too_long_q;
     logic [18:0][3:0] digits_q;    // digits_q[0] 是最右（最新）一位
 
+    // 影子游程：最后一个分隔符之后的数字（超长时顶替主游程）
+    logic [18:0][3:0] sdig_q;
+    logic [5:0]       snd_q;
+    logic             shas_x_q;
+    logic             sover_q;
+    logic [31:0]      sstart_q;
+    logic [31:0]      slast_q;
+
+    // 分隔符处的快照：主游程分类结果（只存 type 与 span，不存数字）
+    logic             snap_valid_q;
+    logic [2:0]       snap_type_q;
+    logic [31:0]      snap_start_q;
+    logic [31:0]      snap_last_q;
+
     logic        is_digit;
     logic        is_sep;
     logic        is_x;
@@ -72,6 +86,7 @@ module l1_digit_engine (
 
     integer i;
     integer j;
+    integer jj;
 
     function automatic logic [3:0] luhn_double(input logic [3:0] d);
         logic [4:0] t;
@@ -171,6 +186,12 @@ module l1_digit_engine (
     end
 
     // ---------------------------------------------------------------- FSM
+    //
+    // 分隔符（空格/短横）在游程内透明，但 `13800138000 13800138001` 会被并成
+    // 22 位游程而整段丢弃（见 docs/m2-results.md）。这里的处理：
+    //   - 影子游程 s* 永远只装"最后一个分隔符之后"的数字；
+    //   - 分隔符处把主游程的分类结果存成快照（type + span）；
+    //   - 主游程满 19 位又来数字时：先按快照结算一个 span，再用影子顶替主游程。
     always_ff @(posedge clk) begin
         if (!rst_n) begin
             pos_q           <= 32'd0;
@@ -181,6 +202,16 @@ module l1_digit_engine (
             has_x_q         <= 1'b0;
             too_long_q      <= 1'b0;
             digits_q        <= '0;
+            sdig_q          <= '0;
+            snd_q           <= 6'd0;
+            shas_x_q        <= 1'b0;
+            sover_q         <= 1'b0;
+            sstart_q        <= 32'd0;
+            slast_q         <= 32'd0;
+            snap_valid_q    <= 1'b0;
+            snap_type_q     <= 3'd0;
+            snap_start_q    <= 32'd0;
+            snap_last_q     <= 32'd0;
             out_valid       <= 1'b0;
             out_start       <= 32'd0;
             out_len         <= 8'd0;
@@ -191,7 +222,7 @@ module l1_digit_engine (
             if (in_valid) pos_q <= pos_q + 32'd1;
 
             if (in_last) begin
-                if (run_active_q && (hit_type != 3'd0)) begin
+                if (run_active_q && !too_long_q && (hit_type != 3'd0)) begin
                     out_valid <= 1'b1;
                     out_start <= run_start_q;
                     out_len   <= last_digit_pos_q - run_start_q + 32'd1;
@@ -201,8 +232,31 @@ module l1_digit_engine (
                 ndigits_q    <= 6'd0;
                 has_x_q      <= 1'b0;
                 too_long_q   <= 1'b0;
+                snd_q        <= 6'd0;
+                sover_q      <= 1'b0;
+                snap_valid_q <= 1'b0;
             end else if (in_valid) begin
                 if (is_digit) begin
+                    // ---------------- 影子游程：每来一个数字都跟着走 ----------------
+                    if (!sover_q) begin
+                        if (snd_q == 6'd0) begin
+                            sstart_q  <= pos_q;
+                            sdig_q    <= '0;      // 清掉上一轮的残留，顶替时对齐才正确
+                            sdig_q[0] <= new_digit;
+                            snd_q     <= 6'd1;
+                            slast_q   <= pos_q;
+                            shas_x_q  <= 1'b0;
+                        end else if (snd_q < 6'd19) begin
+                            for (jj = 18; jj > 0; jj = jj - 1) sdig_q[jj] <= sdig_q[jj-1];
+                            sdig_q[0] <= new_digit;
+                            snd_q     <= snd_q + 6'd1;
+                            slast_q   <= pos_q;
+                        end else begin
+                            sover_q <= 1'b1;
+                        end
+                    end
+
+                    // ---------------- 主游程 ----------------
                     if (!run_active_q) begin
                         run_active_q     <= 1'b1;
                         run_start_q      <= pos_q;
@@ -211,6 +265,7 @@ module l1_digit_engine (
                         has_x_q          <= 1'b0;
                         too_long_q       <= 1'b0;
                         last_digit_pos_q <= pos_q;
+                        snap_valid_q     <= 1'b0;
                     end else if (too_long_q) begin
                         last_digit_pos_q <= pos_q;
                     end else if (ndigits_q < 6'd19) begin
@@ -219,8 +274,31 @@ module l1_digit_engine (
                         ndigits_q        <= ndigits_q + 6'd1;
                         last_digit_pos_q <= pos_q;
                     end else begin
-                        too_long_q       <= 1'b1;
+                        // 主游程满了：先结算快照，再用影子顶替
+                        if (snap_valid_q) begin
+                            out_valid <= 1'b1;
+                            out_start <= snap_start_q;
+                            out_len   <= snap_last_q - snap_start_q + 32'd1;
+                            out_type  <= snap_type_q;
+                        end
+                        if (sover_q || (snd_q >= 6'd19)) begin
+                            too_long_q <= 1'b1;      // 影子也溢出：整段作废
+                        end else begin
+                            digits_q        <= {sdig_q[17:0], new_digit};
+                            ndigits_q       <= snd_q + 6'd1;
+                            has_x_q         <= shas_x_q;
+                            run_start_q     <= (snd_q == 6'd0) ? pos_q : sstart_q;
+                            too_long_q      <= 1'b0;
+                        end
                         last_digit_pos_q <= pos_q;
+                        // 影子从这个数字重新开始
+                        sdig_q[0]    <= new_digit;
+                        snd_q        <= 6'd1;
+                        sstart_q     <= pos_q;
+                        slast_q      <= pos_q;
+                        shas_x_q     <= 1'b0;
+                        sover_q      <= 1'b0;
+                        snap_valid_q <= 1'b0;
                     end
                 end else if (is_x && run_active_q && !too_long_q && (ndigits_q == 6'd17)) begin
                     for (j = 18; j > 0; j = j - 1) digits_q[j] <= digits_q[j-1];
@@ -228,10 +306,27 @@ module l1_digit_engine (
                     ndigits_q        <= 6'd18;
                     has_x_q          <= 1'b1;
                     last_digit_pos_q <= pos_q;
+
+                    if (!sover_q && (snd_q == 6'd17)) begin
+                        for (jj = 18; jj > 0; jj = jj - 1) sdig_q[jj] <= sdig_q[jj-1];
+                        sdig_q[0] <= 4'd10;
+                        snd_q     <= 6'd18;
+                        shas_x_q  <= 1'b1;
+                        slast_q   <= pos_q;
+                    end
                 end else if (is_sep) begin
-                    // 游程内的透明分隔符：不结束、不计入 span 尾部
+                    // 游程内的透明分隔符：不结束、不计入 span 尾部；只更新快照与影子
+                    if (run_active_q) begin
+                        snap_valid_q <= !too_long_q && (hit_type != 3'd0);
+                        snap_type_q  <= hit_type;
+                        snap_start_q <= run_start_q;
+                        snap_last_q  <= last_digit_pos_q;
+                        snd_q        <= 6'd0;
+                        sover_q      <= 1'b0;
+                        shas_x_q     <= 1'b0;
+                    end
                 end else begin
-                    if (run_active_q && (hit_type != 3'd0)) begin
+                    if (run_active_q && !too_long_q && (hit_type != 3'd0)) begin
                         out_valid <= 1'b1;
                         out_start <= run_start_q;
                         out_len   <= last_digit_pos_q - run_start_q + 32'd1;
@@ -241,6 +336,9 @@ module l1_digit_engine (
                     ndigits_q    <= 6'd0;
                     has_x_q      <= 1'b0;
                     too_long_q   <= 1'b0;
+                    snd_q        <= 6'd0;
+                    sover_q      <= 1'b0;
+                    snap_valid_q <= 1'b0;
                 end
             end
         end

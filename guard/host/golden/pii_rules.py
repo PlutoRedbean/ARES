@@ -300,47 +300,112 @@ def scan(data: bytes) -> list[Span]:
 
 
 def _scan_digits(data: bytes) -> list[Span]:
+    """数字游程 → span。
+
+    分隔符（空格/短横）在游程内透明，但"透明"有代价：`13800138000 13800138001`
+    会被并成一个 22 位游程而整段丢弃。这里用"影子游程 + 分隔符快照"修掉：
+
+    - P  = 主游程（从游程起点开始，分隔符透明）；
+    - S  = 影子游程（最后一个分隔符之后的部分，分隔符处重置）；
+    - 分隔符处把 P 的分类结果记成快照（只存 type/start/last，不存数字）；
+    - P 满 19 位又来数字时：先把快照结算成一个 span，再用 S 顶替 P 继续走。
+    """
     spans: list[Span] = []
 
     active = False
     run_start = 0
     last_digit = 0
-    digits: list[int] = []  # digits[0] 是最右
-    has_x = False
-    too_long = False
+    P: list[int] = []          # digits[0] 是最右（最新）一位
+    P_hasx = False
+    P_over = False
+    S: list[int] = []
+    S_hasx = False
+    S_over = False
+    S_start = 0
+    snap_valid = False
+    snap_type = 0
+    snap_start = 0
+    snap_last = 0
 
     def close() -> None:
-        nonlocal active, digits, has_x, too_long
-        if active:
-            t = _classify(digits, has_x, too_long)
+        nonlocal active, P, P_hasx, P_over, S, S_hasx, S_over, snap_valid
+        if active and not P_over:
+            t = _classify(P, P_hasx, False)
             if t:
                 spans.append(Span(t, run_start, last_digit - run_start + 1))
         active = False
-        digits = []
-        has_x = False
-        too_long = False
+        P = []
+        P_hasx = False
+        P_over = False
+        S = []
+        S_hasx = False
+        S_over = False
+        snap_valid = False
 
     for pos, ch in enumerate(data):
         if 0x30 <= ch <= 0x39:
+            d = ch - 0x30
             if not active:
                 active = True
                 run_start = pos
-                digits = [ch - 0x30]
-                has_x = False
-                too_long = False
-            elif too_long:
-                pass
-            elif len(digits) < 19:
-                digits.insert(0, ch - 0x30)
+                P = [d]
+                P_hasx = False
+                P_over = False
+                S = [d]
+                S_hasx = False
+                S_over = False
+                S_start = pos
+                snap_valid = False
             else:
-                too_long = True
+                # ---- 影子游程 ----
+                if not S_over:
+                    if not S:
+                        S = [d]
+                        S_start = pos
+                    elif len(S) < 19:
+                        S.insert(0, d)
+                    else:
+                        S_over = True
+                # ---- 主游程 ----
+                if not P_over:
+                    if len(P) < 19:
+                        P.insert(0, d)
+                    else:
+                        # 满 19：先结算快照（分隔符之前的那个号码）
+                        if snap_valid:
+                            spans.append(
+                                Span(snap_type, snap_start, snap_last - snap_start + 1)
+                            )
+                        if S_over:
+                            P_over = True          # 影子也溢出：整段作废
+                        else:
+                            P = list(S)            # 影子顶替主游程（已含 d）
+                            run_start = S_start
+                            P_hasx = S_hasx
+                        S = [d]
+                        S_hasx = False
+                        S_over = False
+                        S_start = pos
+                        snap_valid = False
             last_digit = pos
         elif ch in (SEP_SPACE, SEP_DASH):
-            pass  # 游程内透明
-        elif ch in (CH_X_UPPER, CH_X_LOWER) and active and not too_long and len(digits) == 17:
-            digits.insert(0, 10)
-            has_x = True
+            if active:
+                # 快照 = 目前这个前缀的分类结果（分隔符之后的数字另算）
+                t = _classify(P, P_hasx, P_over)
+                snap_valid = t != 0
+                snap_type = t
+                snap_start = run_start
+                snap_last = last_digit
+                S = []
+                S_hasx = False
+                S_over = False
+        elif ch in (CH_X_UPPER, CH_X_LOWER) and active and not P_over and len(P) == 17:
+            P.insert(0, 10)
+            P_hasx = True
             last_digit = pos
+            if not S_over and len(S) == 17:
+                S.insert(0, 10)
+                S_hasx = True
         else:
             close()
 

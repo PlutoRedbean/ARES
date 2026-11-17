@@ -44,7 +44,8 @@ module guard_uart_core #(
     parameter int AW         = 8,          // 收发 FIFO 深度 = 2^AW 字节
     parameter int LF_TO_CRLF = 1,          // 输出把 LF 补成 CRLF（终端友好）
     parameter int REPORT_EN  = 1,          // 每帧结束回一行审计摘要
-    parameter int IDLE_BITS  = 300000       // 空闲多少个位时间后强制冲刷（≈2.6 s @115200）
+    parameter int IDLE_BITS  = 300000,      // 空闲多少个位时间后强制冲刷（≈2.6 s @115200）
+    parameter int MODE_T1    = 1            // 档位：1 = T1（L1 生效）；0 = T0（直通，预留）
 ) (
     input  logic       clk,
     input  logic       rst_n,
@@ -106,7 +107,12 @@ module guard_uart_core #(
     logic [7:0]  rpt_byte;
     logic        rpt_valid, rpt_busy, rpt_fin, rpt_start;
 
+    // 关键词提示（只统计，不参与替换）
+    logic        kw_valid;
+    logic [2:0]  kw_kid;
+
     logic [7:0]  c_n, c_id18, c_id15, c_mob, c_bank, c_mail, c_ip, c_uscc, c_plate;
+    logic [7:0]  c_kw, c_kwm;
 
     logic [1:0]  fst;
     logic [3:0]  rst_cnt;
@@ -202,7 +208,8 @@ module guard_uart_core #(
         .in_valid(in_valid), .in_char(in_char), .in_last(in_last),
         .out_valid(out_valid), .out_char(out_char),
         .a_valid(a_valid), .a_start(a_start), .a_len(a_len), .a_type(a_type),
-        .done(done_q), .ovf(ovf_q), .dropped(dropped_q)
+        .done(done_q), .ovf(ovf_q), .dropped(dropped_q),
+        .kw_valid(kw_valid), .kw_kid(kw_kid)
     );
 
     // =====================================================================
@@ -221,7 +228,10 @@ module guard_uart_core #(
         .v_ipv4   (c_ip),
         .v_uscc   (c_uscc),
         .v_plate  (c_plate),
+        .v_kw     (c_kw),
+        .v_kwm    (c_kwm),
         .v_err    (err_q),
+        .v_mode   (MODE_T1 != 0 ? 4'd1 : 4'd0),
         .byte_out (rpt_byte),
         .byte_valid(rpt_valid),
         .fifo_full(txq_full),
@@ -287,6 +297,8 @@ module guard_uart_core #(
             c_ip          <= 8'd0;
             c_uscc        <= 8'd0;
             c_plate       <= 8'd0;
+            c_kw          <= 8'd0;
+            c_kwm         <= 8'd0;
         end else begin
             in_last_r <= 1'b0;
 
@@ -327,6 +339,12 @@ module guard_uart_core #(
                     4'd8:    c_plate <= c_plate + 8'd1;
                     default: ;
                 endcase
+            end
+
+            // ---- 关键词提示（本帧计数 + 位图） ----
+            if (kw_valid) begin
+                c_kw <= c_kw + 8'd1;
+                c_kwm[kw_kid] <= 1'b1;
             end
 
             // ---- 错误（帧内 + 粘滞） ----
@@ -384,6 +402,8 @@ module guard_uart_core #(
                         c_ip        <= 8'd0;
                         c_uscc      <= 8'd0;
                         c_plate     <= 8'd0;
+                        c_kw        <= 8'd0;
+                        c_kwm       <= 8'd0;
                     end else begin
                         rst_cnt <= rst_cnt + 4'd1;
                     end

@@ -2,8 +2,9 @@
 
 > 状态：Draft v0.2（M1/M2 已落地；板上 UART 原型已跑通 —— 见
 > [m1-results.md](m1-results.md)、[m2-results.md](m2-results.md)、[board-uart.md](board-uart.md)。
-> 实测把 §3.3 的"150 MHz / 150 MB/s"拉回现实：规则层单周期校验链 ≈75 ns，
-> 27 MHz 不收敛，当前板上核心 10 MHz（UART 仍是瓶颈）。校验链流水化后才能提频。）
+> 实测把 §3.3 的"150 MHz / 150 MB/s"拉回现实：规则层单周期校验链曾是 ≈75 ns（2026-11-17
+> 已重写成逐字节增量校验，降到 ≈15 ns，板上跑 25 MHz），
+> 27 MHz 一开始不收敛；2026-11-17 把文本引擎改成逐字节增量校验后，板上核心 25 MHz（UART 仍是瓶颈）。）
 > 日期：2026-11-15（v0.2 同日修订）
 > 器件：PG2L200H-6IFBB676（Pangu 200Pro+ / MES2L676-200HP）
 > 复用：ARES 单发射流水核（8 级寄存器 / 9 功能单元）+ miniTensor

@@ -1,6 +1,6 @@
 # 上板指南（盘古 200Pro+）：出位流 → push 上板 → 串口验收
 
-> 面向"板子在手、从零开始"的操作手册。原理、协议细节、为什么 10 MHz 见
+> 面向"板子在手、从零开始"的操作手册。原理、协议细节、为什么 25 MHz 见
 > [board-uart.md](board-uart.md)；这份只讲**怎么做、成功长什么样、出问题查哪里**。
 >
 > 全程约 15 分钟（其中出位流 ~6 分钟，烧写 ~30 秒）。
@@ -98,9 +98,9 @@ Select-String guard\build\pds_guard.log -Pattern 'Total LUTs|Total Registers|aft
 
 | 项 | 期望值 |
 |---|---|
-| LUT | 6,9xx / 159,800（~4.3%） |
-| Registers | 2,578 |
-| 时序 | `TNS = 0 ; WNS = +15117`（≈ +15.1 ns，MET） |
+| LUT | 3,893 / 159,800（2.4%） |
+| Registers | 2,113 |
+| 时序 | `TNS = 0 ; WNS = +4997`（≈ +5.0 ns，MET） |
 
 > WNS 必须是**正数**。如果是负数，说明你改了 RTL 让组合路径变长了；
 > 先把时钟再降（`guard_pll.v` 里 `STATIC_RATIO0` 调大）再上板。
@@ -249,7 +249,7 @@ abc
 
 ```
 abc\r\n
-[guard] n=000 id18=000 id15=000 mobile=000 bank=000 email=000 ipv4=000 uscc=000 plate=000 ovf=000\r\n
+[guard] n=000 id18=000 id15=000 mobile=000 bank=000 email=000 ipv4=000 uscc=000 plate=000 kw=000 kwm=000 ovf=000 mode=1\r\n
 ```
 
 ### 4.3 LED 判读
@@ -275,7 +275,7 @@ python guard\tools\serial_host.py -p COM5 --text "手机 13800138000，邮箱 a@
 
 # 整份样例：逐字节和金标比
 python guard\tools\serial_host.py -p COM5 --file guard\examples\sample.txt --check
-# 期望最后一行：PASS  收到 1075 B，期望 1075 B
+# 期望最后一行：PASS  收到 1229 B，期望 1229 B
 
 # 交互
 python guard\tools\serial_host.py -p COM5 --repl
@@ -291,11 +291,11 @@ python guard\tools\serial_host.py -p COM5 --file guard\examples\sample.txt --che
 手机 *******8000，邮箱 **b.co
 
 ── 审计行（板子发的）──────────────────────────────────────
- #     n  id18 id15  mob bank mail ipv4 uscc plate  ovf
- 1     2     0    0    1    0    1    0    0     0    0
+ #     n  id18 id15  mob bank mail ipv4 uscc plate   kw kwm ovf mode
+ 1     2     0    0    1    0    1    0    0     0    1  08   0    1
 
 ── 校验 ────────────────────────────────────────────────
-PASS  收到 135 B，期望 135 B
+PASS  收到 157 B，期望 157 B
 ```
 
 `--check` 的期望值来自 `host/golden/board_proto.py`，和 `make board-sim` 是**同一份**
@@ -343,7 +343,7 @@ python guard\tools\serial_host.py -p COM5 --file guard\examples\sample.txt --no-
 
 | 信号 | 引脚 | 说明 |
 |---|---|---|
-| `clk_27m` | D18 | 27 MHz 晶振 → `guard_pll` → 10 MHz 核心 |
+| `clk_27m` | D18 | 27 MHz 晶振 → `guard_pll` → 25 MHz 核心 |
 | `rst_n` | C22 | 低有效复位 |
 | `uart_rx` | **B24** | USB-UART → 板子 |
 | `uart_tx` | C24 | 板子 → USB-UART，115200 8N1 |
@@ -357,11 +357,11 @@ python guard\tools\serial_host.py -p COM5 --file guard\examples\sample.txt --no-
 发：任意文本（UTF-8 字节流）
 帧结束：收到 LF（0x0A）；或空闲 ≥ 2.6 s
 回：脱敏文本（mask，长度不变，LF→CRLF）+ 一行摘要
-摘要：[guard] n=NNN id18=NNN id15=NNN mobile=NNN bank=NNN email=NNN
-                ipv4=NNN uscc=NNN plate=NNN ovf=NNN
+摘要：[guard] n=NNN id18=NNN ... plate=NNN kw=NNN kwm=NNN ovf=NNN mode=N
 ```
 
 - `n` = 本帧命中的 span 总数；`ovf=001` = 本帧出过错（溢出/丢字节/帧错误）。
+- `kw`/`kwm` = 关键词提示的命中次数 / 位图；`mode=1` = T1（L1 生效）。
 - 摘要行前会自动补 CRLF（当上一帧不以 LF 结尾时），不会粘在正文行尾。
 
 ## 附录 C：改 RTL 之后的最小回归

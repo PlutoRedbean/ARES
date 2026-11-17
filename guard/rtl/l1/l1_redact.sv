@@ -376,7 +376,11 @@ module l1_redact_top (
 
     output logic        done,
     output logic        ovf,
-    output logic [15:0] dropped
+    output logic [15:0] dropped,
+
+    // 关键词提示（只给板级摘要用，不参与替换）
+    output logic        kw_valid,
+    output logic [2:0]  kw_kid
 );
 
     wire        digit_valid, email_valid, ipv4_valid, uscc_valid, plate_valid;
@@ -384,10 +388,8 @@ module l1_redact_top (
     wire [7:0]  digit_len, email_len, ipv4_len, uscc_len, plate_len;
     wire [2:0]  digit_type;
 
-    wire        kw_valid;   // 关键词只做提示，不参与替换
     wire [31:0] kw_start;
     wire [7:0]  kw_len;
-    wire [2:0]  kw_kid;
 
     l1_engine u_eng (
         .clk(clk), .rst_n(rst_n),
