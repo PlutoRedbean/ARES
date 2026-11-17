@@ -243,7 +243,7 @@ python3 tools/serial_host.py --ports       # 列出串口
 python3 tools/serial_host.py -p COM3 --text "手机 13800138000"
 python3 tools/serial_host.py -p COM3 --file examples/sample.txt --check
 python3 tools/serial_host.py -p COM3 --file examples/sample.txt --check --json audit.json
-python3 tools/serial_host.py -p COM3 --repl
+python3 tools/serial_host.py -p COM3 --repl        # 交互：输入文本 → 回车 → 脱敏+审计；:q 退出（空行也退）
 ```
 
 | 选项 | 作用 |

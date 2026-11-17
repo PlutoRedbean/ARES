@@ -72,6 +72,7 @@ powershell -ExecutionPolicy Bypass -File guard\tools\build_guard.ps1    # PDS �
 powershell -ExecutionPolicy Bypass -File guard\tools\program_guard.ps1  # JTAG 烧写（~30 s）
 python guard\tools\serial_host.py --ports                              # 找串口
 python guard\tools\serial_host.py -p COM5 --text "手机 13800138000"     # 发一行，收脱敏+审计
+python guard\tools\serial_host.py -p COM9 --repl                            # 交互：敲文本 + 回车，:q 退出
 python guard\tools\serial_host.py -p COM5 --file guard\examples\sample.txt --check
 ```
 

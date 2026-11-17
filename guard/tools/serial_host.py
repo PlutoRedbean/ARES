@@ -245,20 +245,51 @@ def run_text(args, data: bytes) -> int:
     return rc
 
 
+SHELLISH = ("python", "python3", "powershell", "pwsh", "cmd", "cd", "dir", "ls",
+            "git", "pip", "make", "wsl")
+
+
+def _looks_like_shell(line: str) -> bool:
+    """粗略识别"把 shell 命令打进 repl 了"的情况，省得把命令当文本发给板子。"""
+    head = line.strip().split(" ", 1)[0]
+    return head in SHELLISH or line.strip().startswith((".\\", "./", "--"))
+
+
 def cmd_repl(args) -> int:
     serial, _ = _import_serial()
+    bar = "─" * 62
+    print(bar)
+    print(f" guard 板级交互 —— {args.port} @ {args.baud} 8N1（输入的是**文本**，不是 shell 命令）")
+    print(" · 直接键入文字，按回车发送 → 板子回显脱敏结果 + 一行审计")
+    print(" · 退出：单独的 :q（或 Ctrl-C / Ctrl-D）；空行 = 发一个空帧")
+    print(" · 中文按 UTF-8 发，逐字节进 L1；板子按回车（LF）切帧")
+    print(bar)
     with serial.Serial(args.port, args.baud, timeout=0.05, write_timeout=5) as ser:
-        print(f"guard 板级 repl —— {args.port} @ {args.baud} 8N1；空行退出")
         while True:
             try:
-                line = input("guard> ")
+                line = input("文本> ")
             except (EOFError, KeyboardInterrupt):
+                print()
                 break
-            if not line:
+            s = line.strip()
+            if s in (":q", "quit", "exit"):
                 break
+            if not s:
+                print("（空行退出）")
+                break
+            if _looks_like_shell(line):
+                print("  这看起来是 shell 命令 —— 你现在在 guard 的交互里，"
+                      "板子只会把它当文本发出去。")
+                print("  先 :q 退出，再在 PowerShell 里运行它。")
+                continue
             data = (line + "\n").encode("utf-8")
             raw = send_and_collect(ser, data, baud=args.baud, pace=True, expect=None)
-            show(raw)
+            if not raw:
+                print("  （没收到任何回读：板子上电了吗？位流烧了吗？COM 口对吗？）")
+            else:
+                show(raw)
+                print()
+    print("已断开。")
     return 0
 
 
