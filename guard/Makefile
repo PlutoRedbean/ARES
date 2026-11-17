@@ -16,6 +16,7 @@
 #   make board-vectors  生成 build/board 向量（.in/.exp/.pace）
 #   make board-sim     位级 UART 端到端（18 例，真实位定时，1 Mbaud 仿真）
 #   make board-sim-3m  同一套向量跑 3 Mbaud 通路（8× 过采样）
+#   make l2-sim        L2 INT4 语义层（miniTensor MXU）对金标
 #   make report-sim    审计摘要格式化穷举（0..255）
 #   make board-lint    含板级桥 + PLL 仿真模型的 lint
 #   （出位流 / 烧写不在这里：用 tools/build_guard.ps1 / tools/program_guard.ps1，
@@ -43,7 +44,7 @@ VEC    := $(BUILD)/vectors
 
 VFLAGS := --binary --timing -j $(JOBS) -O2 -Wall -Wno-fatal --top-module
 
-.PHONY: all test golden vectors sim bench edges kw redact demo demo-check harness run serve cli-smoke lint clean tools board-vectors board-sim board-sim-3m board-lint report-sim
+.PHONY: all test golden vectors sim bench edges kw redact demo demo-check harness run serve cli-smoke lint clean tools board-vectors board-sim board-sim-3m board-lint report-sim l2-vectors l2-sim
 
 all: test
 
@@ -172,6 +173,29 @@ $(OBJ_BOARD3)/Vtb_guard_uart: $(BOARD_RTL) sim/tb_guard_uart.sv
 	$(VERILATOR) $(VFLAGS) tb_guard_uart -GBAUD=3000000 --Mdir $(OBJ_BOARD3) -o Vtb_guard_uart \
 	    $(BOARD_RTL) sim/tb_guard_uart.sv
 
+# ---------------------------------------------------------------------------
+# L2 INT4 语义层（用 vendor/minitensor 的 4x4 MXU）
+L2_VEC   := $(BUILD)/l2
+MT_RTL   := vendor/minitensor/rtl/tensor
+MT_SYS   := $(MT_RTL)/MXU/Systolic_Array
+L2_RTL   := $(MT_RTL)/tensor_pkg.sv $(MT_SYS)/tensor_pe.sv \
+            $(MT_SYS)/tensor_systolic_array.sv \
+            $(MT_RTL)/MXU/INT8_GEMM/tensor_gemm_core.sv \
+            rtl/l2/l2_features.sv rtl/l2/l2_int4_gemm.sv rtl/l2/l2_semantic_top.sv
+OBJ_L2   := $(BUILD)/obj_l2
+
+$(L2_VEC)/manifest.txt: tools/gen_l2_vectors.py host/golden/l2_int4.py
+	python3 tools/gen_l2_vectors.py $(L2_VEC)
+
+l2-vectors: $(L2_VEC)/manifest.txt
+
+$(OBJ_L2)/Vtb_l2_int4: $(L2_RTL) rtl/l1/l1_keyword_match.sv $(KW_PKG) sim/tb_l2_int4.sv
+	$(VERILATOR) $(VFLAGS) tb_l2_int4 --Mdir $(OBJ_L2) -o Vtb_l2_int4 \
+	    $(KW_PKG) $(L2_RTL) rtl/l1/l1_keyword_match.sv sim/tb_l2_int4.sv
+
+l2-sim: $(OBJ_L2)/Vtb_l2_int4 $(L2_VEC)/manifest.txt
+	$(OBJ_L2)/Vtb_l2_int4 +dir=$(L2_VEC)
+
 board-sim-3m: $(OBJ_BOARD3)/Vtb_guard_uart $(BOARD_VEC)/manifest.txt
 	$(OBJ_BOARD3)/Vtb_guard_uart +dir=$(BOARD_VEC)
 
@@ -185,7 +209,7 @@ report-sim: $(OBJ_BOARD)/Vtb_guard_report
 board-lint:
 	$(VERILATOR) --lint-only -Wall -Wno-fatal --top-module guard_board_top $(BOARD_RTL)
 
-test: harness redact-harness golden vectors sim edges kw redact demo-check cli-smoke board-sim board-sim-3m report-sim
+test: harness redact-harness golden vectors sim edges kw redact demo-check cli-smoke board-sim board-sim-3m report-sim l2-sim
 
 clean:
 	rm -rf $(BUILD)

@@ -90,6 +90,12 @@
 
 ## M3 INT4 语义引擎
 
+- [x] L2 第一刀：**miniTensor MXU 接入**（`tensor_gemm_core` 的 4×4 阵列），
+      INT4 权重的上下文分类器（none/id18/bank/mobile），12 例/14 游程对金标，
+      889 LUT / 954 FF / WNS +30 ns（`make l2-sim` / `fpga/pango/flow_l2.tcl`），
+      见 [docs/l2-int4.md](docs/l2-int4.md)
+- [ ] L2 接进板级位流：`l2_semantic_top` 挂到同一字符流，摘要行加 `l2=` 字段
+- [ ] 用 corpus 标注数据训线性模型，导出 INT4 权重替换手调表（现在还只是"手调权重"）
 - [ ] 从 vendor 拷 UB/VPU/接口到 `rtl/l2/`（保持 vendor 只读）
 - [ ] 16×16 W4A8 GEMM + 反量化（先仿真对齐 Python 参考）
 - [ ] 双缓冲 DMA（描述符化 burst，替代单 outstanding）
