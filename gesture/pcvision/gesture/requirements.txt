@@ -1,7 +1,0 @@
-# ScreenSense gesture training - Python deps (installed by setup_env.sh).
-# torch is installed separately so the CPU/CUDA wheel index can be chosen.
-numpy>=1.26
-scipy>=1.11
-opencv-python>=4.8
-pillow>=10.0
-tqdm>=4.66

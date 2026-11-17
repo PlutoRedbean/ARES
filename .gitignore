@@ -1,10 +1,10 @@
-# ---- build / sim artifacts ----
+# ---- 通用构建产物 ----
 obj_dir/
 build/
 prj_tasks/
 *.log
 
-# ---- PDS outputs (paths are relative to the project root, any depth) ----
+# ---- Pango PDS 输出（任意深度的项目目录） ----
 **/fpga/prj_pds/compile/
 **/fpga/prj_pds/synthesize/
 **/fpga/prj_pds/device_map/
@@ -13,24 +13,19 @@ prj_tasks/
 **/fpga/prj_pds/report_power/
 **/fpga/prj_pds/generate_bitstream/
 **/fpga/prj_pds/build/
-**/fpga/prj_pds/build_rv.pds
-**/fpga/prj_pds/impl.tcl
-**/cam/fpga/pango/*.pds
-**/cam/fpga/pango/impl.tcl
-**/tools/smoke/*.pds
-**/tools/smoke/impl.tcl
 
-# ---- guard 板级 PDS 流程（落在 guard/ 根目录） ----
+# guard 板级 PDS 流程（在 guard/ 根目录落地）
 guard/*.pds
 guard/impl.tcl
-# cdt_cfg 运行时生成的展开副本 / 它自己的日志（可随手删）
 guard/fpga/pango/*_run.tcl
 guard/fpga/pango/configuration_tcl.log
 guard/fpga/pango/log/
 guard/generate_bitstream/
 guard/logbackup/
+guard/prj_tasks/
+guard/log/
 
-# local PnR outputs (not committed)
+# 本地 PnR 位流不入库
 **/bitstreams/*.sbit
 
 # ---- python ----
@@ -41,11 +36,12 @@ __pycache__/
 .ruff_cache/
 .coverage
 htmlcov/
+**/.venv/
 
-# ---- Pango PDS/IDE 的解析缓存（每次跑 PDS 会重新生成） ----
+# ---- Pango PDS/IDE 解析缓存（每次跑 PDS 会重新生成） ----
 .dide/
 
-# ---- editors / os ----
+# ---- 编辑器 / 系统 ----
 .vscode/
 .idea/
 Thumbs.db
@@ -54,22 +50,5 @@ desktop.ini
 *.swp
 *.bak
 
-# ---- local env / data (huge, kept outside git) ----
-**/.venv/
-**/pcvision/data/
-# training workspace must stay outside the repo; ignore it if someone drops it in
-gesture-env/
-
-# future RV build
-**/fpga/rtl_rv/fw/out/
-
-# ---- guard (PII gateway) ----
-# 模型权重 / 量化产物不入库：放仓库外，或放在 models/（下面这行忽略）
+# ---- guard：模型权重与量化产物不入库 ----
 guard/models/
-# guard 板级 PDS 流程在 guard/ 根目录留下的中间产物
-guard/prj_tasks/
-guard/generate_bitstream/
-guard/log/
-guard/logbackup/
-guard/*.pds
-guard/impl.tcl
