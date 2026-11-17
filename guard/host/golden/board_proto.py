@@ -22,6 +22,7 @@
 from __future__ import annotations
 
 from host.golden.keywords import find_keywords
+from host.golden.l2_int4 import semantic_scan
 from host.golden.redact import redact
 
 # 与 rtl/board/guard_report.sv 的字段顺序一致（type_id, 字段名）
@@ -51,6 +52,8 @@ def report_line(
     *,
     kw: int = 0,
     kwm: int = 0,
+    l2: int = 0,
+    l2m: int = 0,
     mode: int = 1,
 ) -> bytes:
     """一行审计摘要（不含行尾 LF）。counts 按 type_id 计数。
@@ -61,7 +64,7 @@ def report_line(
     n = sum(counts.values())
     fields = [("n", n)]
     fields += [(name, counts.get(t, 0)) for t, name in BOARD_FIELDS]
-    fields += [("kw", kw), ("kwm", kwm), ("ovf", 1 if err else 0)]
+    fields += [("kw", kw), ("kwm", kwm), ("l2", l2), ("l2m", l2m), ("ovf", 1 if err else 0)]
     body = " ".join(f"{name}={_clamp(v):03d}" for name, v in fields)
     body += f" mode={_clamp(mode) % 10:d}"
     return REPORT_PREFIX + body.encode("ascii")
@@ -99,6 +102,21 @@ def kw_stats(frame: bytes) -> tuple[int, int]:
     return min(len(hits), MAX_COUNT), min(mask, MAX_COUNT)
 
 
+def l2_stats(frame: bytes) -> tuple[int, int]:
+    """本帧 L2 语义层的结果：(判成 PII 的游程数, 类别位图)。
+
+    与 RTL（l2_semantic_top + guard_uart_core 的 c_l2/c_l2m）逐条对齐：
+    class 0 = none 不计；位图 bit(1..3) 对应 id18/bank/mobile。
+    """
+    n = 0
+    mask = 0
+    for _start, _ln, cls, _scores in semantic_scan(frame):
+        if cls:
+            n += 1
+            mask |= 1 << cls
+    return min(n, MAX_COUNT), min(mask, MAX_COUNT)
+
+
 def type_counts(audits) -> dict[int, int]:
     counts: dict[int, int] = {}
     for a in audits:
@@ -110,10 +128,11 @@ def frame_stream(frame: bytes, policy: str = "mask", at_line_start: bool = True)
     """一帧的完整输出：脱敏文本 + 摘要行（已做 LF→CRLF）。"""
     red, audits = redact(frame, policy=policy)
     kw, kwm = kw_stats(frame)
+    l2n, l2m = l2_stats(frame)
     out = bytearray(red)
     if not at_line_start:
         out += b"\n"
-    out += report_line(type_counts(audits), kw=kw, kwm=kwm) + b"\n"
+    out += report_line(type_counts(audits), kw=kw, kwm=kwm, l2=l2n, l2m=l2m) + b"\n"
     return expand_lf(bytes(out))
 
 
@@ -127,10 +146,11 @@ def expected_stream(data: bytes, policy: str = "mask") -> bytes:
     for frame in split_frames(data):
         red, audits = redact(frame, policy=policy)
         kw, kwm = kw_stats(frame)
+        l2n, l2m = l2_stats(frame)
         out += red
         if out and out[-1:] != b"\n":
             out += b"\n"
-        out += report_line(type_counts(audits), kw=kw, kwm=kwm) + b"\n"
+        out += report_line(type_counts(audits), kw=kw, kwm=kwm, l2=l2n, l2m=l2m) + b"\n"
     return expand_lf(bytes(out))
 
 

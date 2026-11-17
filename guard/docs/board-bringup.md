@@ -98,9 +98,9 @@ Select-String guard\build\pds_guard.log -Pattern 'Total LUTs|Total Registers|aft
 
 | 项 | 期望值 |
 |---|---|
-| LUT | 3,893 / 159,800（2.4%） |
-| Registers | 2,113 |
-| 时序 | `TNS = 0 ; WNS = +4997`（≈ +5.0 ns，MET） |
+| LUT | 4,749 / 159,800（3.0%） |
+| Registers | 2,947 |
+| 时序 | `TNS = 0 ; WNS = +4661`（≈ +4.7 ns，MET） |
 
 > WNS 必须是**正数**。如果是负数，说明你改了 RTL 让组合路径变长了；
 > 先把时钟再降（`guard_pll.v` 里 `STATIC_RATIO0` 调大）再上板。
@@ -275,7 +275,7 @@ python guard\tools\serial_host.py -p COM5 --text "手机 13800138000，邮箱 a@
 
 # 整份样例：逐字节和金标比
 python guard\tools\serial_host.py -p COM5 --file guard\examples\sample.txt --check
-# 期望最后一行：PASS  收到 1229 B，期望 1229 B
+# 期望最后一行：PASS  收到 1334 B，期望 1334 B
 
 # 交互
 python guard\tools\serial_host.py -p COM5 --repl

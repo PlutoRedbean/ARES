@@ -142,8 +142,15 @@ lint:
 # ---------------------------------------------------------------------------
 # 板级（盘古 200Pro+）：串口进 → L1 脱敏 → 串口出
 # ---------------------------------------------------------------------------
-BOARD_RTL := $(KW_PKG) rtl/l1/l1_digit_engine.sv rtl/l1/l1_text_engines.sv \
+MT_RTL   := vendor/minitensor/rtl/tensor
+MT_SYS   := $(MT_RTL)/MXU/Systolic_Array
+BOARD_RTL := $(KW_PKG) \
+             $(MT_RTL)/tensor_pkg.sv $(MT_SYS)/tensor_pe.sv \
+             $(MT_SYS)/tensor_systolic_array.sv \
+             $(MT_RTL)/MXU/INT8_GEMM/tensor_gemm_core.sv \
+             rtl/l1/l1_digit_engine.sv rtl/l1/l1_text_engines.sv \
              rtl/l1/l1_keyword_match.sv rtl/l1/l1_engine.sv rtl/l1/l1_redact.sv \
+             rtl/l2/l2_features.sv rtl/l2/l2_int4_gemm.sv rtl/l2/l2_semantic_top.sv \
              rtl/board/guard_uart_baud.sv rtl/board/guard_uart_rx.sv \
              rtl/board/guard_uart_tx.sv rtl/board/guard_fifo.sv \
              rtl/board/guard_report.sv rtl/board/guard_uart_core.sv \
@@ -176,8 +183,6 @@ $(OBJ_BOARD3)/Vtb_guard_uart: $(BOARD_RTL) sim/tb_guard_uart.sv
 # ---------------------------------------------------------------------------
 # L2 INT4 语义层（用 vendor/minitensor 的 4x4 MXU）
 L2_VEC   := $(BUILD)/l2
-MT_RTL   := vendor/minitensor/rtl/tensor
-MT_SYS   := $(MT_RTL)/MXU/Systolic_Array
 L2_RTL   := $(MT_RTL)/tensor_pkg.sv $(MT_SYS)/tensor_pe.sv \
             $(MT_SYS)/tensor_systolic_array.sv \
             $(MT_RTL)/MXU/INT8_GEMM/tensor_gemm_core.sv \

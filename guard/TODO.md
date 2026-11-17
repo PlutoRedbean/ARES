@@ -60,8 +60,8 @@
 - [x] 串口桥：分数分频波特率（8× 过采样）、RX/TX FIFO、LF/空闲冲刷、帧间软复位、
       LF→CRLF 整形、每帧一行审计摘要
 - [x] 引脚：`uart_rx` = **B24**（ARES MSH 顶层用过），TX C24，clk D18，rst C22
-- [x] 资源（synthesize -ads + dev_map + pnr，25 MHz 版）：**4,006 LUT / 2,183 FF / 0.5 DRM / 10 APM / 1 PLL**
-- [x] 时序：核心 **25 MHz**（27 MHz → PLL），WNS **+5.1 ns**、TNS 0、WHS +0.038 ns（Fmax ≈ 28.8 MHz）
+- [x] 资源（synthesize -ads + dev_map + pnr，25 MHz 版，含 L2）：**4,749 LUT / 2,947 FF / 0.5 DRM / 10 APM / 1 PLL**
+- [x] 时序：核心 **25 MHz**（27 MHz → PLL），WNS **+4.7 ns**、TNS 0、WHS +0.039 ns（Fmax ≈ 28.6 MHz）
 - [x] 位流：`pnr` + `gen_bit_stream` → `generate_bitstream/guard_board_top.sbit`（9,188,552 B）
 - [x] 烧写链路：`tools/program_guard.ps1` 跑通并修掉 cdt_cfg 的四个坑
       （tcl 必须 ASCII-only / 只能一个 `%s` / GUI 子系统 exe 要 `Start-Process -Wait` /
@@ -71,12 +71,12 @@
 - [x] **规则层时序重构**（2026-11-17）：分块定位到 `l1_text_engines`（−37.9 ns），
       把邮箱/IPv4/USCC 从"游程结束整缓冲组合校验"改成**逐字节增量校验** →
       文本块 +22.4 ns，整板 27 MHz 只剩 merge 的 31.5 ns。核心时钟 10 → **25 MHz**，
-      LUT 6,912 → 4,006、FF 2,578 → 2,183、APM 37 → 10，WNS +5.1 ns（见 docs/board-uart.md §2.1）
+      LUT 6,912 → 4,749、FF 2,578 → 2,947、APM 37 → 10，WNS +4.7 ns（含 L2，见 docs/board-uart.md §2.1）
 - [ ] `l1_merge` 的 5 路插入流水化（现在是整板最深的 31.5 ns；做完能上 50 MHz）
 - [x] 位级端到端仿真 `make board-sim`（18 例 / 10491 B 输入 / 309 span，逐字节一致）
 - [x] 上位机 `tools/serial_host.py`（发文本 / 读回 / `--check` / 审计 JSON / pace 流控）
 - [x] 真板验收（2026-11-17）：USB-UART 枚举成 CP210x → **COM9**，
-      `sample.txt --check` **PASS 1229/1229 B**，5 倍拼接 **PASS 6145/6145 B**
+      `sample.txt --check` **PASS 1334/1334 B**，5 倍拼接 **PASS 6670/6670 B**
       （35 帧、ovf 全 0）；顺带修掉上位机 pace 死锁（board-uart.md §10.8）。
       **还没测**：`--no-pace` 灌爆触发 `ovf=001`、拔插/复位后的行为
 - [x] 上下文兜底真板验证（2026-11-17）：`身份证 330203300422240391`（校验位错）→
@@ -94,7 +94,8 @@
       INT4 权重的上下文分类器（none/id18/bank/mobile），12 例/14 游程对金标，
       889 LUT / 954 FF / WNS +30 ns（`make l2-sim` / `fpga/pango/flow_l2.tcl`），
       见 [docs/l2-int4.md](docs/l2-int4.md)
-- [ ] L2 接进板级位流：`l2_semantic_top` 挂到同一字符流，摘要行加 `l2=` 字段
+- [x] L2 接进板级位流：`l2_semantic_top` 挂到同一字符流，摘要行加 `l2=`/`l2m=`；
+      板上 4,749 LUT / 2,947 FF / WNS +4.7 ns，sample.txt **PASS 1334 B**
 - [ ] 用 corpus 标注数据训线性模型，导出 INT4 权重替换手调表（现在还只是"手调权重"）
 - [ ] 从 vendor 拷 UB/VPU/接口到 `rtl/l2/`（保持 vendor 只读）
 - [ ] 16×16 W4A8 GEMM + 反量化（先仿真对齐 Python 参考）

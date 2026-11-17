@@ -29,9 +29,11 @@ class TestReportLine(unittest.TestCase):
         self.assertIn(b"ovf=000", line)
         self.assertIn(b"kw=000", line)
         self.assertIn(b"kwm=000", line)
+        self.assertIn(b"l2=000", line)
+        self.assertIn(b"l2m=000", line)
         self.assertTrue(line.endswith(b"mode=1"))
-        # n + 8 个类型 + kw + kwm + ovf + mode
-        self.assertEqual(line.count(b"="), 1 + len(BOARD_FIELDS) + 4)
+        # n + 8 个类型 + kw + kwm + l2 + l2m + ovf + mode
+        self.assertEqual(line.count(b"="), 1 + len(BOARD_FIELDS) + 6)
 
     def test_counts_and_clamp(self) -> None:
         line = report_line({3: 2, 1: 1, 5: 300})

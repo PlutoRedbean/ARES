@@ -45,11 +45,18 @@ add_constraint [file join $here "guard_board.fdc"]
 # guard_pll_sim.sv instead, which is NOT listed here.
 set files [list \
     build/gen/l1_keywords_pkg.sv \
+    vendor/minitensor/rtl/tensor/tensor_pkg.sv \
+    vendor/minitensor/rtl/tensor/MXU/Systolic_Array/tensor_pe.sv \
+    vendor/minitensor/rtl/tensor/MXU/Systolic_Array/tensor_systolic_array.sv \
+    vendor/minitensor/rtl/tensor/MXU/INT8_GEMM/tensor_gemm_core.sv \
     rtl/l1/l1_digit_engine.sv \
     rtl/l1/l1_text_engines.sv \
     rtl/l1/l1_keyword_match.sv \
     rtl/l1/l1_engine.sv \
     rtl/l1/l1_redact.sv \
+    rtl/l2/l2_features.sv \
+    rtl/l2/l2_int4_gemm.sv \
+    rtl/l2/l2_semantic_top.sv \
     rtl/board/guard_uart_baud.sv \
     rtl/board/guard_uart_rx.sv \
     rtl/board/guard_uart_tx.sv \

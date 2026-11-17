@@ -111,6 +111,12 @@ module guard_uart_core #(
     logic        kw_valid;
     logic [2:0]  kw_kid;
 
+    // L2 语义层（与 L1 并行；只统计，不参与替换）
+    logic        l2_valid;
+    logic [1:0]  l2_class;
+    wire  [31:0] l2_start, l2_len;
+    logic [7:0]  c_l2, c_l2m;
+
     logic [7:0]  c_n, c_id18, c_id15, c_mob, c_bank, c_mail, c_ip, c_uscc, c_plate;
     logic [7:0]  c_kw, c_kwm;
 
@@ -230,6 +236,8 @@ module guard_uart_core #(
         .v_plate  (c_plate),
         .v_kw     (c_kw),
         .v_kwm    (c_kwm),
+        .v_l2     (c_l2),
+        .v_l2m    (c_l2m),
         .v_err    (err_q),
         .v_mode   (MODE_T1 != 0 ? 4'd1 : 4'd0),
         .byte_out (rpt_byte),
@@ -237,6 +245,25 @@ module guard_uart_core #(
         .fifo_full(txq_full),
         .busy     (rpt_busy),
         .finished (rpt_fin)
+    );
+
+    // ---------------- L2 语义层（miniTensor MXU） ----------------
+    wire [31:0] l2_s0, l2_s1, l2_s2, l2_s3;
+
+    l2_semantic_top u_l2 (
+        .clk      (clk),
+        .rst_n    (l1_rst_n),
+        .in_valid (in_valid),
+        .in_char  (in_char),
+        .in_last  (in_last),
+        .out_valid(l2_valid),
+        .out_class(l2_class),
+        .out_start(l2_start),
+        .out_len  (l2_len),
+        .out_s0   (l2_s0),
+        .out_s1   (l2_s1),
+        .out_s2   (l2_s2),
+        .out_s3   (l2_s3)
     );
 
     // =====================================================================
@@ -299,6 +326,8 @@ module guard_uart_core #(
             c_plate       <= 8'd0;
             c_kw          <= 8'd0;
             c_kwm         <= 8'd0;
+            c_l2          <= 8'd0;
+            c_l2m         <= 8'd0;
         end else begin
             in_last_r <= 1'b0;
 
@@ -345,6 +374,12 @@ module guard_uart_core #(
             if (kw_valid) begin
                 c_kw <= c_kw + 8'd1;
                 c_kwm[kw_kid] <= 1'b1;
+            end
+
+            // ---- L2 语义层：本帧判成 PII 的游程数 + 类别位图 ----
+            if (l2_valid && (l2_class != 2'd0)) begin
+                c_l2 <= c_l2 + 8'd1;
+                c_l2m[{1'b0, l2_class}] <= 1'b1;
             end
 
             // ---- 错误（帧内 + 粘滞） ----
@@ -404,6 +439,8 @@ module guard_uart_core #(
                         c_plate     <= 8'd0;
                         c_kw        <= 8'd0;
                         c_kwm       <= 8'd0;
+                        c_l2        <= 8'd0;
+                        c_l2m       <= 8'd0;
                     end else begin
                         rst_cnt <= rst_cnt + 4'd1;
                     end

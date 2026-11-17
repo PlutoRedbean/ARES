@@ -33,6 +33,8 @@ module guard_report (
     input  logic [7:0] v_plate,
     input  logic [7:0] v_kw,
     input  logic [7:0] v_kwm,
+    input  logic [7:0] v_l2,
+    input  logic [7:0] v_l2m,
     input  logic       v_err,
     input  logic [3:0] v_mode,         // 1 = T1（L1），0 = T0（直通）
 
@@ -43,7 +45,7 @@ module guard_report (
     output logic       finished        // 1 拍：最后一个字节已送走
 );
 
-    localparam logic [3:0] F_TAIL = 4'd13;
+    localparam logic [3:0] F_TAIL = 4'd15;
 
     logic [3:0]  fld;
     logic [4:0]  pos;
@@ -52,7 +54,7 @@ module guard_report (
     logic        fin_q;
 
     logic [7:0]  n_q, id18_q, id15_q, mob_q, bank_q, mail_q, ip_q, uscc_q, plate_q;
-    logic [7:0]  kw_q, kwm_q;
+    logic [7:0]  kw_q, kwm_q, l2_q, l2m_q;
     logic        err_q;
     logic [3:0]  mode_q;
 
@@ -116,8 +118,10 @@ module guard_report (
             4'd8: begin lab = " plate=";  lab_len = 4'd7; fval = plate_q; end
             4'd9: begin lab = " kw=";     lab_len = 4'd4; fval = kw_q;   end
             4'd10: begin lab = " kwm=";   lab_len = 4'd5; fval = kwm_q;  end
-            4'd11: begin lab = " ovf=";   lab_len = 4'd5; fval = {7'd0, err_q}; end
-            4'd12: begin lab = " mode=";  lab_len = 4'd6; fval = {4'd0, mode_q}; ndig = 2'd1; end
+            4'd11: begin lab = " l2=";    lab_len = 4'd4; fval = l2_q;   end
+            4'd12: begin lab = " l2m=";   lab_len = 4'd5; fval = l2m_q;  end
+            4'd13: begin lab = " ovf=";   lab_len = 4'd5; fval = {7'd0, err_q}; end
+            4'd14: begin lab = " mode=";  lab_len = 4'd6; fval = {4'd0, mode_q}; ndig = 2'd1; end
             default: begin lab = 96'd0; lab_len = 4'd0; fval = 8'd0; end
         endcase
         bcd = bcd3(fval);
@@ -167,7 +171,7 @@ module guard_report (
             fin_q <= 1'b0;
             n_q <= 8'd0; id18_q <= 8'd0; id15_q <= 8'd0; mob_q <= 8'd0;
             bank_q <= 8'd0; mail_q <= 8'd0; ip_q <= 8'd0; uscc_q <= 8'd0;
-            plate_q <= 8'd0; kw_q <= 8'd0; kwm_q <= 8'd0;
+            plate_q <= 8'd0; kw_q <= 8'd0; kwm_q <= 8'd0; l2_q <= 8'd0; l2m_q <= 8'd0;
             err_q <= 1'b0; mode_q <= 4'd1;
         end else begin
             fin_q <= 1'b0;
@@ -187,6 +191,8 @@ module guard_report (
                 plate_q <= v_plate;
                 kw_q    <= v_kw;
                 kwm_q   <= v_kwm;
+                l2_q    <= v_l2;
+                l2m_q   <= v_l2m;
                 err_q   <= v_err;
                 mode_q  <= v_mode;
             end else if (run && !fifo_full) begin

@@ -46,7 +46,7 @@
 | 关键词提示上板 | ✅ | 摘要行里带 `kw=`（命中次数）与 `kwm=`（位图） |
 | 降级档位输出头 | ✅ | 摘要行 `mode=1`（T1：L1 生效）；T0 直通开关预留 |
 | 3 Mbaud 通路 | ✅ 仿真 | `make board-sim-3m`（8× 过采样，18 例全过）；要 USB-UART 支持 3 Mbaud |
-| **真板验收** | ✅ 2026-11-17 | USB-UART 枚举成 **CP210x → COM9**；`sample.txt` **PASS 1229/1229 B**，5 倍拼接 **PASS 6145/6145 B**（35 帧、无 ovf） |
+| **真板验收** | ✅ 2026-11-17 | USB-UART 枚举成 **CP210x → COM9**；`sample.txt` **PASS 1334/1334 B**，5 倍拼接 **PASS 6670/6670 B**（35 帧、无 ovf） |
 
 ---
 
@@ -56,8 +56,8 @@
 
 | 资源 | 用量 | 器件占比 | plan 预算 |
 |---|---|---|---|
-| LUT | **4,006** | 2.51% | 12–15k |
-| FF | **2,183** | 0.68% | — |
+| LUT | **4,749** | 2.97% | 12–15k |
+| FF | **2,947** | 0.92% | — |
 | DRM36K | **0.5** | 0.12% | 25 |
 | APM（18×18） | **10** | 1.35% | 0–8 |
 | PLL（GTP_GPLL） | 1 | — | — |
@@ -65,9 +65,9 @@
 | 时序 | 结果 |
 |---|---|
 | 时钟 | 27 MHz（D18）→ GTP_GPLL（VCO 1000 / 40）→ **25 MHz** 核心 |
-| 最差 setup slack（WNS） | **+5.1 ns（MET）**，TNS = 0 |
+| 最差 setup slack（WNS） | **+4.7 ns（MET）**，TNS = 0 |
 | 最差 hold slack（WHS） | +0.037 ns（MET），THS = 0 |
-| 推算 Fmax | ≈ 28.8 MHz（40 ns − 5.1 ns） |
+| 推算 Fmax | ≈ 28.6 MHz（40 ns − 4.7 ns） |
 
 位流：`guard/generate_bitstream/guard_board_top.sbit`。
 
@@ -101,7 +101,7 @@ IPv4 维护 `grp/ndig/val/lead/bad`，USCC 维护 16 位加权和 + 是否含字
 语义与金标逐条一致，由 1000 例语料 + 43 例边界 + 200 例端到端兜住。
 
 结果：文本块 **−37.9 ns → +22.4 ns**；整板 27 MHz 只剩 merge 的 31.5 ns 路径，
-25 MHz（40 ns）下 **WNS +5.1 ns**、LUT 从 6,912 降到 4,006、FF 从 2,578 降到 2,183、APM 37 → 10。
+25 MHz（40 ns）下 **WNS +4.7 ns**、LUT 从 6,912 降到 4,749、FF 从 2,578 降到 2,947、APM 37 → 10（含 L2）。
 25 MHz + 8× 过采样还能跑 3 Mbaud（`make board-sim-3m` 已验证）。
 
 下一步还可以把 `l1_merge` 的 5 路插入拆成流水（现在是整板最深的 31.5 ns），
@@ -191,11 +191,12 @@ IPv4 维护 `grp/ndig/val/lead/bad`，USCC 维护 16 位加权和 + 是否含字
 **摘要行固定格式**（计数一律 3 位零填充、超过 255 截到 255；档位是 1 位）：
 
 ```
-[guard] n=NNN id18=NNN id15=NNN mobile=NNN bank=NNN email=NNN ipv4=NNN uscc=NNN plate=NNN kw=NNN kwm=NNN ovf=NNN mode=N
+[guard] n=NNN id18=NNN id15=NNN mobile=NNN bank=NNN email=NNN ipv4=NNN uscc=NNN plate=NNN kw=NNN kwm=NNN l2=NNN l2m=NNN ovf=NNN mode=N
 ```
 
 - `n` = 本帧提交的 span 总数；
 - `kw` / `kwm` = 关键词提示的命中次数 / 位图（bit k = `host/golden/keywords.py` 的 kid k）；
+- `l2` / `l2m` = L2 语义层（miniTensor MXU）判成 PII 的游程数 / 类别位图（bit1=id18 bit2=bank bit3=mobile）；
 - `ovf` = 本帧是否出过错（1 = RX FIFO 溢出 / 输出丢字节 / 帧错误）；
 - `mode` = 降级档位（1 = T1 规则层生效；0 = T0 直通，开关预留）。
 - 行首若要换行，板子只发 `LF`，由 TX 整形统一补成 `CRLF`（见 5.2）。
@@ -312,7 +313,7 @@ powershell -ExecutionPolicy Bypass -File guard\tools\program_guard.ps1
 4. **整份样例**：
    ```bash
    python3 guard/tools/serial_host.py -p COM3 --file guard/examples/sample.txt --check
-   → PASS  收到 1229 B，期望 1229 B
+   → PASS  收到 1334 B，期望 1334 B
    ```
 5. **异常**：`--no-pace` 发大文件应看到 `ovf=001` 且 LED2 亮（说明溢出检测是活的），
    换回默认（pacing）应恢复 `ovf=000`。
