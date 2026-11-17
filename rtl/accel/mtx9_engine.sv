@@ -276,7 +276,7 @@ module mtx9_engine (
     logic signed [31:0] c_wr_data_q;
 
     logic signed [31:0] sum_tmp, sum_prev;
-    logic signed [31:0] sum_cur_q;
+    logic signed [31:0] sum_c_q;
     logic               sum_valid_q;
     logic               sum_mul_q, sum_last_q;
     logic signed [31:0] sum_value_q;
@@ -594,34 +594,29 @@ module mtx9_engine (
         sum_prev_n = sum_value_q;
     end
 
-    // Stage 1: capture each RAM element exactly once, including its operation
-    // and last-item marker.  Drain states do not issue additional elements.
+    // Stage 1: ST_MUL_CONST captures the product in c_wr_data_q for both the
+    // C write port and the sum. The later passes capture a full word from C.
+    // The source and last-item markers travel with the captured word.
+    wire sum_read_c = (state_q == ST_SUM1) || (state_q == ST_SUM2) ||
+                      (state_q == ST_SUM3);
+
     always_ff @(posedge clk) begin
+        sum_mul_q  <= (state_q == ST_MUL_CONST);
+        sum_last_q <= (idx == 7'd80);
         if (rst) begin
-            sum_cur_q   <= 32'sd0;
+            sum_c_q     <= 32'sd0;
             sum_valid_q <= 1'b0;
         end else begin
-            if (state_q == ST_MUL_CONST)
-                sum_cur_q <= {{16{a_rd_data[15]}}, a_rd_data};
-            else if (state_q == ST_SUM1 || state_q == ST_SUM2 || state_q == ST_SUM3)
-                sum_cur_q <= c_rd_data;
-
-            sum_valid_q <= (state_q == ST_MUL_CONST) ||
-                           (state_q == ST_SUM1) ||
-                           (state_q == ST_SUM2) ||
-                           (state_q == ST_SUM3);
+            if (sum_read_c)
+                sum_c_q <= c_rd_data;
+            sum_valid_q <= (state_q == ST_MUL_CONST) || sum_read_c;
         end
     end
 
-    // Stage 2: keep the multiplier out of the feedback recurrence.  A holds
-    // signed int16 values; C bypasses the multiply without losing its 32 bits.
-    // Payload/markers need no reset because the valid bits qualify consumption.
+    // Stage 2: select between registered inputs. The product crosses the
+    // C write register and this register before reaching the feedback adder.
     always_ff @(posedge clk) begin
-        sum_mul_q        <= (state_q == ST_MUL_CONST);
-        sum_last_q       <= (idx == 7'd80);
-        sum_value_q      <= sum_mul_q
-                            ? $signed(sum_cur_q[15:0]) * $signed(val_reg)
-                            : sum_cur_q;
+        sum_value_q      <= sum_mul_q ? c_wr_data_q : sum_c_q;
         sum_value_last_q <= sum_last_q;
         if (rst)
             sum_value_valid_q <= 1'b0;

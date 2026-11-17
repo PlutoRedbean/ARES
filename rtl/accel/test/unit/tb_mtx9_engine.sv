@@ -200,11 +200,13 @@ module tb_mtx9_engine;
     bit monitor_sum = 0;
     int sum_pass, sum_element, sum_samples, busy_cycles;
 
-    // Check the actual recurrence input sequence, not just the final checksum:
-    // each pass must consume 81 ordered values and commit on the last token.
+    // Each pass consumes 81 ordered values on consecutive cycles and commits
+    // on the last token.
     always @(posedge clk) begin
         if (!rst && monitor_sum) begin
             if (dut.busy_q) busy_cycles++;
+            if (sum_element != 0 && !dut.sum_value_valid_q)
+                $fatal(1, "gap in sum pass %0d before element %0d", sum_pass, sum_element);
             if (dut.sum_value_valid_q) begin
                 if (sum_pass >= 4)
                     $fatal(1, "extra sum token after all four passes");
