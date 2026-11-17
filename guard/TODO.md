@@ -60,8 +60,8 @@
 - [x] 串口桥：分数分频波特率（8× 过采样）、RX/TX FIFO、LF/空闲冲刷、帧间软复位、
       LF→CRLF 整形、每帧一行审计摘要
 - [x] 引脚：`uart_rx` = **B24**（ARES MSH 顶层用过），TX C24，clk D18，rst C22
-- [x] 资源（synthesize -ads + dev_map + pnr，25 MHz 版）：**3,889 LUT / 2,113 FF / 0.5 DRM / 10 APM / 1 PLL**
-- [x] 时序：核心 **25 MHz**（27 MHz → PLL），WNS **+4.8 ns**、TNS 0、WHS +0.038 ns（Fmax ≈ 28.7 MHz）
+- [x] 资源（synthesize -ads + dev_map + pnr，25 MHz 版）：**4,006 LUT / 2,183 FF / 0.5 DRM / 10 APM / 1 PLL**
+- [x] 时序：核心 **25 MHz**（27 MHz → PLL），WNS **+5.1 ns**、TNS 0、WHS +0.038 ns（Fmax ≈ 28.8 MHz）
 - [x] 位流：`pnr` + `gen_bit_stream` → `generate_bitstream/guard_board_top.sbit`（9,188,552 B）
 - [x] 烧写链路：`tools/program_guard.ps1` 跑通并修掉 cdt_cfg 的四个坑
       （tcl 必须 ASCII-only / 只能一个 `%s` / GUI 子系统 exe 要 `Start-Process -Wait` /
@@ -71,7 +71,7 @@
 - [x] **规则层时序重构**（2026-11-17）：分块定位到 `l1_text_engines`（−37.9 ns），
       把邮箱/IPv4/USCC 从"游程结束整缓冲组合校验"改成**逐字节增量校验** →
       文本块 +22.4 ns，整板 27 MHz 只剩 merge 的 31.5 ns。核心时钟 10 → **25 MHz**，
-      LUT 6,912 → 3,893、FF 2,578 → 2,113、APM 37 → 10，WNS +5.0 ns（见 docs/board-uart.md §2.1）
+      LUT 6,912 → 4,006、FF 2,578 → 2,183、APM 37 → 10，WNS +5.1 ns（见 docs/board-uart.md §2.1）
 - [ ] `l1_merge` 的 5 路插入流水化（现在是整板最深的 31.5 ns；做完能上 50 MHz）
 - [x] 位级端到端仿真 `make board-sim`（18 例 / 10491 B 输入 / 309 span，逐字节一致）
 - [x] 上位机 `tools/serial_host.py`（发文本 / 读回 / `--check` / 审计 JSON / pace 流控）

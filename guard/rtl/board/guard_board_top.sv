@@ -25,9 +25,6 @@ module guard_board_top #(
     parameter int CLK_FREQ   = 25_000_000,  // PLL 出来的核心时钟
     parameter int BAUD       = 115200,
     parameter int OV         = 8,           // 过采样倍数：需要 CLK_FREQ > BAUD*OV（8× 够 3 Mbaud）
-    parameter int TERM_CHAR  = 8'h04,       // 帧结束字符：板子默认 Ctrl-D（0x04）
-    parameter int TERM_KEEP  = 0,           // Ctrl-D 只判定结束、不进正文（LF 永远保留）
-
     parameter int AW         = 8,
     parameter int LF_TO_CRLF = 1,
     parameter int REPORT_EN  = 1,
@@ -76,9 +73,7 @@ module guard_board_top #(
         .AW        (AW),
         .LF_TO_CRLF(LF_TO_CRLF),
         .REPORT_EN (REPORT_EN),
-        .IDLE_BITS (IDLE_BITS),
-        .TERM_CHAR (TERM_CHAR),
-        .TERM_KEEP (TERM_KEEP)
+        .IDLE_BITS (IDLE_BITS)
     ) u_core (
         .clk(clk_core), .rst_n(rst_n_core),
         .uart_rx(uart_rx), .uart_tx(uart_tx),

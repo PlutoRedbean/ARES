@@ -29,6 +29,11 @@ module l1_digit_engine (
     input  logic [7:0]  in_char,
     input  logic        in_last,
 
+    // 上下文提示：刚刚匹配到一个 PII 关键词（用于"校验位不过也遮"的兜底）
+    input  logic        ctx_valid,
+    input  logic [2:0]  ctx_kid,
+    input  logic [31:0] ctx_end,
+
     output logic        out_valid,
     output logic [31:0] out_start,
     output logic [7:0]  out_len,
@@ -49,6 +54,11 @@ module l1_digit_engine (
     logic        has_x_q;
     logic        too_long_q;
     logic [18:0][3:0] digits_q;    // digits_q[0] 是最右（最新）一位
+
+    // 上下文兜底（关键词 -> 数字游程）
+    logic [31:0] ctx_end_q;
+    logic [2:0]  ctx_kid_q;
+    logic        ctx_seen_q;
 
     // 影子游程：最后一个分隔符之后的数字（超长时顶替主游程）
     logic [18:0][3:0] sdig_q;
@@ -185,6 +195,28 @@ module l1_digit_engine (
         end
     end
 
+    // ---------------------------------------------------------------- 上下文兜底
+    //
+    // 游程前面 CTX_WINDOW 字节内出现过"身份证/银行卡/手机号"时，校验位不过也
+    // 按该关键词的类型脱敏：隐私网关宁可多遮，也不能因为一个错别字漏掉身份证。
+    // 与 host/golden/pii_rules.py 的 _loose_type / CTX_WINDOW 逐条对齐。
+    localparam logic [31:0] CTX_WINDOW = 32'd8;
+
+    function automatic logic [2:0] loose_type(input logic [5:0] n, input logic [2:0] kid);
+        if (kid == 3'd0)      loose_type = (n == 6'd15) ? T_ID15 : T_ID18;
+        else if (kid == 3'd1) loose_type = T_BANK;
+        else if (kid == 3'd2) loose_type = T_MOBILE;
+        else                  loose_type = 3'd0;
+    endfunction
+
+    wire ctx_ok = ctx_seen_q && (ctx_kid_q <= 3'd2) &&
+                  (run_start_q >= ctx_end_q) && ((run_start_q - ctx_end_q) <= CTX_WINDOW);
+
+    wire [2:0] close_type = (hit_type != 3'd0) ? hit_type :
+                            (!too_long_q && ctx_ok &&
+                             (ndigits_q >= 6'd11) && (ndigits_q <= 6'd19))
+                              ? loose_type(ndigits_q, ctx_kid_q) : 3'd0;
+
     // ---------------------------------------------------------------- FSM
     //
     // 分隔符（空格/短横）在游程内透明，但 `13800138000 13800138001` 会被并成
@@ -221,12 +253,18 @@ module l1_digit_engine (
 
             if (in_valid) pos_q <= pos_q + 32'd1;
 
+            if (ctx_valid) begin
+                ctx_end_q  <= ctx_end;
+                ctx_kid_q  <= ctx_kid;
+                ctx_seen_q <= 1'b1;
+            end
+
             if (in_last) begin
-                if (run_active_q && !too_long_q && (hit_type != 3'd0)) begin
+                if (run_active_q && (close_type != 3'd0)) begin
                     out_valid <= 1'b1;
                     out_start <= run_start_q;
                     out_len   <= last_digit_pos_q - run_start_q + 32'd1;
-                    out_type  <= hit_type;
+                    out_type  <= close_type;
                 end
                 run_active_q <= 1'b0;
                 ndigits_q    <= 6'd0;
@@ -235,6 +273,7 @@ module l1_digit_engine (
                 snd_q        <= 6'd0;
                 sover_q      <= 1'b0;
                 snap_valid_q <= 1'b0;
+                ctx_seen_q   <= 1'b0;   // 上下文不跨帧（金标也是逐帧扫）
             end else if (in_valid) begin
                 if (is_digit) begin
                     // ---------------- 影子游程：每来一个数字都跟着走 ----------------
@@ -326,11 +365,11 @@ module l1_digit_engine (
                         shas_x_q     <= 1'b0;
                     end
                 end else begin
-                    if (run_active_q && !too_long_q && (hit_type != 3'd0)) begin
+                    if (run_active_q && (close_type != 3'd0)) begin
                         out_valid <= 1'b1;
                         out_start <= run_start_q;
                         out_len   <= last_digit_pos_q - run_start_q + 32'd1;
-                        out_type  <= hit_type;
+                        out_type  <= close_type;
                     end
                     run_active_q <= 1'b0;
                     ndigits_q    <= 6'd0;

@@ -55,6 +55,34 @@ class TestSeparatorRuns(unittest.TestCase):
         self.assertEqual(scan(b"1" * 30), [])
 
 
+class TestContextFallback(unittest.TestCase):
+    """关键词 + 数字：校验位不过也遮（隐私优先）。"""
+
+    def test_id_with_bad_checksum_after_keyword(self) -> None:
+        # 18 位、出生日期非法、校验位也不对 —— 但前面写着"身份证"
+        spans = scan(b("身份证 330203300422240391"))
+        self.assertEqual([(s.type, s.length) for s in spans], [(TYPE_ID18, 18)])
+
+    def test_short_run_after_keyword(self) -> None:
+        spans = scan(b("身份证 4404022301341"))
+        self.assertEqual([(s.type, s.length) for s in spans], [(TYPE_ID18, 13)])
+
+    def test_bank_number_with_bad_luhn_after_keyword(self) -> None:
+        spans = scan(b("银行卡 6222020000000000001"))
+        self.assertEqual([(s.type, s.length) for s in spans], [(TYPE_BANK, 19)])
+
+    def test_no_keyword_means_no_fallback(self) -> None:
+        self.assertEqual(scan(b("330203300422240391")), [])
+
+    def test_window_is_bounded(self) -> None:
+        far = b("身份证" + " " * 20 + "330203300422240391")
+        self.assertEqual(scan(far), [])
+
+    def test_valid_id_keeps_its_type(self) -> None:
+        spans = scan(b("身份证 11010519491231002X"))
+        self.assertEqual([(s.type, s.length) for s in spans], [(TYPE_ID18, 18)])
+
+
 class TestChecksums(unittest.TestCase):
     def test_id18_check_digit(self):
         # 国标示例：11010519491231002X

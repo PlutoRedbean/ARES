@@ -50,12 +50,22 @@ module l1_engine (
     output logic [2:0]  kw_kid
 );
 
+    // 关键词匹配结果的内部副本：一方面给端口，一方面给数字引擎做上下文兜底
+    wire [31:0] kw_start_w;
+    wire [7:0]  kw_len_w;
+
+    assign kw_start = kw_start_w;
+    assign kw_len   = kw_len_w;
+
     l1_digit_engine u_digit (
         .clk      (clk),
         .rst_n    (rst_n),
         .in_valid (in_valid),
         .in_char  (in_char),
         .in_last  (in_last),
+        .ctx_valid(kw_valid),
+        .ctx_kid  (kw_kid),
+        .ctx_end  (kw_start_w + {24'd0, kw_len_w}),
         .out_valid(digit_valid),
         .out_start(digit_start),
         .out_len  (digit_len),
@@ -102,8 +112,8 @@ module l1_engine (
         .in_char  (in_char),
         .in_last  (in_last),
         .out_valid(kw_valid),
-        .out_start(kw_start),
-        .out_len  (kw_len),
+        .out_start(kw_start_w),
+        .out_len  (kw_len_w),
         .out_kid  (kw_kid)
     );
 

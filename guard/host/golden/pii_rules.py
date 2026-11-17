@@ -4,6 +4,10 @@
 
 坐标约定：输入一律按 **UTF-8 字节** 处理，span 的 start/len 是字节偏移，
 这样 RTL 的字符流与 Python 的结果可以直接对比。
+
+两类判定：**精确**（校验位/结构通过）和**上下文兜底**（游程前 CTX_WINDOW 字节内
+有"身份证/银行卡/手机号"关键词时，校验位不过也遮）。后者是隐私优先的取舍：
+真板上 `身份证 330203300422240391`（年份 3004 + 校验位错）本该被遮。
 """
 
 from __future__ import annotations
@@ -290,8 +294,11 @@ def _scan_text(data: bytes) -> list[tuple[int, int]]:
 
 def scan(data: bytes) -> list[Span]:
     """扫描字节流，返回按 (终止位置, 类型优先级) 排序的命中 span。"""
+    from host.golden.keywords import find_keywords
+
+    kws = [(k.kid, k.start, k.start + k.length) for k in find_keywords(data)]
     hits: list[tuple[int, int, Span]] = []
-    for s in _scan_digits(data):
+    for s in _scan_digits(data, kws):
         hits.append((s.start + s.length, PRIORITY[s.type], s))
     for t, start, ln in _scan_text(data):
         hits.append((start + ln, PRIORITY[t], Span(t, start, ln)))
@@ -299,7 +306,20 @@ def scan(data: bytes) -> list[Span]:
     return [h[2] for h in hits]
 
 
-def _scan_digits(data: bytes) -> list[Span]:
+# 上下文兜底：数字游程前面这么多个字节内出现过"身份证/银行卡/手机号"，
+# 就算校验位不过也按该关键词的类型脱敏（隐私优先：宁可多遮）。
+CTX_WINDOW = 8
+CTX_KID_TYPE = {0: TYPE_ID18, 1: TYPE_BANK, 2: TYPE_MOBILE}
+
+
+def _loose_type(ndigits: int, kid: int) -> int:
+    """上下文兜底的类型：按关键词定，身份证再按位数分 15/18。"""
+    if kid == 0:
+        return TYPE_ID15 if ndigits == 15 else TYPE_ID18
+    return CTX_KID_TYPE.get(kid, 0)
+
+
+def _scan_digits(data: bytes, kws: list[tuple[int, int, int]] | None = None) -> list[Span]:
     """数字游程 → span。
 
     分隔符（空格/短横）在游程内透明，但"透明"有代价：`13800138000 13800138001`
@@ -327,10 +347,26 @@ def _scan_digits(data: bytes) -> list[Span]:
     snap_start = 0
     snap_last = 0
 
+    def ctx_hit(start: int) -> int:
+        """run_start 前面 CTX_WINDOW 字节内、最近的一个 PII 关键词 kid（没有则 -1）。"""
+        if not kws:
+            return -1
+        best_kid, best_end = -1, -1
+        for kid, _s, e in kws:
+            if kid > 2 or e > start or (start - e) > CTX_WINDOW:
+                continue
+            if e > best_end:
+                best_kid, best_end = kid, e
+        return best_kid
+
     def close() -> None:
         nonlocal active, P, P_hasx, P_over, S, S_hasx, S_over, snap_valid
         if active and not P_over:
             t = _classify(P, P_hasx, False)
+            if t == 0 and 11 <= len(P) <= 19:
+                kid = ctx_hit(run_start)
+                if kid >= 0:
+                    t = _loose_type(len(P), kid)
             if t:
                 spans.append(Span(t, run_start, last_digit - run_start + 1))
         active = False

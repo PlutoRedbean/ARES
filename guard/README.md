@@ -26,16 +26,16 @@
 
 | 项 | 值 |
 |---|---|
-| 资源 | **3,889 LUT (2.4%) / 2,113 FF / 10 APM / 0.5 DRM / 1 PLL** |
+| 资源 | **4,006 LUT (2.5%) / 2,183 FF / 10 APM / 0.5 DRM / 1 PLL** |
 | 时钟 | 27 MHz → GTP_GPLL → **25 MHz** 核心 |
-| 时序 | WNS **+4.8 ns**（MET）、TNS 0 → Fmax ≈ 28.7 MHz |
+| 时序 | WNS **+5.1 ns**（MET）、TNS 0 → Fmax ≈ 28.8 MHz |
 | 串口 | 115200 8N1（8× 过采样；3 Mbaud 通路已仿真），RX **B24** / TX **C24** |
 | 帧边界 | LF 或空闲 300000 位时间（≈2.6 s） |
 | 位流 | `generate_bitstream/guard_board_top.sbit`（9,188,552 B） |
 
 > 27 MHz 一开始不收敛（WNS −38.2 ns，≈75 ns 路径）。2026-11-17 分块定位到
 > **文本引擎**，把邮箱/IPv4/USCC 改成**逐字节增量校验**后文本块 +22.4 ns，
-> 整板 25 MHz 收敛（+4.8 ns），LUT 6,912 → 3,889。过程与数据见
+> 整板 25 MHz 收敛（+5.1 ns），LUT 6,912 → 4,006。过程与数据见
 > [docs/board-uart.md §2.1](docs/board-uart.md)。
 
 ## 快速开始：PC 本机
@@ -72,7 +72,6 @@ powershell -ExecutionPolicy Bypass -File guard\tools\build_guard.ps1    # PDS �
 powershell -ExecutionPolicy Bypass -File guard\tools\program_guard.ps1  # JTAG 烧写（~30 s）
 python guard\tools\serial_host.py --ports                              # 找串口
 python guard\tools\serial_host.py -p COM5 --text "手机 13800138000"     # 发一行，收脱敏+审计
-python guard\tools\serial_host.py -p COM9 --term 04 --drop-term --text "手机 13800138000" --check   # Ctrl-D 收尾
 python guard\tools\serial_host.py -p COM5 --file guard\examples\sample.txt --check
 ```
 
