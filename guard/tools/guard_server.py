@@ -193,8 +193,14 @@ class Handler(BaseHTTPRequestHandler):
                 out, audits = run_golden(data, "token")
                 mode = "golden-token"
             else:
-                out, audits = run_rtl_mask(data)
-                mode = "rtl-mask"
+                try:
+                    out, audits = run_rtl_mask(data)
+                    mode = "rtl-mask"
+                except FileNotFoundError:
+                    # 没建 Verilator harness（比如在 Windows 上看网页）时退回金标
+                    # mask：判定同一套规则，只是跑在 Python 里。页面上会写明 mode。
+                    out, audits = run_golden(data, "mask")
+                    mode = "golden-mask"
         except FileNotFoundError:
             self._send(500, b'{"error":"Vredact not built; run make redact-harness"}',
                        "application/json")
