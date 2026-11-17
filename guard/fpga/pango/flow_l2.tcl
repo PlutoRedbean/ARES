@@ -7,6 +7,7 @@ cd $root
 set_arch -family Logos2 -device PG2L200H -package FBB676 -speedgrade -6
 add_constraint [file join $here "l2.fdc"]
 add_design [file join $root "build" "gen" "l1_keywords_pkg.sv"]
+add_design [file join $root "build" "gen" "l2_weights_pkg.sv"]
 add_design [file join $root "vendor" "minitensor" "rtl" "tensor" "tensor_pkg.sv"]
 add_design [file join $root "vendor" "minitensor" "rtl" "tensor" "MXU" "Systolic_Array" "tensor_pe.sv"]
 add_design [file join $root "vendor" "minitensor" "rtl" "tensor" "MXU" "Systolic_Array" "tensor_systolic_array.sv"]

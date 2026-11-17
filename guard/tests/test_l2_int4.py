@@ -44,10 +44,15 @@ class TestL2Golden(unittest.TestCase):
         rows = semantic_scan("身份证".encode() + b" " * 30 + b"330203300422240391")
         self.assertEqual(CLASS_NAMES[rows[0][2]], "none")
 
-    def test_not_pii_shapes_still_classified_by_context(self) -> None:
-        # 4 位数：len_b=0，但关键词在窗口内 -> 仍按关键词的类型
+    def test_short_runs_are_not_promoted_by_context(self) -> None:
+        # 4 位数不可能是一个 PII：关键词再近也判 none（与 L1 兜底的 11..19 位一致）
         rows = semantic_scan("身份证 1234".encode())
-        self.assertEqual(CLASS_NAMES[rows[0][2]], "id18")
+        self.assertEqual(CLASS_NAMES[rows[0][2]], "none")
+
+    def test_grouped_mobile_still_typed(self) -> None:
+        rows = semantic_scan("手机号 138 0013 8000".encode())
+        self.assertTrue(rows)
+        self.assertTrue(all(CLASS_NAMES[r[2]] in ("mobile", "none") for r in rows))
 
     def test_features_of_no_hits(self) -> None:
         f = features_from_hits([], 10, 18, 0x20)

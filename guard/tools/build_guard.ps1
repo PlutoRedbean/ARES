@@ -22,6 +22,10 @@ try {
     & python tools/gen_keywords.py build/gen/l1_keywords_pkg.sv
     if ($LASTEXITCODE -ne 0) { throw 'gen_keywords.py failed' }
 
+    # L2 的 INT4 权重包也要重生成，否则改了权重还是烧旧表
+    & python tools/gen_l2_weights_sv.py build/gen/l2_weights_pkg.sv
+    if ($LASTEXITCODE -ne 0) { throw 'gen_l2_weights_sv.py failed' }
+
     $logDir = Join-Path $guard 'build'
     New-Item -ItemType Directory -Force $logDir | Out-Null
     $log = Join-Path $logDir 'pds_guard.log'

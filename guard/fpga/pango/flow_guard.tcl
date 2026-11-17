@@ -45,6 +45,7 @@ add_constraint [file join $here "guard_board.fdc"]
 # guard_pll_sim.sv instead, which is NOT listed here.
 set files [list \
     build/gen/l1_keywords_pkg.sv \
+    build/gen/l2_weights_pkg.sv \
     vendor/minitensor/rtl/tensor/tensor_pkg.sv \
     vendor/minitensor/rtl/tensor/MXU/Systolic_Array/tensor_pe.sv \
     vendor/minitensor/rtl/tensor/MXU/Systolic_Array/tensor_systolic_array.sv \

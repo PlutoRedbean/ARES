@@ -1,18 +1,15 @@
 """L2 INT4 语义层金标：上下文特征 → INT4 权重 → 4 类 (none/id18/bank/mobile)。"""
 from __future__ import annotations
 from host.golden.keywords import find_keywords
+from host.golden.l2_weights import W_INT4
 
 L2_FEATURES = 8
 L2_CLASSES = 4
 CLASS_NAMES = ("none", "id18", "bank", "mobile")
 KW_WINDOW = 12
 
-W_INT4 = [
-    [   0,     0,     0,     0,     0,   0,   0,   2],
-    [   6,    -6,    -6,    -6,    -2,   1,   0,   0],
-    [  -6,     6,    -6,    -6,    -2,   1,   0,   0],
-    [  -6,    -6,     6,    -6,    -2,   1,   0,   0],
-]
+# 权重由 tools/train_l2.py 训练生成 -> host/golden/l2_weights.py；
+# RTL 侧由 tools/gen_l2_weights_sv.py 生成同一个表（build/gen/l2_weights_pkg.sv）。
 
 
 def int4(v: int) -> int:

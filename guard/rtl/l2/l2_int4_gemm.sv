@@ -28,22 +28,9 @@ module l2_int4_gemm (
 
     import tensor_pkg::*;
 
-    // ---------------- INT4 权重表（与 host/golden/l2_int4.py 的 W_INT4 同源） ----
-    //  行 = 类别（0 none / 1 id18 / 2 bank / 3 mobile）
-    //  列 = 特征（k_id k_bank k_mob k_other dist len colon bias）
-    function automatic logic signed [7:0] w4(input logic [1:0] c, input logic [2:0] f);
-        case ({c, f})
-            5'd0:  w4 = 8'sd0;  5'd1:  w4 = 8'sd0;  5'd2:  w4 = 8'sd0;  5'd3:  w4 = 8'sd0;
-            5'd4:  w4 = 8'sd0;  5'd5:  w4 = 8'sd0;  5'd6:  w4 = 8'sd0;  5'd7:  w4 = 8'sd2;
-            5'd8:  w4 = 8'sd6;  5'd9:  w4 = -8'sd6; 5'd10: w4 = -8'sd6; 5'd11: w4 = -8'sd6;
-            5'd12: w4 = -8'sd2; 5'd13: w4 = 8'sd1;  5'd14: w4 = 8'sd0;  5'd15: w4 = 8'sd0;
-            5'd16: w4 = -8'sd6; 5'd17: w4 = 8'sd6;  5'd18: w4 = -8'sd6; 5'd19: w4 = -8'sd6;
-            5'd20: w4 = -8'sd2; 5'd21: w4 = 8'sd1;  5'd22: w4 = 8'sd0;  5'd23: w4 = 8'sd0;
-            5'd24: w4 = -8'sd6; 5'd25: w4 = -8'sd6; 5'd26: w4 = 8'sd6;  5'd27: w4 = -8'sd6;
-            5'd28: w4 = -8'sd2; 5'd29: w4 = 8'sd1;  5'd30: w4 = 8'sd0;  5'd31: w4 = 8'sd0;
-            default: w4 = 8'sd0;
-        endcase
-    endfunction
+    // 权重来自 build/gen/l2_weights_pkg.sv（tools/gen_l2_weights_sv.py 从
+    // host/golden/l2_weights.py 生成）—— 训练一次，金标与 RTL 共用同一个表。
+    import l2_weights_pkg::*;
 
     // ---------------- 打包 A / B 分块 ----------------
     logic [63:0] feat_q;

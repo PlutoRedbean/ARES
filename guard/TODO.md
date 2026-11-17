@@ -96,7 +96,10 @@
       见 [docs/l2-int4.md](docs/l2-int4.md)
 - [x] L2 接进板级位流：`l2_semantic_top` 挂到同一字符流，摘要行加 `l2=`/`l2m=`；
       板上 4,749 LUT / 2,947 FF / WNS +4.7 ns，sample.txt **PASS 1334 B**
-- [ ] 用 corpus 标注数据训线性模型，导出 INT4 权重替换手调表（现在还只是"手调权重"）
+- [x] **权重训练**：`tools/train_l2.py`（4000 训练 / 2000 留出，INT4 量化 + 整数坐标下降，
+      train/holdout 1.000）→ `host/golden/l2_weights.py` → `tools/gen_l2_weights_sv.py`
+      生成 RTL 权重包。RTL 未改，只换表；训练后 `sample.txt` 的 `l2` 从 2 降到 1（不再
+      把分组卡号的 4 位片段算成 PII）
 - [ ] 从 vendor 拷 UB/VPU/接口到 `rtl/l2/`（保持 vendor 只读）
 - [ ] 16×16 W4A8 GEMM + 反量化（先仿真对齐 Python 参考）
 - [ ] 双缓冲 DMA（描述符化 burst，替代单 outstanding）

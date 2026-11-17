@@ -31,6 +31,10 @@ BUILD     := build
 JOBS      ?= 0
 
 KW_PKG := $(BUILD)/gen/l1_keywords_pkg.sv
+L2W_PKG := $(BUILD)/gen/l2_weights_pkg.sv
+
+$(L2W_PKG): tools/gen_l2_weights_sv.py host/golden/l2_weights.py host/golden/l2_int4.py
+	python3 tools/gen_l2_weights_sv.py $(L2W_PKG)
 
 $(KW_PKG): tools/gen_keywords.py host/golden/keywords.py
 	$(PYTHON) tools/gen_keywords.py $(KW_PKG)
@@ -144,7 +148,7 @@ lint:
 # ---------------------------------------------------------------------------
 MT_RTL   := vendor/minitensor/rtl/tensor
 MT_SYS   := $(MT_RTL)/MXU/Systolic_Array
-BOARD_RTL := $(KW_PKG) \
+BOARD_RTL := $(KW_PKG) $(L2W_PKG) \
              $(MT_RTL)/tensor_pkg.sv $(MT_SYS)/tensor_pe.sv \
              $(MT_SYS)/tensor_systolic_array.sv \
              $(MT_RTL)/MXU/INT8_GEMM/tensor_gemm_core.sv \
@@ -183,7 +187,7 @@ $(OBJ_BOARD3)/Vtb_guard_uart: $(BOARD_RTL) sim/tb_guard_uart.sv
 # ---------------------------------------------------------------------------
 # L2 INT4 语义层（用 vendor/minitensor 的 4x4 MXU）
 L2_VEC   := $(BUILD)/l2
-L2_RTL   := $(MT_RTL)/tensor_pkg.sv $(MT_SYS)/tensor_pe.sv \
+L2_RTL   := $(L2W_PKG) $(MT_RTL)/tensor_pkg.sv $(MT_SYS)/tensor_pe.sv \
             $(MT_SYS)/tensor_systolic_array.sv \
             $(MT_RTL)/MXU/INT8_GEMM/tensor_gemm_core.sv \
             rtl/l2/l2_features.sv rtl/l2/l2_int4_gemm.sv rtl/l2/l2_semantic_top.sv

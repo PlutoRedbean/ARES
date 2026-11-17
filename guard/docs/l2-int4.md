@@ -29,15 +29,28 @@
 | f6 | 前一个字节是 `:` 或 `=` | 0/1 |
 | f7 | 偏置 | 恒 1 |
 
-权重（`W4`，-8..7，打包进 A 矩阵时符号扩展到 INT8，即 **W4A8**）：
+权重（`W4`，-8..7）**不再是手调的**：由 [tools/train_l2.py](../tools/train_l2.py)
+在带标签样本上训练、量化到 INT4、再用整数坐标下降微调到 RTL 的精确语义，最后由
+[tools/gen_l2_weights_sv.py](../tools/gen_l2_weights_sv.py) 生成
+`build/gen/l2_weights_pkg.sv`（金标与 RTL 共用同一张表）。
+
+当前这张表（4000 训练 / 2000 留出，INT4 量化后 **train 1.000 / holdout 1.000**）：
 
 ```
          k_id k_bank k_mob k_other dist len colon bias
-none   [   0,     0,    0,     0,     0,   0,   0,   2]
-id18   [   6,    -6,   -6,    -6,    -2,   1,   0,   0]
-bank   [  -6,     6,   -6,    -6,    -2,   1,   0,   0]
-mobile [  -6,    -6,    6,    -6,    -2,   1,   0,   0]
+none   [   0,     0,    0,     1,     2,  -5,   0,   3]
+id18   [   4,    -2,   -2,     0,    -1,   2,   0,  -1]
+bank   [  -2,     4,   -2,     0,    -1,   2,   0,  -1]
+mobile [  -2,    -2,    4,     0,    -1,   2,   0,  -1]
 ```
+
+模型自己学出来的三条规律：
+
+1. **位数是硬门**：`len` 列 none 给 −5、PII 类给 +2 —— 短数字（<11 位）再靠近关键词也判 none，
+   这和 L1 兜底的"11..19 位才认"一致；
+2. **关键词定类型**：k_id/k_bank/k_mob 在各自类别上 +4，其它类别 −2；
+3. **距离惩罚弱化**：`dist` 只给 −1（手调版是 −2）—— 训练数据里"关键词近但数字远"很少见，
+   模型更愿意相信关键词。
 
 直觉：关键词给对应类别 +6；距离越远扣得越多（`-2×档`），远到 3 档时只剩 1 分、
 低于 none 的 2 分 → 判 none。
@@ -99,6 +112,8 @@ make l2-sim        # Verilator 位级仿真，与金标逐个游程比对 class 
 ```bash
 cd guard
 make l2-vectors l2-sim         # 功能
+python3 tools/train_l2.py                    # 重新训练（写 host/golden/l2_weights.py）
+python3 tools/gen_l2_weights_sv.py build/gen/l2_weights_pkg.sv   # 生成 RTL 权重包
 # 面积/时序（Windows + PDS）：
 pds_shell -file fpga/pango/flow_l2.tcl -project_name l2_res
 ```
