@@ -27,7 +27,7 @@
 ```
 发：手机 13800138000，邮箱 a@b.co，身份证 11010519491231002X
 回：手机 *******8000，邮箱 **b.co，身份证 **************002X
-    [guard] n=003 id18=001 id15=000 mobile=001 bank=000 email=001 ipv4=000 uscc=000 plate=000 ovf=000
+    [guard] n=003 id18=001 id15=000 mobile=001 bank=000 email=001 ipv4=000 uscc=000 plate=000 name=000 addr=000 ovf=000
 ```
 
 ---
@@ -46,7 +46,7 @@
 | 关键词提示上板 | ✅ | 摘要行里带 `kw=`（命中次数）与 `kwm=`（位图） |
 | 降级档位输出头 | ✅ | 摘要行 `mode=1`（T1：L1 生效）；T0 直通开关预留 |
 | 3 Mbaud 通路 | ✅ 仿真 | `make board-sim-3m`（8× 过采样，18 例全过）；要 USB-UART 支持 3 Mbaud |
-| **真板验收** | ✅ 2026-11-17 | USB-UART 枚举成 **CP210x → COM9**；`sample.txt` **PASS 1334/1334 B**，5 倍拼接 **PASS 6670/6670 B**（35 帧、无 ovf） |
+| **真板验收** | ✅ 2026-11-17 | USB-UART 枚举成 **CP210x → COM9**；`sample.txt` **PASS 1460/1460 B**，5 倍拼接 **PASS 6670/6670 B**（35 帧、无 ovf） |
 
 ---
 
@@ -56,7 +56,7 @@
 
 | 资源 | 用量 | 器件占比 | plan 预算 |
 |---|---|---|---|
-| LUT | **4,785** | 2.99% | 12–15k |
+| LUT | **5,444** | 3.41% | 12–15k |
 | FF | **2,947** | 0.92% | — |
 | DRM36K | **0.5** | 0.12% | 25 |
 | APM（18×18） | **10** | 1.35% | 0–8 |
@@ -180,6 +180,9 @@ IPv4 维护 `grp/ndig/val/lead/bad`，USCC 维护 16 位加权和 + 是否含字
 
 **只有一条规矩：发文本，收脱敏文本 + 一行摘要。**（ASCII，115200 8N1，无握手线）
 
+摘要行 17 个字段，**152 B + LF = 153 B**；其中 `name=` / `addr=` 是 L2b 实体层
+（人名/地址，整段遮）的计数。
+
 ### 5.1 帧边界
 
 | 触发 | 说明 |
@@ -191,7 +194,7 @@ IPv4 维护 `grp/ndig/val/lead/bad`，USCC 维护 16 位加权和 + 是否含字
 **摘要行固定格式**（计数一律 3 位零填充、超过 255 截到 255；档位是 1 位）：
 
 ```
-[guard] n=NNN id18=NNN id15=NNN mobile=NNN bank=NNN email=NNN ipv4=NNN uscc=NNN plate=NNN kw=NNN kwm=NNN l2=NNN l2m=NNN ovf=NNN mode=N
+[guard] n=NNN id18=NNN id15=NNN mobile=NNN bank=NNN email=NNN ipv4=NNN uscc=NNN plate=NNN name=NNN addr=NNN kw=NNN kwm=NNN l2=NNN l2m=NNN ovf=NNN mode=N
 ```
 
 - `n` = 本帧提交的 span 总数；
@@ -313,7 +316,7 @@ powershell -ExecutionPolicy Bypass -File guard\tools\program_guard.ps1
 4. **整份样例**：
    ```bash
    python3 guard/tools/serial_host.py -p COM3 --file guard/examples/sample.txt --check
-   → PASS  收到 1334 B，期望 1334 B
+   → PASS  收到 1460 B，期望 1460 B
    ```
 5. **异常**：`--no-pace` 发大文件应看到 `ovf=001` 且 LED2 亮（说明溢出检测是活的），
    换回默认（pacing）应恢复 `ovf=000`。

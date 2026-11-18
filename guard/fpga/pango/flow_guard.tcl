@@ -46,6 +46,7 @@ add_constraint [file join $here "guard_board.fdc"]
 set files [list \
     build/gen/l1_keywords_pkg.sv \
     build/gen/l2_weights_pkg.sv \
+    build/gen/l2_entity_tables.sv \
     vendor/minitensor/rtl/tensor/tensor_pkg.sv \
     vendor/minitensor/rtl/tensor/MXU/Systolic_Array/tensor_pe.sv \
     vendor/minitensor/rtl/tensor/MXU/Systolic_Array/tensor_systolic_array.sv \
@@ -58,6 +59,7 @@ set files [list \
     rtl/l2/l2_features.sv \
     rtl/l2/l2_int4_gemm.sv \
     rtl/l2/l2_semantic_top.sv \
+    rtl/l2/l2_entity.sv \
     rtl/board/guard_uart_baud.sv \
     rtl/board/guard_uart_rx.sv \
     rtl/board/guard_uart_tx.sv \

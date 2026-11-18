@@ -26,6 +26,10 @@ try {
     & python tools/gen_l2_weights_sv.py build/gen/l2_weights_pkg.sv
     if ($LASTEXITCODE -ne 0) { throw 'gen_l2_weights_sv.py failed' }
 
+    # L2b 实体层的表（姓氏/锚点/职务/线索）
+    & python tools/gen_entity_tables_sv.py build/gen/l2_entity_tables.sv
+    if ($LASTEXITCODE -ne 0) { throw 'gen_entity_tables_sv.py failed' }
+
     $logDir = Join-Path $guard 'build'
     New-Item -ItemType Directory -Force $logDir | Out-Null
     $log = Join-Path $logDir 'pds_guard.log'

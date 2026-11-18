@@ -275,7 +275,7 @@ python guard\tools\serial_host.py -p COM5 --text "手机 13800138000，邮箱 a@
 
 # 整份样例：逐字节和金标比
 python guard\tools\serial_host.py -p COM5 --file guard\examples\sample.txt --check
-# 期望最后一行：PASS  收到 1334 B，期望 1334 B
+# 期望最后一行：PASS  收到 1460 B，期望 1460 B
 
 # 交互
 python guard\tools\serial_host.py -p COM5 --repl

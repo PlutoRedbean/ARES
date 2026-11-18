@@ -100,7 +100,7 @@ make l2-sim        # Verilator 位级仿真，与金标逐个游程比对 class 
 
 1. ~~没接进板级位流~~（2026-11-17 已接）：`l2_semantic_top` 与 L1 并行挂在同一字符流上，
    摘要行加 `l2=`（判成 PII 的游程数）/`l2m=`（类别位图，bit1=id18 bit2=bank bit3=mobile）。
-   整板 4,785 LUT / 2,947 FF / WNS +5.0 ns；板上 `sample.txt --check` **PASS 1334 B**，
+   整板 5,444 LUT / 3,278 FF / WNS +5.4 ns；板上 `sample.txt --check` **PASS 1460 B**（含 name=/addr= 的 153 B 摘要行），
    实测 `身份证 …卡… 手机号 …` 一帧 → `l2=3 l2m=14`，无关键词 → `l2=0`。
 2. **特征只有 8 个、权重是手调的**：还没训练。要真"学"，下一步是
    用 `host/corpus` 标注数据训一个小线性模型，导出 INT4 权重直接替换这张表。
