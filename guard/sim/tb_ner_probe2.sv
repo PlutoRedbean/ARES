@@ -26,7 +26,11 @@ module tb_ner_probe;
         in_valid = 0; @(negedge clk); in_last = 1; @(negedge clk); in_last = 0;
         wait (!busy); repeat (4) @(negedge clk);
         $display("ntok=%0d", dut.ntok);
-        for (i = 0; i < 16; i = i + 1) $display("lab %0d = %0d  off=%0d len=%0d", i, dut.lab[i], dut.tok_off[i], dut.tok_len[i]);
+        for (i = 0; i < 12; i = i + 1) $display("tok %0d id=%0d off=%0d len=%0d lab=%0d", i, dut.tok_id[i], dut.tok_off[i], dut.tok_len[i], dut.lab[i]);
+        $display("rom c1[0..5] = %0d %0d %0d %0d %0d %0d",
+                 $signed(dut.u_rom.c1w[0]), $signed(dut.u_rom.c1w[1]), $signed(dut.u_rom.c1w[2]),
+                 $signed(dut.u_rom.c1w[3]), $signed(dut.u_rom.c1w[4]), $signed(dut.u_rom.c1w[5]));
+        $display("rom b1[0..3] = %0d %0d %0d %0d", dut.u_rom.c1b[0], dut.u_rom.c1b[1], dut.u_rom.c1b[2], dut.u_rom.c1b[3]);
         $finish;
     end
 endmodule

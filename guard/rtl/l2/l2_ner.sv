@@ -97,6 +97,11 @@ module l2_ner (
     assign hb_addr  = cls[1:0];
     assign voc_addr = va;
 
+    // 显式 16 位乘积：避免乘法的自决定宽度把 8x8 截断
+    wire signed [15:0] pr1 = $signed(c1_data) * $signed(a_x);
+    wire signed [15:0] pr2 = $signed(c2_data) * $signed(a_h1);
+    wire signed [15:0] prh = $signed(h_data) * $signed(h2[{5'd0, i} * 12'd32 + {4'd0, o[4:0]}]);
+
     function automatic logic [2:0] ureq_len(input logic [7:0] b);
         ureq_len = (b >= 8'hF0) ? 3'd4 : (b >= 8'hE0) ? 3'd3 : (b >= 8'hC0) ? 3'd2 : 3'd1;
     endfunction
@@ -132,8 +137,15 @@ module l2_ner (
             S_RECV: begin
                 // 先把上一窗留下的那个字节放进新窗
                 if (pend_ok) begin
+                    // 上一窗边界那个字节放到新窗第 0 位；同一拍的 in_valid 是下一个字节，
+                    // 放第 1 位（不能丢，否则每个窗口边界都会错开一个字节）
                     ch_buf[6'd0] <= pend_byte;
-                    nbyte <= 7'd1;
+                    if (in_valid) begin
+                        ch_buf[6'd1] <= in_char;
+                        nbyte <= 7'd2;
+                    end else begin
+                        nbyte <= 7'd1;
+                    end
                     pend_ok <= 1'b0;
                 end else if (in_valid) begin
                     // 字符对齐：这个字节若是新字符的起点，且放进来会超 64 字节，
@@ -190,10 +202,10 @@ module l2_ner (
             end
 
             S_C1: begin
-                acc <= acc + $signed(c1_data) * $signed(a_x);
+                acc <= acc + pr1;
                 if (k == 2'd2 && c == 7'd31) begin
                     h1[{5'd0, i} * 12'd32 + {4'd0, o[4:0]}] <=
-                        rq(acc + $signed(c1_data) * $signed(a_x) + b1_reg[o[4:0]], M1);
+                        rq(acc + pr1 + b1_reg[o[4:0]], M1);
                     acc <= 48'sd0;
                     if (o == 7'd31) begin
                         o <= 7'd0;
@@ -205,10 +217,10 @@ module l2_ner (
             end
 
             S_C2: begin
-                acc <= acc + $signed(c2_data) * $signed(a_h1);
+                acc <= acc + pr2;
                 if (k == 2'd2 && c == 7'd31) begin
                     h2[{5'd0, i} * 12'd32 + {4'd0, o[4:0]}] <=
-                        rq(acc + $signed(c2_data) * $signed(a_h1) + b2_reg[o[4:0]], M2);
+                        rq(acc + pr2 + b2_reg[o[4:0]], M2);
                     acc <= 48'sd0;
                     if (o == 7'd31) begin
                         o <= 7'd0;
@@ -227,13 +239,13 @@ module l2_ner (
             end
 
             S_HEAD: begin
-                acc <= acc + $signed(h_data) * $signed(h2[{5'd0, i} * 12'd32 + {4'd0, o[4:0]}]);
+                acc <= acc + prh;
                 if (o == 7'd31) begin
                     // 一个类跑完：和当前最优比（并列取小 cls），直接把赢家写进 lab
-                    if ((acc + $signed(h_data) * $signed(h2[{5'd0, i} * 12'd32 + {4'd0, o[4:0]}]))
+                    if ((acc + prh)
                         + hb_reg[cls[1:0]] > best) begin
                         lab[i[5:0]] <= cls;
-                        best <= (acc + $signed(h_data) * $signed(h2[{5'd0, i} * 12'd32 + {4'd0, o[4:0]}]))
+                        best <= (acc + prh)
                                 + hb_reg[cls[1:0]];
                     end
                     acc <= 48'sd0; o <= 7'd0;
