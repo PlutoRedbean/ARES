@@ -84,7 +84,8 @@ def main() -> int:
     entries = sorted((t.encode("utf-8"), i) for i, t in enumerate(vocab) if t not in ("<pad>", "<unk>"))
     with (out / "ner_vocab.hex").open("w", encoding="utf-8") as f:
         for key, idx in entries:
-            f.write(f"{int.from_bytes(key[:3].ljust(3, bytes(1)), 'big'):06X}{idx:04X}\n")
+            # ASCII 的 key 用 0x01 补齐（RTL 里 {byte, 8'h01, 8'h01}）
+            f.write(f"{int.from_bytes(key[:3].ljust(3, b'\x01'), 'big'):06X}{idx:04X}\n")
 
     rq = quant["requant"]
     lines = [
@@ -102,6 +103,23 @@ def main() -> int:
         "",
     ]
     (out / "ner_config.svh").write_text("\n".join(lines), encoding="utf-8")
+
+    # 同时发一个 package（PDS 没有 set_include_dir，用 package 更稳）
+    cfg_pkg = [
+        "// 由 tools/gen_ner_rom.py 生成，请勿手改。",
+        "`timescale 1ns/1ps",
+        "",
+        "package l2_ner_cfg;",
+        f"    localparam int VOCAB_N   = {len(entries)};",
+        f"    localparam int WINDOW    = {int(cfg['window_bytes'])};",
+        f"    localparam int VOCAB_SZ  = {len(vocab)};",
+        f"    localparam int EMB_DIM   = {int(cfg['emb_dim'])};",
+        f"    localparam int CHANNELS  = {int(cfg['channels'])};",
+        f"    localparam int CLASSES   = {int(cfg['num_classes'])};",
+        "endpackage",
+        "",
+    ]
+    (out / "l2_ner_cfg.sv").write_text("\n".join(cfg_pkg), encoding="utf-8")
 
     rom = f"""// 由 tools/gen_ner_rom.py 生成，请勿手改。
 // 纯 ROM（$readmemh 初始化），上层 l2_ner.sv 用。
@@ -162,6 +180,23 @@ module l2_ner_rom #(
 endmodule
 """
     (out / "l2_ner_rom.sv").write_text(rom, encoding="utf-8")
+
+    vocab = f"""// 由 tools/gen_ner_rom.py 生成，请勿手改。
+// 词表 ROM：858 项，每项 {{key[23:0], id[9:0]}}，按 key 升序（RTL 线性扫描即可）。
+`timescale 1ns/1ps
+
+module l2_ner_vocab #(parameter int N = {len(entries)}) (
+    input  logic [9:0]  addr,
+    output logic [23:0] key,
+    output logic [9:0]  id
+);
+    logic [39:0] rom [0:N-1];
+    initial $readmemh("build/gen/ner_vocab.hex", rom);
+    assign key = rom[addr][39:16];
+    assign id  = rom[addr][9:0];
+endmodule
+"""
+    (out / "l2_ner_vocab.sv").write_text(vocab, encoding="utf-8")
     print(f"ner rom: emb {len(w['emb_w'])} B, conv1 {len(w['conv1_w'])} B, conv2 {len(w['conv2_w'])} B, "
           f"head {len(w['head_w'])} B, vocab {len(entries)} -> {out}")
     return 0

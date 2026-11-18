@@ -215,6 +215,7 @@ module l1_redactor (
     output logic [7:0]  a_len,
     output logic [3:0]  a_type,
 
+    output logic        busy_l2b,     // L2b 正在推理：上层停止送数
     output logic        done,
     output logic        ovf
 );
@@ -364,7 +365,9 @@ module l1_redactor (
 endmodule
 
 // ---------------------------------------------------------------- top
-module l1_redact_top (
+module l1_redact_top #(
+    parameter bit USE_NER = 1'b0
+) (
     input  logic        clk,
     input  logic        rst_n,
 
@@ -386,7 +389,10 @@ module l1_redact_top (
 
     // 关键词提示（只给板级摘要用，不参与替换）
     output logic        kw_valid,
-    output logic [2:0]  kw_kid
+    output logic [2:0]  kw_kid,
+
+    // L2b（NER）正在推理：上层据此反压串口收数
+    output logic        busy_l2b
 );
 
     wire        digit_valid, email_valid, ipv4_valid, uscc_valid, plate_valid;
@@ -398,11 +404,12 @@ module l1_redact_top (
     wire [7:0]  kw_len;
 
     wire        ent_valid;
+    wire        ent_busy;
     wire [31:0] ent_start;
     wire [7:0]  ent_len;
     wire [3:0]  ent_type;
 
-    l1_engine u_eng (
+    l1_engine #(.USE_NER(USE_NER)) u_eng (
         .clk(clk), .rst_n(rst_n),
         .in_valid(in_valid), .in_char(in_char), .in_last(in_last),
         .digit_valid(digit_valid), .digit_start(digit_start), .digit_len(digit_len), .digit_type(digit_type),
@@ -411,7 +418,8 @@ module l1_redact_top (
         .uscc_valid(uscc_valid),   .uscc_start(uscc_start),   .uscc_len(uscc_len),
         .plate_valid(plate_valid), .plate_start(plate_start), .plate_len(plate_len),
         .kw_valid(kw_valid), .kw_start(kw_start), .kw_len(kw_len), .kw_kid(kw_kid),
-        .ent_valid(ent_valid), .ent_start(ent_start), .ent_len(ent_len), .ent_type(ent_type)
+        .ent_valid(ent_valid), .ent_start(ent_start), .ent_len(ent_len), .ent_type(ent_type),
+        .ent_busy(ent_busy)
     );
 
     wire        c_valid;
@@ -436,19 +444,25 @@ module l1_redact_top (
         end
     end
 
-    wire flush_hold = (quiet_cnt < RIPEN);
+    wire flush_hold = (quiet_cnt < RIPEN) || busy_l2b;
 
     // 帧尾延迟 2 拍再通知合并器：实体引擎在 in_last 那拍才吐"帧尾收尾"的 span，
     // 同拍 flush 会让它落到替换器出队指针之后（漏遮 + done 卡死）。
-    logic [1:0] last_dly_q;
+    // 帧尾要等 L2b（NER）把最后一个窗口算完再通知合并器：
+    // NER 一个窗口要几十万拍，如果同拍 flush，它的 span 会落在出队指针之后。
+    logic last_pend_q;
     always_ff @(posedge clk) begin
-        if (!rst_n) last_dly_q <= 2'd0;
-        else        last_dly_q <= {last_dly_q[0], in_last};
+        if (!rst_n)    last_pend_q <= 1'b0;
+        else if (in_last) last_pend_q <= 1'b1;
+        else if (last_pend_q && !busy_l2b) last_pend_q <= 1'b0;
     end
+    wire merge_last = last_pend_q && !busy_l2b;
+
+    assign busy_l2b = ent_busy;
 
     l1_merge u_merge (
         .clk(clk), .rst_n(rst_n),
-        .in_valid(in_valid), .in_last(last_dly_q[1]),
+        .in_valid(in_valid), .in_last(merge_last),
         .src_valid({ent_valid, plate_valid, uscc_valid, ipv4_valid, email_valid, digit_valid}),
         .src_start({ent_start, plate_start, uscc_start, ipv4_start, email_start, digit_start}),
         .src_len  ({ent_len,   plate_len,   uscc_len,   ipv4_len,   email_len,   digit_len}),

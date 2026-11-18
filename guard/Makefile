@@ -36,6 +36,10 @@ JOBS      ?= 0
 KW_PKG := $(BUILD)/gen/l1_keywords_pkg.sv
 L2W_PKG := $(BUILD)/gen/l2_weights_pkg.sv
 ENT_TAB := $(BUILD)/gen/l2_entity_tables.sv
+NER_FILES := $(BUILD)/gen/l2_ner_cfg.sv $(BUILD)/gen/l2_ner_rom.sv $(BUILD)/gen/l2_ner_vocab.sv
+
+$(NER_FILES): tools/gen_ner_rom.py models/ner/weights_int8.npz models/ner/vocab.json
+	python3 tools/gen_ner_rom.py $(BUILD)/gen
 ENT_VEC := $(BUILD)/ent
 
 $(ENT_TAB): tools/gen_entity_tables_sv.py host/golden/entities.py
@@ -47,7 +51,7 @@ $(L2W_PKG): tools/gen_l2_weights_sv.py host/golden/l2_weights.py host/golden/l2_
 $(KW_PKG): tools/gen_keywords.py host/golden/keywords.py
 	$(PYTHON) tools/gen_keywords.py $(KW_PKG)
 
-L1_RTL := $(KW_PKG) $(ENT_TAB) rtl/l2/l2_entity.sv \
+L1_RTL := $(KW_PKG) $(ENT_TAB) $(NER_FILES) rtl/l2/l2_entity.sv rtl/l2/l2_ner.sv \
           rtl/l1/l1_digit_engine.sv rtl/l1/l1_text_engines.sv \
           rtl/l1/l1_keyword_match.sv rtl/l1/l1_engine.sv
 L1_TB  := sim/tb_l1_engine.sv
@@ -157,7 +161,7 @@ lint:
 # ---------------------------------------------------------------------------
 MT_RTL   := vendor/minitensor/rtl/tensor
 MT_SYS   := $(MT_RTL)/MXU/Systolic_Array
-BOARD_RTL := $(KW_PKG) $(L2W_PKG) $(ENT_TAB) \
+BOARD_RTL := $(KW_PKG) $(L2W_PKG) $(ENT_TAB) $(NER_FILES) \
              $(MT_RTL)/tensor_pkg.sv $(MT_SYS)/tensor_pe.sv \
              $(MT_SYS)/tensor_systolic_array.sv \
              $(MT_RTL)/MXU/INT8_GEMM/tensor_gemm_core.sv \
@@ -165,6 +169,7 @@ BOARD_RTL := $(KW_PKG) $(L2W_PKG) $(ENT_TAB) \
              rtl/l1/l1_keyword_match.sv rtl/l1/l1_engine.sv rtl/l1/l1_redact.sv \
              rtl/l2/l2_features.sv rtl/l2/l2_int4_gemm.sv rtl/l2/l2_semantic_top.sv \
              rtl/l2/l2_entity.sv \
+    rtl/l2/l2_ner.sv \
              rtl/board/guard_uart_baud.sv rtl/board/guard_uart_rx.sv \
              rtl/board/guard_uart_tx.sv rtl/board/guard_fifo.sv \
              rtl/board/guard_report.sv rtl/board/guard_uart_core.sv \
