@@ -28,6 +28,9 @@ UNK_ID = 1
 LABELS = ("none", "name", "addr")
 NONE, NAME, ADDR = 0, 1, 2
 
+# span 至少 2 个字符（1 个字符的命中在实测里全是噪声）
+MIN_SPAN_CHARS = 2
+
 # 模型内部的 0/1/2 标签 <-> 整条流水线用的 span type（和 l2_entity / pii_rules 一致）
 TYPE_OF_LABEL = {NAME: 9, ADDR: 10}
 
@@ -154,7 +157,10 @@ class NerModel:
             j = i + 1
             while j < n and labels[j] == labels[i]:
                 j += 1
-            spans.append((int(labels[i]), off[i], off[j] - off[i]))
+            # 单个字符的 span 一律丢掉：实测里 `新`/`丰`/`王` 这类全是噪声，
+            # 真正的人名/地址至少 2 个字符（复姓 2 字也算在 span 里）。
+            if (j - i) >= MIN_SPAN_CHARS:
+                spans.append((int(labels[i]), off[i], off[j] - off[i]))
             i = j
         return spans
 
