@@ -1,26 +1,34 @@
 {
   "seed": 20261118,
   "data": {
-    "train": 46380,
+    "train": 79998,
     "heldout": 2600,
     "hard": 1600
   },
   "heldout": {
-    "span_precision": 0.995109,
-    "span_recall": 0.99782,
-    "span_f1": 0.996463
+    "span_precision": 0.996475,
+    "span_recall": 0.995473,
+    "span_f1": 0.995974
   },
   "hard": {
-    "span_precision": 1.0,
-    "span_recall": 1.0,
-    "span_f1": 1.0
+    "span_precision": 0.997018,
+    "span_recall": 0.997018,
+    "span_f1": 0.997018
+  },
+  "unseen_names": {
+    "cases": 600,
+    "recall": 1.0
+  },
+  "addr_digits": {
+    "cases": 600,
+    "exact_span_rate": 1.0
   },
   "size": {
-    "params": 33827,
-    "int8_bytes": 34028,
+    "params": 6307,
+    "int8_bytes": 105068,
     "macs_per_window": 399360
   },
   "checksums": {
-    "weights_sha256": "3e321b9f7ac75dfdb21c361c5352ddd0eedf086a66d864ad493de1ea966fb36e"
+    "weights_sha256": "1d97a87bdb3f95e42991a9322cb1ac9c0252f5085141825b5d396b3a88f894f8"
   }
 }

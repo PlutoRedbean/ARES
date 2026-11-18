@@ -1,6 +1,6 @@
 """校验 Ubuntu 侧交付的 NER 模型是否满足 docs/ubuntu-ner.md 的门槛。
 
-六条门槛逐条打印 PASS/FAIL；任何一条 FAIL 都以非零退出。
+原有 1~8、v3 的 9~11 逐条打印 PASS/FAIL；任何一条 FAIL 都以非零退出。
 
   --repro  额外做第 5 条的“同 seed 两次训练 hash 相同”：在临时目录重训一次并比对
            weights_int8.npz 的 sha256（约 40s）。make ner-check 默认带上。
@@ -39,7 +39,7 @@ FILES = [
 
 EXTRA = [
     "host/golden/ner.py", "tools/train_ner.py", "tools/gen_ner_data.py",
-    "tools/gen_ner_vectors.py", "tests/test_ner_golden.py",
+    "tools/gen_ner_vectors.py", "tests/test_ner_golden.py", "tools/name_chars.py",
 ]
 
 
@@ -200,6 +200,52 @@ def main() -> int:
         ok_all &= gate(evidence_ok >= 5, "8 evidence set exact", f"{evidence_ok}/{len(battery)} >= 5")
     else:
         ok_all &= gate(False, "8 evidence set exact", "ner.py missing")
+
+    # ---- 门槛 9：训练没出现过的 500+ 全名，召回 >= 0.95
+    unseen_path = DATA / "unseen_names.jsonl"
+    if ner_decode is not None and unseen_path.exists():
+        rows = [json.loads(l) for l in unseen_path.read_text(encoding="utf-8").splitlines() if l.strip()]
+        ok = 0
+        for r in rows:
+            gold = {(9, s, ln) for s, ln, y in r["spans"] if y == 1}
+            pred = {x for x in ner_decode(r["text"].encode("utf-8")) if x[0] == 9}
+            ok += int(gold == pred)
+        rec = ok / max(len(rows), 1)
+        ev_rec = ev.get("unseen_names", {}).get("recall")
+        ok_all &= gate(len(rows) >= 500 and rec >= 0.95 and ev_rec is not None and abs(ev_rec - rec) < 1e-6,
+                       "9 unseen names recall", f"{rec:.3f} >= 0.95 ({ok}/{len(rows)})")
+    else:
+        ok_all &= gate(False, "9 unseen names recall", f"{unseen_path} missing")
+
+    # ---- 门槛 10：含数字地址，整段连续命中率 >= 0.98
+    addr_path = DATA / "addr_digits.jsonl"
+    if ner_decode is not None and addr_path.exists():
+        rows = [json.loads(l) for l in addr_path.read_text(encoding="utf-8").splitlines() if l.strip()]
+        ok = 0
+        for r in rows:
+            gold = {(10, s, ln) for s, ln, y in r["spans"] if y == 2}
+            pred = {x for x in ner_decode(r["text"].encode("utf-8")) if x[0] == 10}
+            ok += int(gold == pred)
+        rate = ok / max(len(rows), 1)
+        ev_rate = ev.get("addr_digits", {}).get("exact_span_rate")
+        ok_all &= gate(len(rows) >= 500 and rate >= 0.98 and ev_rate is not None and abs(ev_rate - rate) < 1e-6,
+                       "10 addr digits exact span", f"{rate:.3f} >= 0.98 ({ok}/{len(rows)})")
+    else:
+        ok_all &= gate(False, "10 addr digits exact span", f"{addr_path} missing")
+
+    # ---- 门槛 11：固定跨时代/复姓名
+    fixed_names = ["马嘉祺", "周杰伦", "欧阳娜娜", "司马相如"]
+    fixed_ok = 0
+    if ner_decode is not None:
+        for name in fixed_names:
+            text = name + "的演唱会在上海"
+            want = (9, 0, len(name.encode("utf-8")))
+            got = set(ner_decode(text.encode("utf-8")))
+            fixed_ok += int(want in got)
+        ok_all &= gate(fixed_ok == len(fixed_names), "11 fixed famous names",
+                       f"{fixed_ok}/{len(fixed_names)}")
+    else:
+        ok_all &= gate(False, "11 fixed famous names", "ner.py missing")
 
     print("\n" + ("全部通过，可以接 RTL。" if ok_all else "有门槛没过，先别接 RTL。"))
     return 0 if ok_all else 2

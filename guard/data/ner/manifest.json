@@ -1,45 +1,55 @@
 {
   "seed": 20261118,
   "counts": {
-    "train": 46380,
+    "train": 79998,
     "heldout": 2600,
     "hard": 1600
   },
   "categories": {
     "train": {
-      "prose": 16271,
-      "neg": 2511,
-      "neg_hard": 803,
-      "trap": 1506,
-      "targeted": 4017,
-      "targeted2": 502,
-      "targeted3": 301,
-      "colloc": 1004,
-      "english": 502,
-      "name": 3515,
-      "boundary": 4720,
-      "compound": 3615,
-      "title": 1506,
-      "addr": 3013,
-      "mixed": 1514,
-      "coverage": 1080
+      "prose": 28500,
+      "neg": 2000,
+      "neg_hard": 600,
+      "trap": 1500,
+      "targeted": 2000,
+      "targeted2": 300,
+      "targeted3": 200,
+      "pairs": 1500,
+      "name_ctx": 4000,
+      "addr_start": 1000,
+      "colloc": 800,
+      "english": 300,
+      "name": 1500,
+      "boundary": 2500,
+      "compound": 1500,
+      "title": 1000,
+      "addr": 2500,
+      "mixed": 800,
+      "addr_digits": 2000,
+      "coverage": 1098,
+      "bulk_names": 24000,
+      "realistic_rows": 400
     },
     "heldout": {
-      "prose": 767,
-      "neg": 108,
-      "neg_hard": 36,
-      "trap": 72,
-      "targeted": 90,
-      "targeted2": 27,
-      "targeted3": 18,
-      "colloc": 90,
-      "english": 45,
-      "name": 270,
-      "boundary": 270,
-      "compound": 270,
-      "title": 135,
-      "addr": 315,
-      "mixed": 87
+      "prose": 686,
+      "neg": 96,
+      "neg_hard": 32,
+      "trap": 64,
+      "targeted": 80,
+      "targeted2": 24,
+      "targeted3": 16,
+      "pairs": 64,
+      "name_ctx": 64,
+      "addr_start": 64,
+      "colloc": 80,
+      "english": 40,
+      "name": 242,
+      "boundary": 242,
+      "compound": 242,
+      "title": 121,
+      "addr": 282,
+      "mixed": 72,
+      "addr_digits": 89
     },
     "hard": {
       "hard_name": 329,
@@ -53,24 +63,35 @@
     }
   },
   "neg_ratio": {
-    "train": 0.4607,
-    "heldout": 0.3788,
+    "train": 0.4105,
+    "heldout": 0.3388,
     "hard": 0.1481
   },
   "prose_ratio": {
-    "train": 0.3508,
-    "heldout": 0.295,
+    "train": 0.3563,
+    "heldout": 0.2638,
     "hard": 0.0
   },
   "hard_ratio": {
-    "train": 0.2014,
-    "heldout": 0.2423,
+    "train": 0.365,
+    "heldout": 0.2169,
     "hard": 1.0
   },
   "chars": {
-    "train": 858,
-    "heldout": 822,
-    "hard": 609
+    "train": 3078,
+    "heldout": 1014,
+    "hard": 610
+  },
+  "name_chars": 3000,
+  "distinct_train_names": 139871,
+  "bulk_name_rows": 24000,
+  "realistic_name_rows": 400,
+  "addr_digit_ratio": 0.7092,
+  "unseen_names": {
+    "cases": 600
+  },
+  "addr_digits": {
+    "cases": 600
   },
   "oov": {
     "heldout": [],
