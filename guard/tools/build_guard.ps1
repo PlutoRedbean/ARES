@@ -30,6 +30,10 @@ try {
     & python tools/gen_entity_tables_sv.py build/gen/l2_entity_tables.sv
     if ($LASTEXITCODE -ne 0) { throw 'gen_entity_tables_sv.py failed' }
 
+    # NER 模型的 INT8 权重 ROM（$readmemh 初始化）
+    & python tools/gen_ner_rom.py build/gen
+    if ($LASTEXITCODE -ne 0) { throw 'gen_ner_rom.py failed' }
+
     $logDir = Join-Path $guard 'build'
     New-Item -ItemType Directory -Force $logDir | Out-Null
     $log = Join-Path $logDir 'pds_guard.log'

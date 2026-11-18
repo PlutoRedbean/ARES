@@ -60,6 +60,7 @@ set files [list \
     rtl/l2/l2_int4_gemm.sv \
     rtl/l2/l2_semantic_top.sv \
     rtl/l2/l2_entity.sv \
+    build/gen/l2_ner_rom.sv \
     rtl/board/guard_uart_baud.sv \
     rtl/board/guard_uart_rx.sv \
     rtl/board/guard_uart_tx.sv \
