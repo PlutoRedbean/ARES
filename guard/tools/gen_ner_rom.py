@@ -104,6 +104,23 @@ def main() -> int:
     ]
     (out / "ner_config.svh").write_text("\n".join(lines), encoding="utf-8")
 
+    # 同时发一个 package（PDS 没有 set_include_dir，用 package 更稳）
+    cfg_pkg = [
+        "// 由 tools/gen_ner_rom.py 生成，请勿手改。",
+        "`timescale 1ns/1ps",
+        "",
+        "package l2_ner_cfg;",
+        f"    localparam int VOCAB_N   = {len(entries)};",
+        f"    localparam int WINDOW    = {int(cfg['window_bytes'])};",
+        f"    localparam int VOCAB_SZ  = {len(vocab)};",
+        f"    localparam int EMB_DIM   = {int(cfg['emb_dim'])};",
+        f"    localparam int CHANNELS  = {int(cfg['channels'])};",
+        f"    localparam int CLASSES   = {int(cfg['num_classes'])};",
+        "endpackage",
+        "",
+    ]
+    (out / "l2_ner_cfg.sv").write_text("\n".join(cfg_pkg), encoding="utf-8")
+
     rom = f"""// 由 tools/gen_ner_rom.py 生成，请勿手改。
 // 纯 ROM（$readmemh 初始化），上层 l2_ner.sv 用。
 `timescale 1ns/1ps

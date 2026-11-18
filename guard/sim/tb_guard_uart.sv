@@ -42,7 +42,8 @@ module tb_guard_uart;
         .AW        (8),
         .LF_TO_CRLF(1),
         .REPORT_EN (1),
-        .IDLE_BITS (IDLE_BITS)
+        .IDLE_BITS (IDLE_BITS),
+        .USE_NER   (1'b0)          // 板级回归用规则版实体层（金标算不了神经网络）
     ) dut (
         .clk_27m(clk), .rst_n(rst_n), .uart_rx(uart_rx),
         .uart_tx(uart_tx), .led(led)

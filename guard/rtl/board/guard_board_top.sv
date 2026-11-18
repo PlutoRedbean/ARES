@@ -22,6 +22,8 @@
 `timescale 1ns/1ps
 
 module guard_board_top #(
+    // 1 = 板上用 NER 模型做实体层（名字/地址）；0 = 规则版（仿真用，金标能算）
+    parameter bit USE_NER = 1'b1,
     parameter int CLK_FREQ   = 25_000_000,  // PLL 出来的核心时钟
     parameter int BAUD       = 115200,
     parameter int OV         = 8,           // 过采样倍数：需要 CLK_FREQ > BAUD*OV（8× 够 3 Mbaud）
@@ -73,7 +75,8 @@ module guard_board_top #(
         .AW        (AW),
         .LF_TO_CRLF(LF_TO_CRLF),
         .REPORT_EN (REPORT_EN),
-        .IDLE_BITS (IDLE_BITS)
+        .IDLE_BITS (IDLE_BITS),
+        .USE_NER   (USE_NER)
     ) u_core (
         .clk(clk_core), .rst_n(rst_n_core),
         .uart_rx(uart_rx), .uart_tx(uart_tx),

@@ -19,9 +19,7 @@ module l2_ner (
     output logic        busy
 );
 
-    `include "ner_config.svh"
-
-    localparam int VOCAB_N = `NER_VOCAB_N;
+    import l2_ner_cfg::*;
     localparam logic [23:0] M1 = 24'd281423;   // s=28: logits 与金标 60/60 完全相同
     localparam logic [23:0] M2 = 24'd384084;
 
@@ -87,7 +85,8 @@ module l2_ner (
     wire signed [7:0] a_x  = a_ok ? x [{5'd0, a_idx} * 12'd32 + {4'd0, c}] : 8'sd0;
     wire signed [7:0] a_h1 = a_ok ? h1[{5'd0, a_idx} * 12'd32 + {4'd0, c}] : 8'sd0;
 
-    assign emb_addr = {tid[8:0], 5'd0} + {11'd0, c[4:0]};
+    // tid 是 10 位：这里必须用满 10 位，否则 id >= 512 的 token 会读错行
+    assign emb_addr = {tid, 5'd0} + {11'd0, c[4:0]};
     assign w_addr   = {5'd0, o} * 12'd96 + {10'd0, k} * 12'd32 + {5'd0, c};
     assign c1_addr  = w_addr;
     assign c2_addr  = w_addr;

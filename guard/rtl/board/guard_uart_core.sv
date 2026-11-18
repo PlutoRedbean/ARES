@@ -45,7 +45,8 @@ module guard_uart_core #(
     parameter int LF_TO_CRLF = 1,          // 输出把 LF 补成 CRLF（终端友好）
     parameter int REPORT_EN  = 1,          // 每帧结束回一行审计摘要
     parameter int IDLE_BITS  = 300000,      // 空闲多少个位时间后强制冲刷（≈2.6 s @115200）
-    parameter int MODE_T1    = 1            // 档位：1 = T1（L1 生效）；0 = T0（直通，预留）
+    parameter int MODE_T1    = 1,           // 档位：1 = T1（L1 生效）；0 = T0（直通，预留）
+    parameter bit USE_NER    = 1'b1         // 1 = 实体层用 NER 模型；0 = 规则版
 ) (
     input  logic       clk,
     input  logic       rst_n,
@@ -211,7 +212,7 @@ logic        l1_busy;
     // =====================================================================
     // L1 脱敏流水线
     // =====================================================================
-    l1_redact_top u_l1 (
+    l1_redact_top #(.USE_NER(USE_NER)) u_l1 (
         .clk(clk), .rst_n(l1_rst_n),
         .in_valid(in_valid), .in_char(in_char), .in_last(in_last),
         .busy_l2b(l1_busy),
