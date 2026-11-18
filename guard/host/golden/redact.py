@@ -12,9 +12,12 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, asdict
 
+from host.golden.entities import scan_with_entities
 from host.golden.pii_rules import PRIORITY, TYPE_NAMES, TYPE_PLATE, Span, scan
 
 RULE_IDS = {
+    9: "lexicon.name",
+    10: "lexicon.addr",
     1: "iso7064.mod11_2",
     2: "date.yymmdd",
     3: "prefix.mobile",
@@ -27,6 +30,8 @@ RULE_IDS = {
 
 # 用于 token 策略的短名（与 RTL 的常量表一致）
 TOKEN_NAMES = {
+    9: "NAME",
+    10: "ADDR",
     1: "ID18",
     2: "ID15",
     3: "MOBILE",
@@ -66,6 +71,9 @@ def merge(spans: list[Span]) -> list[Span]:
 
 
 def _mask(data: bytes, s: Span) -> bytes:
+    # 结构化 PII 保留后 4 位；人名/地址（type>=9）整段遮
+    if s.type >= 9:
+        return b"*" * s.length
     keep = min(4, s.length)
     return b"*" * (s.length - keep) + data[s.start + s.length - keep : s.start + s.length]
 
@@ -79,7 +87,11 @@ def redact(
     """返回 (脱敏后的字节, 审计列表)。policy: token | mask。"""
     if policy not in ("token", "mask"):
         raise ValueError(f"unknown policy: {policy}")
-    spans = merge(scan(data) if keep_spans is None else keep_spans)
+    if keep_spans is None:
+        l1, ents = scan_with_entities(data)
+        spans = merge([Span(t, s, ln) for t, s, ln in l1] + [Span(t, s, ln) for t, s, ln in ents])
+    else:
+        spans = merge(keep_spans)
 
     out = bytearray()
     cur = 0

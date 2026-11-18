@@ -70,10 +70,10 @@ module tb_guard_report;
                 end
             end
 
-            // 整行 134 字节 + 行尾 LF = 135
-            if (n != 135) begin
+            // 整行 152 字节 + 行尾 LF = 153
+            if (n != 153) begin
                 errors = errors + 1;
-                $display("FAIL v=%0d: line length %0d (exp 135)", v, n);
+                $display("FAIL v=%0d: line length %0d (exp 153)", v, n);
             end else begin
                 // "[guard] n=HHH" → 下标 10..12
                 h = v / 100;
@@ -86,23 +86,26 @@ module tb_guard_report;
                     $display("FAIL v=%0d: n digits got %c%c%c", v,
                              line[10], line[11], line[12]);
                 end
-                // " kw=NNN kwm=NNN l2=NNN l2m=NNN ovf=NNN mode=N" + LF：
-                //   kw=90 kwm=97 l2=105 l2m=112 ovf=120 mode=128，数字在 +3..+5，LF 在 134
-                if (line[89] !== 8'h20 || line[90] !== 8'h6B || line[91] !== 8'h77 ||
-                    line[92] !== 8'h3D ||
-                    line[96] !== 8'h20 || line[97] !== 8'h6B || line[98] !== 8'h77 ||
-                    line[99] !== 8'h6D || line[100] !== 8'h3D ||
-                    line[104] !== 8'h20 || line[105] !== 8'h6C || line[106] !== 8'h32 ||
-                    line[107] !== 8'h3D ||
-                    line[111] !== 8'h20 || line[112] !== 8'h6C || line[113] !== 8'h32 ||
-                    line[114] !== 8'h6D || line[115] !== 8'h3D ||
-                    line[119] !== 8'h20 || line[120] !== 8'h6F || line[121] !== 8'h76 ||
-                    line[122] !== 8'h66 || line[123] !== 8'h3D ||
-                    line[124] !== 8'h30 || line[125] !== 8'h30 ||
-                    line[126] !== (8'h30 + {7'd0, err}) ||
-                    line[127] !== 8'h20 || line[128] !== 8'h6D || line[129] !== 8'h6F ||
-                    line[130] !== 8'h64 || line[131] !== 8'h65 || line[132] !== 8'h3D ||
-                    line[133] !== 8'h31 || line[134] !== 8'h0A) begin
+                // name=90 addr=99 kw=108 kwm=115 l2=123 l2m=130 ovf=138 mode=146，LF=152
+                if (line[89]  !== 8'h20 || line[90]  !== 8'h6E || line[91]  !== 8'h61 ||
+                    line[92]  !== 8'h6D || line[93]  !== 8'h65 || line[94]  !== 8'h3D ||
+                    line[98]  !== 8'h20 || line[99]  !== 8'h61 || line[100] !== 8'h64 ||
+                    line[101] !== 8'h64 || line[102] !== 8'h72 || line[103] !== 8'h3D ||
+                    line[107] !== 8'h20 || line[108] !== 8'h6B || line[109] !== 8'h77 ||
+                    line[110] !== 8'h3D ||
+                    line[114] !== 8'h20 || line[115] !== 8'h6B || line[116] !== 8'h77 ||
+                    line[117] !== 8'h6D || line[118] !== 8'h3D ||
+                    line[122] !== 8'h20 || line[123] !== 8'h6C || line[124] !== 8'h32 ||
+                    line[125] !== 8'h3D ||
+                    line[129] !== 8'h20 || line[130] !== 8'h6C || line[131] !== 8'h32 ||
+                    line[132] !== 8'h6D || line[133] !== 8'h3D ||
+                    line[137] !== 8'h20 || line[138] !== 8'h6F || line[139] !== 8'h76 ||
+                    line[140] !== 8'h66 || line[141] !== 8'h3D ||
+                    line[142] !== 8'h30 || line[143] !== 8'h30 ||
+                    line[144] !== (8'h30 + {7'd0, err}) ||
+                    line[145] !== 8'h20 || line[146] !== 8'h6D || line[147] !== 8'h6F ||
+                    line[148] !== 8'h64 || line[149] !== 8'h65 || line[150] !== 8'h3D ||
+                    line[151] !== 8'h31 || line[152] !== 8'h0A) begin
                     $display("FAIL v=%0d err=%0d: ovf field wrong (%c%c%c%c%c%c%c%c)",
                              v, err, line[89], line[90], line[91], line[92],
                              line[93], line[94], line[95], line[96]);

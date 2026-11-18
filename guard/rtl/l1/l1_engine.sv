@@ -43,6 +43,12 @@ module l1_engine (
     output logic [31:0] plate_start,
     output logic [7:0]  plate_len,
 
+    // L2b 实体层（人名 / 地址）
+    output logic        ent_valid,
+    output logic [31:0] ent_start,
+    output logic [7:0]  ent_len,
+    output logic [3:0]  ent_type,
+
     // 关键词提示（kid 见 host/golden/keywords.py）
     output logic        kw_valid,
     output logic [31:0] kw_start,
@@ -115,6 +121,18 @@ module l1_engine (
         .out_start(kw_start_w),
         .out_len  (kw_len_w),
         .out_kid  (kw_kid)
+    );
+
+    l2_entity u_ent (
+        .clk      (clk),
+        .rst_n    (rst_n),
+        .in_valid (in_valid),
+        .in_char  (in_char),
+        .in_last  (in_last),
+        .out_valid(ent_valid),
+        .out_start(ent_start),
+        .out_len  (ent_len),
+        .out_type (ent_type)
     );
 
     l1_plate_engine u_plate (

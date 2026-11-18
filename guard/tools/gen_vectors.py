@@ -18,7 +18,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from host.corpus.synth import build_case  # noqa: E402
-from host.golden.pii_rules import scan  # noqa: E402
+from host.golden.entities import scan_with_entities  # noqa: E402
+from host.golden.pii_rules import Span, scan  # noqa: E402
 from host.golden.redact import merge, redact  # noqa: E402
 
 
@@ -47,7 +48,10 @@ def main() -> int:
             with (out / f"{name}.exp").open("w", encoding="utf-8") as ef:
                 for s in spans:
                     ef.write(f"{s.start} {s.length} {s.type}\n")
-            merged = merge(spans)
+            # .audit/.mask 是"脱敏后的样子"，要把 L2b 实体层算进去；.exp 仍只放 L1
+            _l1, ents = scan_with_entities(data)
+            merged = merge([Span(t, s, ln) for t, s, ln in _l1]
+                           + [Span(t, s, ln) for t, s, ln in ents])
             masked, _ = redact(data, policy="mask", keep_spans=merged)
             (out / f"{name}.mask").write_bytes(masked)
             with (out / f"{name}.audit").open("w", encoding="utf-8") as af:
