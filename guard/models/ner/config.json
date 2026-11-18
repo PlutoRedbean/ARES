@@ -3,7 +3,7 @@
   "window": 64,
   "window_bytes": 64,
   "window_tokens": 64,
-  "vocab_size": 845,
+  "vocab_size": 860,
   "emb_dim": 32,
   "channels": 32,
   "num_classes": 3,

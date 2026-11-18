@@ -1,39 +1,45 @@
 {
   "seed": 20261118,
   "counts": {
-    "train": 35658,
+    "train": 46380,
     "heldout": 2600,
     "hard": 1600
   },
   "categories": {
     "train": {
-      "prose": 13000,
-      "neg": 2500,
-      "neg_hard": 800,
-      "trap": 1500,
-      "colloc": 800,
-      "english": 500,
-      "name": 3500,
-      "boundary": 3000,
-      "compound": 3600,
-      "title": 1500,
-      "addr": 3000,
-      "mixed": 1500,
-      "coverage": 458
+      "prose": 16271,
+      "neg": 2511,
+      "neg_hard": 803,
+      "trap": 1506,
+      "targeted": 4017,
+      "targeted2": 502,
+      "targeted3": 301,
+      "colloc": 1004,
+      "english": 502,
+      "name": 3515,
+      "boundary": 4720,
+      "compound": 3615,
+      "title": 1506,
+      "addr": 3013,
+      "mixed": 1514,
+      "coverage": 1080
     },
     "heldout": {
-      "prose": 809,
-      "neg": 114,
-      "neg_hard": 38,
-      "trap": 76,
-      "colloc": 95,
-      "english": 47,
-      "name": 285,
-      "boundary": 285,
-      "compound": 285,
-      "title": 142,
-      "addr": 333,
-      "mixed": 91
+      "prose": 767,
+      "neg": 108,
+      "neg_hard": 36,
+      "trap": 72,
+      "targeted": 90,
+      "targeted2": 27,
+      "targeted3": 18,
+      "colloc": 90,
+      "english": 45,
+      "name": 270,
+      "boundary": 270,
+      "compound": 270,
+      "title": 135,
+      "addr": 315,
+      "mixed": 87
     },
     "hard": {
       "hard_name": 329,
@@ -47,24 +53,24 @@
     }
   },
   "neg_ratio": {
-    "train": 0.5034,
-    "heldout": 0.3988,
+    "train": 0.4607,
+    "heldout": 0.3788,
     "hard": 0.1481
   },
   "prose_ratio": {
-    "train": 0.3646,
-    "heldout": 0.3112,
+    "train": 0.3508,
+    "heldout": 0.295,
     "hard": 0.0
   },
   "hard_ratio": {
-    "train": 0.2075,
-    "heldout": 0.2558,
+    "train": 0.2014,
+    "heldout": 0.2423,
     "hard": 1.0
   },
   "chars": {
-    "train": 843,
-    "heldout": 814,
-    "hard": 611
+    "train": 858,
+    "heldout": 822,
+    "hard": 609
   },
   "oov": {
     "heldout": [],

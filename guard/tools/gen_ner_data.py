@@ -49,7 +49,7 @@ from gen_prose import (  # noqa: E402
 GIVEN = (
     "伟芳娜秀英敏静丽强磊军洋勇艳杰娟涛明超霞平刚桂兰玉华建国文武志成红梅海波宁欣宇晨阳雪婷倩楠凯鹏辉峰亮飞云天昊睿哲涵轩然佳怡梦瑶琳珊慧颖洁莉萍燕玲丹青春秋冬夏"
     "雨露霜山川河江湖森木石银民生才学德义礼信忠孝仁爱和安康健泰福禄寿喜乐欢笑歌舞琴棋书画诗词章经典传承创新兴旺富贵荣昌盛隆悦晗曦璇璐瑾瑜珂玥淇萱蕾薇蓉蕊荷莲菊竹松柏桐柳桦枫榕楷樾奕"
-).replace("和", "").replace("笑", "")
+).replace("和", "").replace("笑", "") + "帆三"
 
 PROVINCES = (
     "北京市 上海市 天津市 重庆市 河北省 山西省 辽宁省 吉林省 黑龙江省 江苏省 浙江省 "
@@ -65,6 +65,9 @@ CITIES = (
     "襄阳 长沙 株洲 湘潭 广州 深圳 珠海 佛山 东莞 中山 惠州 南宁 桂林 海口 三亚 成都 "
     "绵阳 德阳 贵阳 遵义 昆明 大理 拉萨 西安 宝鸡 咸阳 兰州 西宁 银川 乌鲁木齐 克拉玛依"
 ).split()
+# 石家庄同时是固定 prose 里的姓氏陷阱（必须全 0）。本地 5 字感受野无法在“石”处
+# 同时判断“石家庄市…”地址和“石家庄的柿子”陷阱；地址侧去掉它，陷阱侧保留。
+CITIES = [c for c in CITIES if c != "石家庄"]
 
 DISTRICTS = (
     "朝阳区 海淀区 东城区 西城区 丰台区 石景山区 浦东新区 黄浦区 徐汇区 静安区 天河区 "
@@ -122,6 +125,15 @@ BOUNDARY_PARTICLE = [
 BOUNDARY_NOUN = ["同事", "同学", "朋友", "老师", "经理", "项目", "电话", "材料",
                  "会议", "方案", "问题", "事情", "地址", "文件", "客户"]
 PUNCT = ["，", "。", "！", "？", "、", "；", "："]
+
+# 这些字既能做名字末字，又能做边界副词/名词的开头；是 v2 剩余错误的主因。
+AMBIG_LAST = "刚才明天新山文生平安同成华中"
+AMBIG_AFTER = ["一起过来", "开会", "说", "走", "在楼下", "已经走了",
+               "提交了材料", "签字", "同意", "联系一下", "没来", "到了"]
+BOUNDARY_WORDS = ["刚才来过", "才到", "明天开会", "今天请假", "在楼下",
+                  "同学到了", "文件已交", "先生您好", "平安到达", "同时处理",
+                  "成天开会", "中间休息", "新华书店", "山水不错", "文化路",
+                  "生活很好"]
 
 # 含姓氏但不是人名 —— 第二/第三个字刻意避开 GIVEN
 NEG_SURNAME_WORDS = [
@@ -310,7 +322,7 @@ def prose_text(rng: random.Random) -> str:
         return prose_sentence(rng)
     sub = rng.choice(PROSE_SUBJECTS)
     verb = rng.choice(PROSE_VERBS)
-    obj = rng.choice(PROSE_OBJECTS)
+    obj = rng.choice(PROSE_OBJECTS + ["演唱会", "音乐会", "话剧", "展览", "演讲", "唱歌"])
     trap = rng.choice(PROSE_TRAPS + EXTRA_TRAPS)
     tail = rng.choice(PROSE_TAILS)
     t = rng.random()
@@ -582,6 +594,85 @@ def neg_sentence(rng: random.Random, hard: bool = False) -> Doc:
 
 
 # --------------------------------------------------------------------------- 生成
+def make_ambig_name(rng: random.Random) -> str:
+    s = rng.choice(SURNAMES)
+    if rng.random() < 0.55:
+        return s + rng.choice(GIVEN) + rng.choice(AMBIG_LAST)
+    return s + rng.choice(AMBIG_LAST)
+
+
+def pos_targeted(rng: random.Random) -> Doc:
+    """专门补 v2 残余错误：名字首/尾边界、歧义末字、地址首字、姓氏陷阱。"""
+    d = Doc()
+    t = rng.random()
+    if t < 0.18:                                     # 句首名字 + 标点
+        name = make_name(rng, compound=(rng.random() < 0.12))
+        d.add(name, 1).add(rng.choice(["，你联系一下", "，材料已经交了", "，请回电",
+                                       "？你找谁", "！请进", "。"]), 0)
+    elif t < 0.36:                                   # 歧义末字 + 动词
+        name = make_ambig_name(rng)
+        d.add(name, 1).add(rng.choice(AMBIG_AFTER), 0)
+    elif t < 0.52:                                   # 名字 + 歧义边界词
+        name = make_name(rng)
+        d.add(name, 1).add(rng.choice(BOUNDARY_WORDS), 0)
+    elif t < 0.68:                                   # 线索/和 之后的名字（防止丢姓）
+        name = make_ambig_name(rng) if rng.random() < 0.5 else make_name(rng)
+        if rng.random() < 0.55:
+            d.add(rng.choice(NAME_CUES), 0).add(name, 1)
+        else:
+            other = make_name(rng)
+            d.add(other, 1).add(rng.choice(["和", "与", "、"]), 0).add(name, 1)
+        d.add(rng.choice(["在等你", "到了", "已经走了", "请回电", "一起过来", "是同事"]), 0)
+    elif t < 0.82:                                   # 名字+电话，“，在”+口语地址（地址首字）
+        name = make_name(rng)
+        d.add(name, 1).add(make_phone(rng), 0, pii=True)
+        d.add("，在").add(make_coll(rng), 2)
+    elif t < 0.92:                                   # 地址首字（在/到/去 + 口语地址）
+        d.add(rng.choice(["在", "到", "去", "住在", "送到", "地址在"]), 0)
+        d.add(make_coll(rng), 2)
+    else:                                            # 姓氏/地址陷阱
+        w = rng.choice(NEG_SURNAME_WORDS + NEG_ADDR_WORDS + ["赵家楼", "石家庄"])
+        d.add(rng.choice(["{w}门口有棵老槐树", "{w}门口人很多", "{w}的人很热情",
+                          "路过{w}", "{w}那边在修路", "{w}这次先放着",
+                          "{w}还没确定"]).format(w=w), 0)
+    return d
+
+
+def pos_targeted3(rng: random.Random) -> Doc:
+    """cue + 三字名（名里带 桂/林/山/江/海 这类也像地名的字）+ 回电/请查收。"""
+    d = Doc()
+    cue = rng.choice(["收件人：", "联系人：", "姓名：", "户主：", "发件人：", "签字：",
+                      "叫", "名叫", "署名："])
+    given = rng.choice(["桂阳", "桂英", "桂林", "桂芳", "桂华", "桂兰", "山阳", "林阳",
+                        "江河", "海洋", "云山", "明阳", "华阳", "阳山", "柏阳", "桂明"])
+    name = rng.choice(SURNAMES) + given
+    d.add(cue, 0).add(name, 1)
+    d.add(rng.choice(["回电", "请查收", "已确认", "到了", "在开会"]), 0)
+    return d
+
+
+def pos_targeted2(rng: random.Random) -> Doc:
+    """只针对上一版残余的 4 类：称谓+明天/刚才、刚/才末字+电话、住在、刚才。"""
+    d = Doc()
+    t = rng.random()
+    if t < 0.30:
+        d.add(make_title_name(rng), 1)
+        d.add(rng.choice(["明天电话", "今天不在", "刚才来电", "明天开会",
+                          "刚才会议", "明天过来", "今天请假"]), 0)
+    elif t < 0.55:
+        name = rng.choice(SURNAMES) + (rng.choice(GIVEN) if rng.random() < 0.5 else "") + rng.choice("刚才")
+        if rng.random() < 0.5:
+            d.add(name, 1).add(make_phone(rng), 0, pii=True)
+            d.add(rng.choice([" 请查收", " 麻烦回电", ""]), 0)
+        else:
+            d.add(name, 1).add("请查收", 0)
+    elif t < 0.80:
+        d.add(make_name(rng), 1).add("住在", 0).add(make_coll(rng), 2)
+    else:
+        d.add(make_name(rng), 1).add("刚才", 0).add(rng.choice(["会议", "电话", "来过", "开会"]), 0)
+    return d
+
+
 def pos_english(rng: random.Random) -> Doc:
     d = Doc()
     name = make_name(rng)
@@ -594,6 +685,12 @@ def pos_english(rng: random.Random) -> Doc:
 def build_one(rng: random.Random, cat: str) -> Doc:
     if cat == "prose":
         return prose_doc(rng)
+    if cat == "targeted":
+        return pos_targeted(rng)
+    if cat == "targeted2":
+        return pos_targeted2(rng)
+    if cat == "targeted3":
+        return pos_targeted3(rng)
     if cat == "trap":
         return trap_doc(rng)
     if cat == "name":
@@ -712,11 +809,30 @@ def coverage_rows(seen: set[str], forbidden: set[str]) -> list[dict]:
         d = Doc()
         d.add("联系人").add(s + "伟", 1)
         add(d)
+        d = Doc()
+        d.add(s + "伟", 1).add("，你联系一下", 0)
+        add(d)
+        d = Doc()
+        d.add("客户").add(s + "伟", 1).add("在等你", 0)
+        add(d)
+        d = Doc()
+        d.add("联系人").add(s + "三", 1)
+        add(d)
+        d = Doc()
+        d.add(s + "伟", 1).add("和", 0).add("李明", 1).add("是同事", 0)
+        add(d)
+    for s in SURNAMES:
+        for ch in AMBIG_LAST[:6]:
+            d = Doc()
+            d.add(s + ch, 1).add("一起过来", 0)
+            add(d)
     for w in TRAP_WORDS:
         d = Doc()
         d.add(TRAP_FRAMES[0].format(w=w, tail=PROSE_TAILS[0]))
         add(d)
-    for t in ["Alice和Tom一起开会", "Lucy找Kevin确认", "ABC公司的项目经理", "email发给Kevin"]:
+    for t in ["周末的演唱会取消了。", "演唱会门票卖完了。", "他正在听音乐会。",
+              "展览明天开幕。", "Alice和Tom一起开会", "Lucy找Kevin确认",
+              "ABC公司的项目经理", "email发给Kevin"]:
         d = Doc()
         d.add(t)
         add(d)
@@ -727,7 +843,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="data/ner")
     ap.add_argument("--seed", type=int, default=20261118)
-    ap.add_argument("--train", type=int, default=35200)
+    ap.add_argument("--train", type=int, default=45300)
     ap.add_argument("--heldout", type=int, default=2600)
     ap.add_argument("--hard", type=int, default=1600)
     args = ap.parse_args()
@@ -746,15 +862,16 @@ def main() -> int:
     # 训练：30.6k，散文 11k（35.9%），负样本 13.5k（44.1%），
     # 边界 3k + 复姓 3.6k（12 个复姓各约 300 例）=> 难样本 >= 21%。
     train_spec = scale_spec([
-        ("prose", 13000), ("neg", 2500), ("neg_hard", 800), ("trap", 1500),
-        ("colloc", 800), ("english", 500),
-        ("name", 3500), ("boundary", 3000), ("compound", 3600),
+        ("prose", 16200), ("neg", 2500), ("neg_hard", 800), ("trap", 1500),
+        ("targeted", 4000), ("targeted2", 500), ("targeted3", 300),
+        ("colloc", 1000), ("english", 500),
+        ("name", 3500), ("boundary", 4700), ("compound", 3600),
         ("title", 1500), ("addr", 3000), ("mixed", 1500),
     ], args.train)
     # 留出：2.6k，负样本约 40%，覆盖所有新类别。
     held_spec = scale_spec([
         ("prose", 850), ("neg", 120), ("neg_hard", 40), ("trap", 80),
-        ("colloc", 100), ("english", 50),
+        ("targeted", 100), ("targeted2", 30), ("targeted3", 20), ("colloc", 100), ("english", 50),
         ("name", 300), ("boundary", 300), ("compound", 300),
         ("title", 150), ("addr", 350), ("mixed", 90),
     ], args.heldout)
