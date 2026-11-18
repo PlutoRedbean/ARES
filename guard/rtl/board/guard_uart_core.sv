@@ -92,6 +92,7 @@ module guard_uart_core #(
     logic [7:0]  hold_byte;
 
     logic        l1_rst_n;
+logic        l1_busy;
     logic        in_valid;
     logic [7:0]  in_char;
     logic        in_last;
@@ -213,6 +214,7 @@ module guard_uart_core #(
     l1_redact_top u_l1 (
         .clk(clk), .rst_n(l1_rst_n),
         .in_valid(in_valid), .in_char(in_char), .in_last(in_last),
+        .busy_l2b(l1_busy),
         .out_valid(out_valid), .out_char(out_char),
         .a_valid(a_valid), .a_start(a_start), .a_len(a_len), .a_type(a_type),
         .done(done_q), .ovf(ovf_q), .dropped(dropped_q),
@@ -274,7 +276,9 @@ module guard_uart_core #(
     // =====================================================================
     assign sum_level = txq_level + inflight;
     assign flow_ok   = (sum_level <= {7'd0, LIMIT}) && (inflight < 16'd128);
-    assign accept    = (fst == F_RUN) && !rxq_empty && flow_ok;
+    // L2b（NER）推理期间停止收数：RX FIFO 自然把主机挡住，同时保证替换器的
+// 出队指针不会跑过 span 起点（见 docs/ner-onboard.md §7.5）
+assign accept    = (fst == F_RUN) && !rxq_empty && flow_ok && !l1_busy;
 
     assign rxq_pop  = accept;
     assign in_valid = accept;

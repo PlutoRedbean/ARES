@@ -215,6 +215,7 @@ module l1_redactor (
     output logic [7:0]  a_len,
     output logic [3:0]  a_type,
 
+    output logic        busy_l2b,     // L2b 正在推理：上层停止送数
     output logic        done,
     output logic        ovf
 );
@@ -398,6 +399,7 @@ module l1_redact_top (
     wire [7:0]  kw_len;
 
     wire        ent_valid;
+    wire        ent_busy;
     wire [31:0] ent_start;
     wire [7:0]  ent_len;
     wire [3:0]  ent_type;
@@ -411,7 +413,8 @@ module l1_redact_top (
         .uscc_valid(uscc_valid),   .uscc_start(uscc_start),   .uscc_len(uscc_len),
         .plate_valid(plate_valid), .plate_start(plate_start), .plate_len(plate_len),
         .kw_valid(kw_valid), .kw_start(kw_start), .kw_len(kw_len), .kw_kid(kw_kid),
-        .ent_valid(ent_valid), .ent_start(ent_start), .ent_len(ent_len), .ent_type(ent_type)
+        .ent_valid(ent_valid), .ent_start(ent_start), .ent_len(ent_len), .ent_type(ent_type),
+        .ent_busy(ent_busy)
     );
 
     wire        c_valid;
@@ -445,6 +448,8 @@ module l1_redact_top (
         if (!rst_n) last_dly_q <= 2'd0;
         else        last_dly_q <= {last_dly_q[0], in_last};
     end
+
+    assign busy_l2b = ent_busy;
 
     l1_merge u_merge (
         .clk(clk), .rst_n(rst_n),

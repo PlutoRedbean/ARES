@@ -84,7 +84,8 @@ def main() -> int:
     entries = sorted((t.encode("utf-8"), i) for i, t in enumerate(vocab) if t not in ("<pad>", "<unk>"))
     with (out / "ner_vocab.hex").open("w", encoding="utf-8") as f:
         for key, idx in entries:
-            f.write(f"{int.from_bytes(key[:3].ljust(3, bytes(1)), 'big'):06X}{idx:04X}\n")
+            # ASCII 的 key 用 0x01 补齐（RTL 里 {byte, 8'h01, 8'h01}）
+            f.write(f"{int.from_bytes(key[:3].ljust(3, b'\x01'), 'big'):06X}{idx:04X}\n")
 
     rq = quant["requant"]
     lines = [
