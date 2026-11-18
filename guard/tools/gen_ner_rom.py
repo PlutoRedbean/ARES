@@ -162,6 +162,23 @@ module l2_ner_rom #(
 endmodule
 """
     (out / "l2_ner_rom.sv").write_text(rom, encoding="utf-8")
+
+    vocab = f"""// 由 tools/gen_ner_rom.py 生成，请勿手改。
+// 词表 ROM：858 项，每项 {{key[23:0], id[9:0]}}，按 key 升序（RTL 线性扫描即可）。
+`timescale 1ns/1ps
+
+module l2_ner_vocab #(parameter int N = {len(entries)}) (
+    input  logic [9:0]  addr,
+    output logic [23:0] key,
+    output logic [9:0]  id
+);
+    logic [39:0] rom [0:N-1];
+    initial $readmemh("build/gen/ner_vocab.hex", rom);
+    assign key = rom[addr][39:16];
+    assign id  = rom[addr][9:0];
+endmodule
+"""
+    (out / "l2_ner_vocab.sv").write_text(vocab, encoding="utf-8")
     print(f"ner rom: emb {len(w['emb_w'])} B, conv1 {len(w['conv1_w'])} B, conv2 {len(w['conv2_w'])} B, "
           f"head {len(w['head_w'])} B, vocab {len(entries)} -> {out}")
     return 0
