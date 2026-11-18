@@ -179,12 +179,12 @@ python3 tools/demo.py --in 某文件.txt --policy mask --entities
 
 | 项 | 值 |
 |---|---|
-| 权重来源 | `models/ner/weights_int8.npz`（v3.1，3078 词表）→ `tools/gen_ner_rom.py` → `build/gen/l2_ner_*.sv`（`$readmemh`） |
+| 权重来源 | `models/ner/weights_int8.npz`（v4，3090 词表）→ `tools/gen_ner_rom.py` → `build/gen/l2_ner_*.sv`（`$readmemh`） |
 | 定点 | s=28：m1=281,423 / m2=384,084（整数参考与金标 logits 60/60 完全相同） |
 | 节拍 | 1 MAC/拍，约 18 ms / 64 字节窗口（速度不是目标） |
 | 验证 | `build/ner_vectors` **200/200 span 完全一致**（`make ner-sim` 的 TB 手工跑） |
 | 反压 | `l2_ner.busy` → `l1_redact_top` → `guard_uart_core` 停收数据；帧尾 flush 等 busy 落下 |
-| 资源 | 整板 20,159 LUT / 3,813 FF / 6.0 DRM（96 KB embedding 推断成 BRAM） |
+| 资源 | 整板 20,663 LUT / 3,813 FF / 6.0 DRM（96 KB embedding 推断成 BRAM） |
 
 板上实测：
 
@@ -193,6 +193,16 @@ python3 tools/demo.py --in 某文件.txt --policy mask --entities
 请把文件发给杨帆            → 请把文件发给*******        name=1
 金额还需复核，方向明天再确认 → 不变                        n=0
 ```
+
+**模型输出还要过一道确定性过滤**（模型在真人写的长文上会胡猜）：
+
+| 类型 | 过滤规则 |
+|---|---|
+| 人名 | 必须以**姓氏表**（64 个常见姓）开头，且 2~3 个字符 |
+| 地址 | 必须包含 `省/市/区/县/路/街/号` 之一 |
+
+不满足的 span 直接丢掉（`l2_ner.sv` 的 `S_SPAN`）。代价是姓氏表外的名字会漏；
+表在 `build/gen/l2_entity_tables.sv`，加姓改一行。
 
 **仿真与板上用的是两个实体层**：`make test` 里 `USE_NER=0`（规则版，金标可算），
 `guard_board_top` 默认 `USE_NER=1`（模型）。
