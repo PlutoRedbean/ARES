@@ -278,7 +278,7 @@ logic        l1_busy;
     assign sum_level = txq_level + inflight;
     assign flow_ok   = (sum_level <= {7'd0, LIMIT}) && (inflight < 16'd128);
     // L2b（NER）推理期间停止收数：RX FIFO 自然把主机挡住，同时保证替换器的
-// 出队指针不会跑过 span 起点（见 docs/ner-onboard.md §7.5）
+// 出队指针不会跑过 span 起点（见 docs/l2-int4.md §8）
 assign accept    = (fst == F_RUN) && !rxq_empty && flow_ok && !l1_busy;
 
     assign rxq_pop  = accept;

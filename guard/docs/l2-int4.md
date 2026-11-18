@@ -167,3 +167,32 @@ python3 tools/demo.py --in 某文件.txt --policy mask --entities
 
 结论：**这块要在下一轮专门做**（半天），本轮已把"单独可仿真验证的模块 + 同源表 +
 金标"全部落地，没有把半成品烧进板子。
+## 8. NER 上板（字符级 INT8 CNN）
+
+实体层的"规则版"只认有线索的名字（联系人/姓名…）。要认 `刘德华`、`孙悦` 这种裸名字，
+板上跑的是 v2 的字符级 CNN（`models/ner`，33,827 参数）：
+
+```
+64 字节窗口 → 分词（858 项词表，线性扫描）→ embedding(32) → conv1(k3,32) → conv2(k3,32)
+            → head(3) → argmax → span（同标签 ≥2 字符）
+```
+
+| 项 | 值 |
+|---|---|
+| 权重来源 | `models/ner/weights_int8.npz` → `tools/gen_ner_rom.py` → `build/gen/l2_ner_*.sv`（`$readmemh`） |
+| 定点 | s=28：m1=281,423 / m2=384,084（整数参考与金标 logits 60/60 完全相同） |
+| 节拍 | 1 MAC/拍，约 18 ms / 64 字节窗口（速度不是目标） |
+| 验证 | `build/ner_vectors` **200/200 span 完全一致**（`make ner-sim` 的 TB 手工跑） |
+| 反压 | `l2_ner.busy` → `l1_redact_top` → `guard_uart_core` 停收数据；帧尾 flush 等 busy 落下 |
+| 资源 | 整板 11,581 LUT / 3,805 FF / 2.5 DRM（27 KB embedding 推断成 BRAM） |
+
+板上实测：
+
+```
+刘德华的演唱会在上海        → *********的演唱会在上海     name=1
+请把文件发给杨帆            → 请把文件发给*******        name=1
+金额还需复核，方向明天再确认 → 不变                        n=0
+```
+
+**仿真与板上用的是两个实体层**：`make test` 里 `USE_NER=0`（规则版，金标可算），
+`guard_board_top` 默认 `USE_NER=1`（模型）。
