@@ -1,0 +1,53 @@
+{
+  "seed": 20261118,
+  "counts": {
+    "train": 15000,
+    "heldout": 2000,
+    "hard": 1000
+  },
+  "categories": {
+    "train": {
+      "name": 2900,
+      "addr": 2100,
+      "mixed": 500,
+      "hard_name": 2100,
+      "hard_addr": 1000,
+      "hard_mixed": 300,
+      "neg": 5500,
+      "hard_neg": 600
+    },
+    "heldout": {
+      "name": 624,
+      "addr": 480,
+      "mixed": 96,
+      "neg": 800
+    },
+    "hard": {
+      "hard_name": 550,
+      "hard_addr": 250,
+      "hard_mixed": 100,
+      "hard_neg": 100
+    }
+  },
+  "neg_ratio": {
+    "train": 0.4067,
+    "heldout": 0.4,
+    "hard": 0.1
+  },
+  "hard_ratio": {
+    "train": 0.2667,
+    "heldout": 0.0,
+    "hard": 1.0
+  },
+  "chars": {
+    "train": 701,
+    "heldout": 590,
+    "hard": 460
+  },
+  "oov": {
+    "heldout": [],
+    "hard": []
+  },
+  "max_chars": 34,
+  "max_bytes": 64
+}

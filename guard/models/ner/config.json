@@ -1,0 +1,24 @@
+{
+  "model": "guard-ner-char-v1",
+  "window": 64,
+  "window_bytes": 64,
+  "window_tokens": 64,
+  "vocab_size": 703,
+  "emb_dim": 32,
+  "channels": 32,
+  "num_classes": 3,
+  "kernel": 3,
+  "padding_id": 0,
+  "unk_id": 1,
+  "labels": [
+    "none",
+    "name",
+    "addr"
+  ],
+  "macs_per_window": 399360,
+  "layout": {
+    "conv1_w": "[out, kernel, in]",
+    "conv2_w": "[out, kernel, in]",
+    "head_w": "[out, in]"
+  }
+}
