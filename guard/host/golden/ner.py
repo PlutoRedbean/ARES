@@ -28,6 +28,9 @@ UNK_ID = 1
 LABELS = ("none", "name", "addr")
 NONE, NAME, ADDR = 0, 1, 2
 
+# 模型内部的 0/1/2 标签 <-> 整条流水线用的 span type（和 l2_entity / pii_rules 一致）
+TYPE_OF_LABEL = {NAME: 9, ADDR: 10}
+
 DEFAULT_MODEL = Path(__file__).resolve().parents[2] / "models" / "ner"
 
 
@@ -156,12 +159,12 @@ class NerModel:
         return spans
 
     def decode(self, data: bytes) -> list[tuple[int, int, int]]:
-        """bytes -> [(label, start_byte, len_byte)]；UTF-8 非法字节按替换字符处理。"""
+        """bytes -> [(type, start_byte, len_byte)]；type 9=name, 10=addr（与 l2_entity 一致）。"""
         try:
             text = data.decode("utf-8")
         except UnicodeDecodeError:
             text = data.decode("utf-8", "replace")
-        return self.decode_chars(text)
+        return [(TYPE_OF_LABEL[lab], s, ln) for lab, s, ln in self.decode_chars(text)]
 
 
 _DEFAULT: NerModel | None = None

@@ -38,6 +38,8 @@ weights sha256：3297a12910fa6636e549a9d6e8eb1c35385935cf3c2d6533942378f8cd36f0d
   照常算完 64 个位置，只要忽略真实长度之后的输出即可。
 * 解码：每个位置 argmax（并列取小 id）得到 0/1/2，连续同类且非 0 的 run 合成 span，
   长度按字节累加。
+* **span type 映射**：模型内部 1/2 → 流水线的 9(name)/10(addr)（见 `host/golden/ner.py`
+  的 `TYPE_OF_LABEL`）。`.exp` 向量、`check_ner.py`、`l2_entity` 全部用 9/10。
 * host/golden/ner.py 的 decode(bytes) 返回 (label, start_byte, len_byte) 三元组
   （tools/check_ner.py 的约定；.exp 文件里是 start len label）。
 

@@ -59,7 +59,8 @@ def main() -> int:
     for i, r in enumerate(chosen):
         data = r["text"].encode("utf-8")
         (out / f"case_{i:04d}.in").write_bytes(data)
-        spans = sorted([s, ln, y] for s, ln, y in r["spans"] if y in (1, 2))
+        # 数据里的标签是 1/2，写进 .exp 时换成流程统一的 span type（9=name, 10=addr）
+        spans = sorted([s, ln, {1: 9, 2: 10}[y]] for s, ln, y in r["spans"] if y in (1, 2))
         if spans:
             n_pos += 1
         lines = [f"{s} {ln} {y}" for s, ln, y in spans]
