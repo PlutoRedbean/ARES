@@ -38,7 +38,9 @@ module l2_entity (
     logic [7:0]  b0_q, b1_q;
     logic [31:0] pos_q;
 
-    wire        cjk_done = (ph_q == 2'd2) && (in_char >= 8'h80) && (in_char <= 8'hBF);
+    // 必须门控 in_valid：板级 in_char 在 accept=0 时保持不动，若不加这个门，
+    // 一个字节会在"间隙"里被当成无数个字符重复处理（板级丢 span 的根因）。
+    wire        cjk_done = in_valid && (ph_q == 2'd2) && (in_char >= 8'h80) && (in_char <= 8'hBF);
     wire [23:0] ch       = {b0_q, b1_q, in_char};
     wire [31:0] ch_start = pos_q - 32'd2;
 
