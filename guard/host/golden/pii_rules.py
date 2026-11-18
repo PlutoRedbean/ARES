@@ -22,8 +22,12 @@ TYPE_EMAIL = 5
 TYPE_IPV4 = 6
 TYPE_USCC = 7
 TYPE_PLATE = 8
+TYPE_NAME_ENT = 9     # L2b：人名
+TYPE_ADDR_ENT = 10    # L2b：地址
 
 TYPE_NAMES = {
+    TYPE_NAME_ENT: "name",
+    TYPE_ADDR_ENT: "addr",
     TYPE_ID18: "id18",
     TYPE_ID15: "id15",
     TYPE_MOBILE: "mobile",
@@ -36,6 +40,8 @@ TYPE_NAMES = {
 
 # 同一"终止位置"上的多个命中的输出顺序（RTL 侧同拍多引擎命中按此顺序排）
 PRIORITY = {
+    TYPE_ADDR_ENT: 9,     # 实体层让位给结构化 PII
+    TYPE_NAME_ENT: 10,
     TYPE_EMAIL: 1,
     TYPE_PLATE: 2,
     TYPE_USCC: 3,

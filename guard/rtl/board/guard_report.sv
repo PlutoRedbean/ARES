@@ -31,6 +31,8 @@ module guard_report (
     input  logic [7:0] v_ipv4,
     input  logic [7:0] v_uscc,
     input  logic [7:0] v_plate,
+    input  logic [7:0] v_name,
+    input  logic [7:0] v_addr,
     input  logic [7:0] v_kw,
     input  logic [7:0] v_kwm,
     input  logic [7:0] v_l2,
@@ -45,15 +47,16 @@ module guard_report (
     output logic       finished        // 1 拍：最后一个字节已送走
 );
 
-    localparam logic [3:0] F_TAIL = 4'd15;
+    localparam logic [4:0] F_TAIL = 5'd17;
 
-    logic [3:0]  fld;
+    logic [4:0]  fld;      // 0..17 个字段（4 位会在 15 回绕）
     logic [4:0]  pos;
     logic        run;
     logic        pref;
     logic        fin_q;
 
     logic [7:0]  n_q, id18_q, id15_q, mob_q, bank_q, mail_q, ip_q, uscc_q, plate_q;
+    logic [7:0]  name_q, addr_q;
     logic [7:0]  kw_q, kwm_q, l2_q, l2m_q;
     logic        err_q;
     logic [3:0]  mode_q;
@@ -108,20 +111,22 @@ module guard_report (
                 else      begin lab = "[guard] n=";    lab_len = 4'd10; end
                 fval = n_q;
             end
-            4'd1: begin lab = " id18=";   lab_len = 4'd6; fval = id18_q; end
-            4'd2: begin lab = " id15=";   lab_len = 4'd6; fval = id15_q; end
-            4'd3: begin lab = " mobile="; lab_len = 4'd8; fval = mob_q;  end
-            4'd4: begin lab = " bank=";   lab_len = 4'd6; fval = bank_q; end
-            4'd5: begin lab = " email=";  lab_len = 4'd7; fval = mail_q; end
-            4'd6: begin lab = " ipv4=";   lab_len = 4'd6; fval = ip_q;   end
-            4'd7: begin lab = " uscc=";   lab_len = 4'd6; fval = uscc_q; end
-            4'd8: begin lab = " plate=";  lab_len = 4'd7; fval = plate_q; end
-            4'd9: begin lab = " kw=";     lab_len = 4'd4; fval = kw_q;   end
-            4'd10: begin lab = " kwm=";   lab_len = 4'd5; fval = kwm_q;  end
-            4'd11: begin lab = " l2=";    lab_len = 4'd4; fval = l2_q;   end
-            4'd12: begin lab = " l2m=";   lab_len = 4'd5; fval = l2m_q;  end
-            4'd13: begin lab = " ovf=";   lab_len = 4'd5; fval = {7'd0, err_q}; end
-            4'd14: begin lab = " mode=";  lab_len = 4'd6; fval = {4'd0, mode_q}; ndig = 2'd1; end
+            5'd1: begin lab = " id18=";   lab_len = 4'd6; fval = id18_q; end
+            5'd2: begin lab = " id15=";   lab_len = 4'd6; fval = id15_q; end
+            5'd3: begin lab = " mobile="; lab_len = 4'd8; fval = mob_q;  end
+            5'd4: begin lab = " bank=";   lab_len = 4'd6; fval = bank_q; end
+            5'd5: begin lab = " email=";  lab_len = 4'd7; fval = mail_q; end
+            5'd6: begin lab = " ipv4=";   lab_len = 4'd6; fval = ip_q;   end
+            5'd7: begin lab = " uscc=";   lab_len = 4'd6; fval = uscc_q; end
+            5'd8: begin lab = " plate=";  lab_len = 4'd7; fval = plate_q; end
+            5'd9: begin lab = " name=";   lab_len = 4'd6; fval = name_q;  end
+            5'd10: begin lab = " addr=";  lab_len = 4'd6; fval = addr_q;  end
+            5'd11: begin lab = " kw=";    lab_len = 4'd4; fval = kw_q;   end
+            5'd12: begin lab = " kwm=";   lab_len = 4'd5; fval = kwm_q;  end
+            5'd13: begin lab = " l2=";    lab_len = 4'd4; fval = l2_q;   end
+            5'd14: begin lab = " l2m=";   lab_len = 4'd5; fval = l2m_q;  end
+            5'd15: begin lab = " ovf=";   lab_len = 4'd5; fval = {7'd0, err_q}; end
+            5'd16: begin lab = " mode=";  lab_len = 4'd6; fval = {4'd0, mode_q}; ndig = 2'd1; end
             default: begin lab = 96'd0; lab_len = 4'd0; fval = 8'd0; end
         endcase
         bcd = bcd3(fval);
@@ -164,7 +169,7 @@ module guard_report (
 
     always_ff @(posedge clk) begin
         if (!rst_n) begin
-            fld   <= 4'd0;
+            fld   <= 5'd0;
             pos   <= 5'd0;
             run   <= 1'b0;
             pref  <= 1'b0;
@@ -172,6 +177,7 @@ module guard_report (
             n_q <= 8'd0; id18_q <= 8'd0; id15_q <= 8'd0; mob_q <= 8'd0;
             bank_q <= 8'd0; mail_q <= 8'd0; ip_q <= 8'd0; uscc_q <= 8'd0;
             plate_q <= 8'd0; kw_q <= 8'd0; kwm_q <= 8'd0; l2_q <= 8'd0; l2m_q <= 8'd0;
+            name_q <= 8'd0; addr_q <= 8'd0;
             err_q <= 1'b0; mode_q <= 4'd1;
         end else begin
             fin_q <= 1'b0;
@@ -189,6 +195,8 @@ module guard_report (
                 ip_q    <= v_ipv4;
                 uscc_q  <= v_uscc;
                 plate_q <= v_plate;
+                name_q  <= v_name;
+                addr_q  <= v_addr;
                 kw_q    <= v_kw;
                 kwm_q   <= v_kwm;
                 l2_q    <= v_l2;
@@ -202,7 +210,7 @@ module guard_report (
                         run   <= 1'b0;
                         fin_q <= 1'b1;
                     end else begin
-                        fld <= fld + 4'd1;
+                        fld <= fld + 5'd1;
                     end
                 end else begin
                     pos <= pos + 5'd1;

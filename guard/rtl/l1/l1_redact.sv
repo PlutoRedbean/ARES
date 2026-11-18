@@ -22,6 +22,8 @@ package l1_redact_pkg;
             4'd2: type_prio = 4'd6;   // id15
             4'd3: type_prio = 4'd7;   // mobile
             4'd4: type_prio = 4'd8;   // bank
+            4'd10: type_prio = 4'd9;  // addr（实体层让位给结构化 PII）
+            4'd9:  type_prio = 4'd10; // name
             default: type_prio = 4'd15;
         endcase
     endfunction
@@ -38,10 +40,10 @@ module l1_merge (
     input  logic        in_valid,   // 与字符流同步，用于推进位置
     input  logic        in_last,
 
-    input  logic [4:0]        src_valid,
-    input  logic [4:0][31:0] src_start,
-    input  logic [4:0][7:0]  src_len,
-    input  logic [4:0][3:0]  src_type,
+    input  logic [5:0]        src_valid,
+    input  logic [5:0][31:0] src_start,
+    input  logic [5:0][7:0]  src_len,
+    input  logic [5:0][3:0]  src_type,
 
     output logic        c_valid,
     output logic [31:0] c_start,
@@ -139,8 +141,8 @@ module l1_merge (
             end
         end
 
-        // 依次插入 5 路新命中：每个都占"编号最小的空槽"（原 free_list[0]）
-        for (mj = 0; mj < 5; mj = mj + 1) begin
+        // 依次插入 6 路新命中：每个都占"编号最小的空槽"（原 free_list[0]）
+        for (mj = 0; mj < 6; mj = mj + 1) begin
             if (src_valid[mj]) begin
                 if (src_start[mj] < nlast_end) begin
                     ndrop = ndrop + 16'd1;
@@ -312,12 +314,16 @@ module l1_redactor (
                                (eos_q && !s_hold))) begin
                 out_valid <= 1'b1;
                 if (active_q) begin
-                    if (sp_len_q > 8'd4 && idx_q < sp_len_q - 8'd4)
+                    if ((sp_type_q >= 4'd9) || (sp_len_q > 8'd4 && idx_q < sp_len_q - 8'd4))
                         out_char <= 8'h2A;
                     else
                         out_char <= mem[rptr];
                     idx_q <= idx_q + 8'd1;
                     if (idx_q + 8'd1 >= sp_len_q) active_q <= 1'b0;
+                end else if (nc > 4'd0 && qv[qhead] && (qs[qhead] < nout_pos)) begin
+                    // 过期 span（帧尾才提交、起点已在身后）：直接丢，否则队列头永远等不到
+                    pop_q = 1'b1;
+                    out_char <= mem[rptr];
                 end else if (nc > 4'd0 && qv[qhead] && (qs[qhead] == nout_pos)) begin
                     active_q  <= 1'b1;
                     sp_start_q <= qs[qhead];
@@ -391,6 +397,11 @@ module l1_redact_top (
     wire [31:0] kw_start;
     wire [7:0]  kw_len;
 
+    wire        ent_valid;
+    wire [31:0] ent_start;
+    wire [7:0]  ent_len;
+    wire [3:0]  ent_type;
+
     l1_engine u_eng (
         .clk(clk), .rst_n(rst_n),
         .in_valid(in_valid), .in_char(in_char), .in_last(in_last),
@@ -399,7 +410,8 @@ module l1_redact_top (
         .ipv4_valid(ipv4_valid),   .ipv4_start(ipv4_start),   .ipv4_len(ipv4_len),
         .uscc_valid(uscc_valid),   .uscc_start(uscc_start),   .uscc_len(uscc_len),
         .plate_valid(plate_valid), .plate_start(plate_start), .plate_len(plate_len),
-        .kw_valid(kw_valid), .kw_start(kw_start), .kw_len(kw_len), .kw_kid(kw_kid)
+        .kw_valid(kw_valid), .kw_start(kw_start), .kw_len(kw_len), .kw_kid(kw_kid),
+        .ent_valid(ent_valid), .ent_start(ent_start), .ent_len(ent_len), .ent_type(ent_type)
     );
 
     wire        c_valid;
@@ -426,13 +438,21 @@ module l1_redact_top (
 
     wire flush_hold = (quiet_cnt < RIPEN);
 
+    // 帧尾延迟 2 拍再通知合并器：实体引擎在 in_last 那拍才吐"帧尾收尾"的 span，
+    // 同拍 flush 会让它落到替换器出队指针之后（漏遮 + done 卡死）。
+    logic [1:0] last_dly_q;
+    always_ff @(posedge clk) begin
+        if (!rst_n) last_dly_q <= 2'd0;
+        else        last_dly_q <= {last_dly_q[0], in_last};
+    end
+
     l1_merge u_merge (
         .clk(clk), .rst_n(rst_n),
-        .in_valid(in_valid), .in_last(in_last),
-        .src_valid({plate_valid, uscc_valid, ipv4_valid, email_valid, digit_valid}),
-        .src_start({plate_start, uscc_start, ipv4_start, email_start, digit_start}),
-        .src_len  ({plate_len,   uscc_len,   ipv4_len,   email_len,   digit_len}),
-        .src_type ({4'd8, 4'd7, 4'd6, 4'd5, {1'b0, digit_type}}),
+        .in_valid(in_valid), .in_last(last_dly_q[1]),
+        .src_valid({ent_valid, plate_valid, uscc_valid, ipv4_valid, email_valid, digit_valid}),
+        .src_start({ent_start, plate_start, uscc_start, ipv4_start, email_start, digit_start}),
+        .src_len  ({ent_len,   plate_len,   uscc_len,   ipv4_len,   email_len,   digit_len}),
+        .src_type ({ent_type,  4'd8,        4'd7,        4'd6,        4'd5,        {1'b0, digit_type}}),
         .c_valid(c_valid), .c_start(c_start), .c_len(c_len), .c_type(c_type),
         .pending(pending), .quiet(quiet), .dropped(dropped)
     );

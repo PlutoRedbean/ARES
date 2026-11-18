@@ -119,6 +119,7 @@ module guard_uart_core #(
 
     logic [7:0]  c_n, c_id18, c_id15, c_mob, c_bank, c_mail, c_ip, c_uscc, c_plate;
     logic [7:0]  c_kw, c_kwm;
+    logic [7:0]  c_name, c_addr;
 
     logic [1:0]  fst;
     logic [3:0]  rst_cnt;
@@ -234,6 +235,8 @@ module guard_uart_core #(
         .v_ipv4   (c_ip),
         .v_uscc   (c_uscc),
         .v_plate  (c_plate),
+        .v_name   (c_name),
+        .v_addr   (c_addr),
         .v_kw     (c_kw),
         .v_kwm    (c_kwm),
         .v_l2     (c_l2),
@@ -326,6 +329,8 @@ module guard_uart_core #(
             c_plate       <= 8'd0;
             c_kw          <= 8'd0;
             c_kwm         <= 8'd0;
+            c_name        <= 8'd0;
+            c_addr        <= 8'd0;
             c_l2          <= 8'd0;
             c_l2m         <= 8'd0;
         end else begin
@@ -366,6 +371,8 @@ module guard_uart_core #(
                     4'd6:    c_ip    <= c_ip    + 8'd1;
                     4'd7:    c_uscc  <= c_uscc  + 8'd1;
                     4'd8:    c_plate <= c_plate + 8'd1;
+                    4'd9:    c_name  <= c_name  + 8'd1;
+                    4'd10:   c_addr  <= c_addr  + 8'd1;
                     default: ;
                 endcase
             end
@@ -439,6 +446,8 @@ module guard_uart_core #(
                         c_plate     <= 8'd0;
                         c_kw        <= 8'd0;
                         c_kwm       <= 8'd0;
+                        c_name      <= 8'd0;
+                        c_addr      <= 8'd0;
                         c_l2        <= 8'd0;
                         c_l2m       <= 8'd0;
                     end else begin

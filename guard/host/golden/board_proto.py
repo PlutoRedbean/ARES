@@ -35,6 +35,8 @@ BOARD_FIELDS = (
     (6, "ipv4"),
     (7, "uscc"),
     (8, "plate"),
+    (9, "name"),
+    (10, "addr"),
 )
 
 MAX_COUNT = 255
