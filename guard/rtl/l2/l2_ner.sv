@@ -20,6 +20,7 @@ module l2_ner (
 );
 
     import l2_ner_cfg::*;
+    import l2_entity_tables::*;   // 姓氏/锚点表：给模型输出做确定性过滤
     localparam logic [23:0] M1 = 24'd281423;   // s=28: logits 与金标 60/60 完全相同
     localparam logic [23:0] M2 = 24'd384084;
 
@@ -73,6 +74,7 @@ module l2_ner (
     logic [23:0] key_r;
     logic [2:0]  tlen_r;
     logic [1:0]  k, cls, rl;
+    logic        run_anchor_q;   // 地址段里是否出现过 省/市/区/县/路/街/号
     logic signed [47:0] acc;
     logic signed [31:0] best;
     logic [1:0]  best_cls;
@@ -130,6 +132,7 @@ module l2_ner (
         if (!rst_n) begin
             st <= S_RECV; nbyte <= 7'd0; ntok <= 7'd0; win_base <= 32'd0; pend_ok <= 1'b0;
             out_valid <= 1'b0; out_start <= 32'd0; out_len <= 8'd0; out_type <= 4'd0;
+            run_anchor_q <= 1'b0;
         end else begin
             out_valid <= 1'b0;
             case (st)
@@ -259,23 +262,53 @@ module l2_ner (
 
             S_SPAN: begin
                 if (sp >= ntok) begin
-                    if (rl != 2'd0 && (sp - rs) >= 7'd2) begin
+                    // 收尾：地址要有锚点字，人名要以姓氏开头且 2~3 个字
+                    if (rl == 2'd2 && run_anchor_q && (sp - rs) >= 7'd2) begin
                         out_valid <= 1'b1;
-                        out_type  <= (rl == 2'd1) ? 4'd9 : 4'd10;
+                        out_type  <= 4'd10;
+                        out_start <= win_base + 32'(tok_off[rs[5:0]]);
+                        out_len   <= 8'(tok_off[sp - 7'd1] + {4'd0, tok_len[sp - 7'd1]})
+                                     - 8'(tok_off[rs[5:0]]);
+                    end else if (rl == 2'd1 && (sp - rs) >= 7'd2 && (sp - rs) <= 7'd3 &&
+                                 is_surname({ch_buf[tok_off[rs[5:0]]],
+                                             ch_buf[tok_off[rs[5:0]] + 6'd1],
+                                             ch_buf[tok_off[rs[5:0]] + 6'd2]})) begin
+                        out_valid <= 1'b1;
+                        out_type  <= 4'd9;
                         out_start <= win_base + 32'(tok_off[rs[5:0]]);
                         out_len   <= 8'(tok_off[sp - 7'd1] + {4'd0, tok_len[sp - 7'd1]})
                                      - 8'(tok_off[rs[5:0]]);
                     end
                     st <= S_DONE;
                 end else if (rl == 2'd0) begin
-                    if (lab[sp[5:0]] != 2'd0) begin rl <= lab[sp[5:0]]; rs <= sp; end
+                    if (lab[sp[5:0]] != 2'd0) begin
+                        rl <= lab[sp[5:0]];
+                        rs <= sp;
+                        run_anchor_q <= (lab[sp[5:0]] == 2'd2) &&
+                                        is_anchor({ch_buf[tok_off[sp[5:0]]],
+                                                   ch_buf[tok_off[sp[5:0]] + 6'd1],
+                                                   ch_buf[tok_off[sp[5:0]] + 6'd2]});
+                    end
                     sp <= sp + 7'd1;
                 end else if (lab[sp[5:0]] == rl) begin
+                    if (rl == 2'd2 && is_anchor({ch_buf[tok_off[sp[5:0]]],
+                                                 ch_buf[tok_off[sp[5:0]] + 6'd1],
+                                                 ch_buf[tok_off[sp[5:0]] + 6'd2]}))
+                        run_anchor_q <= 1'b1;
                     sp <= sp + 7'd1;
                 end else begin
-                    if ((sp - rs) >= 7'd2) begin
+                    if (rl == 2'd2 && run_anchor_q && (sp - rs) >= 7'd2) begin
                         out_valid <= 1'b1;
-                        out_type  <= (rl == 2'd1) ? 4'd9 : 4'd10;
+                        out_type  <= 4'd10;
+                        out_start <= win_base + 32'(tok_off[rs[5:0]]);
+                        out_len   <= 8'(tok_off[sp - 7'd1] + {4'd0, tok_len[sp - 7'd1]})
+                                     - 8'(tok_off[rs[5:0]]);
+                    end else if (rl == 2'd1 && (sp - rs) >= 7'd2 && (sp - rs) <= 7'd3 &&
+                                 is_surname({ch_buf[tok_off[rs[5:0]]],
+                                             ch_buf[tok_off[rs[5:0]] + 6'd1],
+                                             ch_buf[tok_off[rs[5:0]] + 6'd2]})) begin
+                        out_valid <= 1'b1;
+                        out_type  <= 4'd9;
                         out_start <= win_base + 32'(tok_off[rs[5:0]]);
                         out_len   <= 8'(tok_off[sp - 7'd1] + {4'd0, tok_len[sp - 7'd1]})
                                      - 8'(tok_off[rs[5:0]]);
