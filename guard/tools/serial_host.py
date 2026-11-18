@@ -174,11 +174,46 @@ def send_and_collect(ser, data: bytes, *, baud: int, pace: bool, expect: bytes |
 
 
 # --------------------------------------------------------------------- 展示
-def show(raw: bytes, *, quiet: bool = False, as_json: str | None = None) -> int:
+STAR = "\uff0a"     # ＊：板上按字节给 '*'(1 字节 1 个)，这里按"字符"显示成一个
+
+
+def render_mask(masked: bytes, original: bytes | None) -> str:
+    """把板子的逐字节掩码渲染成"一个字符一个星"（只影响显示，字节流不变）。
+
+    板子上是 1:1 掩码：一个 3 字节汉字会变成三个 '*'。这里用原文对齐：
+    某个字符的字节全被遮了 -> 显示一个 '＊'；只遮了一部分 -> 保留原文再补 '*'。
+    """
+    # 板子会把 LF 补成 CRLF：正文尾部各去掉换行再对齐
+    core_m = masked.rstrip(b"\r\n")
+    tail = masked[len(core_m):]
+    if original is not None:
+        original = original.rstrip(b"\n")
+    if original is None:
+        return masked.decode("utf-8", "replace")
+    masked = core_m
+    out: list[str] = []
+    i = 0
+    n = min(len(original), len(masked))   # 容错：尾部多/少 1 字节也不影响前面
+    while i < n:
+        b = original[i]
+        step = 4 if b >= 0xF0 else 3 if b >= 0xE0 else 2 if b >= 0xC0 else 1
+        j = min(i + step, n)
+        chunk_m = masked[i:j]
+        if all(c == 0x2A for c in chunk_m):
+            out.append(STAR if step > 1 else "*")
+        else:
+            out.append(masked[i:j].decode("utf-8", "replace"))
+        i = j
+    out.append(masked[n:].decode("utf-8", "replace"))
+    return "".join(out) + tail.decode("utf-8", "replace")
+
+
+def show(raw: bytes, *, quiet: bool = False, as_json: str | None = None,
+         sent: bytes | None = None) -> int:
     text, reports = split_stream(raw)
     if not quiet:
         print("── masked echo from the board " + "─" * 36)
-        sys.stdout.write(text.decode("utf-8", "replace").rstrip("\r\n") + "\n")
+        sys.stdout.write(render_mask(text, sent).rstrip("\r\n") + "\n")
         print("\n── audit line(s) from the board " + "─" * 34)
         if reports:
             print(f"{'#':>2}  {'n':>4}  {'id18':>4} {'id15':>4} {'mob':>4} {'bank':>4} "
@@ -229,7 +264,7 @@ def run_text(args, data: bytes) -> int:
     except Exception as exc:  # noqa: BLE001
         raise SystemExit(f"Cannot open/read serial port: {exc}") from exc
 
-    rc = show(raw, quiet=args.raw and args.quiet, as_json=args.json)
+    rc = show(raw, quiet=args.raw and args.quiet, as_json=args.json, sent=data)
     if args.raw:
         print("── raw bytes " + "─" * 49)
         print(raw.hex(" "))
@@ -306,7 +341,7 @@ def cmd_repl(args) -> int:
             if not raw:
                 print("  (no read-back: board powered? bitstream loaded? right COM port?)")
             else:
-                show(raw)
+                show(raw, sent=data)
                 print()
     print("Disconnected.")
     return 0
