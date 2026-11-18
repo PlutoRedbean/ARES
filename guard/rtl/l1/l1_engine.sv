@@ -9,7 +9,11 @@
 
 `timescale 1ns/1ps
 
-module l1_engine (
+module l1_engine #(
+    // 0 = 规则版实体层（仿真/回归用，金标能算）
+    // 1 = NER（板上用，金标算不了神经网络）
+    parameter bit USE_NER = 1'b0
+) (
     input  logic        clk,
     input  logic        rst_n,
 
@@ -124,6 +128,7 @@ module l1_engine (
         .out_kid  (kw_kid)
     );
 
+    generate if (USE_NER) begin : g_ner
     l2_ner u_ent (
         .clk      (clk),
         .rst_n    (rst_n),
@@ -136,6 +141,20 @@ module l1_engine (
         .out_type (ent_type),
         .busy     (ent_busy)
     );
+    end else begin : g_rules
+    l2_entity u_ent (
+        .clk      (clk),
+        .rst_n    (rst_n),
+        .in_valid (in_valid),
+        .in_char  (in_char),
+        .in_last  (in_last),
+        .out_valid(ent_valid),
+        .out_start(ent_start),
+        .out_len  (ent_len),
+        .out_type (ent_type)
+    );
+    assign ent_busy = 1'b0;
+    end endgenerate
 
     l1_plate_engine u_plate (
         .clk      (clk),

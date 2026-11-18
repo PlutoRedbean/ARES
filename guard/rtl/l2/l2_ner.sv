@@ -22,8 +22,8 @@ module l2_ner (
     `include "ner_config.svh"
 
     localparam int VOCAB_N = `NER_VOCAB_N;
-    localparam logic [23:0] M1 = 24'd17589;
-    localparam logic [23:0] M2 = 24'd24005;
+    localparam logic [23:0] M1 = 24'd281423;   // s=28: logits 与金标 60/60 完全相同
+    localparam logic [23:0] M2 = 24'd384084;
 
     // ROM（组合读）
     logic [15:0] emb_addr;   logic [7:0]  emb_data;
@@ -51,7 +51,7 @@ module l2_ner (
     logic [7:0]  ch_buf [0:63];
     logic [9:0]  tok_id [0:63];
     logic [5:0]  tok_off[0:63];
-    logic [1:0]  tok_len[0:63];
+    logic [2:0]  tok_len[0:63];
     logic signed [7:0]  x  [0:2047];
     logic signed [7:0]  h1 [0:2047];
     logic signed [7:0]  h2 [0:2047];
@@ -73,7 +73,8 @@ module l2_ner (
     logic [6:0]  ti, i, o, c, sp, rs;
     logic [9:0]  va;
     logic [23:0] key_r;
-    logic [1:0]  tlen_r, k, cls, rl;
+    logic [2:0]  tlen_r;
+    logic [1:0]  k, cls, rl;
     logic signed [47:0] acc;
     logic signed [31:0] best;
     logic [1:0]  best_cls;
@@ -96,11 +97,25 @@ module l2_ner (
     assign hb_addr  = cls[1:0];
     assign voc_addr = va;
 
+    function automatic logic [2:0] ureq_len(input logic [7:0] b);
+        ureq_len = (b >= 8'hF0) ? 3'd4 : (b >= 8'hE0) ? 3'd3 : (b >= 8'hC0) ? 3'd2 : 3'd1;
+    endfunction
+
+    function automatic logic [23:0] tkey_at(input logic [5:0] off);
+        logic [2:0] ln;
+        begin
+            ln = ureq_len(ch_buf[off]);
+            tkey_at = {ch_buf[off],
+                       (ln >= 3'd2) ? ch_buf[off + 6'd1] : 8'h01,
+                       (ln >= 3'd3) ? ch_buf[off + 6'd2] : 8'h01};
+        end
+    endfunction
+
     function automatic logic signed [7:0] rq(input logic signed [47:0] v, input logic [23:0] m);
         logic signed [71:0] p, q;
         begin
             p = v * $signed({1'b0, m});
-            q = (p + 72'sd8388608) >>> 24;
+            q = (p + 72'sd134217728) >>> 28;
             if (q < 0)        rq = 8'sd0;
             else if (q > 127) rq = 8'sd127;
             else              rq = q[7:0];
@@ -123,9 +138,7 @@ module l2_ner (
                 end else if (in_valid) begin
                     // 字符对齐：这个字节若是新字符的起点，且放进来会超 64 字节，
                     // 就结束本窗（它留给下一窗）
-                    if ((nbyte != 7'd0) &&
-                        (((in_char >= 8'hE4) && (in_char <= 8'hE9) && (nbyte + 7'd3 > 7'd64)) ||
-                         ((in_char < 8'h80) && (nbyte + 7'd1 > 7'd64)))) begin
+                    if ((nbyte != 7'd0) && (nbyte + 7'(ureq_len(in_char)) > 7'd64)) begin
                         pend_byte <= in_char;
                         pend_ok   <= 1'b1;
                         st <= S_TOK; ti <= 7'd0; ntok <= 7'd0; va <= 10'd0;
@@ -143,16 +156,11 @@ module l2_ner (
                 if (ti >= nbyte) begin
                     st <= S_EMB; i <= 7'd0; c <= 7'd0;
                 end else if (va == 10'd0) begin
-                    tlen_r <= (ch_buf[ti[5:0]] >= 8'hE4 && ch_buf[ti[5:0]] <= 8'hE9) ? 2'd3 : 2'd1;
-                    key_r  <= (ch_buf[ti[5:0]] >= 8'hE4 && ch_buf[ti[5:0]] <= 8'hE9)
-                              ? {ch_buf[ti[5:0]], ch_buf[ti[5:0] + 6'd1], ch_buf[ti[5:0] + 6'd2]}
-                              : {ch_buf[ti[5:0]], 8'h01, 8'h01};
-                    if (voc_key == ((ch_buf[ti[5:0]] >= 8'hE4 && ch_buf[ti[5:0]] <= 8'hE9)
-                                    ? {ch_buf[ti[5:0]], ch_buf[ti[5:0] + 6'd1], ch_buf[ti[5:0] + 6'd2]}
-                                    : {ch_buf[ti[5:0]], 8'h01, 8'h01}))
-                        tok_id[ntok[5:0]] <= voc_id;
+                    tlen_r <= ureq_len(ch_buf[ti[5:0]]);
+                    key_r  <= tkey_at(ti[5:0]);
+                    if (voc_key == tkey_at(ti[5:0])) tok_id[ntok[5:0]] <= voc_id;
                     tok_off[ntok[5:0]] <= ti[5:0];
-                    tok_len[ntok[5:0]] <= (ch_buf[ti[5:0]] >= 8'hE4 && ch_buf[ti[5:0]] <= 8'hE9) ? 2'd3 : 2'd1;
+                    tok_len[ntok[5:0]] <= ureq_len(ch_buf[ti[5:0]]);
                     tok_id [ntok[5:0]] <= 10'd1;
                     va <= 10'd1;
                 end else if (va < 10'(VOCAB_N)) begin
@@ -161,7 +169,7 @@ module l2_ner (
                 end else begin
                     va <= 10'd0;
                     ntok <= ntok + 7'd1;
-                    ti <= ti + ((tlen_r == 2'd3) ? 7'd3 : 7'd1);
+                    ti <= ti + {4'd0, tlen_r};
                 end
             end
 
