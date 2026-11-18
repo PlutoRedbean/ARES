@@ -11,12 +11,8 @@
 ```
 
 *PII redaction, on the wire — UART in, masked text + audit out.*
-两条线：
 
-| 目录 | 是什么 |
-|---|---|
-| `guard/` | **隐私守门人（PII 脱敏网关）**：PC 金标 + RTL + 已上板的串口原型（盘古 200Pro+） |
-| `gesture/` | 视觉/手势线（历史工程，本线不动它） |
+单仓库单线：`guard/` —— **隐私守门人（PII 脱敏网关）**：PC 金标 + RTL + 已上板的串口原型（盘古 200Pro+）。
 
 ## guard 快速开始
 

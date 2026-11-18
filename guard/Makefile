@@ -11,6 +11,9 @@
 #   make demo        端到端 demo（examples/sample.txt → 脱敏 + build/audit.json）
 #   make bench       吞吐基准（1 字节/拍）
 #   make lint        Verilator lint（规则层）
+#   make ner-data    重新生成 data/ner（15k 训练 / 2k 留出 / 1k 难集）
+#   make ner-train   训练 + INT8 量化 -> models/ner
+#   make ner-check   六条验收（指标 / 尺寸 / 200 例向量 / ONNX 一致 / 同 seed 复现）
 #
 # 板级（盘古 200Pro+）：
 #   make board-vectors  生成 build/board 向量（.in/.exp/.pace）
@@ -54,7 +57,7 @@ VEC    := $(BUILD)/vectors
 
 VFLAGS := --binary --timing -j $(JOBS) -O2 -Wall -Wno-fatal --top-module
 
-.PHONY: all test golden vectors sim bench edges kw redact demo demo-check harness run serve cli-smoke lint clean tools board-vectors board-sim board-sim-3m board-lint report-sim l2-vectors l2-sim
+.PHONY: all test golden vectors sim bench edges kw redact demo demo-check harness run serve cli-smoke lint clean tools board-vectors board-sim board-sim-3m board-lint report-sim l2-vectors l2-sim ner-data ner-train ner-vectors ner-check
 
 all: test
 
@@ -222,8 +225,26 @@ $(OBJ_BOARD)/Vtb_guard_report: rtl/board/guard_report.sv sim/tb_guard_report.sv
 report-sim: $(OBJ_BOARD)/Vtb_guard_report
 	$(OBJ_BOARD)/Vtb_guard_report
 
-ner-check:
-	python3 tools/check_ner.py
+# ---------------------------------------------------------------------------
+# 字符级 NER（docs/ubuntu-ner.md）
+NER_DATA  := data/ner
+NER_MODEL := models/ner
+NER_VEC   := $(BUILD)/ner_vectors
+
+$(NER_VEC)/manifest.txt: tools/gen_ner_vectors.py $(NER_DATA)/heldout.jsonl
+	$(PYTHON) tools/gen_ner_vectors.py --data $(NER_DATA) --out $(NER_VEC) --n 200
+
+ner-vectors: $(NER_VEC)/manifest.txt
+
+ner-data:
+	$(PYTHON) tools/gen_ner_data.py --out $(NER_DATA) --seed 20261118
+
+ner-train:
+	$(PYTHON) tools/train_ner.py --data $(NER_DATA) --out $(NER_MODEL) --seed 20261118
+
+# 六条门槛：指标 / 尺寸 / 200 例向量 / ONNX argmax 一致 / 同 seed 复现
+ner-check: ner-vectors
+	python3 tools/check_ner.py --repro
 
 board-lint:
 	$(VERILATOR) --lint-only -Wall -Wno-fatal --top-module guard_board_top $(BOARD_RTL)

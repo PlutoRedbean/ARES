@@ -117,7 +117,7 @@ python guard\tools\serial_host.py -p COM5 --file guard\examples\sample.txt --che
 - PC 侧：`verilator >= 5.0`（本机 5.040；5.020 也可，见 docs/board-uart.md §10.5）、
   `python3 >= 3.10`（本机 3.12，只用标准库）、`make`；
 - 上板侧：PDS 2025.2-SP3（`D:\Pango\PDS_2025.2-SP3-EN-ads`）、`pyserial`（只有上位机用）；
-- **不需要 torch**：L1 是纯规则，L2 上板前的量化评估才会用到（可复用 `gesture-env` 的 venv）。
+- **不需要 torch**：L1 是纯规则；L2 的量化评估要单独装 torch（放仓库外工作区即可）。
 
 ## 文档
 
