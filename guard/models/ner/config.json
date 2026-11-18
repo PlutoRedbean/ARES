@@ -1,9 +1,9 @@
 {
-  "model": "guard-ner-char-v1",
+  "model": "guard-ner-char-v2",
   "window": 64,
   "window_bytes": 64,
   "window_tokens": 64,
-  "vocab_size": 703,
+  "vocab_size": 845,
   "emb_dim": 32,
   "channels": 32,
   "num_classes": 3,

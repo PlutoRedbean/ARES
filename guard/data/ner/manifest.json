@@ -1,52 +1,75 @@
 {
   "seed": 20261118,
   "counts": {
-    "train": 15000,
-    "heldout": 2000,
-    "hard": 1000
+    "train": 35658,
+    "heldout": 2600,
+    "hard": 1600
   },
   "categories": {
     "train": {
-      "name": 2900,
-      "addr": 2100,
-      "mixed": 500,
-      "hard_name": 2100,
-      "hard_addr": 1000,
-      "hard_mixed": 300,
-      "neg": 5500,
-      "hard_neg": 600
+      "prose": 13000,
+      "neg": 2500,
+      "neg_hard": 800,
+      "trap": 1500,
+      "colloc": 800,
+      "english": 500,
+      "name": 3500,
+      "boundary": 3000,
+      "compound": 3600,
+      "title": 1500,
+      "addr": 3000,
+      "mixed": 1500,
+      "coverage": 458
     },
     "heldout": {
-      "name": 624,
-      "addr": 480,
-      "mixed": 96,
-      "neg": 800
+      "prose": 809,
+      "neg": 114,
+      "neg_hard": 38,
+      "trap": 76,
+      "colloc": 95,
+      "english": 47,
+      "name": 285,
+      "boundary": 285,
+      "compound": 285,
+      "title": 142,
+      "addr": 333,
+      "mixed": 91
     },
     "hard": {
-      "hard_name": 550,
-      "hard_addr": 250,
-      "hard_mixed": 100,
-      "hard_neg": 100
+      "hard_name": 329,
+      "hard_boundary": 329,
+      "hard_compound": 282,
+      "hard_title": 94,
+      "hard_addr": 235,
+      "hard_mixed": 94,
+      "hard_trap": 94,
+      "hard_neg": 143
     }
   },
   "neg_ratio": {
-    "train": 0.4067,
-    "heldout": 0.4,
-    "hard": 0.1
+    "train": 0.5034,
+    "heldout": 0.3988,
+    "hard": 0.1481
+  },
+  "prose_ratio": {
+    "train": 0.3646,
+    "heldout": 0.3112,
+    "hard": 0.0
   },
   "hard_ratio": {
-    "train": 0.2667,
-    "heldout": 0.0,
+    "train": 0.2075,
+    "heldout": 0.2558,
     "hard": 1.0
   },
   "chars": {
-    "train": 701,
-    "heldout": 590,
-    "hard": 460
+    "train": 843,
+    "heldout": 814,
+    "hard": 611
   },
   "oov": {
     "heldout": [],
-    "hard": []
+    "hard": [],
+    "prose": []
   },
   "max_chars": 34,
   "max_bytes": 64
