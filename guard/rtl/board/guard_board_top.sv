@@ -28,7 +28,7 @@ module guard_board_top #(
     parameter int BAUD       = 115200,
     parameter int OV         = 8,           // 过采样倍数：需要 CLK_FREQ > BAUD*OV（8× 够 3 Mbaud）
     parameter int AW         = 8,
-    parameter int LF_TO_CRLF = 1,
+    parameter int LF_TO_CRLF = 1,   // 输出补 CRLF（金标与 --check 按这个算字节数）
     parameter int REPORT_EN  = 1,
     parameter int IDLE_BITS  = 300000       // ≈2.6 s @115200：慢慢打字也不会被误判成帧尾
 ) (

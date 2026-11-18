@@ -180,32 +180,34 @@ STAR = "\uff0a"     # ＊：板上按字节给 '*'(1 字节 1 个)，这里按"�
 def render_mask(masked: bytes, original: bytes | None) -> str:
     """把板子的逐字节掩码渲染成"一个字符一个星"（只影响显示，字节流不变）。
 
-    板子上是 1:1 掩码：一个 3 字节汉字会变成三个 '*'。这里用原文对齐：
-    某个字符的字节全被遮了 -> 显示一个 '＊'；只遮了一部分 -> 保留原文再补 '*'。
+    板子的掩码是 1:1 的：一个 3 字节汉字变成三个 '*'。这里按**连续星号段**处理：
+    段首在原文里是多字节字符（>= 0xE0）且段长能被 3 整除 -> 每 3 个换一个 '＊'；
+    其它（号码、ASCII）保持原样。段边界对齐可靠，不需要逐字节同步。
     """
-    # 板子会把 LF 补成 CRLF：正文尾部各去掉换行再对齐
-    core_m = masked.rstrip(b"\r\n")
-    tail = masked[len(core_m):]
-    if original is not None:
-        original = original.rstrip(b"\n")
     if original is None:
         return masked.decode("utf-8", "replace")
-    masked = core_m
-    out: list[str] = []
-    i = 0
-    n = min(len(original), len(masked))   # 容错：尾部多/少 1 字节也不影响前面
+    out = bytearray()
+    star3 = "\uff0a".encode("utf-8")
+    star2 = "\u00d7".encode("utf-8")
+    i, n = 0, len(masked)
     while i < n:
-        b = original[i]
-        step = 4 if b >= 0xF0 else 3 if b >= 0xE0 else 2 if b >= 0xC0 else 1
-        j = min(i + step, n)
-        chunk_m = masked[i:j]
-        if all(c == 0x2A for c in chunk_m):
-            out.append(STAR if step > 1 else "*")
+        if masked[i] != 0x2A:
+            out += masked[i:i + 1]
+            i += 1
+            continue
+        j = i
+        while j < n and masked[j] == 0x2A:
+            j += 1
+        run = j - i
+        lead = original[i] if i < len(original) else 0
+        if lead >= 0xE0 and run % 3 == 0:
+            out += star3 * (run // 3)
+        elif 0xC0 <= lead < 0xE0 and run % 2 == 0:
+            out += star2 * (run // 2)
         else:
-            out.append(masked[i:j].decode("utf-8", "replace"))
+            out += b"*" * run
         i = j
-    out.append(masked[n:].decode("utf-8", "replace"))
-    return "".join(out) + tail.decode("utf-8", "replace")
+    return out.decode("utf-8", "replace")
 
 
 def show(raw: bytes, *, quiet: bool = False, as_json: str | None = None,
