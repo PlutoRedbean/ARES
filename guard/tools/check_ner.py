@@ -1,4 +1,4 @@
-"""校验 Ubuntu 侧交付的 NER 模型是否满足 docs/model-route-ubuntu.md 的门槛。
+"""校验 Ubuntu 侧交付的 NER 模型是否满足 docs/ubuntu-ner.md 的门槛。
 
 六条门槛逐条打印 PASS/FAIL；任何一条 FAIL 都以非零退出。
 """
@@ -48,7 +48,7 @@ def main() -> int:
     for f in EXTRA:
         ok_all &= gate((ROOT / f).exists(), "file:" + f, str(ROOT / f))
     if not (MODEL / "eval.json").exists():
-        print("\n还是空的：先把 docs/model-route-ubuntu.md 做完再来。")
+        print("\n还是空的：先把 docs/ubuntu-ner.md 做完再来。")
         return 1
 
     ev = json.loads((MODEL / "eval.json").read_text(encoding="utf-8"))

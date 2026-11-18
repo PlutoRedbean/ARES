@@ -120,8 +120,7 @@ pds_shell -file fpga/pango/flow_l2.tcl -project_name l2_res
 
 ## 7. L2b 实体层：人名 / 地址
 
-规则式（词典 + 上下文线索），**不是语义理解**——语义改写要走模型路线（见
-[model-route.md](model-route.md)）。
+规则式（词典 + 上下文线索），**不是语义理解**——语义改写要走模型路线（见 [ubuntu-ner.md](ubuntu-ner.md)）。
 
 | 类型 | 规则 | 例子 |
 |---|---|---|

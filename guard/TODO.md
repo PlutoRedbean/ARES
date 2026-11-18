@@ -132,5 +132,4 @@
 - [ ] 成文（技术报告 / 论文草案）
 ## 模型路线
 
-- [ ] 字符级名字/地址模型（Ubuntu）：环境、数据、量化、上板顺序见
-      [docs/model-route.md](docs/model-route.md)
+- [ ] 字符级名字/地址模型（Ubuntu）：任务书 [docs/ubuntu-ner.md](docs/ubuntu-ner.md)，`make ner-check` 验收
