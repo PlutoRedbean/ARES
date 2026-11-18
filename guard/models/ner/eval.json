@@ -1,26 +1,26 @@
 {
   "seed": 20261118,
   "data": {
-    "train": 15000,
-    "heldout": 2000,
-    "hard": 1000
+    "train": 46380,
+    "heldout": 2600,
+    "hard": 1600
   },
   "heldout": {
-    "span_precision": 0.990769,
-    "span_recall": 0.996133,
-    "span_f1": 0.993444
+    "span_precision": 0.995109,
+    "span_recall": 0.99782,
+    "span_f1": 0.996463
   },
   "hard": {
-    "span_precision": 0.990099,
-    "span_recall": 0.990099,
-    "span_f1": 0.990099
+    "span_precision": 1.0,
+    "span_recall": 1.0,
+    "span_f1": 1.0
   },
   "size": {
-    "params": 28803,
-    "int8_bytes": 29004,
+    "params": 33827,
+    "int8_bytes": 34028,
     "macs_per_window": 399360
   },
   "checksums": {
-    "weights_sha256": "3297a12910fa6636e549a9d6e8eb1c35385935cf3c2d6533942378f8cd36f0d3"
+    "weights_sha256": "3e321b9f7ac75dfdb21c361c5352ddd0eedf086a66d864ad493de1ea966fb36e"
   }
 }

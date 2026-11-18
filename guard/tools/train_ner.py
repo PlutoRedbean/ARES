@@ -323,12 +323,12 @@ def main() -> int:
     ap.add_argument("--data", default=str(ROOT / "data" / "ner"))
     ap.add_argument("--out", default=str(ROOT / "models" / "ner"))
     ap.add_argument("--seed", type=int, default=20261118)
-    ap.add_argument("--epochs", type=int, default=18)
+    ap.add_argument("--epochs", type=int, default=20)
     ap.add_argument("--batch", type=int, default=128)
     ap.add_argument("--lr", type=float, default=2.5e-3)
     ap.add_argument("--weight-decay", type=float, default=1e-4)
-    ap.add_argument("--w-name", type=float, default=4.0)
-    ap.add_argument("--w-addr", type=float, default=4.0)
+    ap.add_argument("--w-name", type=float, default=2.5)
+    ap.add_argument("--w-addr", type=float, default=2.5)
     ap.add_argument("--calib", type=int, default=2000)
     ap.add_argument("--max-vocab", type=int, default=MAX_VOCAB)
     ap.add_argument("--parity", type=int, default=500)
@@ -404,7 +404,7 @@ def main() -> int:
                                                ensure_ascii=False) + "\n", encoding="utf-8")
     macs = WINDOW * (CH * 3 * EMB + CH * 3 * CH + CLASSES * CH)
     config = {
-        "model": "guard-ner-char-v1",
+        "model": "guard-ner-char-v2",
         "window": WINDOW,             # 字节窗口（UTF-8 字符对齐切）
         "window_bytes": WINDOW,
         "window_tokens": WINDOW,      # ids[64] 上限

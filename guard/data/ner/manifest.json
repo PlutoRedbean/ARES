@@ -1,52 +1,81 @@
 {
   "seed": 20261118,
   "counts": {
-    "train": 15000,
-    "heldout": 2000,
-    "hard": 1000
+    "train": 46380,
+    "heldout": 2600,
+    "hard": 1600
   },
   "categories": {
     "train": {
-      "name": 2900,
-      "addr": 2100,
-      "mixed": 500,
-      "hard_name": 2100,
-      "hard_addr": 1000,
-      "hard_mixed": 300,
-      "neg": 5500,
-      "hard_neg": 600
+      "prose": 16271,
+      "neg": 2511,
+      "neg_hard": 803,
+      "trap": 1506,
+      "targeted": 4017,
+      "targeted2": 502,
+      "targeted3": 301,
+      "colloc": 1004,
+      "english": 502,
+      "name": 3515,
+      "boundary": 4720,
+      "compound": 3615,
+      "title": 1506,
+      "addr": 3013,
+      "mixed": 1514,
+      "coverage": 1080
     },
     "heldout": {
-      "name": 624,
-      "addr": 480,
-      "mixed": 96,
-      "neg": 800
+      "prose": 767,
+      "neg": 108,
+      "neg_hard": 36,
+      "trap": 72,
+      "targeted": 90,
+      "targeted2": 27,
+      "targeted3": 18,
+      "colloc": 90,
+      "english": 45,
+      "name": 270,
+      "boundary": 270,
+      "compound": 270,
+      "title": 135,
+      "addr": 315,
+      "mixed": 87
     },
     "hard": {
-      "hard_name": 550,
-      "hard_addr": 250,
-      "hard_mixed": 100,
-      "hard_neg": 100
+      "hard_name": 329,
+      "hard_boundary": 329,
+      "hard_compound": 282,
+      "hard_title": 94,
+      "hard_addr": 235,
+      "hard_mixed": 94,
+      "hard_trap": 94,
+      "hard_neg": 143
     }
   },
   "neg_ratio": {
-    "train": 0.4067,
-    "heldout": 0.4,
-    "hard": 0.1
+    "train": 0.4607,
+    "heldout": 0.3788,
+    "hard": 0.1481
+  },
+  "prose_ratio": {
+    "train": 0.3508,
+    "heldout": 0.295,
+    "hard": 0.0
   },
   "hard_ratio": {
-    "train": 0.2667,
-    "heldout": 0.0,
+    "train": 0.2014,
+    "heldout": 0.2423,
     "hard": 1.0
   },
   "chars": {
-    "train": 701,
-    "heldout": 590,
-    "hard": 460
+    "train": 858,
+    "heldout": 822,
+    "hard": 609
   },
   "oov": {
     "heldout": [],
-    "hard": []
+    "hard": [],
+    "prose": []
   },
   "max_chars": 34,
   "max_bytes": 64
