@@ -102,8 +102,10 @@
       把分组卡号的 4 位片段算成 PII）
 - [x] **L2b 实体层（host 侧）**：人名 / 地址的词典+线索规则（`host/golden/entities.py`），
       合成 500 句 recall 1.000 / 误报 0；`demo.py --entities` 可整段遮
-- [ ] L2b 进 RTL：`l2_entity.sv` + `l1_merge` 5→6 路源 + redactor 对 type>=9 整段遮 +
-      摘要行 `name=`/`addr=`（见 docs/l2-int4.md §7 的四步）
+- [x] L2b 的 RTL 模块：`rtl/l2/l2_entity.sv` + `make entity-sim`（16 例对金标），表由
+      `tools/gen_entity_tables_sv.py` 从 Python 同源生成
+- [ ] L2b 板级接线：`l1_merge` 5→6 路源 + redactor 对 type>=9 整段遮 + 摘要行
+      `name=`/`addr=`（卡点与两个修复点见 docs/l2-int4.md §7.3）
 - [ ] 从 vendor 拷 UB/VPU/接口到 `rtl/l2/`（保持 vendor 只读）
 - [ ] 16×16 W4A8 GEMM + 反量化（先仿真对齐 Python 参考）
 - [ ] 双缓冲 DMA（描述符化 burst，替代单 outstanding）
@@ -128,3 +130,7 @@
 - [ ] P/R/F1（按类型）、p50/p99 延迟、整板功耗、消融
 - [ ] 与 plan 里的预算表对账（LUT/DRAM/APM/DDR3 实测 vs 估算）
 - [ ] 成文（技术报告 / 论文草案）
+## 模型路线
+
+- [ ] 字符级名字/地址模型（Ubuntu）：环境、数据、量化、上板顺序见
+      [docs/model-route.md](docs/model-route.md)

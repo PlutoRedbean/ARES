@@ -32,6 +32,11 @@ JOBS      ?= 0
 
 KW_PKG := $(BUILD)/gen/l1_keywords_pkg.sv
 L2W_PKG := $(BUILD)/gen/l2_weights_pkg.sv
+ENT_TAB := $(BUILD)/gen/l2_entity_tables.sv
+ENT_VEC := $(BUILD)/ent
+
+$(ENT_TAB): tools/gen_entity_tables_sv.py host/golden/entities.py
+	python3 tools/gen_entity_tables_sv.py $(ENT_TAB)
 
 $(L2W_PKG): tools/gen_l2_weights_sv.py host/golden/l2_weights.py host/golden/l2_int4.py
 	python3 tools/gen_l2_weights_sv.py $(L2W_PKG)
@@ -39,7 +44,8 @@ $(L2W_PKG): tools/gen_l2_weights_sv.py host/golden/l2_weights.py host/golden/l2_
 $(KW_PKG): tools/gen_keywords.py host/golden/keywords.py
 	$(PYTHON) tools/gen_keywords.py $(KW_PKG)
 
-L1_RTL := $(KW_PKG) rtl/l1/l1_digit_engine.sv rtl/l1/l1_text_engines.sv \
+L1_RTL := $(KW_PKG) $(ENT_TAB) rtl/l2/l2_entity.sv \
+          rtl/l1/l1_digit_engine.sv rtl/l1/l1_text_engines.sv \
           rtl/l1/l1_keyword_match.sv rtl/l1/l1_engine.sv
 L1_TB  := sim/tb_l1_engine.sv
 OBJ_L1 := $(BUILD)/obj_l1
@@ -148,13 +154,14 @@ lint:
 # ---------------------------------------------------------------------------
 MT_RTL   := vendor/minitensor/rtl/tensor
 MT_SYS   := $(MT_RTL)/MXU/Systolic_Array
-BOARD_RTL := $(KW_PKG) $(L2W_PKG) \
+BOARD_RTL := $(KW_PKG) $(L2W_PKG) $(ENT_TAB) \
              $(MT_RTL)/tensor_pkg.sv $(MT_SYS)/tensor_pe.sv \
              $(MT_SYS)/tensor_systolic_array.sv \
              $(MT_RTL)/MXU/INT8_GEMM/tensor_gemm_core.sv \
              rtl/l1/l1_digit_engine.sv rtl/l1/l1_text_engines.sv \
              rtl/l1/l1_keyword_match.sv rtl/l1/l1_engine.sv rtl/l1/l1_redact.sv \
              rtl/l2/l2_features.sv rtl/l2/l2_int4_gemm.sv rtl/l2/l2_semantic_top.sv \
+             rtl/l2/l2_entity.sv \
              rtl/board/guard_uart_baud.sv rtl/board/guard_uart_rx.sv \
              rtl/board/guard_uart_tx.sv rtl/board/guard_fifo.sv \
              rtl/board/guard_report.sv rtl/board/guard_uart_core.sv \
@@ -218,7 +225,16 @@ report-sim: $(OBJ_BOARD)/Vtb_guard_report
 board-lint:
 	$(VERILATOR) --lint-only -Wall -Wno-fatal --top-module guard_board_top $(BOARD_RTL)
 
-test: harness redact-harness golden vectors sim edges kw redact demo-check cli-smoke board-sim board-sim-3m report-sim l2-sim
+$(ENT_VEC)/manifest.txt: tools/gen_entity_vectors.py host/golden/entities.py
+	python3 tools/gen_entity_vectors.py $(ENT_VEC)
+
+entity-sim: $(ENT_VEC)/manifest.txt $(ENT_TAB)
+	$(VERILATOR) $(VFLAGS) tb_l2_entity --Mdir $(OBJ_L2) -o Vtb_l2_entity \
+	    --top-module tb_l2_entity $(ENT_TAB) rtl/l2/l2_entity.sv sim/tb_l2_entity.sv
+	$(OBJ_L2)/Vtb_l2_entity +dir=$(ENT_VEC)
+	@echo "PASS: L2b entity layer matches golden"
+
+test: harness redact-harness golden vectors sim edges kw redact demo-check cli-smoke board-sim board-sim-3m report-sim l2-sim entity-sim
 
 clean:
 	rm -rf $(BUILD)
