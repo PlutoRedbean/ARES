@@ -223,7 +223,7 @@ cfg_close
    Pango 的 `cdt_bts`（bitstream → flash 格式）流程，本机 license 没有
    `fabric_bts` 这一项，**没验证过**，所以本工程只承诺 JTAG 直烧。
 2. **SCBV 警告可以忽略**：`gen_bit_stream` 会提示 `SCBV has not been set`。
-   仓库里 gesture 线的位流也在同样配置下烧写并跑通过；如果板子烧完不启动，
+   早期手势线的位流也在同样配置下烧写并跑通过；如果板子烧完不启动，
    再去 PDS 的 bit stream 选项里按板卡配置电压改 SCBV。
 
 ---
