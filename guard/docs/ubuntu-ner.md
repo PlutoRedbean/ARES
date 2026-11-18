@@ -183,4 +183,17 @@ v1 已合入 `main`（`models/ner`，28,803 参数 / 29,004 B / 399,360 MAC）�
 | 7 | 散文负样本集（≥1000 句无 PII）上 **多报 ≤ 0.05 span/句** |
 | 8 | 证据集（我给的 11 句手写样本，见 `tools/eval_ner.py`）上 **span 完全正确 ≥ 8/11** |
 
-`tools/eval_ner.py` 就是这两条的评测脚本，交付前自己先跑一遍。
+**v1 在这两条上的实测**（就是 v2 要补的差距）：
+
+```
+[FAIL] 7 prose false spans/sentence   1.545 <= 0.05 (618/400)   ← 散文集上每句多报 1.5 个
+[FAIL] 8 evidence set exact           3/7   >= 5                 ← 证据集 11 句只对 3 句
+```
+
+门槛 7/8 已经写进 `make ner-check`，评测集也固定在仓库里，不能自己造：
+
+- `guard/data/ner/prose.jsonl`：400 句无 PII 散文（刻意埋了"金额/方向/王家村/张数/周报/李树"这类姓氏陷阱），由 `tools/gen_prose.py` 生成；
+- 证据集 7 句写死在 `tools/check_ner.py` 里；
+- `tools/eval_ner.py` 还能看更细的对比（模型 vs 规则、阈值扫描）。
+
+交付前务必自己先跑 `make ner-check`，7/8 必须绿。

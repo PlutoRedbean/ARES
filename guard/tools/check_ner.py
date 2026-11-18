@@ -168,6 +168,39 @@ def main() -> int:
             finally:
                 shutil.rmtree(tmp, ignore_errors=True)
 
+    # ---- 门槛 7：散文集误报 ----
+    prose = ROOT / "data" / "ner" / "prose.jsonl"
+    if ner_decode is not None and prose.exists():
+        import json as _json
+        rows = [_json.loads(l) for l in prose.read_text(encoding="utf-8").splitlines() if l.strip()]
+        spans = 0
+        for r in rows:
+            spans += len(ner_decode(r["text"].encode("utf-8")))
+        per = spans / max(len(rows), 1)
+        ok_all &= gate(per <= 0.05, "7 prose false spans/sentence", f"{per:.3f} <= 0.05 ({spans}/{len(rows)})")
+    else:
+        ok_all &= gate(False, "7 prose false spans/sentence", "data/ner/prose.jsonl or ner.py missing")
+
+    # ---- 门槛 8：证据集 11 句 ----
+    evidence_ok = 0
+    if ner_decode is not None:
+        battery = [
+            ("联系人张三，电话 13800138000", {(9, 9, 6)}),
+            ("王经理您好", {(9, 0, 9)}),
+            ("收件人欧阳娜娜，地址：北京市朝阳区建国路88号", {(9, 12, 12), (10, 33, 33)}),
+            ("我住在中关村大街27号", {(10, 9, 24)}),
+            ("刘德华的演唱会在上海", {(9, 0, 9)}),
+            ("请把文件发给杨帆", {(9, 18, 6)}),
+            ("陈静打了个电话", {(9, 0, 6)}),
+        ]
+        for text, want in battery:
+            got = set(ner_decode(text.encode("utf-8")))
+            if got == want:
+                evidence_ok += 1
+        ok_all &= gate(evidence_ok >= 5, "8 evidence set exact", f"{evidence_ok}/{len(battery)} >= 5")
+    else:
+        ok_all &= gate(False, "8 evidence set exact", "ner.py missing")
+
     print("\n" + ("全部通过，可以接 RTL。" if ok_all else "有门槛没过，先别接 RTL。"))
     return 0 if ok_all else 2
 
