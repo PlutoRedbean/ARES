@@ -33,6 +33,7 @@
 | **上板：串口进 → 脱敏 → 串口出（盘古 200Pro+）** | ✅ 25 MHz 过时序、位流已出，见 [docs/board-uart.md](docs/board-uart.md) |
 | 关键词提示 / 档位头上串口（摘要行 `kw`/`kwm`/`mode`） | ✅ 金标+上位机+TB 同源 |
 | **L2 INT4 语义层**（miniTensor 4×4 MXU，权重由 corpus 训练） | ✅ 已进板级位流（摘要行 `l2=`/`l2m=`）；12 例对金标；见 [docs/l2-int4.md](docs/l2-int4.md) |
+| **L2b 实体层：人名/地址** | ✅ host 侧（`demo.py --entities`，合成集 recall 1.000 / 误报 0）；RTL 未做，见 §7 |
 | L2（INT4 语义层） | ⬜ M3 |
 
 **上板实测**（PDS 2025.2-SP3，`guard_board_top`）：

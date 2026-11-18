@@ -19,6 +19,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from host.golden.entities import (  # noqa: E402
+    ENTITY_NAMES,
+    mask_entities,
+    scan_with_entities,
+)
 from host.golden.keywords import KEYWORDS, find_keywords  # noqa: E402
 from host.golden.pii_rules import TYPE_NAMES, Span, scan  # noqa: E402
 from host.golden.redact import Audit, RULE_IDS, audit_json, redact  # noqa: E402
@@ -53,6 +58,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--policy", choices=["token", "mask"], default="token")
     ap.add_argument("--rtl", action="store_true", help="用 RTL 检测（需要 make harness）")
     ap.add_argument("--rtl-full", action="store_true", help="全 RTL：检测+合并+mask 替换（需要 make redact-harness）")
+    ap.add_argument("--entities", action="store_true",
+                    help="额外用 L2b 实体层遮人名/地址（金标路径，整段遮）")
     args = ap.parse_args(argv)
 
     path = Path(args.inp)
@@ -96,6 +103,21 @@ def main(argv: list[str] | None = None) -> int:
         hit_kids = {h.kid for h in find_keywords(data)}
 
     out, audits = redact(data, policy=args.policy, keep_spans=spans)
+
+    if args.entities:
+        if args.policy != "mask":
+            raise SystemExit("--entities 需要 --policy mask（保持字节 1:1）")
+        _l1, ents = scan_with_entities(data)
+        ents = [e for e in ents if not any(
+            sp.start < e[1] + e[2] and e[1] < sp.start + sp.length for sp in spans)]
+        if ents:
+            out = mask_entities(out, ents)
+            base = len(audits)
+            for k, (ty, st, ln) in enumerate(sorted(ents, key=lambda e: e[1]), start=1):
+                audits.append(Audit(
+                    index=base + k, type=ENTITY_NAMES[ty], type_id=ty,
+                    rule="lexicon." + ENTITY_NAMES[ty], start=st, length=ln,
+                    action="mask", replacement="*" * ln))
 
     if args.out:
         Path(args.out).write_bytes(out)
