@@ -264,6 +264,13 @@ def run_text(args, data: bytes) -> int:
     expect = expected_stream(data) if args.check else None
     try:
         with serial.Serial(args.port, args.baud, timeout=0.05, write_timeout=5) as ser:
+            # 上一帧的摘要行可能还在线上（板子的 TX FIFO 里）：等到线路安静再发，
+            # 否则它会插进本帧的回显中间，看起来像"帧被切开了"。
+            ser.reset_input_buffer()
+            quiet_until = time.monotonic() + 0.25
+            while time.monotonic() < quiet_until:
+                if ser.read(64):
+                    quiet_until = time.monotonic() + 0.25
             raw = send_and_collect(ser, data, baud=args.baud, pace=not args.no_pace, expect=expect)
     except SystemExit:
         raise

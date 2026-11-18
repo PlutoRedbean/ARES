@@ -318,8 +318,26 @@ module l2_ner (
             end
 
             S_DONE: begin
-                win_base <= win_base + 32'(nbyte);
-                nbyte <= 7'd0;
+                // 窗口重叠 32 字节：下一个窗口从本窗的第 33 个字节开始。
+                // 这样跨 64 字节边界的名字/地址会在后一窗里完整出现一次，
+                // 合并器把两窗给出的重叠 span 取并集，就不会被切断。
+                if (nbyte > 7'd32) begin
+                    for (int q = 0; q < 32; q++) begin
+                        ch_buf[q[5:0]] <= ch_buf[6'(q + 32)];
+                    end
+                    win_base <= win_base + 32'd32;
+                    nbyte    <= nbyte - 7'd32;
+                    // 被挤出去的那个待处理字节（窗口满时留下的）接到末尾
+                    if (pend_ok) begin
+                        ch_buf[6'(nbyte - 7'd32)] <= pend_byte;
+                        nbyte <= nbyte - 7'd31;
+                        pend_ok <= 1'b0;
+                    end
+                end else begin
+                    win_base <= win_base + 32'(nbyte);
+                    nbyte <= 7'd0;
+                    pend_ok <= 1'b0;
+                end
                 ntok  <= 7'd0;
                 st    <= S_RECV;
             end
