@@ -1,9 +1,9 @@
 {
-  "model": "guard-ner-char-v3",
+  "model": "guard-ner-char-v4",
   "window": 64,
   "window_bytes": 64,
   "window_tokens": 64,
-  "vocab_size": 3080,
+  "vocab_size": 3090,
   "emb_dim": 32,
   "channels": 32,
   "num_classes": 3,
@@ -18,7 +18,7 @@
   "macs_per_window": 399360,
   "params_definition": "params = conv/head compute weights; embedding ROM is counted in int8_bytes",
   "params_compute": 6307,
-  "total_tensor_elements": 104867,
+  "total_tensor_elements": 105187,
   "layout": {
     "conv1_w": "[out, kernel, in]",
     "conv2_w": "[out, kernel, in]",

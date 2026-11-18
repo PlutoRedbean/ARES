@@ -39,7 +39,15 @@ def main() -> int:
     def has_span(r):
         return any(y in (1, 2) for _, _, y in r["spans"])
 
-    pos = [r for r in rows if has_span(r)]
+    # 句尾单字边界（许湖问 = 许湖+问 还是 许湖问）本身标注有歧义，
+    # 不适合放进“逐位一致性”向量集；heldout/eval 仍保留这些样本。
+    AMBIG_TAIL = set("问去说回好在是时来走刚才")
+
+    def ambiguous_tail(r):
+        t = r["text"]
+        return bool(t) and t[-1] in AMBIG_TAIL and has_span(r)
+
+    pos = [r for r in rows if has_span(r) and not ambiguous_tail(r)]
     neg = [r for r in rows if not has_span(r)]
     want_pos = min(args.pos, args.n, len(pos))
     want_neg = min(args.n - want_pos, len(neg))
