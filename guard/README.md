@@ -39,9 +39,9 @@
 
 | 项 | 值 |
 |---|---|
-| 资源 | **4,749 LUT (3.0%) / 2,947 FF / 10 APM / 0.5 DRM / 1 PLL** |
+| 资源 | **4,785 LUT (3.0%) / 2,947 FF / 10 APM / 0.5 DRM / 1 PLL** |
 | 时钟 | 27 MHz → GTP_GPLL → **25 MHz** 核心 |
-| 时序 | WNS **+4.7 ns**（MET）、TNS 0 → Fmax ≈ 28.6 MHz |
+| 时序 | WNS **+5.0 ns**（MET）、TNS 0 → Fmax ≈ 28.7 MHz |
 | 串口 | 115200 8N1（8× 过采样；3 Mbaud 通路已仿真），RX **B24** / TX **C24** |
 | 帧边界 | LF 或空闲 300000 位时间（≈2.6 s） |
 | 位流 | `generate_bitstream/guard_board_top.sbit`（9,188,552 B） |

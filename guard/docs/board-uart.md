@@ -56,7 +56,7 @@
 
 | 资源 | 用量 | 器件占比 | plan 预算 |
 |---|---|---|---|
-| LUT | **4,749** | 2.97% | 12–15k |
+| LUT | **4,785** | 2.99% | 12–15k |
 | FF | **2,947** | 0.92% | — |
 | DRM36K | **0.5** | 0.12% | 25 |
 | APM（18×18） | **10** | 1.35% | 0–8 |
@@ -65,9 +65,9 @@
 | 时序 | 结果 |
 |---|---|
 | 时钟 | 27 MHz（D18）→ GTP_GPLL（VCO 1000 / 40）→ **25 MHz** 核心 |
-| 最差 setup slack（WNS） | **+4.7 ns（MET）**，TNS = 0 |
+| 最差 setup slack（WNS） | **+5.0 ns（MET）**，TNS = 0 |
 | 最差 hold slack（WHS） | +0.037 ns（MET），THS = 0 |
-| 推算 Fmax | ≈ 28.6 MHz（40 ns − 4.7 ns） |
+| 推算 Fmax | ≈ 28.7 MHz（40 ns − 5.0 ns） |
 
 位流：`guard/generate_bitstream/guard_board_top.sbit`。
 
