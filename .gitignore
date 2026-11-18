@@ -51,4 +51,7 @@ desktop.ini
 *.bak
 
 # ---- guard：模型权重与量化产物不入库 ----
-guard/models/
+guard/models/**
+# 但 Ubuntu 交接的 NER 模型要入库（交接单第 8 节要求随分支提交）
+!guard/models/ner/
+!guard/models/ner/**

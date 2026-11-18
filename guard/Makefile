@@ -222,6 +222,9 @@ $(OBJ_BOARD)/Vtb_guard_report: rtl/board/guard_report.sv sim/tb_guard_report.sv
 report-sim: $(OBJ_BOARD)/Vtb_guard_report
 	$(OBJ_BOARD)/Vtb_guard_report
 
+ner-check:
+	python3 tools/check_ner.py
+
 board-lint:
 	$(VERILATOR) --lint-only -Wall -Wno-fatal --top-module guard_board_top $(BOARD_RTL)
 

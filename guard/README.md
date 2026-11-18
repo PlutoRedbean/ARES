@@ -33,6 +33,7 @@
 | **上板：串口进 → 脱敏 → 串口出（盘古 200Pro+）** | ✅ 25 MHz 过时序、位流已出，见 [docs/board-uart.md](docs/board-uart.md) |
 | 关键词提示 / 档位头上串口（摘要行 `kw`/`kwm`/`mode`） | ✅ 金标+上位机+TB 同源 |
 | **L2 INT4 语义层**（miniTensor 4×4 MXU，权重由 corpus 训练） | ✅ 已进板级位流（摘要行 `l2=`/`l2m=`）；12 例对金标；见 [docs/l2-int4.md](docs/l2-int4.md) |
+| **模型路线（Ubuntu）** | 交接单：[docs/model-route-ubuntu.md](docs/model-route-ubuntu.md)；自检 `make ner-check` |
 | **L2b 实体层：人名/地址** | ✅ host 侧可用（`demo.py --entities`）；RTL 模块 `l2_entity.sv` 16 例对金标；**板级接线未做**（见 docs/l2-int4.md §7.3） |
 | L2（INT4 语义层） | ⬜ M3 |
 
