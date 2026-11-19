@@ -75,6 +75,7 @@ module l2_ner (
     logic [2:0]  tlen_r;
     logic [1:0]  k, cls, rl;
     logic        run_anchor_q;   // 地址段里是否出现过 省/市/区/县/路/街/号
+    logic        run_ascii_q;    // 名字段里是否混进了 ASCII（"于2" 这种要丢掉）
     logic signed [47:0] acc;
     logic signed [31:0] best;
     logic [1:0]  best_cls;
@@ -145,6 +146,7 @@ module l2_ner (
             st <= S_RECV; nbyte <= 7'd0; ntok <= 7'd0; win_base <= 32'd0; pend_ok <= 1'b0;
             out_valid <= 1'b0; out_start <= 32'd0; out_len <= 8'd0; out_type <= 4'd0;
             run_anchor_q <= 1'b0;
+            run_ascii_q  <= 1'b0;
         end else begin
             out_valid <= 1'b0;
             case (st)
@@ -283,7 +285,7 @@ module l2_ner (
                         out_start <= win_base + 32'(tok_off[rs[5:0]]);
                         out_len   <= 8'(tok_off[sp - 7'd1] + {4'd0, tok_len[sp - 7'd1]})
                                      - 8'(tok_off[rs[5:0]]);
-                    end else if (rl == 2'd1 && (sp - rs) >= 7'd2 && (sp - rs) <= 7'd3 &&
+                    end else if (rl == 2'd1 && !run_ascii_q && (sp - rs) >= 7'd2 && (sp - rs) <= 7'd3 &&
                                  is_surname({ch_buf[tok_off[rs[5:0]]],
                                              ch_buf[tok_off[rs[5:0]] + 6'd1],
                                              ch_buf[tok_off[rs[5:0]] + 6'd2]})) begin
@@ -302,6 +304,8 @@ module l2_ner (
                                         is_anchor({ch_buf[tok_off[sp[5:0]]],
                                                    ch_buf[tok_off[sp[5:0]] + 6'd1],
                                                    ch_buf[tok_off[sp[5:0]] + 6'd2]});
+                        run_ascii_q  <= (lab[sp[5:0]] == 2'd1) &&
+                                        (ch_buf[tok_off[sp[5:0]]] < 8'h80);
                     end
                     sp <= sp + 7'd1;
                 end else if (lab[sp[5:0]] == rl) begin
@@ -309,6 +313,8 @@ module l2_ner (
                                                  ch_buf[tok_off[sp[5:0]] + 6'd1],
                                                  ch_buf[tok_off[sp[5:0]] + 6'd2]}))
                         run_anchor_q <= 1'b1;
+                    if (rl == 2'd1 && ch_buf[tok_off[sp[5:0]]] < 8'h80)
+                        run_ascii_q <= 1'b1;
                     sp <= sp + 7'd1;
                 end else begin
                     if (rl == 2'd2 && run_anchor_q && (sp - rs) >= 7'd2) begin
@@ -317,7 +323,7 @@ module l2_ner (
                         out_start <= win_base + 32'(tok_off[rs[5:0]]);
                         out_len   <= 8'(tok_off[sp - 7'd1] + {4'd0, tok_len[sp - 7'd1]})
                                      - 8'(tok_off[rs[5:0]]);
-                    end else if (rl == 2'd1 && (sp - rs) >= 7'd2 && (sp - rs) <= 7'd3 &&
+                    end else if (rl == 2'd1 && !run_ascii_q && (sp - rs) >= 7'd2 && (sp - rs) <= 7'd3 &&
                                  is_surname({ch_buf[tok_off[rs[5:0]]],
                                              ch_buf[tok_off[rs[5:0]] + 6'd1],
                                              ch_buf[tok_off[rs[5:0]] + 6'd2]})) begin
