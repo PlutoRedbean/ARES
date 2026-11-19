@@ -214,6 +214,93 @@ def render_mask(masked: bytes, original: bytes | None) -> str:
     return out.decode("utf-8", "replace")
 
 
+# --------------------------------------------------------------------- 分帧
+SENT_END = "。！？；!?;\n"
+SOFT_END = "，,、：:）)"
+
+
+def split_frames(text: bytes, limit: int = 56) -> list[bytes]:
+    """把一段文字切成 <= limit 字节的若干帧，优先在句末标点后切，其次逗号。
+
+    板上现阶段的可靠范围是 64 字节（见 docs/board-uart.md），超过会被提前收帧；
+    这里按标点切，一段一片地送，回显再拼回来。
+    """
+    s = text.decode("utf-8", "replace").rstrip("\r\n")
+    pieces: list[str] = []
+    cur = ""
+    for ch in s:
+        cur += ch
+        if ch in SENT_END and len(cur.encode()) >= limit // 2:
+            pieces.append(cur)
+            cur = ""
+    if cur:
+        pieces.append(cur)
+    # 还是太长的：先在逗号处切，再按字符硬切
+    out: list[bytes] = []
+    for piece in pieces:
+        if len(piece.encode()) <= limit:
+            out.append(piece.encode())
+            continue
+        cur = ""
+        for ch in piece:
+            if len((cur + ch).encode()) > limit:
+                out.append(cur.encode())
+                cur = ch
+            else:
+                cur += ch
+            if ch in SOFT_END and len(cur.encode()) >= limit // 2:
+                out.append(cur.encode())
+                cur = ""
+        if cur:
+            out.append(cur.encode())
+    return out
+
+
+def send_frames(ser, data: bytes, *, baud: int, pace: bool) -> tuple[bytes, list[dict]]:
+    """按标点分帧发送，返回拼好的回显和所有审计行。"""
+    body = bytearray()
+    reports: list[dict] = []
+    for i, piece in enumerate(split_frames(data), 1):
+        wait_quiet(ser)
+        raw = send_and_collect(ser, piece, baud=baud, pace=pace, expect=None)
+        txt, reps = split_stream(raw)
+        body += txt.rstrip(b"\r\n")
+        reports += reps
+    return bytes(body), reports
+
+
+def wait_quiet(ser, gap: float = 0.25) -> None:
+    ser.reset_input_buffer()
+    until = time.monotonic() + gap
+    while time.monotonic() < until:
+        if ser.read(64):
+            until = time.monotonic() + gap
+
+
+def show_frames(body: bytes, reports: list[dict], sent: bytes,
+                *, as_json: str | None = None) -> int:
+    """多帧（按标点切开）的回显 + 汇总审计行。"""
+    print("── masked echo from the board " + "─" * 36)
+    sys.stdout.write(render_mask(body, sent.rstrip(b"\n")).rstrip("\r\n") + "\n")
+    print("\n── audit line(s) from the board " + "─" * 34)
+    if not reports:
+        print("(no audit line received)")
+    else:
+        keys = ["id18", "id15", "mobile", "bank", "email", "ipv4", "uscc", "plate",
+                "name", "addr", "kw", "kwm", "l2", "l2m"]
+        total = {k: sum(r.get(k, 0) for r in reports) for k in keys}
+        nspan = sum(r.get("n", 0) for r in reports)
+        ovf = sum(r.get("ovf", 0) for r in reports)
+        print(f"{'frames':>6} {'n':>4}  " + " ".join(f"{k:>5}" for k in keys) + "  ovf")
+        print(f"{len(reports):>6} {nspan:>4}  " + " ".join(f"{total[k]:>5}" for k in keys)
+              + f"  {ovf:>3}")
+    if as_json:
+        Path(as_json).write_text(json.dumps({"echo": body.decode("utf-8", "replace"),
+                                             "reports": reports}, ensure_ascii=False, indent=2),
+                                 encoding="utf-8")
+    return 0
+
+
 def show(raw: bytes, *, quiet: bool = False, as_json: str | None = None,
          sent: bytes | None = None) -> int:
     text, reports = split_stream(raw)
@@ -271,13 +358,22 @@ def run_text(args, data: bytes) -> int:
             while time.monotonic() < quiet_until:
                 if ser.read(64):
                     quiet_until = time.monotonic() + 0.25
-            raw = send_and_collect(ser, data, baud=args.baud, pace=not args.no_pace, expect=expect)
+            if expect is not None:
+                raw = send_and_collect(ser, data, baud=args.baud, pace=not args.no_pace,
+                                       expect=expect)
+            else:
+                body, reps = send_frames(ser, data, baud=args.baud,
+                                         pace=not args.no_pace)
+                raw = None
     except SystemExit:
         raise
     except Exception as exc:  # noqa: BLE001
         raise SystemExit(f"Cannot open/read serial port: {exc}") from exc
 
-    rc = show(raw, quiet=args.raw and args.quiet, as_json=args.json, sent=data)
+    if raw is None:
+        rc = show_frames(body, reps, data, as_json=args.json)
+    else:
+        rc = show(raw, quiet=args.raw and args.quiet, as_json=args.json, sent=data)
     if args.raw:
         print("── raw bytes " + "─" * 49)
         print(raw.hex(" "))
@@ -350,9 +446,13 @@ def cmd_repl(args) -> int:
                 print("  the board would just receive it as text. Type :q first, then run it.")
                 continue
             data = (line + "\n").encode("utf-8")
-            raw = send_and_collect(ser, data, baud=args.baud, pace=True, expect=None)
-            if not raw:
+            # 按标点分帧：每片 <=56 字节，避开板子 >64 字节收帧的已知问题
+            body_f, reps_f = send_frames(ser, data, baud=args.baud, pace=True)
+            raw = None
+            if raw is None and not body_f:
                 print("  (no read-back: board powered? bitstream loaded? right COM port?)")
+            elif raw is None:
+                show_frames(body_f, reps_f, data)
             else:
                 show(raw, sent=data)
                 print()
