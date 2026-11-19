@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ARES GUARD · 实时脱敏演示</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="bg-grid"></div>
+<div class="scan"></div>
+
+<header class="top">
+  <div class="brand">
+    <div class="logo">AG</div>
+    <div>
+      <h1>ARES GUARD</h1>
+      <p class="sub">FPGA · 串口 · 实时 PII 脱敏</p>
+    </div>
+  </div>
+  <div class="status">
+    <span id="conn" class="dot off"></span>
+    <span id="connText">未连接</span>
+    <button id="btnConnect" class="btn ghost">连接串口</button>
+    <button id="btnSim" class="btn ghost">模拟模式</button>
+    <span class="lat" id="lat">—</span>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="panel left">
+    <h2>样例 <span class="hint">点一下填入发送框</span></h2>
+    <ul id="demos" class="demos"></ul>
+  </section>
+
+  <section class="panel mid">
+    <h2>发送 <span class="hint">可编辑</span></h2>
+    <textarea id="input" spellcheck="false" placeholder="在这里输入或选择一个样例…"></textarea>
+    <div class="row">
+      <button id="btnSend" class="btn primary">发送到 FPGA</button>
+      <button id="btnClear" class="btn ghost">清空</button>
+      <span class="meta" id="inMeta">0 B</span>
+    </div>
+
+    <div class="chip-stage" id="stage">
+      <svg class="chip" viewBox="0 0 220 140" aria-hidden="true">
+        <defs>
+          <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#38f5c8"/><stop offset="1" stop-color="#3d7bff"/>
+          </linearGradient>
+          <filter id="glow"><feGaussianBlur stdDeviation="3" result="b"/>
+            <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+        </defs>
+        <rect x="45" y="35" width="130" height="70" rx="8" class="die"/>
+        <text x="110" y="68" class="die-label">FPGA</text>
+        <text x="110" y="86" class="die-sub">ARES · L1/L2/NER</text>
+        <g class="pins">
+          <line x1="20" y1="55" x2="45" y2="55"/><line x1="20" y1="70" x2="45" y2="70"/>
+          <line x1="20" y1="85" x2="45" y2="85"/>
+          <line x1="175" y1="55" x2="200" y2="55"/><line x1="175" y1="70" x2="200" y2="70"/>
+          <line x1="175" y1="85" x2="200" y2="85"/>
+        </g>
+        <circle id="pulse" cx="110" cy="70" r="0" class="pulse"/>
+      </svg>
+      <div class="flow in" id="flowIn"></div>
+      <div class="flow out" id="flowOut"></div>
+      <div class="think" id="think">FPGA 推理中<span class="dots"><i></i><i></i><i></i></span></div>
+    </div>
+  </section>
+
+  <section class="panel right">
+    <h2>脱敏结果</h2>
+    <pre id="out" class="out"></pre>
+    <h2 class="mt">审计行</h2>
+    <div id="audit" class="audit"></div>
+  </section>
+</main>
+
+<footer class="foot">
+  <span>115200 8N1 · 帧边界 LF · 脱敏 1:1 保持字节数</span>
+  <span id="stats">—</span>
+</footer>
+
+<script src="demos.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -25,6 +25,9 @@
 #   （出位流 / 烧写不在这里：用 tools/build_guard.ps1 / tools/program_guard.ps1，
 #     见 docs/board-bringup.md）
 #
+#   make web         起本地静态服务，浏览器打开 http://127.0.0.1:8777 看演示页
+#   make web-demos   从 examples/demo*.txt 重新生成 web/demos.js
+#
 #   make clean
 
 VERILATOR ?= verilator
@@ -61,7 +64,7 @@ VEC    := $(BUILD)/vectors
 
 VFLAGS := --binary --timing -j $(JOBS) -O2 -Wall -Wno-fatal --top-module
 
-.PHONY: all test golden vectors sim bench edges kw redact demo demo-check harness run serve cli-smoke lint clean tools board-vectors board-sim board-sim-3m board-lint report-sim l2-vectors l2-sim ner-data ner-train ner-vectors ner-check
+.PHONY: all test golden vectors sim bench edges kw redact demo demo-check harness run serve cli-smoke lint clean tools board-vectors board-sim board-sim-3m board-lint report-sim l2-vectors l2-sim ner-data ner-train ner-vectors ner-check web web-demos
 
 all: test
 
@@ -146,6 +149,14 @@ cli-smoke: redact-harness
 	./run.sh demo -q | grep -q '\*'
 	./run.sh file examples/clean.txt -q | grep -q '下周二的评审'
 	@echo "PASS: guard CLI smoke"
+
+# ---------------------------------------------------------------- 网页演示
+web-demos:
+	@python tools/gen_web_demos.py
+
+web: web-demos
+	@echo "open http://127.0.0.1:8777  (Chrome/Edge; Web Serial 只在这两个里能用)"
+	@python -m http.server 8777 --bind 127.0.0.1 --directory web
 
 demo: harness redact-harness
 	$(PYTHON) tools/demo.py --in examples/sample.txt --rtl --policy token --json $(BUILD)/audit.json
