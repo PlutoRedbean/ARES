@@ -283,6 +283,7 @@ module mtx9_engine (
     logic               sum_value_valid_q, sum_value_last_q;
     logic signed [15:0] v_a_q, v_b_q;
     logic               v_valid_q;
+    logic [6:0]         const_addr_q;
     logic signed [15:0] sum_ret;
     logic signed [31:0] sum_tmp_n, sum_tmp_n2, sum_prev_n;
     logic signed [15:0] sum_ret_n;
@@ -290,7 +291,6 @@ module mtx9_engine (
     logic signed [31:0] clipval_s32;
 
     logic signed [31:0] v_acc, v_acc_n, v_prod;
-    logic signed [31:0] mul_cur;
 
     //-------------------------------------------------------------------------
     // Address generation
@@ -320,10 +320,10 @@ module mtx9_engine (
                 a_wr_data = a_rd_data + val_reg;
             end
 
-            ST_MUL_CONST: begin
-                c_wr_en   = 1'b1;
-                c_wr_addr = idx;
-                c_wr_data = mul_cur;
+            ST_MUL_CONST, ST_MUL_CONST_DR: begin
+                c_wr_en   = sum_valid_q && sum_mul_q;
+                c_wr_addr = const_addr_q;
+                c_wr_data = v_prod;
             end
 
             ST_VECT_DR: begin
@@ -366,8 +366,8 @@ module mtx9_engine (
     //   MATMUL  k=0..8 : a_rd_addr = idx+1 .. idx+9, bcol column = k+1
     //   MATMUL_WR      : a_rd_addr held at (i+1)*9, bcol column 0
     //   last WR cycle  : both advance, so row i+1 sees a[(i+1)*9] x bcol[0]
-    // The linear scan states (ADD_CONST / MUL_CONST / VECT / RESTORE) read and
-    // write the same index in one cycle, so there a_rd_addr simply mirrors idx.
+    // The linear scans (ADD_CONST / MUL_CONST / VECT / RESTORE) issue A reads
+    // in idx order. The constant product carries its index to the C write port.
     //-------------------------------------------------------------------------
     logic [3:0]         pe_k;                 // bcol column being prefetched
     logic signed [15:0] pe_a_q;               // A operand
@@ -571,7 +571,6 @@ module mtx9_engine (
     // Shared multipliers and matrix_sum recurrence
     //-------------------------------------------------------------------------
     always_comb begin
-        mul_cur = $signed(a_rd_data) * $signed(val_reg);
         // ST_VECT multiplies A[vi][vj] by B[vj], and B[j] is exactly
         // bcol[j][0]: ST_LOAD_B already cached the whole B block there, and
         // the host cannot write B while the engine runs.  Reading the cache
@@ -594,9 +593,8 @@ module mtx9_engine (
         sum_prev_n = sum_value_q;
     end
 
-    // Stage 1: ST_MUL_CONST captures the product in c_wr_data_q for both the
-    // C write port and the sum. The later passes capture a full word from C.
-    // The source and last-item markers travel with the captured word.
+    // Stage 1 captures the multiplier operands (or a word from C) together
+    // with the source and last-item markers.
     wire sum_read_c = (state_q == ST_SUM1) || (state_q == ST_SUM2) ||
                       (state_q == ST_SUM3);
 
@@ -613,10 +611,9 @@ module mtx9_engine (
         end
     end
 
-    // Stage 2: select between registered inputs. The product crosses the
-    // C write register and this register before reaching the feedback adder.
+    // Stage 2 captures the product for the sum and C write port in parallel.
     always_ff @(posedge clk) begin
-        sum_value_q      <= sum_mul_q ? c_wr_data_q : sum_c_q;
+        sum_value_q      <= sum_mul_q ? v_prod : sum_c_q;
         sum_value_last_q <= sum_last_q;
         if (rst)
             sum_value_valid_q <= 1'b0;
@@ -624,18 +621,19 @@ module mtx9_engine (
             sum_value_valid_q <= sum_valid_q;
     end
 
-    // Vector path pipeline: capture A and the bcol operand before the
-    // multiplier.  ST_VECT_DR consumes the last column (vj=8) after the row's
-    // ninth A/bcol read, so each 9-element row costs one extra cycle.
+    // Constant and vector passes share the registered multiplier. Delay the
+    // constant write address with A so the drain writes C[80] exactly once.
     always_ff @(posedge clk) begin
         if (rst) begin
             v_a_q     <= 16'sd0;
             v_b_q     <= 16'sd0;
             v_valid_q <= 1'b0;
         end else begin
-            if (state_q == ST_VECT) begin
+            if (state_q == ST_MUL_CONST)
+                const_addr_q <= idx;
+            if (state_q == ST_MUL_CONST || state_q == ST_VECT) begin
                 v_a_q <= a_rd_data;
-                v_b_q <= bcol[{vj, 4'd0}];
+                v_b_q <= (state_q == ST_MUL_CONST) ? val_reg : bcol[{vj, 4'd0}];
             end
             // The drain state is followed directly by the next VECT row
             // (or by SUM1).  Clear the valid flag when leaving VECT_DR so the

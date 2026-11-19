@@ -217,6 +217,10 @@ module tb_mtx9_engine;
                 if (dut.sum_value_last_q !== (sum_element == 80))
                     $fatal(1, "last-item token misaligned at pass %0d element %0d",
                            sum_pass, sum_element);
+                if (sum_pass == 0 && (dut.c_wr_en_q !== 1'b1 ||
+                    dut.c_wr_addr_q !== sum_element[6:0] ||
+                    dut.c_wr_data_q !== sum_inputs_ref[0][sum_element]))
+                    $fatal(1, "constant-product C write misaligned at element %0d", sum_element);
                 sum_samples++;
                 if (sum_element == 80) begin
                     #1;
