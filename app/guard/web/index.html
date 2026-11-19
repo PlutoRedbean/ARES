@@ -1,0 +1,628 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#07090d">
+<meta name="description" content="ARES GUARD · 盘古 200Pro+ 上的实时 PII 脱敏网关：串口进，脱敏文本 + 审计行出。">
+<title>ARES GUARD · 隐私守门人控制台</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<noscript><div style="position:fixed;inset:0;z-index:999;display:grid;place-items:center;background:#07090d;color:#e8eef7;font:14px sans-serif;text-align:center;padding:24px">ARES GUARD 控制台需要 JavaScript。<br>请用 Chrome / Edge 打开，或运行 <code>cd guard &amp;&amp; make web</code>。</div></noscript>
+
+<!-- ── 图标 ─────────────────────────────────────────────────────────────── -->
+<svg class="sprite" aria-hidden="true" focusable="false">
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.6"/><rect x="14" y="3" width="7" height="7" rx="1.6"/><rect x="3" y="14" width="7" height="7" rx="1.6"/><rect x="14" y="14" width="7" height="7" rx="1.6"/></symbol>
+  <symbol id="i-activity" viewBox="0 0 24 24"><path d="M2.5 12h4l2.5-7 4.5 14 2.5-7h5.5"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 3 3 7.5l9 4.5 9-4.5L12 3Z"/><path d="m3 12.5 9 4.5 9-4.5"/><path d="m3 17.5 9 4.5 9-4.5"/></symbol>
+  <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><path d="M9 2.5v3.5M15 2.5v3.5M9 18v3.5M15 18v3.5M2.5 9H6M2.5 15H6M18 9h3.5M18 15h3.5"/></symbol>
+  <symbol id="i-scan" viewBox="0 0 24 24"><path d="M4 8.5V6a2 2 0 0 1 2-2h2.5M15.5 4H18a2 2 0 0 1 2 2v2.5M20 15.5V18a2 2 0 0 1-2 2h-2.5M8.5 20H6a2 2 0 0 1-2-2v-2.5"/><path d="M4 12h16"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m15.8 15.8 4.7 4.7"/></symbol>
+  <symbol id="i-usb" viewBox="0 0 24 24"><path d="M12 3v12.5"/><circle cx="12" cy="19" r="2"/><path d="m8.5 7.5 3.5-4.5 3.5 4.5"/><path d="M8 11h8M8 11v3.5M16 11v2.5"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.2v13.6L19 12 8 5.2Z"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="11" height="12" rx="2"/><path d="M15.5 8.5V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h1"/></symbol>
+  <symbol id="i-terminal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="m7 9 3 3-3 3M13 15h4"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m4.5 12.5 5 5L19.5 7"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3.5 2.8 20h18.4L12 3.5Z"/><path d="M12 9.5v4.2M12 17.4h.01"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4 12h15.5M14 6.5l5.5 5.5-5.5 5.5"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4.5" y="10" width="15" height="10.5" rx="2.5"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/><path d="M12 14v2.5"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9.5 7V4.5h5V7M6.5 7l1 13h9l1-13"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5.3l3.3 2"/></symbol>
+  <symbol id="i-zap" viewBox="0 0 24 24"><path d="M13.5 2 5 13.5h5.5L9 22l8.5-11.5H12L13.5 2Z"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.5h.01"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 2.4 4 5.4v6.1c0 4.9 3.3 8.2 8 10 4.7-1.8 8-5.1 8-10V5.4l-8-3Z"/><path d="m8.8 11.8 2.2 2.2 4.2-4.3"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12M7 10.5l5 5 5-5M4 20.5h16"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.4-5.7M20 3.8V9h-5.2"/></symbol>
+  <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M3.5 9.5a13 13 0 0 1 17 0M6.5 13a8.5 8.5 0 0 1 11 0M9.5 16.5a4 4 0 0 1 5 0"/><circle cx="12" cy="19.5" r="1"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15.5H6.5A2.5 2.5 0 0 0 4 21V5.5Z"/><path d="M4 18.5A2.5 2.5 0 0 1 6.5 16H20"/></symbol>
+  <symbol id="i-code" viewBox="0 0 24 24"><path d="m8 7-5 5 5 5M16 7l5 5-5 5M13.5 4.5l-3 15"/></symbol>
+</svg>
+
+<div class="ambient" aria-hidden="true"><span class="ambient-a"></span><span class="ambient-b"></span></div>
+
+<!-- ── 顶栏 ──────────────────────────────────────────────────────────────── -->
+<header class="topbar">
+  <a class="brand" href="#/workbench" aria-label="ARES GUARD 工作台">
+    <span class="brand-mark" aria-hidden="true">
+      <svg viewBox="0 0 40 44" fill="none">
+        <path d="M20 2.2 36.4 10v17.6c0 8.1-7.1 12.5-16.4 14.6C10.7 40.1 3.6 35.7 3.6 27.6V10L20 2.2Z" fill="url(#bm-fill)" stroke="#35e3a9" stroke-width="1.5"/>
+        <path d="M10.6 21.5c3.1-4.2 6.2-6.3 9.4-6.3s6.3 2.1 9.4 6.3c-3.1 4.2-6.2 6.3-9.4 6.3s-6.3-2.1-9.4-6.3Z" stroke="#35e3a9" stroke-width="1.3"/>
+        <circle cx="20" cy="21.5" r="2.5" fill="#35e3a9"/>
+        <defs><linearGradient id="bm-fill" x1="20" y1="2" x2="20" y2="42"><stop stop-color="#35e3a9" stop-opacity=".14"/><stop offset="1" stop-color="#35e3a9" stop-opacity=".02"/></linearGradient></defs>
+      </svg>
+    </span>
+    <span class="brand-text">
+      <span class="wordmark">ARES <b>GUARD</b></span>
+      <span class="brand-sub">PII REDACTION · ON THE WIRE</span>
+    </span>
+  </a>
+
+  <div class="board-pill" title="目标板：盘古 200Pro+，PG2L200H-6IFBB676，25 MHz 核心">
+    <span class="board-pill-label">目标板</span>
+    <span class="board-pill-name">盘古 200Pro+</span>
+    <span class="board-pill-meta">PG2L200H · 25 MHz</span>
+  </div>
+
+  <div class="topbar-spacer"></div>
+
+  <div class="conn-pill" id="connPill" data-state="replay">
+    <span class="dot" id="connDot"></span>
+    <span id="connLabel">回放模式</span>
+  </div>
+  <button class="btn ghost sm" id="btnConnect" type="button" aria-label="连接或断开串口">
+    <svg class="ico"><use href="#i-usb"></use></svg>
+    <span id="btnConnectLabel">连接串口</span>
+  </button>
+  <button class="icon-btn" id="btnPalette" type="button" title="命令面板 · Ctrl K" aria-label="打开命令面板">
+    <svg class="ico"><use href="#i-search"></use></svg>
+    <span class="kbd-hint">Ctrl K</span>
+  </button>
+</header>
+
+<!-- ── 主体 ──────────────────────────────────────────────────────────────── -->
+<div class="shell">
+  <aside class="sidebar">
+    <div class="nav-label">控制台</div>
+    <nav class="nav" aria-label="主导航">
+      <button class="nav-item is-active" data-nav="workbench" type="button">
+        <span class="nav-ico"><svg class="ico"><use href="#i-grid"></use></svg></span>
+        <span class="nav-text"><b>脱敏工作台</b><em>Workbench</em></span>
+      </button>
+      <button class="nav-item" data-nav="link" type="button">
+        <span class="nav-ico"><svg class="ico"><use href="#i-activity"></use></svg></span>
+        <span class="nav-text"><b>数据链路</b><em>Link</em></span>
+      </button>
+      <button class="nav-item" data-nav="rules" type="button">
+        <span class="nav-ico"><svg class="ico"><use href="#i-layers"></use></svg></span>
+        <span class="nav-text"><b>规则矩阵</b><em>Rules</em></span>
+      </button>
+      <button class="nav-item" data-nav="system" type="button">
+        <span class="nav-ico"><svg class="ico"><use href="#i-cpu"></use></svg></span>
+        <span class="nav-text"><b>系统状态</b><em>System</em></span>
+      </button>
+    </nav>
+
+    <div class="rail-card">
+      <div class="rail-card-head"><span>硬件</span><em>BOARD</em></div>
+      <div class="board-mini-name">盘古 200Pro+</div>
+      <div class="board-mini-sub">PG2L200H-6IFBB676</div>
+
+      <div class="lut">
+        <div class="lut-head"><span>LUT</span><b>20,895 <i>/ 159,800</i></b></div>
+        <div class="lut-bar"><span style="width:13.08%"></span></div>
+        <div class="lut-foot"><span>13.1%</span><span>WNS +5.22 ns</span></div>
+      </div>
+
+      <div class="board-mini-rows">
+        <div><span>时钟</span><b>25 MHz</b></div>
+        <div><span>串口</span><b>115200</b></div>
+        <div><span>位流</span><b>9.19 MB</b></div>
+        <div><span>自检</span><b class="ok">12/12</b></div>
+      </div>
+    </div>
+
+    <div class="rail-foot">
+      <div class="rail-version"><span class="dot on"></span>位流 · 2026-11-19</div>
+      <div class="rail-note">Web Serial 仅 Chrome / Edge 可用</div>
+    </div>
+  </aside>
+
+  <main class="main">
+
+    <!-- ══ 工作台 ═══════════════════════════════════════════════════════════ -->
+    <section class="view" id="view-workbench" data-view="workbench">
+      <header class="page-head">
+        <div class="page-head-main">
+          <div class="eyebrow"><span class="eyebrow-rule"></span>WORKBENCH / 本地工作台</div>
+          <h1>脱敏工作台</h1>
+        </div>
+        <div class="page-head-side">
+          <div class="mode-note"><span class="dot" id="headModeDot"></span><span id="headModeText">回放 · 板上实测</span></div>
+          <div class="head-note">L1 → L2 → NER → merge → mask</div>
+        </div>
+      </header>
+
+      <div class="stat-strip" id="stats" aria-label="本次运行统计"></div>
+
+      <div class="sample-wrap">
+        <div class="rail-head">
+          <span class="rail-title">板上样例 <em>BOARD-VERIFIED</em></span>
+        </div>
+        <div class="sample-rail" id="sampleRail"></div>
+      </div>
+
+      <div class="work-grid">
+        <article class="card input-card">
+          <header class="card-head">
+            <div class="card-title">
+              <span class="card-kicker">INPUT · 待脱敏</span>
+              <h2>发送文本</h2>
+            </div>
+            <div class="card-tools">
+              <button class="btn subtle sm" id="btnPaste" type="button"><svg class="ico"><use href="#i-copy"></use></svg>粘贴</button>
+              <button class="btn subtle sm" id="btnClear" type="button"><svg class="ico"><use href="#i-trash"></use></svg>清空</button>
+            </div>
+          </header>
+
+          <div class="editor">
+            <textarea id="input" spellcheck="false" autocomplete="off" aria-label="待脱敏文本" placeholder="输入或粘贴一段文本。Ctrl + Enter 运行。"></textarea>
+          </div>
+
+          <div class="editor-meta">
+            <span><b id="charMeta">0</b> 字符</span>
+            <span><b id="byteMeta">0</b> B</span>
+            <span><b id="lineMeta">1</b> 行</span>
+            <span><b id="frameMeta">0</b> 帧 · ≤56 B/帧</span>
+            <span class="privacy-note"><svg class="ico"><use href="#i-lock"></use></svg>仅本页内存 · 串口直达板子</span>
+          </div>
+
+          <div class="frame-strip-wrap">
+            <div class="strip-head">
+              <span>分帧计划</span>
+              <em id="stripMeta">LF 边界 · 超长按标点切</em>
+            </div>
+            <div class="frame-strip" id="frameStrip" aria-label="分帧计划"><span class="strip-empty"></span></div>
+          </div>
+
+          <footer class="card-foot">
+            <div class="run-hint"><kbd>Ctrl</kbd><kbd>↵</kbd><span>运行</span></div>
+            <button class="btn primary lg" id="btnRun" type="button">
+              <svg class="ico"><use href="#i-play"></use></svg><span>运行脱敏</span>
+            </button>
+          </footer>
+        </article>
+
+        <article class="card result-card" id="resultCard">
+          <header class="card-head">
+            <div class="card-title">
+              <span class="card-kicker">OUTPUT · 脱敏后</span>
+              <h2>结果与判读</h2>
+            </div>
+            <div class="card-tools">
+              <span class="source-badge" id="resultSource">待运行</span>
+              <button class="icon-btn sm" id="btnCopyResult" type="button" title="复制脱敏结果" aria-label="复制脱敏结果"><svg class="ico"><use href="#i-copy"></use></svg></button>
+            </div>
+          </header>
+
+          <div class="result-tabs" role="tablist" aria-label="结果视图">
+            <button class="tab is-active" data-tab="masked" type="button" role="tab" aria-selected="true">脱敏结果</button>
+            <button class="tab" data-tab="raw" type="button" role="tab" aria-selected="false">原文</button>
+            <span class="tab-spacer"></span>
+            <span class="result-meta" id="resultMeta"></span>
+          </div>
+
+          <div class="result-box" id="resultBox">
+            <div class="empty-state" id="resultEmpty">
+              <span class="empty-mark"><svg class="ico"><use href="#i-shield"></use></svg></span>
+              <b>还没有运行结果</b>
+              <span>选择一条样例，或输入文本后按 Ctrl + Enter。</span>
+            </div>
+            <pre class="result-text" id="resultText" hidden></pre>
+          </div>
+
+          <div class="result-foot">
+            <span id="resultNote">回放模式使用板上实测回显；任意文本走本地规则预览。</span>
+            <span class="foot-tag" title="板上 mask 是逐字节 1:1；这里按原始字符折叠显示">按字符显示</span>
+          </div>
+
+          <div class="known-issue" id="knownIssue" hidden>
+            <svg class="ico"><use href="#i-alert"></use></svg>
+            <span id="knownIssueText"></span>
+          </div>
+
+          <div class="audit-block">
+            <div class="block-head">
+              <span class="block-label">命中构成 <em>HITS</em></span>
+              <span class="block-value"><b id="hitTotal">0</b> spans</span>
+            </div>
+            <div class="hit-bar" id="hitBar"><span class="hit-empty"></span></div>
+            <div class="hit-chips" id="hitChips"></div>
+          </div>
+
+          <details class="audit-raw">
+            <summary>
+              <span><svg class="ico"><use href="#i-terminal"></use></svg>审计摘要行</span>
+              <em id="auditRawHint">板子回传 · 17 字段</em>
+            </summary>
+            <div class="audit-raw-body">
+              <pre id="auditLine">—</pre>
+              <button class="btn subtle xs" id="btnCopyAuditLine" type="button">复制</button>
+            </div>
+          </details>
+        </article>
+      </div>
+
+      <div class="detail-grid">
+        <article class="card frames-card">
+          <header class="card-head">
+            <div class="card-title">
+              <span class="card-kicker">FRAMES · 分帧</span>
+              <h2>逐帧回放</h2>
+            </div>
+            <div class="card-tools"><span class="frame-count" id="frameCount">0 帧</span></div>
+          </header>
+          <div class="frames-body">
+            <div class="frame-list" id="frameList">
+              <div class="list-empty">运行后这里会列出每一帧。</div>
+            </div>
+            <div class="frame-view">
+              <div class="frame-view-head"><span id="frameViewTitle">F01</span><span id="frameViewMeta">—</span></div>
+              <pre class="frame-text" id="frameViewText">—</pre>
+              <div class="frame-view-foot" id="frameViewCounts"></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="card history-card">
+          <header class="card-head">
+            <div class="card-title">
+              <span class="card-kicker">SESSION · 会话</span>
+              <h2>运行记录</h2>
+            </div>
+            <div class="card-tools">
+              <button class="btn subtle xs" id="btnClearHistory" type="button">清空</button>
+            </div>
+          </header>
+          <div class="history-list" id="historyList">
+            <div class="list-empty" id="historyEmpty">本次会话还没有记录。</div>
+          </div>
+          <div class="history-summary" id="historySummary"></div>
+        </article>
+      </div>
+
+      <footer class="view-foot">
+        <span>数字来自 2026-11-19 的板级实测与 <code>make test</code> 回归。</span>
+        <span class="view-foot-right"><svg class="ico"><use href="#i-info"></use></svg>回放结果 = 板上实测回显；编辑后的文本 = 本地规则预览，不含 NER / L2。</span>
+      </footer>
+    </section>
+
+    <!-- ══ 数据链路 ═════════════════════════════════════════════════════════ -->
+    <section class="view" id="view-link" data-view="link" hidden>
+      <header class="page-head">
+        <div class="page-head-main">
+          <div class="eyebrow"><span class="eyebrow-rule"></span>LINK / 数据链路</div>
+          <h1>串口与数据通路</h1>
+        </div>
+        <div class="page-head-side">
+          <div class="mode-note"><span class="dot" id="linkModeDot"></span><span id="linkModeText">回放模式</span></div>
+          <div class="head-note">RX B24 · TX C24</div>
+        </div>
+      </header>
+
+      <div class="stat-strip" id="linkStats" aria-label="链路统计"></div>
+
+      <div class="link-grid">
+        <article class="card connect-card">
+          <header class="card-head">
+            <div class="card-title">
+              <span class="card-kicker">SERIAL · 串口</span>
+              <h2>连接</h2>
+            </div>
+            <span class="source-badge" id="serialBadge">未连接</span>
+          </header>
+
+          <div class="connect-hero">
+            <span class="conn-orb" id="linkStatusOrb"><svg class="ico"><use href="#i-usb"></use></svg></span>
+            <div class="connect-copy">
+              <h3 id="linkStatusTitle">未连接</h3>
+              <p id="linkStatusSub">回放模式 · 不需要板子也能演示</p>
+            </div>
+          </div>
+
+          <div class="connect-form">
+            <label class="field">
+              <span>波特率</span>
+              <select id="baudSelect">
+                <option value="115200" selected>115200 · 板上默认</option>
+                <option value="3000000">3000000 · 仿真通路</option>
+              </select>
+            </label>
+            <div class="connect-actions">
+              <button class="btn primary" id="btnConnect2" type="button"><svg class="ico"><use href="#i-usb"></use></svg>选择串口并连接</button>
+              <button class="btn ghost" id="btnDisconnect" type="button" disabled>断开</button>
+            </div>
+            <p class="support-note" id="serialSupport">正在检查 Web Serial 支持…</p>
+            <button class="btn subtle link-cta" id="btnGoWorkbench" type="button">
+              <span>去工作台输入文本</span><svg class="ico"><use href="#i-arrow"></use></svg>
+            </button>
+          </div>
+
+          <dl class="fact-list">
+            <div><dt>设备</dt><dd id="portInfo">—</dd></div>
+            <div><dt>帧边界</dt><dd>LF · 空闲 ≈2.6 s</dd></div>
+            <div><dt>发送策略</dt><dd>按标点分帧 ≤56 B</dd></div>
+            <div><dt>板级流控</dt><dd>跟着回读走 · 防 ovf</dd></div>
+          </dl>
+        </article>
+
+        <article class="card pipeline-card">
+          <header class="card-head">
+            <div class="card-title">
+              <span class="card-kicker">DATAPATH · 数据通路</span>
+              <h2>从字节到审计行</h2>
+            </div>
+            <span class="live-badge" id="pipelineBadge">待机</span>
+          </header>
+
+          <div class="pipeline" id="pipeline">
+            <div class="stage" data-stage="0"><span class="stage-index">01</span><div class="stage-body"><b>UART RX</b><span>115200 8N1</span></div><i class="stage-led"></i></div>
+            <div class="stage" data-stage="1"><span class="stage-index">02</span><div class="stage-body"><b>L1 规则 ×5</b><span>字节级判定</span></div><i class="stage-led"></i></div>
+            <div class="stage" data-stage="2"><span class="stage-index">03</span><div class="stage-body"><b>L2 INT4</b><span>4×4 MXU</span></div><i class="stage-led"></i></div>
+            <div class="stage" data-stage="3"><span class="stage-index">04</span><div class="stage-body"><b>NER v4</b><span>INT8 CNN</span></div><i class="stage-led"></i></div>
+            <div class="stage" data-stage="4"><span class="stage-index">05</span><div class="stage-body"><b>MERGE</b><span>重叠合并</span></div><i class="stage-led"></i></div>
+            <div class="stage" data-stage="5"><span class="stage-index">06</span><div class="stage-body"><b>MASK</b><span>1:1 替换</span></div><i class="stage-led"></i></div>
+            <div class="stage" data-stage="6"><span class="stage-index">07</span><div class="stage-body"><b>UART TX</b><span>文本 + 摘要</span></div><i class="stage-led"></i></div>
+          </div>
+
+          <div class="pipeline-meta">
+            <span><b>1</b> 字节/拍</span>
+            <span><b>5</b> 引擎并行</span>
+            <span><b>17</b> 摘要字段</span>
+            <span><b>25</b> MHz 核心</span>
+          </div>
+          <p class="pipeline-note">高亮只是运行顺序；板上是流水线，不是串行。摘要行在每帧末尾追加，输出字节数会略多于输入。</p>
+
+          <div class="frame-anatomy">
+            <div class="frame-anatomy-head"><span>一帧在线上长这样</span><em>ONE FRAME</em></div>
+            <pre>手机 *******8000
+[guard] n=001 id18=000 … ovf=000 mode=1</pre>
+            <div class="frame-anatomy-legend"><span>正文 · mask 1:1</span><span>摘要 · 17 字段固定宽度</span></div>
+          </div>
+        </article>
+
+        <article class="card monitor-card">
+          <header class="card-head">
+            <div class="card-title">
+              <span class="card-kicker">MONITOR · 帧</span>
+              <h2>链路监视</h2>
+            </div>
+            <div class="card-tools">
+              <span class="frame-count" id="monitorCount">0 帧</span>
+              <button class="btn subtle xs" id="btnClearMonitor" type="button">清空</button>
+            </div>
+          </header>
+          <div class="monitor-list" id="frameMonitor">
+            <div class="list-empty" id="monitorEmpty">连上板子并发送一次，帧与摘要会出现在这里。</div>
+          </div>
+        </article>
+
+        <article class="card log-card">
+          <header class="card-head">
+            <div class="card-title">
+              <span class="card-kicker">LOG · 事件</span>
+              <h2>会话日志</h2>
+            </div>
+            <div class="card-tools">
+              <button class="icon-btn xs" id="btnCopyLog" type="button" title="复制日志"><svg class="ico"><use href="#i-copy"></use></svg></button>
+              <button class="btn subtle xs" id="btnClearLog" type="button">清空</button>
+            </div>
+          </header>
+          <div class="log" id="eventLog">
+            <div class="log-empty" id="logEmpty">等待会话事件…</div>
+          </div>
+          <p class="log-note"><svg class="ico"><use href="#i-lock"></use></svg>日志只记字节数与摘要，不写正文。</p>
+        </article>
+      </div>
+
+      <footer class="view-foot">
+        <span>帧边界：收到 LF 立即结束；无 LF 时空闲 300000 位时间（≈2.6 s）兜底。</span>
+        <span class="view-foot-right"><svg class="ico"><use href="#i-alert"></use></svg>长帧 &gt;64 B 会被提前收帧，上位机按标点分帧规避。</span>
+      </footer>
+    </section>
+
+    <!-- ══ 规则矩阵 ═════════════════════════════════════════════════════════ -->
+    <section class="view" id="view-rules" data-view="rules" hidden>
+      <header class="page-head">
+        <div class="page-head-main">
+          <div class="eyebrow"><span class="eyebrow-rule"></span>RULES / 规则矩阵</div>
+          <h1>规则与判读</h1>
+          <p class="page-lede">确定性的 L1 规则、4×4 阵列上的 INT4 语义层、以及字符级 INT8 NER。三路结果合并后按 1:1 字节替换。</p>
+        </div>
+        <div class="page-head-side">
+          <div class="mode-note"><span class="dot on"></span><span>板上生效</span></div>
+          <div class="head-note">8 类 L1 · 实体 2 类 · 关键词 8</div>
+        </div>
+      </header>
+
+      <div class="layer-grid" id="layerGrid"></div>
+
+      <article class="card rule-table-card">
+        <header class="card-head">
+          <div class="card-title">
+            <span class="card-kicker">DETECTORS · 检测器</span>
+            <h2>10 类实体与它们的遮法</h2>
+          </div>
+          <div class="card-tools"><span class="frame-count">板上 + 本地预览</span></div>
+        </header>
+        <div class="table-wrap">
+          <table class="rule-table">
+            <thead>
+              <tr>
+                <th>类型</th>
+                <th>规则</th>
+                <th>判定</th>
+                <th>遮法</th>
+                <th>样例</th>
+                <th class="ta-r">操作</th>
+              </tr>
+            </thead>
+            <tbody id="ruleRows"></tbody>
+          </table>
+        </div>
+      </article>
+
+      <div class="rules-lower">
+        <article class="card policy-card">
+          <header class="card-head">
+            <div class="card-title">
+              <span class="card-kicker">POLICY · 掩码</span>
+              <h2>怎么遮</h2>
+            </div>
+          </header>
+          <div class="policy-list" id="policyList"></div>
+          <div class="policy-flow"><span>merge</span><i>→</i><span>mask 1:1</span><i>→</i><span>audit</span></div>
+          <p class="policy-note">板上只有 mask（长度 1:1）。token 策略（<code>[MOBILE_1]</code>）需要变长输出与反压，仍在 host 侧。</p>
+        </article>
+
+        <article class="card keyword-card">
+          <header class="card-head">
+            <div class="card-title">
+              <span class="card-kicker">KEYWORDS · 上下文</span>
+              <h2>8 个提示词</h2>
+            </div>
+          </header>
+          <div class="keyword-grid" id="keywordGrid"></div>
+          <div class="keyword-code">
+            <span>摘要位图</span>
+            <code>kwm = bit0..bit7</code>
+          </div>
+          <div class="keyword-example">
+            <div class="keyword-example-top"><span>上下文兜底</span><em>宁可多遮</em></div>
+            <pre>身份证 330203300422240391</pre>
+            <p>校验位不通过，但游程前 8 字节内有「身份证」——仍按身份证遮。</p>
+          </div>
+          <p class="policy-note">关键词只回答「出现过没有」，不单独判 PII；它给 L2 和上下文兜底提供先验。</p>
+        </article>
+
+        <article class="card limits-card">
+          <header class="card-head">
+            <div class="card-title">
+              <span class="card-kicker">EDGES · 边界</span>
+              <h2>已知边界</h2>
+            </div>
+          </header>
+          <div class="limit-list" id="limitList"></div>
+        </article>
+      </div>
+
+      <footer class="view-foot">
+        <span>规则与金标必须逐条对齐：改一侧，另一侧同步，<code>make test</code> 用同一批向量拉齐。</span>
+        <span class="view-foot-right"><svg class="ico"><use href="#i-info"></use></svg>坐标按 UTF-8 字节计，span = start + length。</span>
+      </footer>
+    </section>
+
+    <!-- ══ 系统状态 ═════════════════════════════════════════════════════════ -->
+    <section class="view" id="view-system" data-view="system" hidden>
+      <header class="page-head">
+        <div class="page-head-main">
+          <div class="eyebrow"><span class="eyebrow-rule"></span>SYSTEM / 系统状态</div>
+          <h1>一块板子的全部家当</h1>
+          <p class="page-lede">25 MHz 核心、20,895 LUT、WNS +5.22 ns。所有数字都能用三条命令重新得到。</p>
+        </div>
+        <div class="page-head-side">
+          <div class="mode-note"><span class="dot on"></span><span>实测 · 2026-11-19</span></div>
+          <div class="head-note">PDS 2025.2-SP3 · Verilator 5.040</div>
+        </div>
+      </header>
+
+      <div class="sys-grid">
+        <article class="card resource-card">
+          <header class="card-head">
+            <div class="card-title">
+              <span class="card-kicker">RESOURCES · 资源</span>
+              <h2>逻辑用量</h2>
+            </div>
+            <span class="source-badge is-ok">MET</span>
+          </header>
+          <div class="resource-hero">
+            <div class="resource-num"><b>13.08</b><span>% LUT</span></div>
+            <div class="resource-copy"><b>20,895</b> / 159,800 LUT<br><span>PNR · guard_board_top</span></div>
+          </div>
+          <div class="resource-list" id="resourceList"></div>
+        </article>
+
+        <article class="card timing-card">
+          <header class="card-head">
+            <div class="card-title">
+              <span class="card-kicker">TIMING · 时序</span>
+              <h2>25 MHz 收敛</h2>
+            </div>
+            <span class="source-badge is-ok">WNS +5.22</span>
+          </header>
+          <div class="timing-hero">
+            <div class="timing-ring">
+              <svg viewBox="0 0 120 120" aria-hidden="true">
+                <circle cx="60" cy="60" r="50" class="ring-bg"/>
+                <circle cx="60" cy="60" r="50" class="ring-fg" id="timingRing"/>
+              </svg>
+              <div class="ring-label"><b>28.8</b><span>MHz Fmax</span></div>
+            </div>
+            <div class="timing-rows">
+              <div><span>核心时钟</span><b>25 MHz</b></div>
+              <div><span>WNS / TNS</span><b>+5.22 ns / 0</b></div>
+              <div><span>WHS</span><b>+0.037 ns</b></div>
+              <div><span>时钟树</span><b>27 MHz → PLL</b></div>
+            </div>
+          </div>
+          <p class="timing-note">27 MHz 一开始不收敛（WNS −38.2 ns）。把邮箱 / IPv4 / USCC 改成逐字节增量校验后，文本块 −37.9 → +22.4 ns，整板在 25 MHz 收敛。</p>
+        </article>
+      </div>
+
+      <article class="card verify-card verify-card-wide">
+        <header class="card-head">
+          <div class="card-title">
+            <span class="card-kicker">VERIFY · 验收</span>
+            <h2>可复现的结论</h2>
+          </div>
+          <div class="card-tools"><span class="frame-count">5 条验收</span></div>
+        </header>
+        <div class="verify-list" id="verifyList"></div>
+        <div class="verify-foot"><span class="dot on"></span>同一批向量贯穿 PC / Verilator / 真板 —— 三处 PASS 互为证据</div>
+      </article>
+
+      <footer class="view-foot">
+        <span>硬件：盘古 200Pro+ · PG2L200H-6IFBB676 · 27 MHz 晶振 → GTP_GPLL → 25 MHz 核心。</span>
+        <span class="view-foot-right"><svg class="ico"><use href="#i-alert"></use></svg>位流掉电即丢，重新上电要再烧一次。</span>
+      </footer>
+    </section>
+
+  </main>
+</div>
+
+<!-- ── 命令面板 ──────────────────────────────────────────────────────────── -->
+<div class="palette" id="palette" hidden>
+  <div class="palette-panel" role="dialog" aria-modal="true" aria-label="命令面板">
+    <div class="palette-search">
+      <svg class="ico"><use href="#i-search"></use></svg>
+      <input id="paletteInput" type="text" placeholder="跳转视图，或载入一条样例…" autocomplete="off" spellcheck="false" aria-label="命令面板搜索">
+      <kbd>Esc</kbd>
+    </div>
+    <div class="palette-list" id="paletteList"></div>
+    <div class="palette-foot"><span><kbd>↑</kbd><kbd>↓</kbd>选择</span><span><kbd>↵</kbd>打开</span><span><kbd>Esc</kbd>关闭</span></div>
+  </div>
+</div>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<script src="demos.js"></script>
+<script src="data.js"></script>
+<script src="engine.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

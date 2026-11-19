@@ -1,0 +1,371 @@
+// guard/rtl/l2/l2_ner.sv
+//
+// 字符级 INT8 CNN（v2 模型）的 RTL：64 字节窗口 -> 每字符 3 分类 -> span。
+// 组合 ROM 寻址 + 1 MAC/拍（~456k 拍/窗口 ≈ 18 ms @25 MHz）。速度不是目标，
+// 与 host/golden/ner.py 的整数语义一致才是。
+
+`timescale 1ns/1ps
+
+module l2_ner (
+    input  logic        clk,
+    input  logic        rst_n,
+    input  logic        in_valid,
+    input  logic [7:0]  in_char,
+    input  logic        in_last,
+    output logic        out_valid,
+    output logic [31:0] out_start,
+    output logic [7:0]  out_len,
+    output logic [3:0]  out_type,
+    output logic        busy
+);
+
+    import l2_ner_cfg::*;
+    import l2_entity_tables::*;   // 姓氏/锚点表：给模型输出做确定性过滤
+    localparam logic [23:0] M1 = 24'd281423;   // s=28: logits 与金标 60/60 完全相同
+    localparam logic [23:0] M2 = 24'd384084;
+
+    // ROM（组合读）
+    logic [16:0] emb_addr;   logic [7:0]  emb_data;
+    logic [11:0] c1_addr, c2_addr, w_addr;
+    logic [7:0]  c1_data, c2_data;
+    logic [4:0]  c1b_addr, c2b_addr;
+    logic signed [31:0] c1b_data, c2b_data;
+    logic [7:0]  h_addr;     logic [7:0]  h_data;
+    logic [1:0]  hb_addr;    logic signed [31:0] hb_data;
+    logic [11:0] voc_addr;   logic [23:0] voc_key;  logic [11:0] voc_id;
+
+    l2_ner_rom u_rom (
+        .emb_addr(emb_addr), .emb_data(emb_data),
+        .conv1_addr(c1_addr), .conv1_data(c1_data),
+        .conv1_b_addr(c1b_addr), .conv1_b_data(c1b_data),
+        .conv2_addr(c2_addr), .conv2_data(c2_data),
+        .conv2_b_addr(c2b_addr), .conv2_b_data(c2b_data),
+        .head_addr(h_addr), .head_data(h_data),
+        .head_b_addr(hb_addr), .head_b_data(hb_data)
+    );
+
+    l2_ner_vocab u_voc (.addr(voc_addr), .key(voc_key), .id(voc_id));
+
+    // 存储
+    logic [7:0]  ch_buf [0:63];
+    logic [11:0] tok_id [0:63];
+    logic [5:0]  tok_off[0:63];
+    logic [2:0]  tok_len[0:63];
+    logic signed [7:0]  x  [0:2047];
+    logic signed [7:0]  h1 [0:2047];
+    logic signed [7:0]  h2 [0:2047];
+    logic [1:0]  lab [0:63];
+    logic signed [31:0] b1_reg [0:31];
+    logic signed [31:0] b2_reg [0:31];
+    logic signed [31:0] hb_reg [0:2];
+
+    logic [6:0]  nbyte, ntok;
+    logic [7:0]  pend_byte;
+    logic        pend_ok;
+    logic [31:0] win_base;
+
+    typedef enum logic [3:0] {
+        S_RECV, S_TOK, S_EMB, S_C1B, S_C1, S_C2, S_HB, S_HEAD, S_SPAN, S_DONE
+    } state_t;
+    state_t st;
+
+    logic [6:0]  ti, i, o, c, sp, rs;
+    logic [11:0] va;
+    logic [23:0] key_r;
+    logic [2:0]  tlen_r;
+    logic [1:0]  k, cls, rl;
+    logic        run_anchor_q;   // 地址段里是否出现过 省/市/区/县/路/街/号
+    logic        run_ascii_q;    // 名字段里是否混进了 ASCII（"于2" 这种要丢掉）
+    logic signed [47:0] acc;
+    logic signed [31:0] best;
+    logic [1:0]  best_cls;
+
+    // Commit the saved boundary byte before accepting the frame-end token.
+    assign busy = (st != S_RECV) || pend_ok;
+
+    // 标点/空白永远不算实体：否则模型会把 "（" "，" 并进名字，遮完括号就没了
+    function automatic logic is_punct(input logic [7:0] b0, input logic [7:0] b1);
+        if (b0 < 8'h20)                                  is_punct = 1'b1;   // 控制字符
+        else if (b0 == 8'h20)                            is_punct = 1'b1;   // 空格
+        else if (b0 == 8'hEF && (b1 == 8'hBC || b1 == 8'hBD)) is_punct = 1'b1; // 全角 ，（）：；！？
+        else if (b0 == 8'hE3 && b1 == 8'h80)              is_punct = 1'b1;   // 、。〈〉《》
+        else if (b0 < 8'h80 && !((b0 >= 8'h30 && b0 <= 8'h39) ||
+                                 (b0 >= 8'h41 && b0 <= 8'h5A) ||
+                                 (b0 >= 8'h61 && b0 <= 8'h7A))) is_punct = 1'b1; // ASCII 符号
+        else is_punct = 1'b0;
+    endfunction
+
+    wire [11:0] tid = (i < ntok) ? tok_id[i[5:0]] : 12'd0;
+    wire [6:0]  a_idx = i + {5'd0, k} - 7'd1;
+    wire        a_ok  = (i + {5'd0, k} >= 7'd1) && (a_idx <= 7'd63);
+    wire signed [7:0] a_x  = a_ok ? x [{5'd0, a_idx} * 12'd32 + {4'd0, c}] : 8'sd0;
+    wire signed [7:0] a_h1 = a_ok ? h1[{5'd0, a_idx} * 12'd32 + {4'd0, c}] : 8'sd0;
+
+    // tid 是 10 位：这里必须用满 10 位，否则 id >= 512 的 token 会读错行
+    assign emb_addr = {tid, 5'd0} + {12'd0, c[4:0]};
+    assign w_addr   = {5'd0, o} * 12'd96 + {10'd0, k} * 12'd32 + {5'd0, c};
+    assign c1_addr  = w_addr;
+    assign c2_addr  = w_addr;
+    assign c1b_addr = o[4:0];
+    assign c2b_addr = o[4:0];
+    assign h_addr   = {6'd0, cls} * 8'd32 + {1'b0, o[4:0]};
+    assign hb_addr  = cls[1:0];
+    assign voc_addr = va;
+
+    // 显式 16 位乘积：避免乘法的自决定宽度把 8x8 截断
+    wire signed [15:0] pr1 = $signed(c1_data) * $signed(a_x);
+    wire signed [15:0] pr2 = $signed(c2_data) * $signed(a_h1);
+    wire signed [15:0] prh = $signed(h_data) * $signed(h2[{5'd0, i} * 12'd32 + {4'd0, o[4:0]}]);
+
+    function automatic logic [2:0] ureq_len(input logic [7:0] b);
+        ureq_len = (b >= 8'hF0) ? 3'd4 : (b >= 8'hE0) ? 3'd3 : (b >= 8'hC0) ? 3'd2 : 3'd1;
+    endfunction
+
+    function automatic logic [23:0] tkey_at(input logic [5:0] off);
+        logic [2:0] ln;
+        begin
+            ln = ureq_len(ch_buf[off]);
+            tkey_at = {ch_buf[off],
+                       (ln >= 3'd2) ? ch_buf[off + 6'd1] : 8'h01,
+                       (ln >= 3'd3) ? ch_buf[off + 6'd2] : 8'h01};
+        end
+    endfunction
+
+    function automatic logic signed [7:0] rq(input logic signed [47:0] v, input logic [23:0] m);
+        logic signed [71:0] p, q;
+        begin
+            p = v * $signed({1'b0, m});
+            q = (p + 72'sd134217728) >>> 28;
+            if (q < 0)        rq = 8'sd0;
+            else if (q > 127) rq = 8'sd127;
+            else              rq = q[7:0];
+        end
+    endfunction
+
+    always_ff @(posedge clk) begin
+        if (!rst_n) begin
+            st <= S_RECV; nbyte <= 7'd0; ntok <= 7'd0; win_base <= 32'd0; pend_ok <= 1'b0;
+            out_valid <= 1'b0; out_start <= 32'd0; out_len <= 8'd0; out_type <= 4'd0;
+            run_anchor_q <= 1'b0;
+            run_ascii_q  <= 1'b0;
+        end else begin
+            out_valid <= 1'b0;
+            case (st)
+            S_RECV: begin
+                // 先把上一窗留下的那个字节放进新窗
+                if (pend_ok) begin
+                    // 上一窗边界那个字节放到新窗第 0 位；同一拍的 in_valid 是下一个字节，
+                    // 放第 1 位（不能丢，否则每个窗口边界都会错开一个字节）
+                    ch_buf[6'd0] <= pend_byte;
+                    if (in_valid) begin
+                        ch_buf[6'd1] <= in_char;
+                        nbyte <= 7'd2;
+                    end else begin
+                        nbyte <= 7'd1;
+                    end
+                    pend_ok <= 1'b0;
+                end else if (in_valid) begin
+                    // 字符对齐：这个字节若是新字符的起点，且放进来会超 64 字节，
+                    // 就结束本窗（它留给下一窗）
+                    if ((nbyte != 7'd0) && (nbyte + 7'(ureq_len(in_char)) > 7'd64)) begin
+                        pend_byte <= in_char;
+                        pend_ok   <= 1'b1;
+                        st <= S_TOK; ti <= 7'd0; ntok <= 7'd0; va <= 10'd0;
+                    end else begin
+                        ch_buf[nbyte[5:0]] <= in_char;
+                        nbyte <= nbyte + 7'd1;
+                    end
+                end
+                if (in_last && nbyte != 7'd0 && !pend_ok) begin
+                    st <= S_TOK; ti <= 7'd0; ntok <= 7'd0; va <= 10'd0;
+                end
+            end
+
+            S_TOK: begin
+                if (ti >= nbyte) begin
+                    st <= S_EMB; i <= 7'd0; c <= 7'd0;
+                end else if (va == 10'd0) begin
+                    tlen_r <= ureq_len(ch_buf[ti[5:0]]);
+                    key_r  <= tkey_at(ti[5:0]);
+                    if (voc_key == tkey_at(ti[5:0])) tok_id[ntok[5:0]] <= voc_id;
+                    tok_off[ntok[5:0]] <= ti[5:0];
+                    tok_len[ntok[5:0]] <= ureq_len(ch_buf[ti[5:0]]);
+                    tok_id [ntok[5:0]] <= 12'd1;
+                    va <= 12'd1;
+                end else if (va < 12'(VOCAB_N)) begin
+                    if (voc_key == key_r) tok_id[ntok[5:0]] <= voc_id;
+                    va <= va + 12'd1;
+                end else begin
+                    va <= 12'd0;
+                    ntok <= ntok + 7'd1;
+                    ti <= ti + {4'd0, tlen_r};
+                end
+            end
+
+            S_EMB: begin
+                x[{5'd0, i} * 12'd32 + {4'd0, c}] <= $signed(emb_data);
+                if (c == 7'd31) begin
+                    c <= 7'd0;
+                    if (i == 7'd63) begin st <= S_C1B; i <= 7'd0; o <= 7'd0; end
+                    else i <= i + 7'd1;
+                end else c <= c + 7'd1;
+            end
+
+            S_C1B: begin
+                b1_reg[o[4:0]] <= c1b_data;
+                b2_reg[o[4:0]] <= c2b_data;
+                if (o == 7'd31) begin o <= 7'd0; i <= 7'd0; k <= 2'd0; c <= 7'd0; acc <= 48'sd0; st <= S_C1; end
+                else o <= o + 7'd1;
+            end
+
+            S_C1: begin
+                acc <= acc + pr1;
+                if (k == 2'd2 && c == 7'd31) begin
+                    h1[{5'd0, i} * 12'd32 + {4'd0, o[4:0]}] <=
+                        rq(acc + pr1 + b1_reg[o[4:0]], M1);
+                    acc <= 48'sd0;
+                    if (o == 7'd31) begin
+                        o <= 7'd0;
+                        if (i == 7'd63) begin st <= S_C2; i <= 7'd0; k <= 2'd0; c <= 7'd0; end
+                        else begin i <= i + 7'd1; k <= 2'd0; c <= 7'd0; end
+                    end else begin o <= o + 7'd1; k <= 2'd0; c <= 7'd0; end
+                end else if (c == 7'd31) begin c <= 7'd0; k <= k + 2'd1; end
+                else c <= c + 7'd1;
+            end
+
+            S_C2: begin
+                acc <= acc + pr2;
+                if (k == 2'd2 && c == 7'd31) begin
+                    h2[{5'd0, i} * 12'd32 + {4'd0, o[4:0]}] <=
+                        rq(acc + pr2 + b2_reg[o[4:0]], M2);
+                    acc <= 48'sd0;
+                    if (o == 7'd31) begin
+                        o <= 7'd0;
+                        if (i == 7'd63) begin st <= S_HB; cls <= 2'd0; i <= 7'd0; o <= 7'd0; end
+                        else begin i <= i + 7'd1; k <= 2'd0; c <= 7'd0; end
+                    end else begin o <= o + 7'd1; k <= 2'd0; c <= 7'd0; end
+                end else if (c == 7'd31) begin c <= 7'd0; k <= k + 2'd1; end
+                else c <= c + 7'd1;
+            end
+
+            S_HB: begin
+                hb_reg[cls[1:0]] <= hb_data;
+                if (cls == 2'd2) begin cls <= 2'd0; i <= 7'd0; o <= 7'd0; acc <= 48'sd0;
+                                          best <= 32'sh80000000; best_cls <= 2'd0; st <= S_HEAD; end
+                else cls <= cls + 2'd1;
+            end
+
+            S_HEAD: begin
+                acc <= acc + prh;
+                if (o == 7'd31) begin
+                    // 一个类跑完：和当前最优比（并列取小 cls），直接把赢家写进 lab
+                    if ((acc + prh)
+                        + hb_reg[cls[1:0]] > best) begin
+                        // 控制字符（LF/CR/TAB…）永远不算 PII，避免换行被并进名字
+                        lab[i[5:0]] <= is_punct(ch_buf[tok_off[i[5:0]]],
+                                                ch_buf[tok_off[i[5:0]] + 6'd1])
+                                       ? 2'd0 : cls;
+                        best <= (acc + prh)
+                                + hb_reg[cls[1:0]];
+                    end
+                    acc <= 48'sd0; o <= 7'd0;
+                    if (cls == 2'd2) begin
+                        cls <= 2'd0; best <= 32'sh80000000;
+                        if (i == 7'd63) begin st <= S_SPAN; sp <= 7'd0; rs <= 7'd0; rl <= 2'd0; end
+                        else i <= i + 7'd1;
+                    end else cls <= cls + 2'd1;
+                end else o <= o + 7'd1;
+            end
+
+            S_SPAN: begin
+                if (sp >= ntok) begin
+                    // 收尾：地址要有锚点字，人名要以姓氏开头且 2~3 个字
+                    if (rl == 2'd2 && run_anchor_q && (sp - rs) >= 7'd2) begin
+                        out_valid <= 1'b1;
+                        out_type  <= 4'd10;
+                        out_start <= win_base + 32'(tok_off[rs[5:0]]);
+                        out_len   <= 8'(tok_off[sp - 7'd1] + {4'd0, tok_len[sp - 7'd1]})
+                                     - 8'(tok_off[rs[5:0]]);
+                    end else if (rl == 2'd1 && !run_ascii_q && (sp - rs) >= 7'd2 && (sp - rs) <= 7'd3 &&
+                                 is_surname({ch_buf[tok_off[rs[5:0]]],
+                                             ch_buf[tok_off[rs[5:0]] + 6'd1],
+                                             ch_buf[tok_off[rs[5:0]] + 6'd2]})) begin
+                        out_valid <= 1'b1;
+                        out_type  <= 4'd9;
+                        out_start <= win_base + 32'(tok_off[rs[5:0]]);
+                        out_len   <= 8'(tok_off[sp - 7'd1] + {4'd0, tok_len[sp - 7'd1]})
+                                     - 8'(tok_off[rs[5:0]]);
+                    end
+                    st <= S_DONE;
+                end else if (rl == 2'd0) begin
+                    if (lab[sp[5:0]] != 2'd0) begin
+                        rl <= lab[sp[5:0]];
+                        rs <= sp;
+                        run_anchor_q <= (lab[sp[5:0]] == 2'd2) &&
+                                        is_anchor({ch_buf[tok_off[sp[5:0]]],
+                                                   ch_buf[tok_off[sp[5:0]] + 6'd1],
+                                                   ch_buf[tok_off[sp[5:0]] + 6'd2]});
+                        run_ascii_q  <= (lab[sp[5:0]] == 2'd1) &&
+                                        (ch_buf[tok_off[sp[5:0]]] < 8'h80);
+                    end
+                    sp <= sp + 7'd1;
+                end else if (lab[sp[5:0]] == rl) begin
+                    if (rl == 2'd2 && is_anchor({ch_buf[tok_off[sp[5:0]]],
+                                                 ch_buf[tok_off[sp[5:0]] + 6'd1],
+                                                 ch_buf[tok_off[sp[5:0]] + 6'd2]}))
+                        run_anchor_q <= 1'b1;
+                    if (rl == 2'd1 && ch_buf[tok_off[sp[5:0]]] < 8'h80)
+                        run_ascii_q <= 1'b1;
+                    sp <= sp + 7'd1;
+                end else begin
+                    if (rl == 2'd2 && run_anchor_q && (sp - rs) >= 7'd2) begin
+                        out_valid <= 1'b1;
+                        out_type  <= 4'd10;
+                        out_start <= win_base + 32'(tok_off[rs[5:0]]);
+                        out_len   <= 8'(tok_off[sp - 7'd1] + {4'd0, tok_len[sp - 7'd1]})
+                                     - 8'(tok_off[rs[5:0]]);
+                    end else if (rl == 2'd1 && !run_ascii_q && (sp - rs) >= 7'd2 && (sp - rs) <= 7'd3 &&
+                                 is_surname({ch_buf[tok_off[rs[5:0]]],
+                                             ch_buf[tok_off[rs[5:0]] + 6'd1],
+                                             ch_buf[tok_off[rs[5:0]] + 6'd2]})) begin
+                        out_valid <= 1'b1;
+                        out_type  <= 4'd9;
+                        out_start <= win_base + 32'(tok_off[rs[5:0]]);
+                        out_len   <= 8'(tok_off[sp - 7'd1] + {4'd0, tok_len[sp - 7'd1]})
+                                     - 8'(tok_off[rs[5:0]]);
+                    end
+                    rl <= 2'd0;
+                end
+            end
+
+            S_DONE: begin
+                // 窗口重叠 32 字节：下一个窗口从本窗的第 33 个字节开始。
+                // 这样跨 64 字节边界的名字/地址会在后一窗里完整出现一次，
+                // 合并器把两窗给出的重叠 span 取并集，就不会被切断。
+                if (nbyte > 7'd32) begin
+                    for (int q = 0; q < 32; q++) begin
+                        ch_buf[q[5:0]] <= ch_buf[6'(q + 32)];
+                    end
+                    win_base <= win_base + 32'd32;
+                    nbyte    <= nbyte - 7'd32;
+                    // 被挤出去的那个待处理字节（窗口满时留下的）接到末尾
+                    if (pend_ok) begin
+                        ch_buf[6'(nbyte - 7'd32)] <= pend_byte;
+                        nbyte <= nbyte - 7'd31;
+                        pend_ok <= 1'b0;
+                    end
+                end else begin
+                    win_base <= win_base + 32'(nbyte);
+                    nbyte <= 7'd0;
+                    pend_ok <= 1'b0;
+                end
+                ntok  <= 7'd0;
+                st    <= S_RECV;
+            end
+
+            default: st <= S_RECV;
+            endcase
+        end
+    end
+
+endmodule

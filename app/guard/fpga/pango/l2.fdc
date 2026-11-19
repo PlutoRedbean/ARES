@@ -1,0 +1,2 @@
+# L2 语义层独立综合用的最小约束（只有一个时钟端口 clk，25 MHz）
+create_clock -name l2_clk -period 40.0 [get_ports {clk}]

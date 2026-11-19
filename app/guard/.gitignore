@@ -1,0 +1,5 @@
+/build/
+/prj_tasks/
+/generate_bitstream/
+*.log
+*.sbit
