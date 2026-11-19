@@ -146,6 +146,10 @@ class NerModel:
             if j == i:                      # 单字符比窗口还大（不会发生，防御）
                 j = i + 1
             lab = self.predict_ids(ids_all[i:j])
+            # 控制字符（\n/\r/\t）永远不算实体：否则模型会把换行并进名字
+            for t_off in range(i, j):
+                if ord(text[t_off]) < 0x20:
+                    lab[t_off - i] = 0
             labels[i:j] = lab[: j - i]
             i = j
         spans: list[tuple[int, int, int]] = []

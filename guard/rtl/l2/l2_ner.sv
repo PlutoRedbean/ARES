@@ -243,7 +243,8 @@ module l2_ner (
                     // 一个类跑完：和当前最优比（并列取小 cls），直接把赢家写进 lab
                     if ((acc + prh)
                         + hb_reg[cls[1:0]] > best) begin
-                        lab[i[5:0]] <= cls;
+                        // 控制字符（LF/CR/TAB…）永远不算 PII，避免换行被并进名字
+                        lab[i[5:0]] <= (ch_buf[tok_off[i[5:0]]] < 8'h20) ? 2'd0 : cls;
                         best <= (acc + prh)
                                 + hb_reg[cls[1:0]];
                     end
