@@ -378,7 +378,10 @@ def run_text(args, data: bytes) -> int:
         rc = show(raw, quiet=args.raw and args.quiet, as_json=args.json, sent=data)
     if args.raw:
         print("── raw bytes " + "─" * 49)
-        print(raw.hex(" "))
+        if raw is not None:
+            print(raw.hex(" "))
+        else:
+            print(body.hex(" "))
 
     if expect is not None:
         ok = raw == expect
