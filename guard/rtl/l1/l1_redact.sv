@@ -235,6 +235,7 @@ module l1_redactor (
     logic [7:0]  sp_len_q;
     logic [3:0]  sp_type_q;
     logic [7:0]  idx_q;
+    logic [7:0]  keep_q;      // span 开头保留几个字节不遮（人名露姓氏：3 或 1）
     logic        ovf_q;
 
     logic [SQ-1:0]       qv;
@@ -248,7 +249,7 @@ module l1_redactor (
             pos_q <= 32'd0; out_pos_q <= 32'd0;
             wptr <= 7'd0; rptr <= 7'd0; count <= 8'd0;
             eos_q <= 1'b0; active_q <= 1'b0; sp_start_q <= 32'd0;
-            sp_len_q <= 8'd0; sp_type_q <= 4'd0; idx_q <= 8'd0; ovf_q <= 1'b0;
+            sp_len_q <= 8'd0; sp_type_q <= 4'd0; idx_q <= 8'd0; ovf_q <= 1'b0; keep_q <= 8'd0;
             qv <= '0;
             for (int i = 0; i < SQ; i++) begin qs[i] <= '0; ql[i] <= '0; qt[i] <= '0; end
             qhead <= 4'd0; qtail <= 4'd0; qcount <= 4'd0;
@@ -315,7 +316,12 @@ module l1_redactor (
                                (eos_q && !s_hold))) begin
                 out_valid <= 1'b1;
                 if (active_q) begin
-                    if ((sp_type_q >= 4'd9) || (sp_len_q > 8'd4 && idx_q < sp_len_q - 8'd4))
+                    // 人名（type 9）露姓氏：前 1~3 字节原样输出，其余全遮
+                    // 地址（type 10）整段遮；结构化 PII 保留后 4 位
+                    if (idx_q < keep_q)
+                        out_char <= mem[rptr];
+                    else if ((sp_type_q == 4'd9) || (sp_type_q >= 4'd10) ||
+                             (sp_len_q > 8'd4 && idx_q < sp_len_q - 8'd4))
                         out_char <= 8'h2A;
                     else
                         out_char <= mem[rptr];
@@ -331,7 +337,11 @@ module l1_redactor (
                     sp_len_q   <= ql[qhead];
                     sp_type_q  <= qt[qhead];
                     idx_q      <= 8'd1;
-                    out_char   <= (ql[qhead] > 8'd4) ? 8'h2A : mem[rptr];
+                    keep_q     <= (qt[qhead] == 4'd9) ? ((mem[rptr] >= 8'hE0) ? 8'd3 : 8'd1) : 8'd0;
+                    // 首字节：人名露出姓氏（3/1 字节原样），其它类型按老规则（结构化保留后 4 位）
+                    out_char   <= ((qt[qhead] == 4'd9) ||
+                                   ((qt[qhead] >= 4'd10) ? 1'b0 : (ql[qhead] <= 8'd4)))
+                                  ? mem[rptr] : 8'h2A;
                     if (ql[qhead] == 8'd1) active_q <= 1'b0;
                     pop_q = 1'b1;
                 end else begin

@@ -71,8 +71,14 @@ def merge(spans: list[Span]) -> list[Span]:
 
 
 def _mask(data: bytes, s: Span) -> bytes:
-    # 结构化 PII 保留后 4 位；人名/地址（type>=9）整段遮
-    if s.type >= 9:
+    # 人名（type 9）露姓氏：第一个字符原样保留，其余遮
+    # 地址（type 10）整段遮；结构化 PII 保留后 4 位
+    if s.type == 9:
+        first = data[s.start]
+        lead = 3 if first >= 0xE0 else 2 if first >= 0xC0 else 1
+        head = data[s.start:s.start + min(lead, s.length)]
+        return head + b"*" * (s.length - len(head))
+    if s.type >= 10:
         return b"*" * s.length
     keep = min(4, s.length)
     return b"*" * (s.length - keep) + data[s.start + s.length - keep : s.start + s.length]
