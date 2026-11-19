@@ -24,9 +24,12 @@ module pipeline_rtos_amp_board_top (
 
     wire pixel_clk, sensor_pixel_rst, pixel_rst, pixel_vsync, pixel_de;
     wire [15:0] pixel_rgb565;
-    reg clk_cam = 1'b0;
+    reg cam_div2 = 1'b0;
     always @(posedge periph_clk)
-        clk_cam <= ~clk_cam;
+        cam_div2 <= ~cam_div2;
+
+    wire clk_cam;
+    GTP_CLKBUFG u_cam_clk_bufg (.CLKIN(cam_div2), .CLKOUT(clk_cam));
 
     video_capture_wrap u_capture (
         .clk_27m(clk_27m), .clk_cam(clk_cam), .rst_sys(periph_rst),

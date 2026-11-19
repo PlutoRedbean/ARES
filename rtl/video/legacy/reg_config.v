@@ -1,4 +1,4 @@
-// Source: Pango HDMI_DDR3_OV5640_100H/source/rtl/reg_config.v (vendor demo, unmodified)
+// Source: Pango HDMI_DDR3_OV5640_100H/source/rtl/reg_config.v (adapted to use a clock enable)
 `timescale 1ns / 1ps
 //////////////////////////////////////////////////////////////////////////////////
 // Company:Meyesemi 
@@ -38,7 +38,9 @@
      reg start;
 	 reg reg_conf_done_reg;
 	  
-     i2c_com u1(.clock_i2c(clock_20k),
+     // Advance on the same edge that raises the SCL phase waveform.
+     wire step_ce = !clock_20k && clock_20k_cnt == 1249;
+     i2c_com u1(.clk(clk_25M), .step_ce(step_ce), .clock_i2c(clock_20k),
                .camera_rstn(camera_rstn),
                .ack(ack),
                .i2c_data(i2c_data),
@@ -65,7 +67,7 @@ end
 
 
 ////iic寄存器配置过程控制    
-always@(posedge clock_20k)    
+always@(posedge clk_25M)
 begin
    if(!camera_rstn) begin
        config_step<=0;
@@ -73,7 +75,7 @@ begin
        reg_index<=0;
 		 reg_conf_done_reg<=0;
    end
-   else begin
+   else if(step_ce) begin
       if(reg_conf_done_reg==1'b0) begin          //如果camera初始化未完成
 			  if(reg_index<357) begin               //配置寄存器
 					 case(config_step)

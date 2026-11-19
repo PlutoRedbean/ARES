@@ -3,7 +3,7 @@ create_clock -name cmos1_pclk -period 11.905 [get_ports {cmos1_pclk}]
 create_generated_clock -name gesture_pixel_clk -source [get_ports {cmos1_pclk}] \
     -divide_by 2 [get_pins {u_capture/u_dvp/u_div/CLKDIVOUT}]
 create_generated_clock -name gesture_sccb_clk -source [get_pins {u_clk_reset/u_pll/u_gpll/CLKOUT1}] \
-    -divide_by 2 [get_nets {clk_cam}]
+    -divide_by 2 [get_pins {u_cam_clk_bufg/CLKOUT}]
 set_clock_groups -asynchronous \
     -group [get_clocks {cmos1_pclk gesture_pixel_clk}] \
     -group [get_clocks {sys_clk cpu_clk periph_clk gesture_sccb_clk}]

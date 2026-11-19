@@ -66,9 +66,14 @@ module video_capture_wrap #(
         .initial_en   (initial_en_unused)
     );
 
+    // The power sequencer holds reset for milliseconds on clk_27m.
+    (* ASYNC_REG = "TRUE" *) reg [1:0] cam_release = 2'b00;
+    always @(posedge clk_cam)
+        cam_release <= {cam_release[0], cam_reset_i};
+
     reg_config u_reg_config (
         .clk_25M      (clk_cam),
-        .camera_rstn  (cam_reset_i),
+        .camera_rstn  (cam_release[1]),
         .initial_en   (1'b1),
         .reg_conf_done(cam_init_done_i),
         .i2c_sclk     (cam_scl),

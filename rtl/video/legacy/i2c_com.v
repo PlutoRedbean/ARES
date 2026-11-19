@@ -1,4 +1,4 @@
-// Source: Pango HDMI_DDR3_OV5640_100H/source/rtl/i2c_com.v (vendor demo, unmodified)
+// Source: Pango HDMI_DDR3_OV5640_100H/source/rtl/i2c_com.v (adapted to use a clock enable)
 //////////////////////////////////////////////////////////////////////////////////
 // Company:Meyesemi 
 // Engineer: Will
@@ -19,7 +19,7 @@
 // 
 //////////////////////////////////////////////////////////////////////////////////
 //sclk，sdin数据传输时序代码（i2c写控制代码）
-module i2c_com(clock_i2c        ,  //i2c控制接口传输所需时钟，0-400khz，此处为20khz
+module i2c_com(clk, step_ce, clock_i2c        ,  //i2c控制接口传输所需时钟，0-400khz，此处为20khz
                camera_rstn      ,     
                ack              ,  //应答信号
                i2c_data         ,  //sdin接口传输的32位数据
@@ -30,7 +30,8 @@ module i2c_com(clock_i2c        ,  //i2c控制接口传输所需时钟，0-400kh
 );        
     input [31:0]i2c_data;
     input camera_rstn;
-    input clock_i2c;
+    input clk, step_ce;
+    input clock_i2c; // SCL phase, used only as output data
     output ack;
     input start;
     output tr_end;
@@ -51,11 +52,11 @@ module i2c_com(clock_i2c        ,  //i2c控制接口传输所需时钟，0-400kh
     assign i2c_sclk=sclk|(((cyc_count>=4)&(cyc_count<=39))?~clock_i2c:0);
     assign i2c_sdat=reg_sdat?1'bz:0; 
    
-    always@(posedge clock_i2c)
+    always@(posedge clk)
     begin
        if(!camera_rstn)
          cyc_count<=6'b111111;
-       else 
+       else if (step_ce)
 		   begin
            if(start==0)
              cyc_count<=0;
@@ -65,7 +66,7 @@ module i2c_com(clock_i2c        ,  //i2c控制接口传输所需时钟，0-400kh
     end
 	 
 	 
-    always@(posedge clock_i2c)
+    always@(posedge clk)
     begin
        if(!camera_rstn)
        begin
@@ -76,7 +77,7 @@ module i2c_com(clock_i2c        ,  //i2c控制接口传输所需时钟，0-400kh
           sclk<=1;
           reg_sdat<=1;
        end
-       else
+       else if (step_ce)
           case(cyc_count)
           0:begin ack1<=1;ack2<=1;ack3<=1;tr_end<=0;sclk<=1;reg_sdat<=1;end
           1:reg_sdat<=0;                 //开始传输
