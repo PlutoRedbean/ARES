@@ -7,8 +7,10 @@
 // responses, with pending beats dropped on flush.  Directed cases cover four
 // resident lines in one set, LRU replacement and a flush or reset landing on
 // the S_FILL cycle; a random phase then mixes back-pressure, flushes and resets.
-module tb_icache;
-    localparam integer SET_STRIDE = 32 * 32;   // NR_SETS * LINE_BYTES
+module tb_icache #(
+    parameter integer NR_SETS = 32, LINE_BYTES = 32, PIPE_HITS = 1
+);
+    localparam integer SET_STRIDE = NR_SETS * LINE_BYTES;
     localparam [2:0]   S_FILL     = 3'd3;
     localparam [31:0]  BASE       = 32'h8000_0000;
 
@@ -31,7 +33,7 @@ module tb_icache;
     wire [31:0] refill_rsp_data;
     wire        refill_rsp_ready;
 
-    pipeline_icache dut (
+    pipeline_icache #(.NR_SETS(NR_SETS), .LINE_BYTES(LINE_BYTES), .PIPE_HITS(PIPE_HITS)) dut (
         .clk(clk), .rst(rst),
         .req_valid(req_valid), .req_addr(req_addr), .req_ready(req_ready),
         .rsp_valid(rsp_valid), .rsp_data(rsp_data), .rsp_ready(rsp_ready),
@@ -175,7 +177,7 @@ module tb_icache;
         seed = 32'h1CAC_4E5D;
         // valid_mem has no reset by design (read-only IROM); start from an
         // empty directory so the directed cases see cold misses.
-        dut.valid_mem = {32 * 4{1'b0}};
+        dut.valid_mem = '0;
         reset_cycles(4);
 
         // Sequential fetch across lines, then hits on the same lines.
@@ -184,6 +186,24 @@ module tb_icache;
 
         install_race(1'b0);
         install_race(1'b1);
+
+        // Warm four different ways of one set, then change way on every
+        // cycle. A registered directory decision must not insert a bubble.
+        if (PIPE_HITS) begin
+            for (cyc = 0; cyc < 4; cyc = cyc + 1)
+                fetch(BASE + cyc * SET_STRIDE);
+            for (cyc = 0; cyc < 64; cyc = cyc + 1) begin
+                @(negedge clk);
+                req_valid = 1'b1;
+                req_addr = BASE + (cyc % 4) * SET_STRIDE + ((cyc / 4) % (LINE_BYTES / 4)) * 4;
+                @(posedge clk);
+                if (!req_ready || (cyc >= 2 && !rsp_valid))
+                    $fatal(1, "bubble on resident line at cycle %0d", cyc);
+            end
+            @(negedge clk);
+            req_valid = 1'b0;
+            drain;
+        end
 
         // Random phase: pipelined requests, back-pressure on both sides,
         // random flushes, flushes and resets aimed at the install cycle.

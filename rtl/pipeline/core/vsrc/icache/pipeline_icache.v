@@ -112,26 +112,9 @@ module pipeline_icache #(
     reg [INDEX_WIDTH-1:0]     age_index_r;
     reg [WAY_IDX_W-1:0]       age_hit_way_r;
 
-    reg [NR_WAYS-1:0]         hit_vec;
     reg [WAY_IDX_W-1:0]       hit_way;
     reg                       hit;
     reg [WAY_IDX_W-1:0]       victim_way;
-
-    integer hit_i;
-    always @(*) begin
-        hit_vec = {NR_WAYS{1'b0}};
-        hit_way = {WAY_IDX_W{1'b0}};
-        for (hit_i = 0; hit_i < NR_WAYS; hit_i = hit_i + 1) begin
-            if (valid_mem[req_index_r*NR_WAYS + hit_i] &&
-                (tag_mem[req_index_r*NR_WAYS + hit_i] == req_tag_r))
-                hit_vec[hit_i] = 1'b1;
-        end
-        hit = |hit_vec;
-        for (hit_i = 0; hit_i < NR_WAYS; hit_i = hit_i + 1) begin
-            if (hit_vec[hit_i])
-                hit_way = hit_i[WAY_IDX_W-1:0];
-        end
-    end
 
     integer vic_i;
     always @(*) begin
@@ -201,22 +184,25 @@ module pipeline_icache #(
                          ((state == S_IDLE) || pipe_hit_look || pipe_resp);
     wire req_fire      = req_valid && req_ready_w;
 
-    wire [DATA_IDX_W-1:0] rd_index =
-        (state == S_IDLE)   ? {pre_hit_way, req_index} :
-        (state == S_RELOOK) ? {miss_way, miss_index} :
-        ((state == S_LOOK) || (state == S_RESP)) ?
-            (req_fire ? {pre_hit_way, req_index} : {hit_way, req_index_r}) :
-                              {miss_way, miss_index};
+    wire relook = state == S_RELOOK;
+    wire [DATA_IDX_W-1:0] rd_index = relook ? {miss_way, miss_index} :
+                                              {pre_hit_way, req_index};
 
     // The data-array write and the directory install below happen on the same
     // cycle under the same condition, so a flush or reset on the S_FILL cycle
     // can never leave a tag pointing at another line's data.
     wire fill_we = (state == S_FILL) && !rst;
 
-    // Read data is committed only in S_LOOK/S_RESP through rsp_valid_r, and it
-    // is re-read on the cycle the request is accepted, so it carries no reset.
+    // Capture the directory decision alongside its synchronous RAM read.
+    // S_LOOK drives ready from the registered hit even on back-to-back hits.
+    // A refill already knows its installed way. During backpressure all three
+    // registers hold the same request until its response can be committed.
     always @(posedge clk) begin
-        data_r <= data_mem[rd_index];
+        if (req_fire || relook) begin
+            data_r <= data_mem[rd_index];
+            hit <= relook || (|pre_hit_vec);
+            hit_way <= relook ? miss_way : pre_hit_way;
+        end
     end
 
     always @(posedge clk) begin
