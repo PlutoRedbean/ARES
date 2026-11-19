@@ -250,8 +250,9 @@ module state9_engine (
     logic        to_invalid;
 
     always_comb begin
-        cur      = (state_q == ST_SCAN1 || state_q == ST_SCAN2)
-                   ? scan_cur_q : rd_byte;
+        // DFA outputs are consumed only in ST_SCAN1/ST_SCAN2. Keep the
+        // RAM read path behind scan_cur_q in every state.
+        cur      = scan_cur_q;
         is_digit = (cur >= 8'h30) && (cur <= 8'h39);
         is_pm    = (cur == 8'h2B) || (cur == 8'h2D);
         is_dot   = (cur == 8'h2E);
