@@ -8,6 +8,7 @@
     hard.jsonl      >= 1500 句，只用于评估（绝不进训练）
     unseen_names.jsonl  >=500 个训练没出现过的全名（评估）
     addr_digits.jsonl   >=500 条含门牌号的地址（评估）
+    longdoc.jsonl       >=200 篇 300~1500B 长文档（评估）
     name_chars.txt      3000 字名字用字表
     manifest.json       规模 / 比例 / 字符覆盖 / OOV
 
@@ -832,6 +833,150 @@ def pos_addr_start(rng: random.Random) -> Doc:
     return d
 
 
+LONG_NEG_WORDS = [
+    "简历", "学历", "证书", "学位", "公司", "集团", "科技", "银行", "开户行",
+    "流水", "工资", "办理", "入职", "离职", "投递", "面试", "合同", "条款",
+    "附件", "扫描件", "复印件", "部门", "岗位",
+]
+LONG_NEG_BLOCK = (
+    "简历、学历、证书、学位、公司、集团、科技、银行、开户行、流水、工资、办理、"
+    "入职、离职、投递、面试、合同、条款、附件、扫描件、复印件、部门、岗位；"
+    "联系人、收件人、发件人、开户人均为代称；最近三份材料在职责手册里。"
+)
+LONG_SENTENCES = [
+    "我们正在整理本季度的招聘材料和岗位说明。",
+    "附件里有三份扫描件，复印件请下周交到行政部。",
+    "合同条款还在法务审核，附件稍后补发。",
+    "会议纪要已发到部门群，参会同事请确认。",
+    "客服工单已经受理，办理进度会在系统里更新。",
+    "简历投递后一般两周内安排面试，请留意邮件。",
+    "入职材料包括学历证明和证书复印件。",
+    "离职交接清单在附件里，工资结算按合同执行。",
+    "公司的科技项目由集团统一管理，银行账户另行通知。",
+    "中国银行的开户行信息已更新，流水请从网银导出。",
+    "最近三份材料需要重新打印，职责手册也要同步。",
+    "信封上的收件人请写部门名称，不要写个人。",
+    "这份文件需要盖章后扫描，原件留在档案室。",
+    "面试安排在周五下午，地点在总部三楼会议室。",
+    "供应商的合同和报价单都在共享目录里。",
+    "请把会议纪要、合同条款和附件一起归档。",
+]
+
+
+def make_longdoc(rng: random.Random) -> Doc:
+    d = Doc()
+    target = rng.randint(400, 1200)
+    d.add(rng.choice([
+        "尊敬的招聘负责人：", "各位同事：", "客服中心：", "项目组：", "人力资源部：",
+    ]), 0)
+    k = rng.randint(1, 4)
+    for _ in range(k):
+        typ = rng.choices(["name", "addr", "phone", "email", "id", "card"],
+                          weights=[40, 25, 15, 10, 5, 5])[0]
+        if typ == "name":
+            d.add(rng.choice(["姓名：", "联系人：", "发件人：", "收件人：", "开户人：",
+                              "客户"]), 0)
+            d.add(make_core_name(rng), 1)
+        elif typ == "addr":
+            d.add("地址：", 0).add(make_digit_addr(rng), 2)
+        elif typ == "phone":
+            d.add("联系电话：", 0).add(make_phone(rng), 0)
+        elif typ == "email":
+            d.add("邮箱：", 0).add(f"user{rng.randint(1000, 99999)}@example.com", 0)
+        elif typ == "id":
+            d.add("身份证号：", 0).add("".join(rng.choice("0123456789") for _ in range(18)), 0)
+        else:
+            d.add("银行卡号：", 0).add("".join(rng.choice("0123456789") for _ in range(16)), 0)
+        d.add("。", 0)
+        for _ in range(rng.randint(1, 3)):
+            d.add(rng.choice(LONG_SENTENCES), 0)
+    d.add(LONG_NEG_BLOCK, 0)
+    while blen(d.text()) < target:
+        d.add(rng.choice(LONG_SENTENCES), 0)
+    return d
+
+
+def _span_ok(text: str, s: int, ln: int) -> bool:
+    b = text.encode("utf-8")
+    if s < 0 or ln <= 0 or s + ln > len(b):
+        return False
+    try:
+        b[s:s + ln].decode("utf-8")
+    except UnicodeDecodeError:
+        return False
+    return True
+
+
+def _spans_cross_window(text: str, spans: list[list[int]]) -> bool:
+    chars = list(text)
+    offs = [0]
+    for ch in chars:
+        offs.append(offs[-1] + len(ch.encode("utf-8")))
+    bounds: set[int] = set()
+    i = 0
+    n = len(chars)
+    while i < n:
+        j, nb = i, 0
+        while j < n and nb + len(chars[j].encode("utf-8")) <= 64:
+            nb += len(chars[j].encode("utf-8"))
+            j += 1
+        if j == i:
+            j = i + 1
+        if j < n:
+            bounds.add(offs[j])
+        i = j
+    for s, ln, _ in spans:
+        if any(s < b < s + ln for b in bounds):
+            return True
+    return False
+
+
+def gen_longdoc_rows(n: int, rng: random.Random, seen: set[str]) -> list[dict]:
+    rows: list[dict] = []
+    guard = 0
+    while len(rows) < n:
+        guard += 1
+        if guard > n * 100 + 1000:
+            raise RuntimeError("cannot generate long docs")
+        d = make_longdoc(rng)
+        text = d.text()
+        b = text.encode("utf-8")
+        if not (300 <= len(b) <= 1500):
+            continue
+        if text in seen:
+            continue
+        spans = d.spans()
+        if any(not _span_ok(text, s, ln) for s, ln, _ in spans):
+            raise AssertionError("span is not on UTF-8 boundaries")
+        if _spans_cross_window(text, spans):
+            continue
+        seen.add(text)
+        rows.append({"text": text, "spans": spans})
+    return rows
+
+
+def pos_tail_name(rng: random.Random) -> Doc:
+    """名字以 说/问/去/好/是/在/回 结尾，且位于句尾（最容易丢末字）。"""
+    last = rng.choice([c for c in "说问去好是在回" if c in NAME_CORE])
+    name = rng.choice(SURNAMES) + rng.choice(NAME_CORE) + last
+    d = Doc()
+    if rng.random() < 0.7:
+        d.add("请把文件发给").add(name, 1)
+    else:
+        d.add(name, 1)
+    return d
+
+
+def pos_pairs2(rng: random.Random) -> Doc:
+    """复姓四字名 + 和/与 + 另一个名字，专门修复姓后的第二个人名。"""
+    d = Doc()
+    a = rng.choice(COMPOUND) + "".join(rng.sample(NAME_CORE, 2))
+    b = make_core_name(rng)
+    d.add(a, 1).add(rng.choice(["和", "与", "跟"]), 0).add(b, 1)
+    d.add(rng.choice(["一起开会", "都到了", "是同事", "在楼下", "已经走了"]), 0)
+    return d
+
+
 def pos_pairs(rng: random.Random) -> Doc:
     """两个 v3 名字用 与/和/跟/、 连接；只标姓名。"""
     d = Doc()
@@ -896,6 +1041,10 @@ def build_one(rng: random.Random, cat: str) -> Doc:
         return pos_targeted(rng)
     if cat == "pairs":
         return pos_pairs(rng)
+    if cat == "tail_names":
+        return pos_tail_name(rng)
+    if cat == "pairs2":
+        return pos_pairs2(rng)
     if cat == "name_ctx":
         return pos_name_ctx(rng)
     if cat == "addr_start":
@@ -1058,13 +1207,15 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="data/ner")
     ap.add_argument("--seed", type=int, default=20261118)
-    ap.add_argument("--train", type=int, default=54500)
+    ap.add_argument("--train", type=int, default=57150)
     ap.add_argument("--heldout", type=int, default=2600)
     ap.add_argument("--hard", type=int, default=1600)
     ap.add_argument("--bulk", type=int, default=24000, help="名字大类的行数（每行 5 个全名）")
     ap.add_argument("--realistic", type=int, default=400, help="真人风格名字行数（每行 5 个）")
     ap.add_argument("--unseen", type=int, default=600, help="unseen_names.jsonl 句数")
     ap.add_argument("--addr-digits", type=int, default=600, help="addr_digits.jsonl 句数")
+    ap.add_argument("--long-docs", type=int, default=4000, help="训练长文档篇数")
+    ap.add_argument("--longdoc-eval", type=int, default=200, help="longdoc.jsonl 篇数")
     args = ap.parse_args()
 
     out = Path(args.out)
@@ -1081,9 +1232,9 @@ def main() -> int:
     # 训练：30.6k，散文 11k（35.9%），负样本 13.5k（44.1%），
     # 边界 3k + 复姓 3.6k（12 个复姓各约 300 例）=> 难样本 >= 21%。
     train_spec = scale_spec([
-        ("prose", 28500), ("neg", 2000), ("neg_hard", 600), ("trap", 1500),
+        ("prose", 30350), ("neg", 2000), ("neg_hard", 600), ("trap", 1500),
         ("targeted", 2000), ("targeted2", 300), ("targeted3", 200), ("pairs", 1500),
-        ("name_ctx", 4000), ("addr_start", 1000),
+        ("name_ctx", 4000), ("addr_start", 1000), ("pairs2", 800),
         ("colloc", 800), ("english", 300),
         ("name", 1500), ("boundary", 2500), ("compound", 1500),
         ("title", 1000), ("addr", 2500), ("mixed", 800), ("addr_digits", 2000),
@@ -1132,18 +1283,25 @@ def main() -> int:
     train_cat["bulk_names"] = len(bulk_rows)
     train_cat["realistic_rows"] = len(real_rows)
 
+    # v4：长文档（300~1500B），强负样本 + 1~4 个 PII
+    long_train = gen_longdoc_rows(args.long_docs, random.Random(args.seed + 14), seen)
+    train_rows.extend(long_train)
+    train_cat["longdoc"] = len(long_train)
+
     held_rows, held_cat = gen_split(random.Random(args.seed + 1), held_spec, seen)
     hard_rows, hard_cat = gen_split(random.Random(args.seed + 2), hard_spec, seen)
 
     # v3 评估集：训练时没出现过的全名；含数字的地址
     unseen_rows = gen_unseen_rows(args.unseen, random.Random(args.seed + 12), used_names, seen)
     addr_eval_rows = gen_addr_digit_rows(args.addr_digits, random.Random(args.seed + 13), seen)
+    long_eval_rows = gen_longdoc_rows(args.longdoc_eval, random.Random(args.seed + 15), seen)
 
     write_jsonl(out / "train.jsonl", train_rows)
     write_jsonl(out / "heldout.jsonl", held_rows)
     write_jsonl(out / "hard.jsonl", hard_rows)
     write_jsonl(out / "unseen_names.jsonl", unseen_rows)
     write_jsonl(out / "addr_digits.jsonl", addr_eval_rows)
+    write_jsonl(out / "longdoc.jsonl", long_eval_rows)
     (out / "name_chars.txt").write_text("".join(NAME_CHARS) + "\n", encoding="utf-8")
 
     train_chars = {c for r in train_rows for c in r["text"]}
@@ -1201,13 +1359,14 @@ def main() -> int:
         "addr_digit_ratio": round(addr_with_digit / max(addr_total, 1), 4),
         "unseen_names": {"cases": len(unseen_rows)},
         "addr_digits": {"cases": len(addr_eval_rows)},
+        "longdoc": {"train": len(long_train), "eval": len(long_eval_rows)},
         "oov": {
             "heldout": sorted(held_chars - train_chars),
             "hard": sorted(hard_chars - train_chars),
             "prose": sorted(prose_chars - train_chars),
         },
-        "max_chars": max(len(r["text"]) for r in train_rows + held_rows + hard_rows),
-        "max_bytes": max(blen(r["text"]) for r in train_rows + held_rows + hard_rows),
+        "max_chars": max(len(r["text"]) for r in train_rows + held_rows + hard_rows + long_eval_rows),
+        "max_bytes": max(blen(r["text"]) for r in train_rows + held_rows + hard_rows + long_eval_rows),
     }
     (out / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
                                        encoding="utf-8")

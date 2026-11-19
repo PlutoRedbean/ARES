@@ -1,6 +1,6 @@
 """校验 Ubuntu 侧交付的 NER 模型是否满足 docs/ubuntu-ner.md 的门槛。
 
-原有 1~8、v3 的 9~11 逐条打印 PASS/FAIL；任何一条 FAIL 都以非零退出。
+原有 1~8、v3 的 9~11、v4 的 12（longdoc）逐条打印 PASS/FAIL；任何一条 FAIL 都以非零退出。
 
   --repro  额外做第 5 条的“同 seed 两次训练 hash 相同”：在临时目录重训一次并比对
            weights_int8.npz 的 sha256（约 40s）。make ner-check 默认带上。
@@ -246,6 +246,35 @@ def main() -> int:
                        f"{fixed_ok}/{len(fixed_names)}")
     else:
         ok_all &= gate(False, "11 fixed famous names", "ner.py missing")
+
+    # ---- 门槛 12：长文档（强负样本 + 1~4 个 PII）----
+    longdoc_path = DATA / "longdoc.jsonl"
+    if ner_decode is not None and longdoc_path.exists():
+        rows = [json.loads(l) for l in longdoc_path.read_text(encoding="utf-8").splitlines()
+                if l.strip()]
+        tp = fp = fn = 0
+        fp_spans = 0
+        total_bytes = 0
+        for r in rows:
+            b = r["text"].encode("utf-8")
+            total_bytes += len(b)
+            gold = {(9 if y == 1 else 10, s, ln) for s, ln, y in r["spans"] if y in (1, 2)}
+            pred = set(ner_decode(b))
+            tp += len(gold & pred)
+            extra = len(pred - gold)
+            fp += extra
+            fp_spans += extra
+            fn += len(gold - pred)
+        p = tp / (tp + fp) if tp + fp else 0.0
+        rcl = tp / (tp + fn) if tp + fn else 0.0
+        f1 = 2 * p * rcl / (p + rcl) if p + rcl else 0.0
+        fp100 = fp_spans * 100 / max(total_bytes, 1)
+        ok_all &= gate(len(rows) >= 200 and p >= 0.9 and rcl >= 0.9 and f1 >= 0.9,
+                       "12a longdoc span", f"P/R/F1 {p:.3f}/{rcl:.3f}/{f1:.3f} ({len(rows)} docs)")
+        ok_all &= gate(fp100 <= 0.10, "12b longdoc fp/100B",
+                       f"{fp100:.3f} <= 0.10 ({fp_spans} FP / {total_bytes} B)")
+    else:
+        ok_all &= gate(False, "12 longdoc", f"{longdoc_path} missing")
 
     print("\n" + ("全部通过，可以接 RTL。" if ok_all else "有门槛没过，先别接 RTL。"))
     return 0 if ok_all else 2

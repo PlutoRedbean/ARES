@@ -12,8 +12,8 @@
      （Embedding(32) + 2xConv1d(k=3,32->32,ReLU) + Conv1d(1x1,32->3)）；
   2. 权重 per-tensor INT8 对称（zp=0），bias 折到 INT32；
   3. 用训练集校准 h1/h2 的激活 scale，重量化乘子 mul=(w_scale*a_in)/a_out；
-  4. 用 host/golden/ner.py 的**整数推理**在 heldout/hard/unseen_names/addr_digits
-     上算指标，写 eval.json（指标是真算的，不是填的）；
+  4. 用 host/golden/ner.py 的**整数推理**在 heldout/hard/unseen_names/addr_digits/
+     longdoc 上算指标，写 eval.json（指标是真算的，不是填的）；
   5. 导出 ONNX 整数图，逐 token 比对 numpy 与 ONNXRuntime 的 argmax（500 例）。
 
 完全确定性：同 seed 两次训练 weights_int8.npz 的 sha256 相同。
@@ -39,7 +39,7 @@ import ner_onnx  # noqa: E402
 from host.golden.ner import ADDR, NAME, PAD_ID, UNK_ID, NerModel  # noqa: E402
 
 WINDOW = 64
-MAX_VOCAB = 3200   # 3000 名字用字 + pad/unk + 必要的地址/散文字符；INT8 仍 <=120KB
+MAX_VOCAB = 3400   # 3000 名字用字 + pad/unk + 长文档/地址字符；INT8 仍 <=120KB
 EMB = 32
 CH = 32
 CLASSES = 3
@@ -78,26 +78,43 @@ def build_vocab(rows: list[dict], max_vocab: int = MAX_VOCAB,
 
 
 def encode(rows: list[dict], stoi: dict[str, int]) -> tuple[np.ndarray, np.ndarray]:
-    n = len(rows)
-    ids = np.zeros((n, WINDOW), dtype=np.int64)
-    labels = np.full((n, WINDOW), -100, dtype=np.int64)
-    for k, r in enumerate(rows):
+    """把每行切成 64 字节（字符对齐）窗口；长文档会产生多个训练窗口。"""
+    ids_list: list[list[int]] = []
+    lab_list: list[list[int]] = []
+    for r in rows:
         text = r["text"]
-        if len(text) > WINDOW:
-            text = text[:WINDOW]
+        chars = list(text)
+        n = len(chars)
+        if n == 0:
+            continue
+        blen = [len(ch.encode("utf-8")) for ch in chars]
         offs = [0]
-        for ch in text:
-            offs.append(offs[-1] + len(ch.encode("utf-8")))
-        lab = [0] * len(text)
+        for b in blen:
+            offs.append(offs[-1] + b)
+        lab = [0] * n
         for s, ln, y in r["spans"]:
             if y not in (NAME, ADDR):
                 continue
-            for i in range(len(text)):
+            for i in range(n):
                 if offs[i] >= s and offs[i + 1] <= s + ln:
                     lab[i] = y
-        ids[k, : len(text)] = [stoi.get(ch, UNK_ID) for ch in text]
-        labels[k, : len(text)] = lab
-    return ids, labels
+        i = 0
+        while i < n:
+            j, nb = i, 0
+            while j < n and nb + blen[j] <= WINDOW:
+                nb += blen[j]
+                j += 1
+            if j == i:
+                j = i + 1
+            ids = [stoi.get(ch, UNK_ID) for ch in chars[i:j]]
+            m = j - i
+            ids = ids + [PAD_ID] * (WINDOW - m)
+            lm = [-100] * WINDOW
+            lm[:m] = lab[i:j]
+            ids_list.append(ids)
+            lab_list.append(lm)
+            i = j
+    return np.asarray(ids_list, dtype=np.int64), np.asarray(lab_list, dtype=np.int64)
 
 
 # --------------------------------------------------------------------------- 模型
@@ -330,6 +347,33 @@ def eval_float(model, rows: list[dict], stoi: dict[str, int]) -> dict:
     return prf(tp, fp, fn)
 
 
+def eval_longdoc(model: NerModel, rows: list[dict]) -> dict:
+    tp = fp = fn = 0
+    total_bytes = 0
+    fp_spans = 0
+    for r in rows:
+        text = r["text"]
+        b = text.encode("utf-8")
+        total_bytes += len(b)
+        gold = {(9 if y == NAME else 10, s, ln) for s, ln, y in r["spans"] if y in (NAME, ADDR)}
+        pred = set(model.decode(b))
+        tp += len(gold & pred)
+        extra = len(pred - gold)
+        fp += extra
+        fp_spans += extra
+        fn += len(gold - pred)
+    p = tp / (tp + fp) if tp + fp else 0.0
+    rcl = tp / (tp + fn) if tp + fn else 0.0
+    f1 = 2 * p * rcl / (p + rcl) if p + rcl else 0.0
+    return {
+        "cases": len(rows),
+        "span_precision": round(p, 6),
+        "span_recall": round(rcl, 6),
+        "span_f1": round(f1, 6),
+        "fp_spans_per_100B": round(fp_spans * 100 / max(total_bytes, 1), 6),
+    }
+
+
 def eval_unseen_names(model: NerModel, rows: list[dict]) -> dict:
     ok = 0
     for r in rows:
@@ -376,8 +420,9 @@ def main() -> int:
     hard_rows = load_jsonl(data / "hard.jsonl")
     unseen_rows = load_jsonl(data / "unseen_names.jsonl")
     addr_eval_rows = load_jsonl(data / "addr_digits.jsonl")
+    longdoc_rows = load_jsonl(data / "longdoc.jsonl")
     print(f"data: train={len(train_rows)} heldout={len(held_rows)} hard={len(hard_rows)} "
-          f"unseen={len(unseen_rows)} addr_digits={len(addr_eval_rows)}")
+          f"unseen={len(unseen_rows)} addr_digits={len(addr_eval_rows)} longdoc={len(longdoc_rows)}")
 
     forced: list[str] = []
     nc_path = data / "name_chars.txt"
@@ -448,7 +493,7 @@ def main() -> int:
     params = int(sum(a.size for k, a in arrs.items() if k != "emb_w"))
     total_elements = int(sum(a.size for a in arrs.values()))
     config = {
-        "model": "guard-ner-char-v3",
+        "model": "guard-ner-char-v4",
         "window": WINDOW,             # 字节窗口（UTF-8 字符对齐切）
         "window_bytes": WINDOW,
         "window_tokens": WINDOW,      # ids[64] 上限
@@ -479,6 +524,7 @@ def main() -> int:
     hard = eval_int8(nm, hard_rows, dump_fail=hard_fails)
     unseen_ev = eval_unseen_names(nm, unseen_rows)
     addr_ev = eval_addr_digits(nm, addr_eval_rows)
+    longdoc_ev = eval_longdoc(nm, longdoc_rows)
     print("\nint8 heldout:", {k: held[k] for k in ("span_precision", "span_recall", "span_f1")},
           "tp/fp/fn", held["tp"], held["fp"], held["fn"])
     print("int8 hard   :", {k: hard[k] for k in ("span_precision", "span_recall", "span_f1")},
@@ -487,6 +533,7 @@ def main() -> int:
     print("  hard    per-label:", hard["per_label"])
     print("unseen_names:", unseen_ev)
     print("addr_digits :", addr_ev)
+    print("longdoc     :", longdoc_ev)
     fl_h = eval_float(model, held_rows, stoi)
     fl_a = eval_float(model, hard_rows, stoi)
     print(f"float heldout F1={fl_h['span_f1']:.4f}  hard F1={fl_a['span_f1']:.4f} "
@@ -515,6 +562,7 @@ def main() -> int:
         "hard": {k: hard[k] for k in ("span_precision", "span_recall", "span_f1")},
         "unseen_names": unseen_ev,
         "addr_digits": addr_ev,
+        "longdoc": longdoc_ev,
         "size": {"params": params, "int8_bytes": int8_bytes, "macs_per_window": macs},
         "checksums": {"weights_sha256": sha},
     }
