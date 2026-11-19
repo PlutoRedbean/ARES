@@ -24,14 +24,14 @@ module l2_ner (
     localparam logic [23:0] M2 = 24'd384084;
 
     // ROM（组合读）
-    logic [15:0] emb_addr;   logic [7:0]  emb_data;
+    logic [16:0] emb_addr;   logic [7:0]  emb_data;
     logic [11:0] c1_addr, c2_addr, w_addr;
     logic [7:0]  c1_data, c2_data;
     logic [4:0]  c1b_addr, c2b_addr;
     logic signed [31:0] c1b_data, c2b_data;
     logic [7:0]  h_addr;     logic [7:0]  h_data;
     logic [1:0]  hb_addr;    logic signed [31:0] hb_data;
-    logic [9:0]  voc_addr;   logic [23:0] voc_key;  logic [9:0] voc_id;
+    logic [11:0] voc_addr;   logic [23:0] voc_key;  logic [11:0] voc_id;
 
     l2_ner_rom u_rom (
         .emb_addr(emb_addr), .emb_data(emb_data),
@@ -47,7 +47,7 @@ module l2_ner (
 
     // 存储
     logic [7:0]  ch_buf [0:63];
-    logic [9:0]  tok_id [0:63];
+    logic [11:0] tok_id [0:63];
     logic [5:0]  tok_off[0:63];
     logic [2:0]  tok_len[0:63];
     logic signed [7:0]  x  [0:2047];
@@ -69,7 +69,7 @@ module l2_ner (
     state_t st;
 
     logic [6:0]  ti, i, o, c, sp, rs;
-    logic [9:0]  va;
+    logic [11:0] va;
     logic [23:0] key_r;
     logic [2:0]  tlen_r;
     logic [1:0]  k, cls, rl;
@@ -79,14 +79,14 @@ module l2_ner (
 
     assign busy = (st != S_RECV);
 
-    wire [9:0]  tid = (i < ntok) ? tok_id[i[5:0]] : 10'd0;
+    wire [11:0] tid = (i < ntok) ? tok_id[i[5:0]] : 12'd0;
     wire [6:0]  a_idx = i + {5'd0, k} - 7'd1;
     wire        a_ok  = (i + {5'd0, k} >= 7'd1) && (a_idx <= 7'd63);
     wire signed [7:0] a_x  = a_ok ? x [{5'd0, a_idx} * 12'd32 + {4'd0, c}] : 8'sd0;
     wire signed [7:0] a_h1 = a_ok ? h1[{5'd0, a_idx} * 12'd32 + {4'd0, c}] : 8'sd0;
 
     // tid 是 10 位：这里必须用满 10 位，否则 id >= 512 的 token 会读错行
-    assign emb_addr = {tid, 5'd0} + {11'd0, c[4:0]};
+    assign emb_addr = {tid, 5'd0} + {12'd0, c[4:0]};
     assign w_addr   = {5'd0, o} * 12'd96 + {10'd0, k} * 12'd32 + {5'd0, c};
     assign c1_addr  = w_addr;
     assign c2_addr  = w_addr;
@@ -172,13 +172,13 @@ module l2_ner (
                     if (voc_key == tkey_at(ti[5:0])) tok_id[ntok[5:0]] <= voc_id;
                     tok_off[ntok[5:0]] <= ti[5:0];
                     tok_len[ntok[5:0]] <= ureq_len(ch_buf[ti[5:0]]);
-                    tok_id [ntok[5:0]] <= 10'd1;
-                    va <= 10'd1;
-                end else if (va < 10'(VOCAB_N)) begin
+                    tok_id [ntok[5:0]] <= 12'd1;
+                    va <= 12'd1;
+                end else if (va < 12'(VOCAB_N)) begin
                     if (voc_key == key_r) tok_id[ntok[5:0]] <= voc_id;
-                    va <= va + 10'd1;
+                    va <= va + 12'd1;
                 end else begin
-                    va <= 10'd0;
+                    va <= 12'd0;
                     ntok <= ntok + 7'd1;
                     ti <= ti + {4'd0, tlen_r};
                 end

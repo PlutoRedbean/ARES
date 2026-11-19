@@ -131,7 +131,7 @@ module l2_ner_rom #(
     parameter int CONV2_DEPTH = {len(w['conv2_w'])},
     parameter int HEAD_DEPTH = {len(w['head_w'])}
 ) (
-    input  logic [15:0] emb_addr,
+    input  logic [16:0] emb_addr,
     output logic [7:0]  emb_data,
 
     input  logic [11:0] conv1_addr,
@@ -186,14 +186,14 @@ endmodule
 `timescale 1ns/1ps
 
 module l2_ner_vocab #(parameter int N = {len(entries)}) (
-    input  logic [9:0]  addr,
+    input  logic [11:0] addr,
     output logic [23:0] key,
-    output logic [9:0]  id
+    output logic [11:0] id
 );
     logic [39:0] rom [0:N-1];
     initial $readmemh("build/gen/ner_vocab.hex", rom);
     assign key = rom[addr][39:16];
-    assign id  = rom[addr][9:0];
+    assign id  = rom[addr][11:0];
 endmodule
 """
     (out / "l2_ner_vocab.sv").write_text(vocab, encoding="utf-8")
