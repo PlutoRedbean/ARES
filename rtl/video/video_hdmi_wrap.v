@@ -9,7 +9,15 @@
 
 module video_hdmi_wrap #(
     // S2: use the framebuf's vout_de as the output DE (vendor top behaviour).
-    parameter integer USE_EXT_DE = 0
+    parameter integer USE_EXT_DE = 0,
+    // Optional fixed guide box, drawn in the 1280x720 active picture.
+    parameter integer OSD_BOX      = 0,
+    parameter [11:0]  OSD_X0       = 12'd520,
+    parameter [11:0]  OSD_Y0       = 12'd254,
+    parameter [11:0]  OSD_X1       = 12'd760,
+    parameter [11:0]  OSD_Y1       = 12'd404,
+    parameter [11:0]  OSD_THICK    = 12'd3,
+    parameter [15:0]  OSD_COLOR    = 16'h07E0
 ) (
     input  wire        pix_clk,
     input  wire        pix_rst,
@@ -112,6 +120,28 @@ module video_hdmi_wrap #(
         end
     end
 
+    // ------------------------------------------------------------ guide box
+    // The box uses the timing generator's active x/y, which is the same pixel
+    // rgb_mux carries.  That keeps the overlay exactly on the requested
+    // screen coordinates; the framebuf's vout_de is de_re + 2, i.e. de again.
+    wire [15:0] rgb_osd;
+
+    video_osd_box #(
+        .ENABLE (OSD_BOX),
+        .X0     (OSD_X0),
+        .Y0     (OSD_Y0),
+        .X1     (OSD_X1),
+        .Y1     (OSD_Y1),
+        .THICK  (OSD_THICK),
+        .COLOR  (OSD_COLOR)
+    ) u_osd_box (
+        .de      (de_sel),
+        .x       (x_cnt),
+        .y       (y_cnt),
+        .rgb_in  (rgb_mux),
+        .rgb_out (rgb_osd)
+    );
+
     // ------------------------------------------------------ output pipeline
     reg        de_q;
     reg        hs_q;
@@ -132,9 +162,9 @@ module video_hdmi_wrap #(
             de_q <= de_sel;
             hs_q <= hs;
             vs_q <= vs;
-            r_q  <= {rgb_mux[15:11], 3'b000};
-            g_q  <= {rgb_mux[10:5],  2'b00};
-            b_q  <= {rgb_mux[4:0],   3'b000};
+            r_q  <= {rgb_osd[15:11], 3'b000};
+            g_q  <= {rgb_osd[10:5],  2'b00};
+            b_q  <= {rgb_osd[4:0],   3'b000};
         end
     end
 
