@@ -1,13 +1,13 @@
 {
   "seed": 20261118,
   "counts": {
-    "train": 71998,
+    "train": 79998,
     "heldout": 2600,
     "hard": 1600
   },
   "categories": {
     "train": {
-      "prose": 25500,
+      "prose": 28500,
       "neg": 2000,
       "neg_hard": 600,
       "trap": 1500,
@@ -15,6 +15,8 @@
       "targeted2": 300,
       "targeted3": 200,
       "pairs": 1500,
+      "name_ctx": 4000,
+      "addr_start": 1000,
       "colloc": 800,
       "english": 300,
       "name": 1500,
@@ -29,23 +31,25 @@
       "realistic_rows": 400
     },
     "heldout": {
-      "prose": 722,
-      "neg": 101,
-      "neg_hard": 33,
-      "trap": 67,
-      "targeted": 84,
-      "targeted2": 25,
+      "prose": 686,
+      "neg": 96,
+      "neg_hard": 32,
+      "trap": 64,
+      "targeted": 80,
+      "targeted2": 24,
       "targeted3": 16,
-      "pairs": 67,
-      "colloc": 84,
-      "english": 42,
-      "name": 254,
-      "boundary": 254,
-      "compound": 254,
-      "title": 127,
-      "addr": 297,
-      "mixed": 76,
-      "addr_digits": 97
+      "pairs": 64,
+      "name_ctx": 64,
+      "addr_start": 64,
+      "colloc": 80,
+      "english": 40,
+      "name": 242,
+      "boundary": 242,
+      "compound": 242,
+      "title": 121,
+      "addr": 282,
+      "mixed": 72,
+      "addr_digits": 89
     },
     "hard": {
       "hard_name": 329,
@@ -59,30 +63,30 @@
     }
   },
   "neg_ratio": {
-    "train": 0.4145,
-    "heldout": 0.3562,
+    "train": 0.4105,
+    "heldout": 0.3388,
     "hard": 0.1481
   },
   "prose_ratio": {
-    "train": 0.3542,
-    "heldout": 0.2777,
+    "train": 0.3563,
+    "heldout": 0.2638,
     "hard": 0.0
   },
   "hard_ratio": {
-    "train": 0.4056,
-    "heldout": 0.2277,
+    "train": 0.365,
+    "heldout": 0.2169,
     "hard": 1.0
   },
   "chars": {
     "train": 3078,
-    "heldout": 984,
-    "hard": 612
+    "heldout": 1014,
+    "hard": 610
   },
   "name_chars": 3000,
-  "distinct_train_names": 136193,
+  "distinct_train_names": 139871,
   "bulk_name_rows": 24000,
   "realistic_name_rows": 400,
-  "addr_digit_ratio": 0.6665,
+  "addr_digit_ratio": 0.7092,
   "unseen_names": {
     "cases": 600
   },

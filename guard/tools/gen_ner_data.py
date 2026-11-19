@@ -797,6 +797,41 @@ def pos_targeted(rng: random.Random) -> Doc:
     return d
 
 
+BOUNDARY_LAST = [c for c in "问在回说去来好是时住活清边知友配成平很都" if c in NAME_CORE]
+
+
+def make_ctx_name(rng: random.Random) -> str:
+    """名字末字故意取“也像边界词”的字，用来教模型不要把 问/在/回/好 吃掉。"""
+    if rng.random() < 0.06:
+        return rng.choice(COMPOUND) + rng.choice(NAME_CORE) + rng.choice(BOUNDARY_LAST)
+    s = rng.choice(SURNAMES)
+    if rng.random() < 0.3:
+        return s + rng.choice(BOUNDARY_LAST)
+    return s + rng.choice(NAME_CORE) + rng.choice(BOUNDARY_LAST)
+
+
+def pos_name_ctx(rng: random.Random) -> Doc:
+    d = Doc()
+    name = make_ctx_name(rng)
+    t = rng.random()
+    if t < 0.45:
+        d.add(name, 1).add("的演唱会在上海", 0)
+    elif t < 0.70:
+        d.add(name, 1).add("说下午开会", 0)
+    elif t < 0.85:
+        d.add("请把文件发给").add(name, 1)
+    else:
+        d.add(name, 1).add(rng.choice(["问", "在楼下", "不太舒服", "很忙",
+                                       "回电", "刚才来过", "走了", "都到了"]), 0)
+    return d
+
+
+def pos_addr_start(rng: random.Random) -> Doc:
+    d = Doc()
+    d.add(make_digit_addr(rng), 2).add("是收货地址", 0)
+    return d
+
+
 def pos_pairs(rng: random.Random) -> Doc:
     """两个 v3 名字用 与/和/跟/、 连接；只标姓名。"""
     d = Doc()
@@ -861,6 +896,10 @@ def build_one(rng: random.Random, cat: str) -> Doc:
         return pos_targeted(rng)
     if cat == "pairs":
         return pos_pairs(rng)
+    if cat == "name_ctx":
+        return pos_name_ctx(rng)
+    if cat == "addr_start":
+        return pos_addr_start(rng)
     if cat == "targeted2":
         return pos_targeted2(rng)
     if cat == "targeted3":
@@ -1019,7 +1058,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="data/ner")
     ap.add_argument("--seed", type=int, default=20261118)
-    ap.add_argument("--train", type=int, default=46500)
+    ap.add_argument("--train", type=int, default=54500)
     ap.add_argument("--heldout", type=int, default=2600)
     ap.add_argument("--hard", type=int, default=1600)
     ap.add_argument("--bulk", type=int, default=24000, help="名字大类的行数（每行 5 个全名）")
@@ -1042,8 +1081,9 @@ def main() -> int:
     # 训练：30.6k，散文 11k（35.9%），负样本 13.5k（44.1%），
     # 边界 3k + 复姓 3.6k（12 个复姓各约 300 例）=> 难样本 >= 21%。
     train_spec = scale_spec([
-        ("prose", 25500), ("neg", 2000), ("neg_hard", 600), ("trap", 1500),
+        ("prose", 28500), ("neg", 2000), ("neg_hard", 600), ("trap", 1500),
         ("targeted", 2000), ("targeted2", 300), ("targeted3", 200), ("pairs", 1500),
+        ("name_ctx", 4000), ("addr_start", 1000),
         ("colloc", 800), ("english", 300),
         ("name", 1500), ("boundary", 2500), ("compound", 1500),
         ("title", 1000), ("addr", 2500), ("mixed", 800), ("addr_digits", 2000),
@@ -1051,7 +1091,8 @@ def main() -> int:
     # 留出：2.6k，负样本约 40%，覆盖所有新类别。
     held_spec = scale_spec([
         ("prose", 850), ("neg", 120), ("neg_hard", 40), ("trap", 80),
-        ("targeted", 100), ("targeted2", 30), ("targeted3", 20), ("pairs", 80), ("colloc", 100), ("english", 50),
+        ("targeted", 100), ("targeted2", 30), ("targeted3", 20), ("pairs", 80),
+        ("name_ctx", 80), ("addr_start", 80), ("colloc", 100), ("english", 50),
         ("name", 300), ("boundary", 300), ("compound", 300),
         ("title", 150), ("addr", 350), ("mixed", 90), ("addr_digits", 100),
     ], args.heldout)

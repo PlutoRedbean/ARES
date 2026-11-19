@@ -1,27 +1,27 @@
 {
   "seed": 20261118,
   "data": {
-    "train": 71998,
+    "train": 79998,
     "heldout": 2600,
     "hard": 1600
   },
   "heldout": {
-    "span_precision": 0.995436,
-    "span_recall": 0.994428,
-    "span_f1": 0.994932
+    "span_precision": 0.996475,
+    "span_recall": 0.995473,
+    "span_f1": 0.995974
   },
   "hard": {
-    "span_precision": 0.994037,
-    "span_recall": 0.994037,
-    "span_f1": 0.994037
+    "span_precision": 0.997018,
+    "span_recall": 0.997018,
+    "span_f1": 0.997018
   },
   "unseen_names": {
     "cases": 600,
-    "recall": 0.97
+    "recall": 1.0
   },
   "addr_digits": {
     "cases": 600,
-    "exact_span_rate": 0.996667
+    "exact_span_rate": 1.0
   },
   "size": {
     "params": 6307,
@@ -29,6 +29,6 @@
     "macs_per_window": 399360
   },
   "checksums": {
-    "weights_sha256": "684b096506fc6ffd5935101c273b89b2e0f7fc95da38519710f7a70926a469cc"
+    "weights_sha256": "1d97a87bdb3f95e42991a9322cb1ac9c0252f5085141825b5d396b3a88f894f8"
   }
 }
