@@ -74,7 +74,13 @@ python tools\serial_host.py -p COM9 --file examples\demo1_offer.txt
 
 ## 快速开始：PC 本机
 
-**边打边看**：`./run.sh serve` 起一个本地网页（仅监听 127.0.0.1），左边输入/粘贴，
+**边打边看**（两种都行，都是纯静态 + 只监听 127.0.0.1）：
+
+- `make web` → 打开 http://127.0.0.1:8777 ，接线面板式演示台，能直接连板子（Web Serial），
+  也能不插板子回放板上实测结果；说明见 [web/README.md](web/README.md)。
+- `./run.sh serve` → 打开 http://127.0.0.1:8766 ，PC 本机全 RTL 工作台。
+
+后者（`./run.sh serve`）左边输入/粘贴，
 右边约 5 ms 出脱敏结果（全 RTL），下方是审计表与关键词提示；可切 mask（全 RTL）/
 token（金标渲染）。
 
@@ -144,7 +150,10 @@ python guard\tools\serial_host.py -p COM5 --file guard\examples\sample.txt --che
 |---|---|
 | [docs/board-uart.md](docs/board-uart.md) | 上板设计与验证：串口协议、三个机制、资源时序、PDS 流程、这一轮修掉的问题 |
 | [docs/board-bringup.md](docs/board-bringup.md) | **上板操作手册**：出位流 → 烧写 → 串口第一测 → 验收 → 故障表 |
-| [TODO.md](TODO.md) | 按路线的任务清单 |
+| [TODO.md](TODO.md) | 按路线的任务清单与已知限制 |
+| [docs/l2-int4.md](docs/l2-int4.md) | L2 语义层 + NER 数据通路（窗口重叠、后处理、尺寸） |
+| [docs/ubuntu-ner.md](docs/ubuntu-ner.md) | NER 训练交接书（v4 要求 + 验收门槛） |
+| [web/README.md](web/README.md) | **浏览器演示台**：串口实时 / 板上实测回放 / 本地规则预览 |
 
 ## 目录
 

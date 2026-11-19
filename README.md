@@ -33,11 +33,11 @@ python tools\serial_host.py -p COM9 --file examples\demo09_mixed.txt   # 跑样�
 
 | 项 | 值 |
 |---|---|
-| 资源 | **20,895 / 159,800 LUT（13.08%）· 3,814 FF · 6.0 DRM · 17 APM · 1 PLL** |
-| 时序 | WNS **+5.22 ns** @25 MHz（TNS 0）→ Fmax ≈ 28.8 MHz |
+| 资源 | **20,879 / 159,800 LUT（13.07%）· 3,814 FF · 6.0 DRM · 17 APM · 1 PLL** |
+| 时序 | WNS **+4.40 ns** @25 MHz（TNS 0）→ Fmax ≈ 28.2 MHz |
 | 位流 | `guard/generate_bitstream/guard_board_top.sbit`（9,188,552 B） |
 | 串口 | 115200 8N1，帧边界 = LF 或空闲 2.6 s |
-| 自检 | `tools/board_smoke.py` **12/12**；`examples/` 10 个演示逐句验过 |
+| 自检 | `tools/board_smoke.py` **12/12**；`examples/` 5 条段落 demo 逐字符验过 |
 
 ## 文档
 
@@ -49,6 +49,7 @@ python tools\serial_host.py -p COM9 --file examples\demo09_mixed.txt   # 跑样�
 | [guard/docs/board-uart.md](guard/docs/board-uart.md) | 板级设计：协议、掩码策略、资源、bug 日志 |
 | [guard/docs/l2-int4.md](guard/docs/l2-int4.md) | L2 语义层 + NER 数据通路与模型 |
 | [guard/docs/ubuntu-ner.md](guard/docs/ubuntu-ner.md) | NER 训练交接书（v4 要求、验收门槛） |
+| [guard/web/README.md](guard/web/README.md) | 浏览器演示台（串口实时 / 实测回放 / 本地预览） |
 
 ## 分工
 
