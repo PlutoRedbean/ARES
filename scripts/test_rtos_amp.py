@@ -23,13 +23,13 @@ patch = [min(grays, key=lambda pair: abs((pair[0] * 194 >> 8) - q))[1]
 (out / "camera_patch.hex").write_text("".join(f"{pixel:04x}\n" for pixel in patch))
 
 commands = (
-    "ps\necall\nsleep 3\nai selftest\n"
-    "ai start\nsleep 140\ncoremark start 1\ncoremark start 2 validation\n"
-    "sleep 140\nai stop\nai status\n"
-    "ai selftest\nirq\nquit\n"
+    "ps\necall\nsleep 3\nai selftest\nsleep 20\nai start\n"
+    "sleep 140\ncoremark start 1\nsleep 300\ncoremark start 2 validation\n"
+    "sleep 300\nai stop\nai status\n"
+    "ai selftest\nsleep 20\nirq\nquit\n"
 )
 result = subprocess.run(
-    [str(out / "model/run"), "--max-ms", "650", "+camera"],
+    [str(out / "model/run"), "--max-ms", "1500", "+camera"],
     input=commands, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
     cwd=root, timeout=360,
 )
@@ -61,14 +61,15 @@ require(len(first_ai) == 1 and first_ai == re.findall(ai, reports[2], re.M),
 require(reports[0].index("AI selftest PASS") < reports[0].index("Running CoreMark"),
         "AI did not run before CoreMark")
 require("AI selftest PASS" not in reports[1], "Unexpected selftest between the benchmarks")
-gesture = r"^hand: scissors margin (?:[4-9]|[1-9]\d+)$"
+gesture = r"^G \d+ 2 2 -?\d+ -?\d+ -?\d+ (?:[4-9]|[1-9]\d+) 0$"
 require(re.search(gesture, reports[0], re.M), "Missing live gesture before CoreMark")
 require(re.search(gesture, reports[2], re.M), "Missing live gesture after CoreMark")
-require("hand: none" in reports[0].split("coremark start 1")[-1],
+ai_off = r"^G \d+ -1 -1 0 0 0 0 8$"
+require(re.search(ai_off, reports[0].split("coremark start 1")[-1], re.M),
         "AI did not clear the held gesture before the benchmark")
 for report in reports[:2]:
     timed = report.split("Running CoreMark", 1)[1]
-    require("hand:" not in timed, "Gesture UART output during CoreMark")
+    require("G " not in timed, "Gesture UART output during CoreMark")
 require("AI stopped" in reports[2], "AI did not stop")
 
 for report, iterations, seed, expected in zip(

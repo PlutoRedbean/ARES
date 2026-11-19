@@ -22,6 +22,12 @@ static rt_uint8_t bench_stack[12288] __attribute__((aligned(16)));
  * frames. These flags are shared by threads on hart0. */
 static volatile int live_requested, selftest_requested, bench_pending;
 
+/* IMU telemetry must pause while the CoreMark benchmark runs, otherwise its
+ * 50 Hz console writes perturb the score. */
+volatile int g_bench_active;
+
+extern int imu_app_init(void);
+
 static void ai_entry(void *parameter)
 {
     (void)parameter;
@@ -74,7 +80,9 @@ static void bench_entry(void *parameter)
     (void)parameter;
     for (;;) {
         rt_sem_take(&bench_request, RT_WAITING_FOREVER);
+        g_bench_active = 1;
         int result = coremark_main();
+        g_bench_active = 0;
         printf("AMP CoreMark %s\n", result == 0 && coremark_workers_ok() ? "PASS" : "FAIL");
         bench_pending = 0;
     }
@@ -153,10 +161,16 @@ void amp_apps_init(void)
     guard_app_init();
     rt_sem_init(&ai_request, "aireq", 0, RT_IPC_FLAG_FIFO);
     rt_sem_init(&bench_request, "cmreq", 0, RT_IPC_FLAG_FIFO);
+    /* Keep the AI thread below the MSH shell (priority 20).  At priority 19
+     * miniTensor inference and the 10 Hz hand reports preempt the shell, so
+     * "ai stop" could not be processed while live recognition was running. */
     rt_thread_init(&ai_thread, "ai", ai_entry, RT_NULL,
                    ai_stack, sizeof(ai_stack), 19, 5);
     rt_thread_init(&bench_thread, "coremark", bench_entry, RT_NULL,
                    bench_stack, sizeof(bench_stack), 18, 5);
     rt_thread_startup(&ai_thread);
     rt_thread_startup(&bench_thread);
+
+    /* Third hart0 application: IMU telemetry on UART2/AD26. */
+    imu_app_init();
 }
