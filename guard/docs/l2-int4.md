@@ -206,3 +206,14 @@ python3 tools/demo.py --in 某文件.txt --policy mask --entities
 
 **仿真与板上用的是两个实体层**：`make test` 里 `USE_NER=0`（规则版，金标可算），
 `guard_board_top` 默认 `USE_NER=1`（模型）。
+### 8.x 模型文件说明
+
+| 文件 | 说明 |
+|---|---|
+| `models/ner/config.json` | 结构参数：64 字节窗口、vocab 3090、emb 32、32 通道、3 类 |
+| `models/ner/vocab.json` | 3,090 项：0=`<pad>`、1=`<unk>`，其余按 name_chars + 训练字频 |
+| `models/ner/weights_int8.npz` | INT8 权重（emb / conv1 / conv2 / head + bias） |
+| `models/ner/quant.json` | 每层 scale/zp、两级 requant 乘数 |
+| `models/ner/eval.json` | 14 条门槛的实测数字（heldout / hard / unseen_names / addr_digits / longdoc / size） |
+
+生成 RTL 常量：`tools/gen_ner_rom.py` → `build/gen/l2_ner_cfg.sv`、`l2_ner_rom.sv`、`l2_ner_vocab.sv`（`$readmemh` 的 hex 在同目录）。

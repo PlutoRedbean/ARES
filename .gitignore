@@ -1,10 +1,12 @@
-# ---- 通用构建产物 ----
+# ===== 通用构建产物 =====
 obj_dir/
 build/
 prj_tasks/
 *.log
+*.sbit
+.dide/
 
-# ---- Pango PDS 输出（任意深度的项目目录） ----
+# ===== Pango PDS 输出 =====
 **/fpga/prj_pds/compile/
 **/fpga/prj_pds/synthesize/
 **/fpga/prj_pds/device_map/
@@ -25,10 +27,7 @@ guard/logbackup/
 guard/prj_tasks/
 guard/log/
 
-# 本地 PnR 位流不入库
-**/bitstreams/*.sbit
-
-# ---- python ----
+# ===== python =====
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -38,10 +37,7 @@ __pycache__/
 htmlcov/
 **/.venv/
 
-# ---- Pango PDS/IDE 解析缓存（每次跑 PDS 会重新生成） ----
-.dide/
-
-# ---- 编辑器 / 系统 ----
+# ===== 编辑器 / 系统 =====
 .vscode/
 .idea/
 Thumbs.db
@@ -50,8 +46,7 @@ desktop.ini
 *.swp
 *.bak
 
-# ---- guard：模型权重与量化产物不入库 ----
+# ===== NER 模型：只收录交接产物（权重/量化/评估/词表/数据）=====
 guard/models/**
-# 但 Ubuntu 交接的 NER 模型要入库（交接单第 8 节要求随分支提交）
 !guard/models/ner/
 !guard/models/ner/**
