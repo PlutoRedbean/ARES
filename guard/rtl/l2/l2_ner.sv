@@ -81,6 +81,18 @@ module l2_ner (
 
     assign busy = (st != S_RECV);
 
+    // 标点/空白永远不算实体：否则模型会把 "（" "，" 并进名字，遮完括号就没了
+    function automatic logic is_punct(input logic [7:0] b0, input logic [7:0] b1);
+        if (b0 < 8'h20)                                  is_punct = 1'b1;   // 控制字符
+        else if (b0 == 8'h20)                            is_punct = 1'b1;   // 空格
+        else if (b0 == 8'hEF && (b1 == 8'hBC || b1 == 8'hBD)) is_punct = 1'b1; // 全角 ，（）：；！？
+        else if (b0 == 8'hE3 && b1 == 8'h80)              is_punct = 1'b1;   // 、。〈〉《》
+        else if (b0 < 8'h80 && !((b0 >= 8'h30 && b0 <= 8'h39) ||
+                                 (b0 >= 8'h41 && b0 <= 8'h5A) ||
+                                 (b0 >= 8'h61 && b0 <= 8'h7A))) is_punct = 1'b1; // ASCII 符号
+        else is_punct = 1'b0;
+    endfunction
+
     wire [11:0] tid = (i < ntok) ? tok_id[i[5:0]] : 12'd0;
     wire [6:0]  a_idx = i + {5'd0, k} - 7'd1;
     wire        a_ok  = (i + {5'd0, k} >= 7'd1) && (a_idx <= 7'd63);
@@ -247,7 +259,9 @@ module l2_ner (
                     if ((acc + prh)
                         + hb_reg[cls[1:0]] > best) begin
                         // 控制字符（LF/CR/TAB…）永远不算 PII，避免换行被并进名字
-                        lab[i[5:0]] <= (ch_buf[tok_off[i[5:0]]] < 8'h20) ? 2'd0 : cls;
+                        lab[i[5:0]] <= is_punct(ch_buf[tok_off[i[5:0]]],
+                                                ch_buf[tok_off[i[5:0]] + 6'd1])
+                                       ? 2'd0 : cls;
                         best <= (acc + prh)
                                 + hb_reg[cls[1:0]];
                     end
