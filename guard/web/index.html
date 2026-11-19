@@ -3,83 +3,194 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ARES GUARD · 实时脱敏演示</title>
+<title>ARES GUARD · 盘古 200Pro+ 实时脱敏</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <div class="bg-grid"></div>
-<div class="scan"></div>
+<div class="bg-glow"></div>
+<div class="scanline"></div>
 
-<header class="top">
+<header class="hud">
   <div class="brand">
-    <div class="logo">AG</div>
-    <div>
-      <h1>ARES GUARD</h1>
-      <p class="sub">FPGA · 串口 · 实时 PII 脱敏</p>
+    <div class="logo">
+      <div class="ring r1"></div>
+      <div class="ring r2"></div>
+      <div class="ring r3"></div>
+      <div class="logo-core">AG</div>
+    </div>
+    <div class="titles">
+      <h1>ARES <span>GUARD</span></h1>
+      <p class="sub">实时 PII 脱敏网关 · <b>盘古 200Pro+</b> · PG2L200H-6IFBB676 · 25 MHz · 115200 8N1</p>
     </div>
   </div>
-  <div class="status">
-    <span id="conn" class="dot off"></span>
-    <span id="connText">未连接</span>
+
+  <div class="hud-right">
+    <div class="stat">
+      <span class="k">链路</span>
+      <span class="v"><i id="led" class="led"></i><em id="connText">未连接</em></span>
+    </div>
+    <div class="stat">
+      <span class="k">时延</span>
+      <span class="v mono" id="lat">—</span>
+    </div>
+    <div class="stat">
+      <span class="k">吞吐</span>
+      <span class="v mono" id="rate">—</span>
+    </div>
     <button id="btnConnect" class="btn ghost">连接串口</button>
     <button id="btnSim" class="btn ghost">模拟模式</button>
-    <span class="lat" id="lat">—</span>
   </div>
 </header>
 
-<main class="wrap">
-  <section class="panel left">
-    <h2>样例 <span class="hint">点一下填入发送框</span></h2>
+<main class="grid">
+  <aside class="panel rail">
+    <h2><span>样例</span><em>点击填入</em></h2>
     <ul id="demos" class="demos"></ul>
-  </section>
+    <div class="rail-foot">
+      <div class="mini">10 条样例全部在板上跑过</div>
+    </div>
+  </aside>
 
-  <section class="panel mid">
-    <h2>发送 <span class="hint">可编辑</span></h2>
-    <textarea id="input" spellcheck="false" placeholder="在这里输入或选择一个样例…"></textarea>
-    <div class="row">
-      <button id="btnSend" class="btn primary">发送到 FPGA</button>
-      <button id="btnClear" class="btn ghost">清空</button>
-      <span class="meta" id="inMeta">0 B</span>
+  <section class="stage">
+    <div class="panel editor">
+      <h2><span>发送</span><em>可编辑 · Ctrl+Enter 发送</em></h2>
+      <textarea id="input" spellcheck="false" placeholder="输入文本，或从左侧选一个样例…"></textarea>
+      <div class="actions">
+        <button id="btnSend" class="btn primary"><i class="bolt"></i>发送到 FPGA</button>
+        <button id="btnClear" class="btn ghost">清空</button>
+        <span class="meter"><i id="inBar"></i></span>
+        <span class="meta mono" id="inMeta">0 B</span>
+      </div>
     </div>
 
-    <div class="chip-stage" id="stage">
-      <svg class="chip" viewBox="0 0 220 140" aria-hidden="true">
-        <defs>
-          <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stop-color="#38f5c8"/><stop offset="1" stop-color="#3d7bff"/>
-          </linearGradient>
-          <filter id="glow"><feGaussianBlur stdDeviation="3" result="b"/>
-            <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-        </defs>
-        <rect x="45" y="35" width="130" height="70" rx="8" class="die"/>
-        <text x="110" y="68" class="die-label">FPGA</text>
-        <text x="110" y="86" class="die-sub">ARES · L1/L2/NER</text>
-        <g class="pins">
-          <line x1="20" y1="55" x2="45" y2="55"/><line x1="20" y1="70" x2="45" y2="70"/>
-          <line x1="20" y1="85" x2="45" y2="85"/>
-          <line x1="175" y1="55" x2="200" y2="55"/><line x1="175" y1="70" x2="200" y2="70"/>
-          <line x1="175" y1="85" x2="200" y2="85"/>
-        </g>
-        <circle id="pulse" cx="110" cy="70" r="0" class="pulse"/>
-      </svg>
-      <div class="flow in" id="flowIn"></div>
-      <div class="flow out" id="flowOut"></div>
-      <div class="think" id="think">FPGA 推理中<span class="dots"><i></i><i></i><i></i></span></div>
+    <div class="panel boardwrap">
+      <h2><span>FPGA</span><em id="boardState">待机</em></h2>
+      <div class="board" id="board">
+        <svg viewBox="0 0 720 300" class="pcb" aria-label="Pangu 200Pro+ board">
+          <defs>
+            <linearGradient id="trace" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0" stop-color="#1b3a6b"/><stop offset=".5" stop-color="#38f5c8"/>
+              <stop offset="1" stop-color="#1b3a6b"/>
+            </linearGradient>
+            <linearGradient id="dieG" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#0d1b2f"/><stop offset="1" stop-color="#132a4a"/>
+            </linearGradient>
+            <radialGradient id="halo"><stop offset="0" stop-color="#38f5c8" stop-opacity=".55"/>
+              <stop offset="1" stop-color="#38f5c8" stop-opacity="0"/></radialGradient>
+            <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur stdDeviation="3.2" result="b"/>
+              <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+            </filter>
+            <pattern id="mesh" width="6" height="6" patternUnits="userSpaceOnUse">
+              <path d="M0 6L6 0" stroke="#1b3358" stroke-width=".6"/>
+            </pattern>
+          </defs>
+
+          <!-- 板卡 -->
+          <rect x="14" y="18" width="692" height="264" rx="16" class="pcb-body"/>
+          <rect x="14" y="18" width="692" height="264" rx="16" fill="url(#mesh)" opacity=".5"/>
+          <text x="34" y="44" class="silk">PANGU 200Pro+</text>
+          <text x="34" y="60" class="silk dim">PG2L200H-6IFBB676</text>
+          <text x="686" y="44" class="silk dim" text-anchor="end">25 MHz · 3.7 V</text>
+
+          <!-- 左侧 UART 与走线 -->
+          <rect x="26" y="150" width="52" height="44" rx="6" class="part"/>
+          <text x="52" y="168" class="part-t" text-anchor="middle">UART</text>
+          <text x="52" y="182" class="part-s" text-anchor="middle">RX B24</text>
+
+          <path d="M78 172 H150" class="trace in" id="t1"/>
+          <path d="M150 172 H205" class="trace in" id="t2"/>
+          <circle r="2.8" class="e" id="e1">
+            <animateMotion dur="1.5s" repeatCount="indefinite" path="M78 172 H205"/>
+          </circle>
+          <circle r="2.2" class="e2" id="e1b">
+            <animateMotion dur="1.1s" begin="0.4s" repeatCount="indefinite" path="M78 172 H205"/>
+          </circle>
+
+          <!-- 芯片 -->
+          <g id="dieGroup">
+            <rect x="205" y="86" width="310" height="176" rx="12" class="die"/>
+            <rect x="213" y="94" width="294" height="160" rx="9" class="die-in"/>
+            <text x="360" y="112" class="die-t" text-anchor="middle">PG2L200H</text>
+            <text x="360" y="126" class="die-s" text-anchor="middle">LOGICOS-2 · 200K LUT</text>
+
+            <!-- 三个功能块 -->
+            <g class="blk" id="blk-ares">
+              <rect x="228" y="140" width="84" height="46" rx="7"/>
+              <text x="270" y="161" class="blk-t" text-anchor="middle">ARES</text>
+              <text x="270" y="175" class="blk-s" text-anchor="middle">core</text>
+            </g>
+            <g class="blk" id="blk-mt">
+              <rect x="318" y="140" width="84" height="46" rx="7"/>
+              <text x="360" y="161" class="blk-t" text-anchor="middle">miniTensor</text>
+              <text x="360" y="175" class="blk-s" text-anchor="middle">4×4 INT8 MXU</text>
+            </g>
+            <g class="blk" id="blk-ner">
+              <rect x="408" y="140" width="84" height="46" rx="7"/>
+              <text x="450" y="161" class="blk-t" text-anchor="middle">NER</text>
+              <text x="450" y="175" class="blk-s" text-anchor="middle">INT8 CNN</text>
+            </g>
+
+            <!-- 走动的小电流 -->
+            <path d="M312 163 H318" class="wire"/>
+            <path d="M402 163 H408" class="wire"/>
+            <circle r="2" class="spark" id="s1"/>
+            <circle r="2" class="spark" id="s2"/>
+
+            <g class="blk l1" id="blk-l1">
+              <rect x="228" y="196" width="264" height="40" rx="7"/>
+              <text x="360" y="212" class="blk-t" text-anchor="middle">L1 规则引擎 ×5</text>
+              <text x="360" y="226" class="blk-s" text-anchor="middle">身份证 · 手机 · 卡号 · 邮箱 · IPv4 · 车牌 · USCC</text>
+            </g>
+            <text x="360" y="252" class="die-s" text-anchor="middle">merge → mask → audit</text>
+          </g>
+
+          <!-- 右侧输出走线 -->
+          <path d="M515 172 H590" class="trace out" id="t3"/>
+          <path d="M590 172 H652" class="trace out" id="t4"/>
+          <circle r="2.8" class="e" id="e3">
+            <animateMotion dur="1.5s" begin="0.2s" repeatCount="indefinite" path="M515 172 H652"/>
+          </circle>
+          <circle r="2.2" class="e2" id="e3b">
+            <animateMotion dur="1.1s" begin="0.7s" repeatCount="indefinite" path="M515 172 H652"/>
+          </circle>
+          <rect x="652" y="150" width="44" height="44" rx="6" class="part"/>
+          <text x="674" y="168" class="part-t" text-anchor="middle">UART</text>
+          <text x="674" y="182" class="part-s" text-anchor="middle">TX C24</text>
+
+          <circle cx="380" cy="70" r="34" fill="url(#halo)" class="halo" id="halo"/>
+        </svg>
+
+        <div class="board-hud">
+          <span id="think">推理中<b class="d"><i></i><i></i><i></i></b></span>
+        </div>
+      </div>
+
+      <div class="pipeline" id="pipe">
+        <span class="stage-chip" data-s="0">UART RX</span>
+        <span class="stage-chip" data-s="1">L1 规则</span>
+        <span class="stage-chip" data-s="2">miniTensor</span>
+        <span class="stage-chip" data-s="3">NER</span>
+        <span class="stage-chip" data-s="4">merge</span>
+        <span class="stage-chip" data-s="5">mask</span>
+        <span class="stage-chip" data-s="6">UART TX</span>
+      </div>
     </div>
   </section>
 
-  <section class="panel right">
-    <h2>脱敏结果</h2>
+  <section class="panel outcol">
+    <h2><span>脱敏结果</span><em id="outCount"></em></h2>
     <pre id="out" class="out"></pre>
-    <h2 class="mt">审计行</h2>
+    <h2 class="mt"><span>审计行</span><em>板子回传</em></h2>
     <div id="audit" class="audit"></div>
+    <div class="legend">
+      <span><i class="dot star"></i>被遮字节</span>
+      <span><i class="dot keep"></i>保留(后4位/姓氏)</span>
+      <span><i class="dot raw"></i>原文</span>
+    </div>
   </section>
 </main>
-
-<footer class="foot">
-  <span>115200 8N1 · 帧边界 LF · 脱敏 1:1 保持字节数</span>
-  <span id="stats">—</span>
-</footer>
 
 <script src="demos.js"></script>
 <script src="app.js"></script>

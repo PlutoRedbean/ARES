@@ -1,106 +1,206 @@
 :root{
-  --bg:#070b14; --panel:rgba(13,22,38,.72); --line:rgba(76,150,255,.18);
-  --txt:#dbe7ff; --dim:#7f93b5; --cy:#38f5c8; --bl:#3d7bff; --vi:#a06bff; --rd:#ff5d7a;
+  --bg:#05080f; --ink:#dbe7ff; --dim:#7b90b3; --line:rgba(70,140,255,.16);
+  --cy:#38f5c8; --bl:#3d7bff; --vi:#a06bff; --am:#ffcf5c; --pk:#ff5d9a;
+  --panel:rgba(10,18,32,.66);
 }
 *{box-sizing:border-box}
-html,body{height:100%}
+html,body{margin:0;height:100%}
 body{
-  margin:0;background:radial-gradient(1200px 700px at 20% -10%,#102447 0%,#070b14 55%) fixed;
-  color:var(--txt);font:14px/1.6 "Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+  background:
+    radial-gradient(900px 520px at 12% -8%, #12284d 0%, transparent 60%),
+    radial-gradient(900px 520px at 88% 108%, #1b1240 0%, transparent 62%),
+    var(--bg);
+  color:var(--ink); font:14px/1.6 "Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
   overflow-x:hidden;
 }
-.bg-grid{position:fixed;inset:0;pointer-events:none;opacity:.35;
-  background-image:linear-gradient(rgba(80,150,255,.09) 1px,transparent 1px),
-                   linear-gradient(90deg,rgba(80,150,255,.09) 1px,transparent 1px);
-  background-size:42px 42px;mask-image:radial-gradient(60% 60% at 50% 30%,#000 0%,transparent 100%)}
-.scan{position:fixed;left:0;right:0;height:120px;pointer-events:none;
-  background:linear-gradient(180deg,transparent,rgba(56,245,200,.06),transparent);
-  animation:scan 7s linear infinite}
-@keyframes scan{0%{top:-140px}100%{top:100%}}
+.mono{font-family:"Cascadia Code",Consolas,monospace;font-variant-numeric:tabular-nums}
 
-.top{display:flex;align-items:center;justify-content:space-between;gap:18px;
-  padding:16px 26px;border-bottom:1px solid var(--line);backdrop-filter:blur(6px)}
-.brand{display:flex;align-items:center;gap:14px}
-.logo{width:42px;height:42px;border-radius:12px;display:grid;place-items:center;font-weight:800;
-  color:#04121a;background:linear-gradient(135deg,var(--cy),var(--bl));
-  box-shadow:0 0 24px rgba(56,245,200,.45)}
-h1{margin:0;font-size:17px;letter-spacing:.16em}
-.sub{margin:0;color:var(--dim);font-size:12px;letter-spacing:.08em}
-.status{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--dim)}
-.dot{width:9px;height:9px;border-radius:50%;background:#43506b;display:inline-block}
-.dot.on{background:var(--cy);box-shadow:0 0 12px var(--cy);animation:blink 1.6s infinite}
-.dot.busy{background:var(--vi);box-shadow:0 0 12px var(--vi);animation:blink .7s infinite}
-@keyframes blink{50%{opacity:.35}}
-.lat{font-variant-numeric:tabular-nums;color:var(--cy)}
+/* 背景层 */
+.bg-grid{position:fixed;inset:-10%;pointer-events:none;opacity:.30;
+  background-image:linear-gradient(rgba(80,150,255,.10) 1px,transparent 1px),
+                   linear-gradient(90deg,rgba(80,150,255,.10) 1px,transparent 1px);
+  background-size:46px 46px;
+  mask-image:radial-gradient(65% 60% at 50% 35%,#000 0%,transparent 100%);
+  animation:drift 26s linear infinite}
+@keyframes drift{to{transform:translate3d(46px,46px,0)}}
+.bg-glow{position:fixed;inset:0;pointer-events:none;
+  background:radial-gradient(600px 300px at 50% 0%,rgba(56,245,200,.10),transparent 70%);
+  animation:breathe 7s ease-in-out infinite}
+@keyframes breathe{50%{opacity:.45}}
+.scanline{position:fixed;left:0;right:0;height:180px;pointer-events:none;
+  background:linear-gradient(180deg,transparent,rgba(56,245,200,.055),transparent);
+  animation:sweep 8s linear infinite}
+@keyframes sweep{0%{top:-200px}100%{top:100%}}
 
-.wrap{display:grid;grid-template-columns:260px minmax(320px,1fr) minmax(300px,1fr);
-  gap:16px;padding:18px 26px}
-@media (max-width:1100px){.wrap{grid-template-columns:1fr}}
-.panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px 16px;
-  backdrop-filter:blur(10px);box-shadow:0 10px 40px rgba(0,0,0,.35);min-height:120px}
-.panel h2{margin:2px 0 10px;font-size:12px;letter-spacing:.18em;color:var(--cy);font-weight:600}
+/* 顶栏 */
+.hud{display:flex;align-items:center;justify-content:space-between;gap:20px;
+  padding:14px 28px;border-bottom:1px solid var(--line);
+  background:linear-gradient(180deg,rgba(8,14,26,.9),rgba(8,14,26,.35));
+  backdrop-filter:blur(10px);position:sticky;top:0;z-index:5}
+.brand{display:flex;align-items:center;gap:16px}
+
+/* 旋转 logo */
+.logo{position:relative;width:54px;height:54px;display:grid;place-items:center}
+.ring{position:absolute;inset:0;border-radius:50%;border:1.5px solid transparent}
+.ring.r1{border-top-color:var(--cy);border-right-color:rgba(56,245,200,.35);
+  animation:spin 3.2s linear infinite;box-shadow:0 0 18px rgba(56,245,200,.25)}
+.ring.r2{inset:6px;border-bottom-color:var(--bl);border-left-color:rgba(61,123,255,.4);
+  animation:spin 2.1s linear infinite reverse}
+.ring.r3{inset:-4px;border:1px dashed rgba(160,107,255,.35);animation:spin 9s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.logo-core{width:34px;height:34px;border-radius:11px;display:grid;place-items:center;
+  font-weight:800;font-size:13px;letter-spacing:.06em;color:#04121a;
+  background:linear-gradient(135deg,var(--cy),var(--bl));
+  box-shadow:0 0 22px rgba(56,245,200,.55),inset 0 0 12px rgba(255,255,255,.35);
+  animation:core 3.2s ease-in-out infinite}
+@keyframes core{50%{box-shadow:0 0 34px rgba(56,245,200,.85),inset 0 0 16px rgba(255,255,255,.5)}}
+
+.titles h1{margin:0;font-size:16px;letter-spacing:.26em;font-weight:700}
+.titles h1 span{color:var(--cy);text-shadow:0 0 16px rgba(56,245,200,.6)}
+.titles .sub{margin:2px 0 0;font-size:11.5px;color:var(--dim);letter-spacing:.06em}
+.titles .sub b{color:#bfe3ff;font-weight:600}
+
+.hud-right{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.stat{display:flex;flex-direction:column;gap:1px;min-width:64px}
+.stat .k{font-size:10px;letter-spacing:.2em;color:var(--dim)}
+.stat .v{font-size:12.5px;display:flex;align-items:center;gap:6px;color:#cfe4ff}
+.led{width:8px;height:8px;border-radius:50%;background:#3a4763;transition:.25s}
+.led.on{background:var(--cy);box-shadow:0 0 12px var(--cy);animation:blink 1.6s infinite}
+.led.busy{background:var(--vi);box-shadow:0 0 14px var(--vi);animation:blink .6s infinite}
+@keyframes blink{50%{opacity:.3}}
+.btn{border-radius:10px;padding:8px 13px;border:1px solid var(--line);cursor:pointer;
+  background:transparent;color:var(--ink);font-size:12.5px;transition:.18s}
+.btn:hover{border-color:rgba(56,245,200,.5);color:#fff;box-shadow:0 0 18px rgba(56,245,200,.15)}
+.btn.primary{position:relative;overflow:hidden;border:none;font-weight:700;color:#04131a;
+  background:linear-gradient(135deg,var(--cy),var(--bl));
+  box-shadow:0 8px 26px rgba(56,245,200,.3)}
+.btn.primary::after{content:"";position:absolute;inset:0;
+  background:linear-gradient(120deg,transparent 30%,rgba(255,255,255,.55),transparent 70%);
+  transform:translateX(-120%);animation:sheen 3.4s ease-in-out infinite}
+@keyframes sheen{0%,60%{transform:translateX(-120%)}85%,100%{transform:translateX(120%)}}
+.btn.primary:disabled{opacity:.5;cursor:not-allowed;box-shadow:none}
+.bolt{display:inline-block;width:8px;height:12px;margin-right:7px;vertical-align:-1px;
+  background:linear-gradient(180deg,#04131a 40%,transparent 40%);
+  clip-path:polygon(55% 0,0 62%,42% 62%,34% 100%,100% 38%,52% 38%)}
+
+/* 栅格 */
+.grid{display:grid;grid-template-columns:240px minmax(420px,1.35fr) minmax(320px,1fr);
+  gap:16px;padding:18px 28px 30px}
+@media (max-width:1180px){.grid{grid-template-columns:1fr}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;
+  padding:14px 16px;backdrop-filter:blur(12px);
+  box-shadow:0 18px 50px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,255,255,.04)}
+.panel h2{display:flex;justify-content:space-between;align-items:baseline;
+  margin:2px 0 10px;font-size:11.5px;letter-spacing:.2em;color:var(--cy);font-weight:600}
+.panel h2 em{font-style:normal;color:var(--dim);letter-spacing:.02em;font-size:11px}
 .panel h2.mt{margin-top:16px}
-.hint{color:var(--dim);letter-spacing:0;font-weight:400;margin-left:6px}
 
-.demos{list-style:none;margin:0;padding:0;max-height:520px;overflow:auto}
-.demos li{padding:7px 10px;border-radius:9px;cursor:pointer;color:var(--dim);
-  border:1px solid transparent;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.demos li:hover{color:var(--txt);background:rgba(61,123,255,.12);border-color:var(--line)}
-.demos li b{color:var(--cy);font-weight:600;margin-right:6px}
+/* 样例栏 */
+.rail{display:flex;flex-direction:column;max-height:calc(100vh - 130px)}
+.demos{list-style:none;margin:0;padding:0;overflow:auto;flex:1}
+.demos li{position:relative;display:flex;gap:9px;align-items:center;
+  padding:8px 10px;border-radius:10px;cursor:pointer;color:#a9bcd8;
+  border:1px solid transparent;font-size:12.5px;white-space:nowrap;overflow:hidden;
+  transition:.16s}
+.demos li b{color:var(--cy);font-weight:700;font-size:11px;opacity:.8}
+.demos li:hover{background:rgba(61,123,255,.12);border-color:var(--line);color:#fff;
+  transform:translateX(2px)}
+.demos li::before{content:"";position:absolute;left:0;top:20%;bottom:20%;width:2px;
+  background:var(--cy);opacity:0;border-radius:2px;transition:.16s}
+.demos li:hover::before{opacity:1}
+.rail-foot{margin-top:10px;padding-top:10px;border-top:1px dashed var(--line)}
+.mini{font-size:11px;color:var(--dim)}
 
-textarea{width:100%;height:190px;resize:vertical;border-radius:12px;padding:12px;
-  background:rgba(5,10,20,.7);color:var(--txt);border:1px solid var(--line);outline:none;
-  font:13px/1.7 "Cascadia Code",Consolas,monospace}
-textarea:focus{border-color:rgba(56,245,200,.5);box-shadow:0 0 0 3px rgba(56,245,200,.08)}
-.row{display:flex;align-items:center;gap:10px;margin:10px 0}
-.meta{color:var(--dim);font-size:12px;margin-left:auto;font-variant-numeric:tabular-nums}
-.btn{border-radius:10px;padding:8px 14px;border:1px solid var(--line);cursor:pointer;
-  background:transparent;color:var(--txt);font-size:12.5px;transition:.18s}
-.btn:hover{border-color:rgba(56,245,200,.45);color:#fff}
-.btn.primary{background:linear-gradient(135deg,var(--cy),var(--bl));color:#04121a;font-weight:700;
-  border:none;box-shadow:0 6px 22px rgba(56,245,200,.28)}
-.btn.primary:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
+/* 编辑区 */
+textarea{width:100%;height:150px;resize:vertical;border-radius:12px;padding:12px;
+  background:rgba(4,9,18,.75);color:var(--ink);border:1px solid var(--line);
+  outline:none;font:13px/1.75 "Cascadia Code",Consolas,monospace;transition:.2s}
+textarea:focus{border-color:rgba(56,245,200,.55);box-shadow:0 0 0 3px rgba(56,245,200,.08)}
+.actions{display:flex;align-items:center;gap:10px;margin-top:10px}
+.meter{flex:1;height:4px;border-radius:3px;background:rgba(70,140,255,.12);overflow:hidden}
+.meter i{display:block;height:100%;width:0;border-radius:3px;
+  background:linear-gradient(90deg,var(--cy),var(--bl));transition:width .25s,background .25s}
+.meter i.warn{background:linear-gradient(90deg,var(--am),var(--pk))}
+.meta{font-size:11.5px;color:var(--dim);min-width:52px;text-align:right}
 
-.chip-stage{position:relative;height:190px;display:grid;place-items:center;margin-top:12px}
-.chip{width:280px;filter:drop-shadow(0 0 18px rgba(61,123,255,.25))}
-.die{fill:rgba(10,20,36,.9);stroke:url(#g1);stroke-width:1.6}
-.die-label{fill:#9fe9ff;font:700 15px monospace;text-anchor:middle;letter-spacing:.2em}
-.die-sub{fill:#5c7295;font:9px monospace;text-anchor:middle;letter-spacing:.1em}
-.pins line{stroke:rgba(90,150,255,.5);stroke-width:1.4}
-.pulse{fill:rgba(56,245,200,.25);stroke:var(--cy);stroke-width:1.2;opacity:0}
-.chip-stage.thinking .pulse{animation:pulse 1.1s ease-out infinite}
-@keyframes pulse{0%{r:8;opacity:.9}100%{r:70;opacity:0}}
-.chip-stage.thinking .die{stroke-width:2.6}
-.flow{position:absolute;top:50%;width:120px;height:2px;overflow:hidden;opacity:0;transition:.3s}
-.flow.in{left:0;background:linear-gradient(90deg,transparent,var(--bl))}
-.flow.out{right:0;background:linear-gradient(90deg,var(--cy),transparent)}
-.chip-stage.thinking .flow{opacity:1}
-.flow::after{content:"";position:absolute;top:-2px;width:34px;height:6px;border-radius:3px;
-  background:currentColor;filter:blur(1px);animation:run 1s linear infinite}
-.flow.in::after{color:var(--bl);animation-name:runR}
-.flow.out::after{color:var(--cy);animation-name:runL}
-@keyframes runR{from{left:-40px}to{left:120px}}
-@keyframes runL{from{right:-40px}to{right:120px}}
-.think{position:absolute;bottom:6px;font-size:12px;color:var(--vi);opacity:0;transition:.2s}
-.chip-stage.thinking .think{opacity:1}
-.dots i{display:inline-block;width:4px;height:4px;margin-left:3px;border-radius:50%;
+/* 板卡图 */
+.boardwrap{padding-bottom:8px}
+.board{position:relative;border-radius:14px;overflow:hidden;
+  background:radial-gradient(420px 200px at 50% 10%,rgba(61,123,255,.10),transparent 70%),
+             linear-gradient(180deg,rgba(5,11,22,.7),rgba(5,11,22,.35))}
+.pcb{display:block;width:100%;height:auto}
+.pcb-body{fill:#071322;stroke:rgba(56,245,200,.22);stroke-width:1.2}
+.silk{fill:#8fb6e0;font:700 10px/1 monospace;letter-spacing:.16em}
+.silk.dim{fill:#50729a;font-weight:400;letter-spacing:.1em;font-size:9px}
+.part{fill:#0b1a2e;stroke:rgba(120,180,255,.35);stroke-width:1}
+.part-t{fill:#cfe4ff;font:700 9px monospace;letter-spacing:.08em}
+.part-s{fill:#5b7ba3;font:8px monospace}
+.die{fill:url(#dieG);stroke:rgba(56,245,200,.55);stroke-width:1.6;
+  filter:url(#glow);transition:stroke .3s}
+.die-in{fill:rgba(6,14,26,.85);stroke:rgba(61,123,255,.28);stroke-width:1}
+.die-t{fill:#bfe9ff;font:700 14px monospace;letter-spacing:.22em}
+.die-s{fill:#5c7ba6;font:8.5px monospace;letter-spacing:.1em}
+.blk rect{fill:rgba(10,24,42,.9);stroke:rgba(90,160,255,.28);stroke-width:1;transition:.25s}
+.blk-t{fill:#9fd0ff;font:700 9.5px monospace;letter-spacing:.06em}
+.blk-s{fill:#5d7ea8;font:7.5px monospace;letter-spacing:.04em}
+.blk.active rect{stroke:var(--cy);fill:rgba(12,42,44,.95);
+  filter:drop-shadow(0 0 8px rgba(56,245,200,.55))}
+.blk.active .blk-t{fill:#eafffb}
+.blk.l1.active rect{stroke:var(--am);fill:rgba(44,36,12,.95);
+  filter:drop-shadow(0 0 8px rgba(255,207,92,.5))}
+.trace{fill:none;stroke:url(#trace);stroke-width:1.8;stroke-linecap:round;
+  stroke-dasharray:10 8;animation:flow 1.1s linear infinite;opacity:.55;transition:.3s}
+.trace.out{animation-direction:reverse}
+@keyframes flow{to{stroke-dashoffset:-36}}
+.board.thinking .trace{opacity:1;stroke-width:2.2}
+.trace.lit{stroke:var(--cy);opacity:1;filter:url(#glow)}
+.wire{stroke:rgba(90,160,255,.5);stroke-width:1.4}
+.e{fill:#7dffe6;filter:url(#glow);opacity:0;transition:opacity .25s}
+.e2{fill:#9ec6ff;filter:url(#glow);opacity:0;transition:opacity .25s}
+.spark{fill:var(--am);filter:url(#glow);opacity:0;transition:opacity .25s}
+.board.thinking .e,.board.thinking .e2,.board.thinking .spark{opacity:.95}
+.halo{opacity:0;transition:.3s}
+.board.thinking .halo{opacity:1;animation:pulse 1.5s ease-out infinite}
+@keyframes pulse{0%{r:26;opacity:.9}100%{r:90;opacity:0}}
+.board-hud{position:absolute;left:0;right:0;bottom:6px;display:flex;justify-content:center}
+#think{font-size:11px;letter-spacing:.18em;color:var(--vi);opacity:0;transition:.2s}
+.board.thinking #think{opacity:1}
+#think .d i{display:inline-block;width:4px;height:4px;margin-left:4px;border-radius:50%;
   background:var(--vi);animation:up .9s infinite}
-.dots i:nth-child(2){animation-delay:.15s}.dots i:nth-child(3){animation-delay:.3s}
-@keyframes up{0%,100%{transform:translateY(0);opacity:.4}50%{transform:translateY(-4px);opacity:1}}
+#think .d i:nth-child(2){animation-delay:.15s}
+#think .d i:nth-child(3){animation-delay:.3s}
+@keyframes up{0%,100%{transform:translateY(0);opacity:.35}50%{transform:translateY(-5px);opacity:1}}
 
-.out{min-height:120px;max-height:260px;overflow:auto;margin:0;padding:12px;border-radius:12px;
-  background:rgba(5,10,20,.7);border:1px solid var(--line);white-space:pre-wrap;word-break:break-word;
-  font:13px/1.8 "Cascadia Code",Consolas,monospace;color:#eaf7ff}
-.out .star{color:var(--cy);text-shadow:0 0 8px rgba(56,245,200,.6)}
-.out .keep{color:#ffd479}
-.reveal{animation:in .18s ease-out}
-@keyframes in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+/* 流水线 */
+.pipeline{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
+.stage-chip{flex:1;min-width:70px;text-align:center;font-size:10.5px;letter-spacing:.06em;
+  padding:6px 4px;border-radius:8px;color:#6f88ab;border:1px solid var(--line);
+  background:rgba(10,20,36,.6);transition:.2s}
+.stage-chip.on{color:#04131a;font-weight:700;border-color:transparent;
+  background:linear-gradient(135deg,var(--cy),var(--bl));
+  box-shadow:0 0 16px rgba(56,245,200,.45)}
+
+/* 结果区 */
+.out{min-height:130px;max-height:270px;overflow:auto;margin:0;padding:12px;border-radius:12px;
+  background:rgba(4,9,18,.75);border:1px solid var(--line);white-space:pre-wrap;
+  word-break:break-word;font:13px/1.85 "Cascadia Code",Consolas,monospace;color:#eaf7ff}
+.out .star{color:var(--cy);text-shadow:0 0 10px rgba(56,245,200,.65)}
+.out .keep{color:var(--am)}
+.reveal{animation:in .16s ease-out}
+@keyframes in{from{opacity:0;transform:translateY(3px);filter:blur(2px)}
+              to{opacity:1;transform:none;filter:none}}
 
 .audit{display:flex;flex-wrap:wrap;gap:8px}
-.chiplet{border:1px solid var(--line);border-radius:999px;padding:4px 11px;font-size:12px;
-  color:var(--dim);background:rgba(61,123,255,.08)}
-.chiplet b{color:var(--cy)}
-.chiplet.zero{opacity:.45}
-
-.foot{display:flex;justify-content:space-between;gap:12px;padding:12px 26px;border-top:1px solid var(--line);
-  color:var(--dim);font-size:11.5px;letter-spacing:.04em}
+.chiplet{display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;
+  padding:5px 11px;font-size:11.5px;color:var(--dim);background:rgba(61,123,255,.07);
+  transition:.25s}
+.chiplet b{color:var(--cy);font-variant-numeric:tabular-nums}
+.chiplet.hit{border-color:rgba(56,245,200,.5);background:rgba(56,245,200,.12);
+  color:#d6fff5;box-shadow:0 0 14px rgba(56,245,200,.18);animation:pop .35s ease-out}
+@keyframes pop{0%{transform:scale(.94)}60%{transform:scale(1.04)}100%{transform:none}}
+.chiplet.zero{opacity:.4}
+.legend{display:flex;gap:14px;margin-top:12px;font-size:11px;color:var(--dim);flex-wrap:wrap}
+.legend .dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:5px}
+.legend .star{background:var(--cy);box-shadow:0 0 8px var(--cy)}
+.legend .keep{background:var(--am)}
+.legend .raw{background:#5b7ba3}
