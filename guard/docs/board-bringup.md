@@ -46,7 +46,8 @@ powershell -ExecutionPolicy Bypass -File guard\tools\program_guard.ps1
 python guard\tools\serial_host.py --ports
 
 # 4) 验收（把 COM5 换成你的口）
-python guard\tools\serial_host.py -p COM5 --file guard\examples\sample.txt --check
+python guard\tools\serial_host.py -p COM5 --file guard\examples\demo09_mixed.txt
+python guard\tools\board_smoke.py
 ```
 
 每步"成功长什么样"在下面逐条说。
@@ -273,9 +274,15 @@ cd E:\qs\ScreenSense
 # 单条：看脱敏 + 审计行
 python guard\tools\serial_host.py -p COM5 --text "手机 13800138000，邮箱 a@b.co"
 
-# 整份样例：逐字节和金标比
+# 逐条演示（板上跑过的 10 个，见 guard/examples/）
+python guard\tools\serial_host.py -p COM5 --file guard\examples\demo09_mixed.txt
+
+# 12 句自检（NER 版位流用这个）
+python guard\tools\board_smoke.py
+
+# 整份样例逐字节比金标 —— 只对**规则版**位流（USE_NER=0）有效，
+# 因为金标算不了神经网络；NER 版会多遮，字节数自然不同
 python guard\tools\serial_host.py -p COM5 --file guard\examples\sample.txt --check
-# 期望最后一行：PASS  收到 1460 B，期望 1460 B
 
 # 交互
 python guard\tools\serial_host.py -p COM5 --repl
@@ -284,19 +291,18 @@ python guard\tools\serial_host.py -p COM5 --repl
 python guard\tools\serial_host.py -p COM5 --file guard\examples\sample.txt --check --json audit.json
 ```
 
-单条期望看到：
+单条期望看到（NER 版位流）：
 
 ```
-── 板子回显（脱敏后）────────────────────────────────────────
-手机 *******8000，邮箱 **b.co
+── masked echo from the board ────────────────────
+手机 *******8000，邮箱 ***************.com。
 
-── 审计行（板子发的）──────────────────────────────────────
- #     n  id18 id15  mob bank mail ipv4 uscc plate   kw kwm ovf mode
- 1     2     0    0    1    0    1    0    0     0    1  08   0    1
-
-── 校验 ────────────────────────────────────────────────
-PASS  收到 157 B，期望 157 B
+── audit line(s) from the board ──────────────────
+ #     n  id18 id15  mob bank mail ipv4 uscc plate  name  addr  kw kwm  l2 l2m ovf mode
+ 1     2     0    0    1    0    1    0    0     0     0     0   1   8   0   0    0    1
 ```
+
+多帧（长文本按标点切开）时，审计行是**汇总**格式：第一列是帧数，其余是各帧计数之和。
 
 `--check` 的期望值来自 `host/golden/board_proto.py`，和 `make board-sim` 是**同一份**
 实现——所以板上 PASS 就等于仿真 PASS。
