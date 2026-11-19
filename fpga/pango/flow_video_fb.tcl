@@ -37,6 +37,7 @@ foreach f [list \
     "video_clk_reset.v" \
     "video_ip_pll.v" \
     "video_fb_status.v" \
+    "video_osd_box.v" \
     "video_hdmi_wrap.v" \
     "video_pattern_gen.v" \
     "video_capture_wrap.v" \
