@@ -35,6 +35,14 @@ module tb_guard_mmio;
         fd = $fopen("build/rtos_amp/guard_mmio_cases.txt", "r");
         if (!fd) $fatal(1, "Missing golden vectors");
         #200 rst = 0;
+        // Leave a partial frame in flight. Pulse hart reset for a single CPU
+        // cycle entirely between Guard rising edges, then issue MMIO at once.
+        repeat (10) access(1, 4, "X", value);
+        @(posedge guard_clk);
+        @(negedge clk); rst = 1;
+        @(negedge clk); rst = 0;
+        access(0, 0, 0, status);
+        if (status != 1) $fatal(1, "Guard did not restart empty: %x", status);
         while ($fscanf(fd, "%d %d %d", count, expected_count, fault) == 3) begin
             for (int i = 0; i < count; i++)
                 if ($fscanf(fd, "%x", bytes_in[i]) != 1) $fatal;

@@ -28,8 +28,8 @@ module cam_fifo #(
     reg [WIDTH-1:0] mem [0:DEPTH-1];
 
     reg [AW:0] wbin, wgray, rbin, rgray;
-    reg [AW:0] rgray_w1, rgray_w2;        // read pointer, write domain
-    reg [AW:0] wgray_r1, wgray_r2;        // write pointer, read domain
+    (* ASYNC_REG = "TRUE" *) reg [AW:0] rgray_w1, rgray_w2; // read pointer, write domain
+    (* ASYNC_REG = "TRUE" *) reg [AW:0] wgray_r1, wgray_r2; // write pointer, read domain
 
     wire [AW:0] wbin_nxt  = wbin + {{AW{1'b0}}, 1'b1};
     wire [AW:0] wgray_nxt = (wbin_nxt >> 1) ^ wbin_nxt;

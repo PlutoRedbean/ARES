@@ -10,8 +10,29 @@ module pipeline_amp_guard #(parameter bit USE_NER = 1) (
     output wire ready,
     output reg [31:0] rdata
 );
-    wire guard_rst;
-    pipeline_cdc_reset_sync u_reset (.clk(guard_clk), .rst_in(rst), .rst_out(guard_rst));
+    // A hart reset can be shorter than a Guard cycle. Hold the request until
+    // Guard has sampled it, and keep the CPU FIFO ports idle until release
+    // has crossed back. Both domains reset their logic on local clock edges.
+    reg reset_req = 1'b1, reset_busy = 1'b1;
+    (* ASYNC_REG = "TRUE" *) reg [1:0] guard_reset_sync = 2'b11;
+    (* ASYNC_REG = "TRUE" *) reg [1:0] cpu_ack_sync = 2'b11;
+    wire guard_rst = guard_reset_sync[1];
+    wire cpu_rst = rst || reset_busy;
+
+    always @(posedge guard_clk)
+        guard_reset_sync <= {guard_reset_sync[0], reset_req};
+
+    always @(posedge clk) begin
+        cpu_ack_sync <= {cpu_ack_sync[0], guard_rst};
+        if (rst) begin
+            reset_req <= 1;
+            reset_busy <= 1;
+        end else if (cpu_ack_sync[1]) begin
+            reset_req <= 0;
+        end else if (!reset_req) begin
+            reset_busy <= 0;
+        end
+    end
 
     wire in_full, in_empty, consume, out_full, out_empty, produce;
     wire [8:0] in_token;
@@ -19,17 +40,17 @@ module pipeline_amp_guard #(parameter bit USE_NER = 1) (
     reg busy, closing, last_error;
     wire data_write = write && wstrb[0] && (addr == 4 || addr == 8);
     wire writable = !in_full && !closing;
-    wire push = valid && data_write && writable;
-    wire pop = valid && !write && addr == 12 && !out_empty;
-    assign ready = !rst && (!data_write || writable);
+    wire push = valid && ready && data_write;
+    wire pop = valid && ready && !write && addr == 12 && !out_empty;
+    assign ready = !cpu_rst && (!data_write || writable);
 
-    cam_fifo #(.WIDTH(9), .AW(5), .DEPTH(32)) u_input (
-        .wr_clk(clk), .wr_rst(rst), .wr_en(push), .wr_data({addr == 8, wdata[7:0]}), .full(in_full),
+    guard_token_fifo #(.WIDTH(9)) u_input (
+        .wr_clk(clk), .wr_rst(cpu_rst), .wr_en(push), .wr_data({addr == 8, wdata[7:0]}), .full(in_full),
         .rd_clk(guard_clk), .rd_rst(guard_rst), .rd_en(consume), .rd_data(in_token), .empty(in_empty)
     );
-    cam_fifo #(.WIDTH(10), .AW(5), .DEPTH(32)) u_output (
+    guard_token_fifo #(.WIDTH(10)) u_output (
         .wr_clk(guard_clk), .wr_rst(guard_rst), .wr_en(produce), .wr_data(result), .full(out_full),
-        .rd_clk(clk), .rd_rst(rst), .rd_en(pop), .rd_data(out_token), .empty(out_empty)
+        .rd_clk(clk), .rd_rst(cpu_rst), .rd_en(pop), .rd_data(out_token), .empty(out_empty)
     );
 
     // The board RX FIFO keeps its loss flag high until board reset. Report it
@@ -49,7 +70,7 @@ module pipeline_amp_guard #(parameter bit USE_NER = 1) (
     // Match the bridge's R2 read response; capture the head before advancing.
     reg [31:0] read_q;
     always @(posedge clk) begin
-        if (rst) begin
+        if (cpu_rst) begin
             busy <= 0;
             closing <= 0;
             last_error <= 0;
@@ -70,4 +91,34 @@ module pipeline_amp_guard #(parameter bit USE_NER = 1) (
         end
         rdata <= read_q;
     end
+endmodule
+
+// The Gray pointers protect ownership of the RAM slot. Copy a published
+// token into the receiving clock domain before its payload fans out.
+module guard_token_fifo #(parameter integer WIDTH = 9) (
+    input wire wr_clk, wr_rst, wr_en,
+    input wire [WIDTH-1:0] wr_data,
+    output wire full,
+    input wire rd_clk, rd_rst, rd_en,
+    output reg [WIDTH-1:0] rd_data,
+    output wire empty
+);
+    wire [WIDTH-1:0] head;
+    wire ram_empty;
+    reg rd_valid;
+    wire load = !rd_rst && !ram_empty && (!rd_valid || rd_en);
+    cam_fifo #(.WIDTH(WIDTH), .AW(5), .DEPTH(32)) u_fifo (
+        .wr_clk, .wr_rst, .wr_en, .wr_data, .full,
+        .rd_clk, .rd_rst, .rd_en(load), .rd_data(head), .empty(ram_empty)
+    );
+
+    always @(posedge rd_clk) begin
+        if (load)
+            rd_data <= head;
+        if (rd_rst)
+            rd_valid <= 0;
+        else if (!rd_valid || rd_en)
+            rd_valid <= !ram_empty;
+    end
+    assign empty = !rd_valid;
 endmodule
