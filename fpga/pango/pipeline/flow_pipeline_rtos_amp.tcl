@@ -2,12 +2,9 @@
 set here [file dirname [file normalize [info script]]]
 set root [file normalize [file join $here .. .. ..]]
 set work [file join $root build pds_rtos_amp]
-set image_dir [file join $work build rtos_amp]
-file mkdir $image_dir
-foreach image {irom.hex dram.hex worker_irom.hex worker_dram.hex} {
-    file copy -force [file join $root build rtos_amp $image] $image_dir
-}
+file mkdir $work
 cd $work
+source [file join $here stage_rtos_amp_images.tcl]
 
 set_arch -family Logos2 -device PG2L200H -package FBB676 -speedgrade -6
 add_constraint [file join $here pipeline_rtos_shell_board.fdc]

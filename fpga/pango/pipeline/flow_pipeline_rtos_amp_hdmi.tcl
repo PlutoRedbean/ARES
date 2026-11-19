@@ -18,6 +18,7 @@ set root [file normalize [file join $here .. .. ..]]
 set work [file join $root build pds_rtos_amp_hdmi]
 file mkdir $work
 cd $work
+source [file join $here stage_rtos_amp_images.tcl]
 
 set_arch -family Logos2 -device PG2L200H -package FBB676 -speedgrade -6
 
