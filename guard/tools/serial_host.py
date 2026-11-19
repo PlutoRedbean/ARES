@@ -133,7 +133,11 @@ def send_and_collect(ser, data: bytes, *, baud: int, pace: bool, expect: bytes |
     reader.start()
     try:
         reader.clear()
-        gates = output_thresholds(data) if pace else [0] * (len(data) + 1)
+        # 按"输出落后输入不超过 LAG 字节"来放行：比"照金标算门槛"简单，
+        # 而且对规则版/NER 版都成立（脱敏是 1:1，输出字节数跟得上输入）。
+        LAG = 64
+        gates = ([max(0, k - LAG) for k in range(len(data) + 1)]
+                 if pace else [0] * (len(data) + 1))
         deadline = time.monotonic() + len(data) * 10.0 / baud + 30.0
 
         i = 0
