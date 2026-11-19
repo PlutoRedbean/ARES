@@ -42,3 +42,45 @@ pds_shell -file fpga/pango/pipeline/flow_pipeline_rtos_amp.tcl -project_name pip
 PDS 工程在 `build/pds_rtos_amp/` 生成，使用 PG2L200H 板卡约束、100 MHz CPU 和 50 MHz 外设时钟。配置位流后，用 115200 8N1 串口连接 MSH。摄像头使用板卡的 CMOS1 接口。首次上板应检查 SCCB 初始化、三类手势及网页联动，并核对统一位流的资源占用和时序。HDMI 预览与 OSD 不在该顶层。
 
 板上测量可从 `coremark start` 和 `coremark start 20000 validation` 开始。默认每 hart 20,000 次、总计 80,000 次迭代。检查两组种子的 CRC 和各自计时是否达到 10 秒，再记录性能种子下的聚合吞吐。若计时不足，可提高每 hart 的迭代数。仿真的短跑标有 `CoreMark short run`，用于功能校验。与仓库的 120 MHz 裸机数据对比时，记录统一位流实测的时钟、运行环境和编译选项。
+
+## Guard 串口脱敏
+
+hart0 启动 RTT 时会注册 `guard` 命令并启动一个等待请求的静态线程。模型 ROM 在 FPGA 中。Guard 的 L2 使用当前工程的 4×4 GEMM 源码，在 Guard 时钟域内单独实例化。
+
+在 115200 8N1 终端关闭本地回显，然后输入以下命令。
+
+```text
+guard status
+guard selftest
+guard start
+```
+
+看到 `GUARD READY` 后再发送正文。例：发送测试行 `13800138000` 和 LF，返回 `*******8000` 以及含 `mobile=001` 的一行审计。FinSH 在会话期间等待，Guard 直接按字节读写 UART。会话需要独占串口，若实时 AI 已开启，先执行 `ai stop`；等待已有的推理自检或 CoreMark 完成后再进入。帧以 LF 结束，没有 LF 时从最后一个输入字节起空闲 2.6 秒提交。每帧收到完整的 `[guard] … mode=1` 后再发下一帧。帧边界按 Ctrl+]（单字节 `0x1D`）返回 MSH，随后可执行 `ai selftest`。
+
+上位机沿用 `app/guard/tools/serial_host.py` 或 `app/guard/web/` 的协议。先在 MSH 进入会话，再把串口交给上位机；每次板卡复位后重新进入。上位机默认按标点切成至多 56 字节的短帧，适用于独立位流和统一位流。掩码保留原始字节长度，UART 层将 LF 输出为 CRLF。姓名、地址使用 NER，结果依赖输入上下文。
+
+### 构建与验证
+
+从仓库根目录运行：
+
+```sh
+make pipeline-guard-mmio-test
+make pipeline-rtos-guard-test
+make pipeline-rtos-amp-test
+make pipeline-rtos-amp-pango-prep
+```
+
+前两项分别验证规则模式的 MMIO 背压和带 NER 的完整 RTT 串口。第三项回归原有手势和四 hart CoreMark。最后一项生成固件、Pango 文件表和 ROM，包括 `build/gen/ner_*.hex`。运行本页 PDS 板级流程时使用同一份源码根目录和 `build/`，流程会把 ROM 复制到 PDS 工程的 `build/gen/`。统一 SoC 的顶层为 `pipeline_rtos_amp_board_top`。输入用例和 UART 验收日志位于 `build/rtos_amp/`。
+
+### hart0 寄存器
+
+Guard 占用 `0xE0001000–0xE000100F`，按 32 位对齐访问。每次提交一帧，收到结束标记后再开始下一帧。
+
+| 偏移 | 读写 | 语义 |
+| --- | --- | --- |
+| `0x0` | 读 | 位 0 可写，位 1 有输出，位 2 帧处理中，位 3 上一帧有错误，位 4 启用 NER |
+| `0x4` | 写 | 低 8 位送一个正文字节，包括作为正文的 LF |
+| `0x8` | 写 | 排在先前字节之后的帧尾标记，无额外正文字节 |
+| `0xC` | 读 | 弹出一个输出。位 8 为 0 时低 8 位是字节，位 8 为 1 表示正文和审计均已读完，此时位 9 是帧错误；空读返回 `0x80000000` |
+
+驱动在送入数据的同时排空输出 FIFO。板载 UART 接收 FIFO 的溢出标志保持到板卡复位；发生丢字节后，审计行以 `ovf=001` 标记结果。Guard 源码基线为 `origin/guard@5c2049e6387fd8b361e4847b9e2390a1646fa307`。
