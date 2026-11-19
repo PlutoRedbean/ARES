@@ -18,7 +18,7 @@
 ## 板级现状
 
 - 位流：`generate_bitstream/guard_board_top.sbit`
-  （**20,879 LUT / 3,814 FF / 6.0 DRM / 17 APM / WNS +4.40 ns @25 MHz**）
+  （**20,879 LUT / 3,815 FF / 6.0 DRM / 17 APM / WNS +4.40 ns @25 MHz**）
 - 实体层默认 **NER**（`USE_NER=1`）；仿真回归走规则版（`USE_NER=0`），因为金标算不了神经网络
 - NER：1 MAC/拍 ≈ 18 ms / 64 B 窗口（串口靠 `busy` 反压）
 - JTAG 灌 SRAM，**断电即丢**

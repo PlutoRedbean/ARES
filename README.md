@@ -34,7 +34,7 @@ make web                      # 浏览器演示台 http://127.0.0.1:8777
 
 | 项 | 值 |
 |---|---|
-| 资源 | **20,879 / 159,800 LUT（13.07%）· 3,814 FF · 6.0 DRM · 17 APM · 1 PLL** |
+| 资源 | **20,879 / 159,800 LUT（13.07%）· 3,815 FF · 6.0 DRM · 17 APM · 1 PLL** |
 | 时序 | WNS **+4.40 ns** @25 MHz（TNS 0）→ Fmax ≈ 28.2 MHz |
 | 位流 | `guard/generate_bitstream/guard_board_top.sbit`（9,188,552 B） |
 | 串口 | 115200 8N1，帧边界 = LF 或空闲 2.6 s |

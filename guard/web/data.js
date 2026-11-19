@@ -24,7 +24,7 @@ window.GUARD_DATA = {
     lutUsed: 20879,
     lutTotal: 159800,
     lutPct: 13.08,
-    ff: 3814,
+    ff: 3815,
     drm: 6.0,
     apm: 17,
     pll: 1,
