@@ -15,6 +15,12 @@
 #define JYD_TIMER_STOP      0xffffffffu
 #define JYD_MMIO32(address) (*(volatile uint32_t *)(address))
 
+int ares_console_read_byte(void);
+#ifdef ARES_RTOS_AMP
+extern int guard_console_owned;
+int ares_console_last_was_cr(void);
+#endif
+
 void rt_hw_timer_init(void);
 uint32_t rt_hw_timer_get_ms(void);
 char rt_hw_console_getchar(void);

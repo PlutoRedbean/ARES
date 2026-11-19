@@ -37,7 +37,7 @@ LINKER := amp/host.ld
 GESTURE := $(ARES_HOME)/app/gesture/firmware
 BENCH := core_main core_util core_list_join core_matrix core_state crc_hw core_list_array matrix_hw state_hw
 BENCH_OBJECTS := $(addprefix $(OUT)/bench_,$(addsuffix .o,$(BENCH))) $(OUT)/amp_core_portme.o
-OBJECTS += $(BENCH_OBJECTS) $(OUT)/amp_app.o $(OUT)/amp_printf.o $(OUT)/amp_gesture.o \
+OBJECTS += $(BENCH_OBJECTS) $(OUT)/amp_app.o $(OUT)/amp_guard.o $(OUT)/amp_printf.o $(OUT)/amp_gesture.o \
  $(addprefix $(OUT)/gesture_,mt.o mt_net.o mt_detect.o mt_track.o)
 TARGETS += $(OUT)/worker.elf
 endif

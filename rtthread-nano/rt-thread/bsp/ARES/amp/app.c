@@ -141,8 +141,16 @@ usage:
 }
 MSH_CMD_EXPORT_ALIAS(bench_command, coremark, run four-hart CoreMark);
 
+int amp_console_work_pending(void)
+{
+    return live_requested || selftest_requested || bench_pending;
+}
+
+void guard_app_init(void);
+
 void amp_apps_init(void)
 {
+    guard_app_init();
     rt_sem_init(&ai_request, "aireq", 0, RT_IPC_FLAG_FIFO);
     rt_sem_init(&bench_request, "cmreq", 0, RT_IPC_FLAG_FIFO);
     rt_thread_init(&ai_thread, "ai", ai_entry, RT_NULL,

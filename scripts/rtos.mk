@@ -134,3 +134,7 @@ pipeline-guard-mmio-test: guard-tables
 	    -f rtl/pipeline/pipeline_rtos_amp_extra.f rtl/pipeline/soc/pango/pipeline_cdc.v \
 	    rtl/pipeline/test/tb_guard_mmio.sv --Mdir build/rtos_amp/guard_mmio -o run
 	@build/rtos_amp/guard_mmio/run
+
+.PHONY: pipeline-rtos-guard-test
+pipeline-rtos-guard-test: pipeline-rtos-amp-build
+	@python3 scripts/test_rtos_guard.py
