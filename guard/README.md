@@ -35,15 +35,15 @@
 | **L2 INT4 语义层**（miniTensor 4×4 MXU，权重由 corpus 训练） | ✅ 已进板级位流（摘要行 `l2=`/`l2m=`）；12 例对金标；见 [docs/l2-int4.md](docs/l2-int4.md) |
 | **模型路线（Ubuntu）** | 任务书：[docs/ubuntu-ner.md](docs/ubuntu-ner.md)（可直接执行）；自检 `make ner-check` |
 | **L2b 实体层（规则版）**：人名/地址 | ✅ 已进板级位流（摘要行 `name=`/`addr=`，整段遮） |
-| **NER 上板**（字符级 INT8 CNN，miniTensor 之外自建数据通路） | ✅ **200/200 向量对金标**；板上认出无线索词的人名（`刘德华`→`*********`）；见 [docs/l2-int4.md](docs/l2-int4.md) §8 |
+| **NER 上板**（字符级 INT8 CNN，v3.1：3078 词表 / 3000 名字用字 / 120k 全名） | ✅ 14 条门槛全过；板上 **12/12 自检**；露姓氏（`周杰伦`→`周＊＊`）；见 [docs/l2-int4.md](docs/l2-int4.md) §8 |
 
 **上板实测**（PDS 2025.2-SP3，`guard_board_top`）：
 
 | 项 | 值 |
 |---|---|
-| 资源（含 NER） | **11,581 LUT (7.25%) / 3,805 FF / 17 APM / 2.5 DRM / 1 PLL** |
+| 资源（含 NER v3.1） | **20,159 LUT (12.6%) / 3,813 FF / 17 APM / 6.0 DRM / 1 PLL** |
 | 时钟 | 27 MHz → GTP_GPLL → **25 MHz** 核心 |
-| 时序 | WNS **+4.8 ns**（MET）、TNS 0 → Fmax ≈ 28.8 MHz |
+| 时序 | WNS **+4.3 ns**（MET）、TNS 0 → Fmax ≈ 28.4 MHz |
 | 串口 | 115200 8N1（8× 过采样；3 Mbaud 通路已仿真），RX **B24** / TX **C24** |
 | 帧边界 | LF 或空闲 300000 位时间（≈2.6 s） |
 | 位流 | `generate_bitstream/guard_board_top.sbit`（9,188,552 B） |

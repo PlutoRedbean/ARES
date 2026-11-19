@@ -179,12 +179,12 @@ python3 tools/demo.py --in 某文件.txt --policy mask --entities
 
 | 项 | 值 |
 |---|---|
-| 权重来源 | `models/ner/weights_int8.npz` → `tools/gen_ner_rom.py` → `build/gen/l2_ner_*.sv`（`$readmemh`） |
+| 权重来源 | `models/ner/weights_int8.npz`（v3.1，3078 词表）→ `tools/gen_ner_rom.py` → `build/gen/l2_ner_*.sv`（`$readmemh`） |
 | 定点 | s=28：m1=281,423 / m2=384,084（整数参考与金标 logits 60/60 完全相同） |
 | 节拍 | 1 MAC/拍，约 18 ms / 64 字节窗口（速度不是目标） |
 | 验证 | `build/ner_vectors` **200/200 span 完全一致**（`make ner-sim` 的 TB 手工跑） |
 | 反压 | `l2_ner.busy` → `l1_redact_top` → `guard_uart_core` 停收数据；帧尾 flush 等 busy 落下 |
-| 资源 | 整板 11,581 LUT / 3,805 FF / 2.5 DRM（27 KB embedding 推断成 BRAM） |
+| 资源 | 整板 20,159 LUT / 3,813 FF / 6.0 DRM（96 KB embedding 推断成 BRAM） |
 
 板上实测：
 
