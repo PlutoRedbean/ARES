@@ -306,6 +306,7 @@ module perip_bridge #(
     assign dram_load_request = perip_valid && !perip_wen && dram_read_hit;
     wire mt_hit = MT_MMIO && (perip_addr[31:16] == 16'h1000 ||
                              perip_addr[31:5] == 27'h7000000 ||
+                             perip_addr[31:4] == 28'he000100 ||
                              perip_addr == 32'hD000_3000 ||
                              (perip_addr >= 32'hD010_0000 && perip_addr < 32'hD014_B000));
     assign mt_req_valid = perip_valid && mt_hit && store_empty && !bram_write_valid_q;

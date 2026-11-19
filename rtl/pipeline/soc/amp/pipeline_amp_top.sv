@@ -32,6 +32,7 @@ module pipeline_amp_top #(
     parameter         DRAM_INIT_FILE    = "build/pipeline/dram_amp.hex",
     parameter         IROM_INIT_FILE    = "build/pipeline/irom.hex",
     parameter         RTOS_AI           = 1'b0,
+    parameter bit     GUARD_NER         = 1,
     parameter         HART0_IROM_FILE   = "build/rtos_amp/irom.hex",
     parameter         HART0_DRAM_FILE   = "build/rtos_amp/dram.hex"
 ) (
@@ -51,6 +52,7 @@ module pipeline_amp_top #(
     // UART streams are private to the simulation/debug environment.
     output wire                     uart_tx,
     output wire [31:0]              led,
+    input  wire                     guard_clk,
     input  wire                     periph_clk,
     input  wire                     periph_rst,
     input  wire                     uart_rx,
@@ -105,20 +107,32 @@ module pipeline_amp_top #(
             wire [3:0] mt_wstrb;
             if (HOST) begin : g_mt
                 wire camera_sel = mt_addr[31:28] == 4'hd;
-                wire tensor_ready;
+                wire guard_sel = mt_addr[31:4] == 28'he000100;
+                wire tensor_ready, guard_ready;
+                wire [31:0] guard_rdata;
+                reg guard_read_q, guard_read_r2;
                 wire [31:0] tensor_rdata, camera_rdata;
                 reg camera_read_q, camera_read_r2;
 
-                assign mt_ready = camera_sel ? !hart_rst : tensor_ready;
-                assign mt_rdata = camera_read_r2 ? camera_rdata : tensor_rdata;
+                assign mt_ready = camera_sel ? !hart_rst : guard_sel ? guard_ready : tensor_ready;
+                assign mt_rdata = camera_read_r2 ? camera_rdata : guard_read_r2 ? guard_rdata : tensor_rdata;
 
                 always @(posedge clk) begin
                     camera_read_q <= !hart_rst && mt_valid && mt_ready && !mt_write && camera_sel;
                     camera_read_r2 <= camera_read_q;
+                    guard_read_q <= !hart_rst && mt_valid && mt_ready && !mt_write && guard_sel;
+                    guard_read_r2 <= guard_read_q;
                 end
 
+                pipeline_amp_guard #(.USE_NER(GUARD_NER)) u_guard (
+                    .clk(clk), .rst(hart_rst), .guard_clk(guard_clk), .uart_overflow(rx_overflow),
+                    .valid(mt_valid && guard_sel),
+                    .write(mt_write), .addr(mt_addr[3:0]), .wstrb(mt_wstrb), .wdata(mt_wdata),
+                    .ready(guard_ready), .rdata(guard_rdata)
+                );
+
                 pipeline_amp_minitensor u_mt (
-                    .clk(clk), .rst(hart_rst), .cpu_valid(mt_valid && !camera_sel),
+                    .clk(clk), .rst(hart_rst), .cpu_valid(mt_valid && !camera_sel && !guard_sel),
                     .cpu_ready(tensor_ready), .cpu_write(mt_write), .cpu_addr(mt_addr),
                     .cpu_wdata(mt_wdata), .cpu_wstrb(mt_wstrb), .cpu_rdata(tensor_rdata)
                 );

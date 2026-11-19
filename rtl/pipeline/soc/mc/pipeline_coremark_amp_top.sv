@@ -27,6 +27,7 @@ module pipeline_coremark_amp_top #(
         .DATA_STRIDE (DATA_STRIDE),
         .USE_ICACHE  (USE_ICACHE)
     ) u_amp (
+        .guard_clk(1'b0),
         .clk             (clk),
         .rst             (rst),
         .core_en         (core_en),

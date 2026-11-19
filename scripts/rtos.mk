@@ -95,7 +95,11 @@ rtos-amp-image:
 	    --dram-kib 32 --irom build/rtos_amp/worker_irom.hex \
 	    --dram build/rtos_amp/worker_dram.hex --json build/rtos_amp/worker.json
 
-pipeline-rtos-amp-build: rtos-amp-image
+.PHONY: guard-tables
+guard-tables:
+	@$(MAKE) -C app/guard BUILD=$(ARES_HOME)/build guard-tables
+
+pipeline-rtos-amp-build: rtos-amp-image guard-tables
 	@sed 's@rtl/pipeline/board/pipeline_pll.v@rtl/pipeline/board/pipeline_pll_sim.v@' \
 	    rtl/pipeline/pipeline_amp_pango.f > build/rtos_amp/sim.f
 	@CCACHE_DISABLE=1 verilator --cc --exe --build --timing -j 6 -U__VERILATOR__ \
@@ -111,7 +115,7 @@ pipeline-rtos-amp: pipeline-rtos-amp-build
 pipeline-rtos-amp-test: pipeline-rtos-amp-build
 	@python3 scripts/test_rtos_amp.py
 
-pipeline-rtos-amp-pango-prep: rtos-amp-image
+pipeline-rtos-amp-pango-prep: rtos-amp-image guard-tables
 	@python3 app/llm/tools/pango_prep.py --source-root app/gesture --output-dir build/rtos_amp/pango
 	@sed 's@^app/gesture/rtl/\(.*\)\.sv$$@build/rtos_amp/pango/rtl/\1.v@' \
 	    rtl/pipeline/pipeline_rtos_amp_extra.f > build/rtos_amp/pango_extra.f
@@ -122,3 +126,11 @@ pipeline-rtos-amp-pango-lint: pipeline-rtos-amp-pango-prep
 	@verilator --lint-only --timing -U__VERILATOR__ -DARES_FPGA -Wno-fatal \
 	    --top-module pipeline_rtos_amp_board_top -f build/rtos_amp/pango_lint.f \
 	    -f build/rtos_amp/pango_extra.f rtl/video/sim/GTP_IOCLKDIV_E2.v
+
+.PHONY: pipeline-guard-mmio-test
+pipeline-guard-mmio-test: guard-tables
+	@python3 scripts/test_guard_mmio.py
+	@CCACHE_DISABLE=1 verilator --binary --timing -j 4 -Wno-fatal --top-module tb_guard_mmio \
+	    -f rtl/pipeline/pipeline_rtos_amp_extra.f rtl/pipeline/soc/pango/pipeline_cdc.v \
+	    rtl/pipeline/test/tb_guard_mmio.sv --Mdir build/rtos_amp/guard_mmio -o run
+	@build/rtos_amp/guard_mmio/run

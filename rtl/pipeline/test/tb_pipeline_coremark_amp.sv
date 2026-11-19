@@ -25,6 +25,7 @@ module tb_pipeline_coremark_amp #(
         .USE_ICACHE(USE_ICACHE),
         .ICACHE_LINES(ICACHE_LINES)
     ) dut (
+        .guard_clk(1'b0),
         .clk(clk), .rst(rst), .core_en(core_en),
         .retire_valid(retire_valid),
         .retire_pc(retire_pc), .retire_pc_next(retire_pc_next),

@@ -64,6 +64,7 @@ module pipeline_amp_board_top #(
         .DRAM_AW           (DRAM_AW),
         .DRAM_INIT_FILE    (DRAM_INIT_FILE)
     ) u_soc (
+        .guard_clk(1'b0),
         .clk             (cpu_clk),
         .rst             (cpu_rst),
         .core_en         ({CORES{1'b1}}),

@@ -140,6 +140,7 @@ module pipeline_rtos_amp_hdmi_board_top (
         .IROM_INIT_FILE("build/rtos_amp/worker_irom.hex"),
         .DRAM_INIT_FILE("build/rtos_amp/worker_dram.hex")
     ) u_soc (
+        .guard_clk(clk_cam),
         .clk(cpu_clk), .rst(cpu_rst), .core_en(4'b1111),
         .periph_clk(periph_clk), .periph_rst(periph_rst),
         .uart_rx(uart_rx), .uart_tx(uart_tx),
