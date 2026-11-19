@@ -28,6 +28,6 @@ compile -top_module pipeline_rtos_amp_board_top -system_verilog \
 synthesize -ads
 dev_map
 pnr -seed 2
-report_timing -max_path 20
+report_timing -max_path 200
 report_power
 gen_bit_stream -create_bit true
