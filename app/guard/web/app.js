@@ -60,6 +60,7 @@
     },
     connected: false,
     connecting: false,
+    guardActive: false,
     portLabel: "—",
   };
 
@@ -1123,6 +1124,10 @@
       go("link", true);
       return;
     }
+    if (state.mode === "live" && !state.guardActive) {
+      toast("还没进入 Guard，先点『进入 Guard』", "warn");
+      return;
+    }
     state.running = true;
     updateRunUI();
     startPipeline();
@@ -1206,6 +1211,10 @@
     btn.innerHTML = state.running
       ? '<svg class="ico is-spin"><use href="#i-refresh"></use></svg><span>运行中…</span>'
       : '<svg class="ico"><use href="#i-play"></use></svg><span>运行脱敏</span>';
+    const ge = $("#btnGuardEnter");
+    if (ge) ge.disabled = state.running || !state.connected || state.connecting || state.guardActive;
+    const gx = $("#btnGuardExit");
+    if (gx) gx.disabled = state.running || !state.connected || state.connecting || !state.guardActive;
   }
 
   function updateModeUI() {
@@ -1249,6 +1258,13 @@
     if (b2) b2.disabled = live || state.connecting;
     const disc = $("#btnDisconnect");
     if (disc) disc.disabled = !live || state.connecting;
+    const ge = $("#btnGuardEnter");
+    if (ge) {
+      ge.disabled = !live || state.connecting || state.running || state.guardActive;
+      ge.textContent = state.guardActive ? "已在 Guard" : "进入 Guard";
+    }
+    const gx = $("#btnGuardExit");
+    if (gx) gx.disabled = !live || state.connecting || state.running || !state.guardActive;
     const baud = $("#baudSelect");
     if (baud) baud.disabled = live || state.connecting;
     const portInfo = $("#portInfo");
@@ -1322,6 +1338,7 @@
       toast(`串口已连接 · ${baud} 8N1`);
       go("link", true);
       pumpReader();
+      await enterGuard();
     } catch (e) {
       state.connecting = false;
       updateModeUI();
@@ -1366,11 +1383,87 @@
     };
     state.connected = false;
     state.connecting = false;
+    state.guardActive = false;
     state.mode = "replay";
     state.portLabel = "—";
     updateModeUI();
     log("sys", "串口已断开 · 回到回放模式");
     if (!opts.silent) toast("串口已断开");
+  }
+
+  async function waitForAny(needles, timeout) {
+    const S = state.serial;
+    const t0 = performance.now();
+    while (performance.now() - t0 < timeout) {
+      const text = dec.decode(S.buf);
+      for (const n of needles) if (text.includes(n)) return n;
+      await sleep(30);
+    }
+    return null;
+  }
+
+  async function enterGuard() {
+    const S = state.serial;
+    if (!state.connected || !S.writer) {
+      toast("先连接串口", "warn");
+      return false;
+    }
+    if (state.guardActive) return true;
+    if (state.running) {
+      toast("正在运行，等本轮结束", "warn");
+      return false;
+    }
+    S.buf = new Uint8Array(0);
+    try {
+      await S.writer.write(enc.encode("guard start\n"));
+      log("sys", "已发送 guard start · 等待 GUARD READY");
+      const hit = await waitForAny(
+        ["GUARD READY", "[guard]", "Guard needs the console", "usage: guard"],
+        5000
+      );
+      if (hit === "GUARD READY" || hit === "[guard]") {
+        state.guardActive = true;
+        S.buf = new Uint8Array(0);
+        log("sys", "Guard 会话已就绪");
+        toast("已进入 Guard，可以开始测试");
+        return true;
+      }
+      const tail = dec.decode(S.buf).trim().slice(-180);
+      throw new Error(
+        hit ? hit + " " + tail : "没有收到 GUARD READY，确认板子在 msh > 且没有 AI/CoreMark 在跑"
+      );
+    } catch (e) {
+      log("err", "进入 Guard 失败：" + (e.message || e));
+      toast("进入 Guard 失败：" + (e.message || e), "error");
+      return false;
+    } finally {
+      updateModeUI();
+    }
+  }
+
+  async function exitGuardAndDisconnect() {
+    const S = state.serial;
+    if (!state.connected || !S.writer) {
+      toast("先连接串口", "warn");
+      return;
+    }
+    if (state.running) {
+      toast("正在运行，等本轮结束再退出", "warn");
+      return;
+    }
+    try {
+      if (state.guardActive) {
+        await S.writer.write(new Uint8Array([0x1d]));
+        log("sys", "已发送 Ctrl+]（0x1D）· 正在退出 Guard 会话");
+        toast("已发送退出 Guard");
+        await new Promise((r) => setTimeout(r, 700));
+      }
+    } catch (e) {
+      log("err", "发送 0x1D 失败：" + (e.message || e));
+    }
+    state.guardActive = false;
+    await disconnectSerial({ silent: true });
+    toast("已断开 · 板子应回到 msh >");
   }
 
   /* ── navigation / palette ──────────────────────────────────────────────── */
@@ -1718,6 +1811,8 @@
     });
     $("#btnConnect2").addEventListener("click", connectSerial);
     $("#btnDisconnect").addEventListener("click", () => disconnectSerial());
+    $("#btnGuardEnter").addEventListener("click", enterGuard);
+    $("#btnGuardExit").addEventListener("click", exitGuardAndDisconnect);
     $("#btnGoWorkbench").addEventListener("click", () => {
       go("workbench", true);
       $("#input").focus();
