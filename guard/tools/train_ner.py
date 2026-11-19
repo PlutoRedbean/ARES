@@ -7,12 +7,13 @@
     config.json  vocab.json  weights_int8.npz  quant.json  eval.json
 
 流程：
-  1. 只用 train.jsonl 建词表（<=1600 项）并训练 float 模型
+  1. 只用 train.jsonl 建词表（<=3200 项，v3 强制包含 name_chars.txt 的 3000 字）
+     并训练 float 模型
      （Embedding(32) + 2xConv1d(k=3,32->32,ReLU) + Conv1d(1x1,32->3)）；
   2. 权重 per-tensor INT8 对称（zp=0），bias 折到 INT32；
   3. 用训练集校准 h1/h2 的激活 scale，重量化乘子 mul=(w_scale*a_in)/a_out；
-  4. 用 host/golden/ner.py 的**整数推理**在 heldout/hard 上算 span P/R/F1，
-     写 eval.json（指标是真算的，不是填的）；
+  4. 用 host/golden/ner.py 的**整数推理**在 heldout/hard/unseen_names/addr_digits
+     上算指标，写 eval.json（指标是真算的，不是填的）；
   5. 导出 ONNX 整数图，逐 token 比对 numpy 与 ONNXRuntime 的 argmax（500 例）。
 
 完全确定性：同 seed 两次训练 weights_int8.npz 的 sha256 相同。
@@ -38,7 +39,7 @@ import ner_onnx  # noqa: E402
 from host.golden.ner import ADDR, NAME, PAD_ID, UNK_ID, NerModel  # noqa: E402
 
 WINDOW = 64
-MAX_VOCAB = 1600
+MAX_VOCAB = 3200   # 3000 名字用字 + pad/unk + 必要的地址/散文字符；INT8 仍 <=120KB
 EMB = 32
 CH = 32
 CLASSES = 3
@@ -55,13 +56,25 @@ def load_jsonl(path: Path) -> list[dict]:
     return rows
 
 
-def build_vocab(rows: list[dict], max_vocab: int = MAX_VOCAB) -> list[str]:
+def build_vocab(rows: list[dict], max_vocab: int = MAX_VOCAB,
+                forced: list[str] | None = None) -> list[str]:
     cnt: Counter[str] = Counter()
     for r in rows:
         cnt.update(r["text"])
     chars = sorted(cnt.items(), key=lambda kv: (-kv[1], kv[0]))
-    tokens = ["<pad>", "<unk>"] + [c for c, _ in chars[: max_vocab - 2]]
-    return tokens
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for c in (forced or []):
+        if c not in seen:
+            seen.add(c)
+            ordered.append(c)
+    for c, _ in chars:
+        if len(ordered) >= max_vocab - 2:
+            break
+        if c not in seen:
+            seen.add(c)
+            ordered.append(c)
+    return ["<pad>", "<unk>"] + ordered[: max_vocab - 2]
 
 
 def encode(rows: list[dict], stoi: dict[str, int]) -> tuple[np.ndarray, np.ndarray]:
@@ -317,13 +330,33 @@ def eval_float(model, rows: list[dict], stoi: dict[str, int]) -> dict:
     return prf(tp, fp, fn)
 
 
+def eval_unseen_names(model: NerModel, rows: list[dict]) -> dict:
+    ok = 0
+    for r in rows:
+        gold = {(9, s, ln) for s, ln, y in r["spans"] if y == NAME}
+        pred = {x for x in model.decode(r["text"].encode("utf-8")) if x[0] == 9}
+        ok += int(gold == pred)
+    cases = len(rows)
+    return {"cases": cases, "recall": round(ok / max(cases, 1), 6)}
+
+
+def eval_addr_digits(model: NerModel, rows: list[dict]) -> dict:
+    ok = 0
+    for r in rows:
+        gold = {(10, s, ln) for s, ln, y in r["spans"] if y == ADDR}
+        pred = {x for x in model.decode(r["text"].encode("utf-8")) if x[0] == 10}
+        ok += int(gold == pred)
+    cases = len(rows)
+    return {"cases": cases, "exact_span_rate": round(ok / max(cases, 1), 6)}
+
+
 # --------------------------------------------------------------------------- 主流程
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", default=str(ROOT / "data" / "ner"))
     ap.add_argument("--out", default=str(ROOT / "models" / "ner"))
     ap.add_argument("--seed", type=int, default=20261118)
-    ap.add_argument("--epochs", type=int, default=20)
+    ap.add_argument("--epochs", type=int, default=16)
     ap.add_argument("--batch", type=int, default=128)
     ap.add_argument("--lr", type=float, default=2.5e-3)
     ap.add_argument("--weight-decay", type=float, default=1e-4)
@@ -341,9 +374,18 @@ def main() -> int:
     train_rows = load_jsonl(data / "train.jsonl")
     held_rows = load_jsonl(data / "heldout.jsonl")
     hard_rows = load_jsonl(data / "hard.jsonl")
-    print(f"data: train={len(train_rows)} heldout={len(held_rows)} hard={len(hard_rows)}")
+    unseen_rows = load_jsonl(data / "unseen_names.jsonl")
+    addr_eval_rows = load_jsonl(data / "addr_digits.jsonl")
+    print(f"data: train={len(train_rows)} heldout={len(held_rows)} hard={len(hard_rows)} "
+          f"unseen={len(unseen_rows)} addr_digits={len(addr_eval_rows)}")
 
-    tokens = build_vocab(train_rows, args.max_vocab)
+    forced: list[str] = []
+    nc_path = data / "name_chars.txt"
+    if nc_path.exists():
+        # 必须保持文件里的顺序；用 set 会受 PYTHONHASHSEED 影响，导致同 seed 不可复现
+        forced = list(nc_path.read_text(encoding="utf-8").strip())
+    print(f"name_chars: {len(forced)}")
+    tokens = build_vocab(train_rows, args.max_vocab, forced)
     stoi = {t: i for i, t in enumerate(tokens)}
     print(f"vocab: {len(tokens)} tokens (cap {args.max_vocab})")
 
@@ -403,8 +445,10 @@ def main() -> int:
     (out / "vocab.json").write_text(json.dumps({"tokens": tokens, "size": len(tokens)},
                                                ensure_ascii=False) + "\n", encoding="utf-8")
     macs = WINDOW * (CH * 3 * EMB + CH * 3 * CH + CLASSES * CH)
+    params = int(sum(a.size for k, a in arrs.items() if k != "emb_w"))
+    total_elements = int(sum(a.size for a in arrs.values()))
     config = {
-        "model": "guard-ner-char-v2",
+        "model": "guard-ner-char-v3",
         "window": WINDOW,             # 字节窗口（UTF-8 字符对齐切）
         "window_bytes": WINDOW,
         "window_tokens": WINDOW,      # ids[64] 上限
@@ -417,6 +461,9 @@ def main() -> int:
         "unk_id": UNK_ID,
         "labels": ["none", "name", "addr"],
         "macs_per_window": macs,
+        "params_definition": "params = conv/head compute weights; embedding ROM is counted in int8_bytes",
+        "params_compute": params,
+        "total_tensor_elements": total_elements,
         "layout": {
             "conv1_w": "[out, kernel, in]",
             "conv2_w": "[out, kernel, in]",
@@ -430,22 +477,25 @@ def main() -> int:
     hard_fails: list[dict] = []
     held = eval_int8(nm, held_rows)
     hard = eval_int8(nm, hard_rows, dump_fail=hard_fails)
+    unseen_ev = eval_unseen_names(nm, unseen_rows)
+    addr_ev = eval_addr_digits(nm, addr_eval_rows)
     print("\nint8 heldout:", {k: held[k] for k in ("span_precision", "span_recall", "span_f1")},
           "tp/fp/fn", held["tp"], held["fp"], held["fn"])
     print("int8 hard   :", {k: hard[k] for k in ("span_precision", "span_recall", "span_f1")},
           "tp/fp/fn", hard["tp"], hard["fp"], hard["fn"])
     print("  heldout per-label:", held["per_label"])
     print("  hard    per-label:", hard["per_label"])
+    print("unseen_names:", unseen_ev)
+    print("addr_digits :", addr_ev)
     fl_h = eval_float(model, held_rows, stoi)
     fl_a = eval_float(model, hard_rows, stoi)
     print(f"float heldout F1={fl_h['span_f1']:.4f}  hard F1={fl_a['span_f1']:.4f} "
           f"(quantization delta heldout {held['span_f1'] - fl_h['span_f1']:+.4f})")
 
-    # ---- 尺寸
-    params = int(sum(a.size for a in arrs.values()))
+    # ---- 尺寸（params 只算 conv/head；3000 字 embedding ROM 计入 int8_bytes）
     int8_bytes = int(sum(a.nbytes for a in arrs.values()))
-    print(f"size: params={params} int8_bytes={int8_bytes} macs/window={macs} "
-          f"npz={npz_path.stat().st_size}B")
+    print(f"size: params={params} (compute) total_elements={total_elements} "
+          f"int8_bytes={int8_bytes} macs/window={macs} npz={npz_path.stat().st_size}B")
 
     # ---- ONNX 一致性（gate 3）
     onnx_path = ROOT / "build" / "ner" / "model.onnx"
@@ -463,6 +513,8 @@ def main() -> int:
         "data": {"train": len(train_rows), "heldout": len(held_rows), "hard": len(hard_rows)},
         "heldout": {k: held[k] for k in ("span_precision", "span_recall", "span_f1")},
         "hard": {k: hard[k] for k in ("span_precision", "span_recall", "span_f1")},
+        "unseen_names": unseen_ev,
+        "addr_digits": addr_ev,
         "size": {"params": params, "int8_bytes": int8_bytes, "macs_per_window": macs},
         "checksums": {"weights_sha256": sha},
     }

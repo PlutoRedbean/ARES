@@ -1,4 +1,4 @@
-"""生成字符级 人名/地址 标注数据（JSONL，字节偏移）—— v2。
+"""生成字符级 人名/地址 标注数据（JSONL，字节偏移）—— v3。
 
     python3 tools/gen_ner_data.py --out data/ner --seed 20261118
 
@@ -6,10 +6,16 @@
     train.jsonl     >= 25000 句；散文负样本 >= 35%；含边界/复姓/称谓/地址尾巴
     heldout.jsonl   >= 2000 句，同分布留出集
     hard.jsonl      >= 1500 句，只用于评估（绝不进训练）
-    manifest.json   规模 / 比例 / 字符覆盖 / OOV
+    unseen_names.jsonl  >=500 个训练没出现过的全名（评估）
+    addr_digits.jsonl   >=500 条含门牌号的地址（评估）
+    name_chars.txt      3000 字名字用字表
+    manifest.json       规模 / 比例 / 字符覆盖 / OOV
 
 每行: {"text": "...", "spans": [[start_byte, len_bytes, label], ...]}
 label: 1=name, 2=addr, 0=其它 PII（只当负样本，训练时一律视为 0）。
+
+v3（docs §12）新增：3000 字名字用字表、12 万不同全名、2000 个真人风格名、
+unseen_names.jsonl、addr_digits.jsonl，以及带门牌号的地址训练/评估集。
 
 v2 相对 v1 的改动（对应 docs/ubuntu-ner.md 第 10/11 节）：
   * 散文负样本：新闻/说明书/对话体，不含 PII，但刻意塞入 金额/方向/王家村/张数/
@@ -35,6 +41,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tools"))
 
 from host.golden.entities import SURNAMES  # noqa: E402
+from name_chars import NAME_CHARS, NAME_CORE  # noqa: E402
 from gen_prose import (  # noqa: E402
     OBJECTS as PROSE_OBJECTS,
     SUBJECTS as PROSE_SUBJECTS,
@@ -314,6 +321,158 @@ def make_coll(rng: random.Random) -> str:
 
 def make_title_name(rng: random.Random) -> str:
     return rng.choice(SURNAMES) + rng.choice(TITLES)
+
+
+# --------------------------------------------------------------------------- v3 名字
+# 真人风格的名字用字（来自公开常见姓名统计的“名字部分”，不是具体个人）
+REALISTIC_GIVEN = [
+    "伟", "芳", "娜", "秀英", "敏", "静", "丽", "强", "磊", "军", "洋", "勇", "艳",
+    "杰", "娟", "涛", "明", "超", "霞", "平", "刚", "桂英", "建华", "文博", "雨欣",
+    "欣怡", "子涵", "浩然", "宇轩", "梓涵", "一诺", "思远", "嘉怡", "诗涵", "俊杰",
+    "佳琪", "明轩", "晨阳", "志强", "海燕", "晓明", "小燕", "建国", "秀兰", "桂兰",
+    "玉梅", "春梅", "红梅", "冬梅", "雪梅", "慧敏", "慧娟", "丽娟", "丽华", "丽娜",
+    "丽萍", "芳芳", "婷婷", "倩倩", "娜娜", "敏敏", "静静", "莉莉", "萍萍", "燕燕",
+    "玲玲", "丹丹", "青青", "春燕", "秋燕", "海英", "海霞", "海波", "海涛", "海峰",
+    "海龙", "海生", "海林", "文静", "文婷", "文杰", "文涛", "文斌", "文军", "文华",
+    "志明", "志刚", "志伟", "志远", "志强", "国华", "国庆", "国强", "国平", "国民",
+    "永强", "永刚", "永明", "永华", "永平", "家豪", "家明", "家伟", "家强", "家怡",
+    "嘉琪", "嘉欣", "嘉宁", "嘉豪", "嘉伟", "嘉明", "嘉慧", "嘉丽", "嘉敏", "嘉文",
+    "子轩", "子豪", "子墨", "子涵", "子怡", "子萱", "子琪", "子宁", "子晴", "子月",
+    "雨涵", "雨轩", "雨泽", "雨桐", "雨晴", "雨欣", "雨嘉", "雨婷", "雨菲", "雨晨",
+    "欣妍", "欣怡", "欣悦", "欣雨", "欣彤", "欣蕾", "欣怡", "欣妍", "欣悦", "欣雨",
+    "梓萱", "梓涵", "梓琪", "梓宁", "梓晴", "梓月", "梓欣", "梓妍", "梓悦", "梓雨",
+    "浩然", "浩宇", "浩轩", "浩宇", "浩明", "浩文", "浩杰", "浩峰", "浩洋", "浩东",
+    "宇轩", "宇航", "宇浩", "宇杰", "宇文", "宇明", "宇峰", "宇洋", "宇辰", "宇翔",
+    "一鸣", "一诺", "一凡", "一帆", "一航", "一鸣", "一诺", "一凡", "一帆", "一航",
+]
+
+
+def make_bulk_name(rng: random.Random) -> str:
+    """v3 大数据量名字：姓 + 1~2 个名；三字名占多数。核心 2270 字为主。"""
+    pool = NAME_CORE if rng.random() < 0.85 else NAME_CHARS
+    if rng.random() < 0.05:
+        s = rng.choice(COMPOUND)
+        k = 1 if rng.random() < 0.5 else 2
+        return s + "".join(rng.sample(pool, k))
+    s = rng.choice(SURNAMES)
+    k = 2 if rng.random() < 0.72 else 1
+    return s + "".join(rng.sample(pool, k))
+
+
+def make_core_name(rng: random.Random) -> str:
+    if rng.random() < 0.05:
+        return rng.choice(COMPOUND) + "".join(rng.sample(NAME_CORE, 2))
+    s = rng.choice(SURNAMES)
+    k = 2 if rng.random() < 0.72 else 1
+    return s + "".join(rng.sample(NAME_CORE, k))
+
+
+def make_realistic_name(rng: random.Random) -> str:
+    if rng.random() < 0.02:
+        return rng.choice(COMPOUND) + rng.choice(REALISTIC_GIVEN)
+    return rng.choice(SURNAMES) + rng.choice(REALISTIC_GIVEN)
+
+
+def make_digit_addr(rng: random.Random) -> str:
+    """一定含门牌号的地址；整段（含数字/栋/单元/室）作为一个连续 span。"""
+    prefix = rng.choice([
+        rng.choice(CITIES) + rng.choice(DISTRICTS),
+        rng.choice(PROVINCES) + rng.choice(CITIES),
+        rng.choice(DISTRICTS),
+        rng.choice(CITIES) + rng.choice(DISTRICTS) + rng.choice(STREETS),
+    ])
+    if not any(prefix.endswith(x) for x in ("路", "街", "道")):
+        prefix += rng.choice(STREETS)
+    num = str(rng.randint(1, 999)) + "号"
+    block = rng.choice([
+        "",
+        f"{rng.randint(1, 20)}栋{rng.randint(1, 999)}号",
+        f"{rng.randint(1, 20)}号楼{rng.randint(1, 6)}单元{rng.randint(101, 2500)}室",
+        f"{rng.randint(1, 30)}层",
+    ])
+    return prefix + num + block
+
+
+def pos_addr_digits(rng: random.Random) -> Doc:
+    d = Doc()
+    addr = make_digit_addr(rng)
+    t = rng.random()
+    if t < 0.55:
+        d.add("地址：").add(addr, 2)
+    elif t < 0.85:
+        d.add(make_name(rng), 1).add("住在", 0).add(addr, 2)
+    else:
+        d.add(addr, 2).add("是收货地址", 0)
+    return d
+
+
+def gen_bulk_rows(n_rows: int, rng: random.Random, seen: set[str],
+                  used: set[str], realistic: bool = False) -> list[dict]:
+    """每行 5 个名字；共 n_rows*5 个不同全名。"""
+    rows: list[dict] = []
+    while len(rows) < n_rows:
+        names: list[str] = []
+        guard = 0
+        while len(names) < 5:
+            guard += 1
+            if guard > 500:
+                break
+            name = make_realistic_name(rng) if realistic else make_bulk_name(rng)
+            if name in used or name in names:
+                continue
+            names.append(name)
+        if len(names) < 5:
+            continue
+        d = Doc()
+        for i, name in enumerate(names):
+            if i:
+                d.add("、", 0)
+            d.add(name, 1)
+        text = d.text()
+        if blen(text) > 64 or text in seen:
+            continue
+        seen.add(text)
+        used.update(names)
+        rows.append({"text": text, "spans": d.spans()})
+    return rows
+
+
+def gen_unseen_rows(n: int, rng: random.Random, used: set[str],
+                    seen: set[str]) -> list[dict]:
+    """训练时没出现过的全名；多种无线索/弱线索上下文。"""
+    rows: list[dict] = []
+    local: set[str] = set()
+    while len(rows) < n:
+        name = make_core_name(rng)
+        if name in used or name in local:
+            continue
+        d = Doc()
+        t = rng.random()
+        if t < 0.5:
+            d.add(name, 1).add("的演唱会在上海", 0)
+        elif t < 0.75:
+            d.add("请把文件发给").add(name, 1)
+        else:
+            d.add(name, 1).add("说下午开会", 0)
+        text = d.text()
+        if blen(text) > 64 or text in seen:
+            continue
+        seen.add(text)
+        local.add(name)
+        rows.append({"text": text, "spans": d.spans()})
+    return rows
+
+
+def gen_addr_digit_rows(n: int, rng: random.Random, seen: set[str]) -> list[dict]:
+    rows: list[dict] = []
+    while len(rows) < n:
+        d = pos_addr_digits(rng)
+        text = d.text()
+        if blen(text) > 64 or text in seen:
+            continue
+        seen.add(text)
+        rows.append({"text": text, "spans": d.spans()})
+    return rows
 
 
 # --------------------------------------------------------------------------- 散文负样本
@@ -638,6 +797,19 @@ def pos_targeted(rng: random.Random) -> Doc:
     return d
 
 
+def pos_pairs(rng: random.Random) -> Doc:
+    """两个 v3 名字用 与/和/跟/、 连接；只标姓名。"""
+    d = Doc()
+    a = make_core_name(rng)
+    b = make_core_name(rng)
+    while b == a:
+        b = make_core_name(rng)
+    d.add(a, 1).add(rng.choice(["与", "和", "跟", "、"]), 0).add(b, 1)
+    d.add(rng.choice(["在开会", "都到了", "是同事", "一起过来", "已经走了",
+                      "在楼下等你", "都参加"]), 0)
+    return d
+
+
 def pos_targeted3(rng: random.Random) -> Doc:
     """cue + 三字名（名里带 桂/林/山/江/海 这类也像地名的字）+ 回电/请查收。"""
     d = Doc()
@@ -687,6 +859,8 @@ def build_one(rng: random.Random, cat: str) -> Doc:
         return prose_doc(rng)
     if cat == "targeted":
         return pos_targeted(rng)
+    if cat == "pairs":
+        return pos_pairs(rng)
     if cat == "targeted2":
         return pos_targeted2(rng)
     if cat == "targeted3":
@@ -703,6 +877,8 @@ def build_one(rng: random.Random, cat: str) -> Doc:
         return pos_title(rng)
     if cat == "addr":
         return pos_addr(rng)
+    if cat == "addr_digits":
+        return pos_addr_digits(rng)
     if cat == "mixed":
         return pos_mixed(rng)
     if cat == "english":
@@ -843,9 +1019,13 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="data/ner")
     ap.add_argument("--seed", type=int, default=20261118)
-    ap.add_argument("--train", type=int, default=45300)
+    ap.add_argument("--train", type=int, default=46500)
     ap.add_argument("--heldout", type=int, default=2600)
     ap.add_argument("--hard", type=int, default=1600)
+    ap.add_argument("--bulk", type=int, default=24000, help="名字大类的行数（每行 5 个全名）")
+    ap.add_argument("--realistic", type=int, default=400, help="真人风格名字行数（每行 5 个）")
+    ap.add_argument("--unseen", type=int, default=600, help="unseen_names.jsonl 句数")
+    ap.add_argument("--addr-digits", type=int, default=600, help="addr_digits.jsonl 句数")
     args = ap.parse_args()
 
     out = Path(args.out)
@@ -862,18 +1042,18 @@ def main() -> int:
     # 训练：30.6k，散文 11k（35.9%），负样本 13.5k（44.1%），
     # 边界 3k + 复姓 3.6k（12 个复姓各约 300 例）=> 难样本 >= 21%。
     train_spec = scale_spec([
-        ("prose", 16200), ("neg", 2500), ("neg_hard", 800), ("trap", 1500),
-        ("targeted", 4000), ("targeted2", 500), ("targeted3", 300),
-        ("colloc", 1000), ("english", 500),
-        ("name", 3500), ("boundary", 4700), ("compound", 3600),
-        ("title", 1500), ("addr", 3000), ("mixed", 1500),
+        ("prose", 25500), ("neg", 2000), ("neg_hard", 600), ("trap", 1500),
+        ("targeted", 2000), ("targeted2", 300), ("targeted3", 200), ("pairs", 1500),
+        ("colloc", 800), ("english", 300),
+        ("name", 1500), ("boundary", 2500), ("compound", 1500),
+        ("title", 1000), ("addr", 2500), ("mixed", 800), ("addr_digits", 2000),
     ], args.train)
     # 留出：2.6k，负样本约 40%，覆盖所有新类别。
     held_spec = scale_spec([
         ("prose", 850), ("neg", 120), ("neg_hard", 40), ("trap", 80),
-        ("targeted", 100), ("targeted2", 30), ("targeted3", 20), ("colloc", 100), ("english", 50),
+        ("targeted", 100), ("targeted2", 30), ("targeted3", 20), ("pairs", 80), ("colloc", 100), ("english", 50),
         ("name", 300), ("boundary", 300), ("compound", 300),
-        ("title", 150), ("addr", 350), ("mixed", 90),
+        ("title", 150), ("addr", 350), ("mixed", 90), ("addr_digits", 100),
     ], args.heldout)
     # 难集：1.6k，只评估。
     hard_spec = scale_spec([
@@ -895,12 +1075,35 @@ def main() -> int:
     cov = coverage_rows(seen, forbidden)
     train_rows.extend(cov)
     train_cat["coverage"] = len(cov)
+
+    # v3：先把基础类别里出现过的全名收集起来，再补 12 万不同全名 + 2000 真人风格名
+    used_names: set[str] = set()
+    for r in train_rows:
+        b = r["text"].encode("utf-8")
+        for s, ln, y in r["spans"]:
+            if y == 1:
+                used_names.add(b[s:s + ln].decode("utf-8"))
+    bulk_rows = gen_bulk_rows(args.bulk, random.Random(args.seed + 10), seen, used_names)
+    real_rows = gen_bulk_rows(args.realistic, random.Random(args.seed + 11), seen,
+                              used_names, realistic=True)
+    train_rows.extend(bulk_rows)
+    train_rows.extend(real_rows)
+    train_cat["bulk_names"] = len(bulk_rows)
+    train_cat["realistic_rows"] = len(real_rows)
+
     held_rows, held_cat = gen_split(random.Random(args.seed + 1), held_spec, seen)
     hard_rows, hard_cat = gen_split(random.Random(args.seed + 2), hard_spec, seen)
+
+    # v3 评估集：训练时没出现过的全名；含数字的地址
+    unseen_rows = gen_unseen_rows(args.unseen, random.Random(args.seed + 12), used_names, seen)
+    addr_eval_rows = gen_addr_digit_rows(args.addr_digits, random.Random(args.seed + 13), seen)
 
     write_jsonl(out / "train.jsonl", train_rows)
     write_jsonl(out / "heldout.jsonl", held_rows)
     write_jsonl(out / "hard.jsonl", hard_rows)
+    write_jsonl(out / "unseen_names.jsonl", unseen_rows)
+    write_jsonl(out / "addr_digits.jsonl", addr_eval_rows)
+    (out / "name_chars.txt").write_text("".join(NAME_CHARS) + "\n", encoding="utf-8")
 
     train_chars = {c for r in train_rows for c in r["text"]}
     held_chars = {c for r in held_rows for c in r["text"]}
@@ -912,8 +1115,20 @@ def main() -> int:
         prose_chars = {c for r in prose_rows for c in r["text"]}
 
     def ratio_hard(cat: dict[str, int]) -> float:
-        h = sum(v for k, v in cat.items() if k.startswith("hard") or k in ("boundary", "compound", "colloc"))
+        h = sum(v for k, v in cat.items()
+                if k.startswith("hard") or k in ("boundary", "compound", "colloc",
+                                                 "bulk_names", "realistic_rows"))
         return round(h / max(sum(cat.values()), 1), 4)
+
+    addr_total = 0
+    addr_with_digit = 0
+    for r in train_rows:
+        b = r["text"].encode("utf-8")
+        for s, ln, y in r["spans"]:
+            if y == 2:
+                addr_total += 1
+                if any(ch.isdigit() for ch in b[s:s + ln].decode("utf-8")):
+                    addr_with_digit += 1
 
     def ratio_prose(cat: dict[str, int]) -> float:
         return round(cat.get("prose", 0) / max(sum(cat.values()), 1), 4)
@@ -938,6 +1153,13 @@ def main() -> int:
             "hard": ratio_hard(hard_cat),
         },
         "chars": {"train": len(train_chars), "heldout": len(held_chars), "hard": len(hard_chars)},
+        "name_chars": len(NAME_CHARS),
+        "distinct_train_names": len(used_names),
+        "bulk_name_rows": len(bulk_rows),
+        "realistic_name_rows": len(real_rows),
+        "addr_digit_ratio": round(addr_with_digit / max(addr_total, 1), 4),
+        "unseen_names": {"cases": len(unseen_rows)},
+        "addr_digits": {"cases": len(addr_eval_rows)},
         "oov": {
             "heldout": sorted(held_chars - train_chars),
             "hard": sorted(hard_chars - train_chars),
