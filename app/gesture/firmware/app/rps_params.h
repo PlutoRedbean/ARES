@@ -2,7 +2,7 @@
 #ifndef RPS_PARAMS_H
 #define RPS_PARAMS_H
 
-#define RPS_IN_MULT 194
+#define RPS_IN_MULT 128
 #define RPS_CLASSES 3
 
 #endif

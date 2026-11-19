@@ -9,7 +9,9 @@ out = root / "build/rtos_amp"
 # Invert the model input quantization and choose the closest neutral RGB565
 # pixel in the OV5640's BGR byte order. Use the same fixture as ai selftest.
 weights = root / "app/gesture/firmware/app/rps_weights.h"
-packed = re.search(r"rps_imgs\[\d+\] = \{([^}]+)", weights.read_text())[1]
+weights_text = weights.read_text()
+packed = re.search(r"rps_imgs\[\d+\] = \{([^}]+)", weights_text)[1]
+in_mult = int(re.search(r"#define RPS_IN_MULT\s+(\d+)", weights_text)[1])
 quantized = [int(value) for value in packed.split(",")[:4096:4]]
 grays = []
 for value in range(256):
@@ -18,7 +20,7 @@ for value in range(256):
             150 * ((g << 2) | (g >> 4)) +
             29 * ((b << 3) | (b >> 2))) >> 8
     grays.append((luma, (b << 11) | (g << 5) | r))
-patch = [min(grays, key=lambda pair: abs((pair[0] * 194 >> 8) - q))[1]
+patch = [min(grays, key=lambda pair: abs((pair[0] * in_mult >> 8) - q))[1]
          for q in quantized]
 (out / "camera_patch.hex").write_text("".join(f"{pixel:04x}\n" for pixel in patch))
 
