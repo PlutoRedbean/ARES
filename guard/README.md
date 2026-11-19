@@ -10,50 +10,31 @@
 /_/   \_\_| \_\_____|____/   \____|\___//_/   \_\_| \_\____/
 ```
 
-*PII redaction, on the wire — UART in, masked text + audit out.*
+*PII redaction, on the wire —— 串口进，脱敏文本 + 审计行出。*
 
-部署在数据源头、在文本离开设备前完成脱敏的分层降级网关原型。目标平台盘古 200Pro+
-（PG2L200H），控制面复用 ARES 单发射流水核，数据面在 miniTensor 上扩展。
-
-路线与预算见 `TODO.md`。
-**只想上手**：PC 上 `./run.sh demo`；板子上看 [docs/board-bringup.md](docs/board-bringup.md)。
+部署在数据源头、在文本离开设备前完成脱敏的分层网关原型。目标平台 **盘古 200Pro+**
+（PG2L200H-6IFBB676，25 MHz），控制面复用 ARES 单发射流水核，数据面在 miniTensor 上扩展。
 
 ## 当前状态（2026-11-19）
 
-| 阶段 | 状态 |
+| 层 / 能力 | 状态 |
 |---|---|
-| 本机开发平台（仿真/金标/语料/一致性测试） | ✅ 就绪 |
-| L1 规则层：身份证 18/15、手机、银行卡、邮箱、IPv4、USCC、车牌 | ✅ 1000 例 / 2670 span 全一致，另 43 例手工边界 |
-| 顶层 `l1_engine`（5 引擎并行）+ 吞吐基准 | ✅ 1 字节/拍，150 MB/s @150 MHz（吞吐折算，非 Fmax） |
-| 脱敏金标：重叠合并 + token/mask + 审计 JSON | ✅ |
-| 关键词提示（8 词，金标 + RTL 并行匹配） | ✅ 108 例一致 |
-| 端到端 demo（文本进 → 脱敏 + 审计 JSON，RTL 检测在环） | ✅ `make demo` |
-| RTL 合并 + mask 替换器（`l1_redact_top`，1 字节/拍） | ✅ 1000 例字节+审计全一致 |
-| 本机入口 `./run.sh`（serve/demo/text/file/repl/report/serial） | ✅ 网页工作台 ≈5 ms 出结果 |
-| **上板：串口进 → 脱敏 → 串口出（盘古 200Pro+）** | ✅ 25 MHz 过时序、位流已出，见 [docs/board-uart.md](docs/board-uart.md) |
-| 关键词提示 / 档位头上串口（摘要行 `kw`/`kwm`/`mode`） | ✅ 金标+上位机+TB 同源 |
-| **L2 INT4 语义层**（miniTensor 4×4 MXU，权重由 corpus 训练） | ✅ 已进板级位流（摘要行 `l2=`/`l2m=`）；12 例对金标；见 [docs/l2-int4.md](docs/l2-int4.md) |
-| **模型路线（Ubuntu）** | 任务书：[docs/ubuntu-ner.md](docs/ubuntu-ner.md)（可直接执行）；自检 `make ner-check` |
-| **L2b 实体层（规则版）**：人名/地址 | ✅ 已进板级位流（摘要行 `name=`/`addr=`，整段遮） |
-| **NER 上板**（字符级 INT8 CNN，v4：3090 词表 / 4000 篇长文档 / 强负样本） | ✅ 16 条门槛全过（长文档 P/R/F1 1.000、0 误报/100B）；板上 **12/12 自检**；露姓氏（`周杰伦`→`周＊＊`）；见 [docs/l2-int4.md](docs/l2-int4.md) §8 |
-| 模型输出后处理（姓氏表 + 地址锚点 + 标点排除） | ✅ 挡掉 `明（` `ng_` `于2` 这类误标；标点不再被遮 |
-| 长文本（>64 字节） | ⚠️ 上位机按标点分帧规避；板上提前收帧的根因待查（见 TODO） |
+| L1 规则：身份证 18/15、手机、银行卡、邮箱、IPv4、USCC、车牌 | ✅ 1000 例 / 2670 span 与金标逐字节一致 |
+| 合并 + 替换器（`l1_redact_top`，1 字节/拍） | ✅ 1000 例字节 + 审计全一致 |
+| L2 语义（miniTensor 4×4 INT8 上的 INT4 分类器） | ✅ 进板级位流，摘要行 `l2=`/`l2m=` |
+| L2b 实体（人名/地址）：规则版 `l2_entity` + NER v4 | ✅ 板级默认 NER，16 条门槛全过 |
+| 上板：串口进 → 脱敏 → 串口出 | ✅ 25 MHz 收敛（WNS +4.40 ns），见 [docs/board-uart.md](docs/board-uart.md) |
+| 长文本 | ⚠️ 板子 >64 字节会提前收帧；上位机按标点分帧规避（[TODO.md](TODO.md) 第 1 条） |
+| 浏览器演示台（串口实时 / 实测回放 / 本地预览） | ✅ [web/README.md](web/README.md) |
 
-**上板实测**（PDS 2025.2-SP3，`guard_board_top`）：
+**资源与时序**（当前位流，PDS 2025.2-SP3）：
 
 | 项 | 值 |
 |---|---|
-| 资源（含 NER v4） | **20,879 LUT (13.1%) / 3,814 FF / 17 APM / 6.0 DRM / 1 PLL** |
-| 时钟 | 27 MHz → GTP_GPLL → **25 MHz** 核心 |
-| 时序 | WNS **+4.40 ns**（MET）、TNS 0 → Fmax ≈ 28.2 MHz |
-| 串口 | 115200 8N1（8× 过采样；3 Mbaud 通路已仿真），RX **B24** / TX **C24** |
-| 帧边界 | LF 或空闲 300000 位时间（≈2.6 s） |
+| LUT / FF | **20,879 / 159,800（13.07%）** · 3,814 / 319,600（1.19%） |
+| DRM / APM / PLL | 6.0 / 415（1.45%，96 KB NER embedding）· 17 / 740 · 1 |
+| 时序 | WNS **+4.40 ns**、TNS 0 → Fmax ≈ 28.2 MHz @25 MHz |
 | 位流 | `generate_bitstream/guard_board_top.sbit`（9,188,552 B） |
-
-> 27 MHz 一开始不收敛（WNS −38.2 ns，≈75 ns 路径）。2026-11-17 分块定位到
-> **文本引擎**，把邮箱/IPv4/USCC 改成**逐字节增量校验**后文本块 +22.4 ns，
-> 整板 25 MHz 收敛（+4.7 ns），LUT 6,912 → 4,749（含 L2）。过程与数据见
-> [docs/board-uart.md §2.1](docs/board-uart.md)。
 
 ## 演示样例（`examples/`，五条都在板上逐条验过）
 
@@ -61,162 +42,98 @@
 python tools\serial_host.py -p COM9 --file examples\demo1_offer.txt
 ```
 
-| # | 文件 | 场景 | 板上输出（关键部分） |
+| # | 文件 | 场景 | 关键输出 |
 |---|---|---|---|
-| 1 | `demo1_offer.txt` | 求职信：姓名 + 地址 + 手机 + 邮箱 | `李＊`、`*******4589`、`***************.com`、地址整段遮；`2026年` 不受影响 |
-| 2 | `demo2_hr.txt` | 入职通知：姓名 + 手机 + 身份证 + 地址 | `赵＊`、`*******5678`、`**************002X`、地址整段遮 |
-| 3 | `demo3_ticket.txt` | 客服工单：姓名 + 地址 + 手机 + 邮箱 | `孙＊＊`、地址整段遮、`*******4567`、`*****************.com` |
-| 4 | `demo4_finance.txt` | 财务寄件：姓名 + 地址 + 手机 + 银行卡 | `林＊＊`、地址整段遮、`*******8888`、`***************0001` |
-| 5 | `demo5_mail.txt` | 工作邮件：姓名 + 邮箱 + 手机 + 身份证 | `王＊＊`、`*************.com`、`*******4589`、`**************002X` |
+| 1 | `demo1_offer.txt` | 求职信（姓名+地址+手机+邮箱） | `李＊`、`*******4589`、`…com`、地址整段遮；`明远科技有限公司`、`2026年` 原样 |
+| 2 | `demo2_hr.txt` | 入职通知（姓名+手机+身份证+地址） | `赵＊`、`*******5678`、`…002X`、地址整段遮 |
+| 3 | `demo3_ticket.txt` | 客服工单（姓名+地址+手机+邮箱） | `孙＊＊`、地址整段遮、`*******4567` |
+| 4 | `demo4_finance.txt` | 财务寄件（姓名+地址+手机+卡号） | `林＊＊`、地址整段遮、`…0001` |
+| 5 | `demo5_mail.txt` | 工作邮件（姓名+邮箱+手机+身份证） | `王＊＊`、`…com`、`…4589`、`…002X` |
 
-五条的**非 PII 部分全部原样保留**（公司名、职务、`本周五下午三点`、`学历证书原件` 等），
-且括号、标点一个不少。判定标准：输出 = 期望（逐字符）。
+五条的非 PII 部分（公司名、职务、`本周五下午三点`、`学历证书原件`）与括号标点全部原样。
 
-## 快速开始：PC 本机
+## 快速开始
 
-**边打边看**（两种都行，都是纯静态 + 只监听 127.0.0.1）：
-
-- `make web` → 打开 http://127.0.0.1:8777 ，接线面板式演示台，能直接连板子（Web Serial），
-  也能不插板子回放板上实测结果；说明见 [web/README.md](web/README.md)。
-- `./run.sh serve` → 打开 http://127.0.0.1:8766 ，PC 本机全 RTL 工作台。
-
-后者（`./run.sh serve`）左边输入/粘贴，
-右边约 5 ms 出脱敏结果（全 RTL），下方是审计表与关键词提示；可切 mask（全 RTL）/
-token（金标渲染）。
+**PC 本机**（金标 + Verilator，无需板子）
 
 ```bash
 cd guard
-./run.sh serve                                  # 网页工作台 http://127.0.0.1:8766
-./run.sh demo                                   # 全 RTL：检测 + 合并 + mask 替换
-./run.sh text "手机 13800138000 邮箱 a@b.co"     # 一段文本
-./run.sh file 某个.txt --policy token --json audit.json
-./run.sh repl                                   # 交互模式
-./run.sh report examples/sample.txt              # 只统计
+make test                 # 11 组：金标单测 / 向量 / 一致性仿真 / 板级 / 摘要格式
+make ner-check            # NER 16 条门槛
+./run.sh demo             # 全 RTL 端到端：检测 + 合并 + mask
+./run.sh serve            # 本机工作台 http://127.0.0.1:8766
 ```
 
-金标命令行：
-
-```bash
-python3 -m host.golden.cli ../some/text.txt --redact
-printf '身份证 11010519491231002X' | python3 -m host.golden.cli
-```
-
-## 快速开始：上板（盘古 200Pro+）
-
-操作手册：[docs/board-bringup.md](docs/board-bringup.md)（含烧写步骤、成功判据、故障表）。
-设计细节：[docs/board-uart.md](docs/board-uart.md)。
+**浏览器演示台**（接线面板，能连板子）
 
 ```powershell
-# 在仓库根目录
-powershell -ExecutionPolicy Bypass -File guard\tools\build_guard.ps1    # PDS 出位流（~6 min）
-powershell -ExecutionPolicy Bypass -File guard\tools\program_guard.ps1  # JTAG 烧写（~30 s）
-python guard\tools\serial_host.py --ports                              # 找串口
-python guard\tools\serial_host.py -p COM5 --text "手机 13800138000"     # 发一行，收脱敏+审计
-python guard\tools\serial_host.py -p COM9 --repl                            # 交互：敲文本 + 回车，:q 退出
-python guard\tools\serial_host.py -p COM5 --file guard\examples\sample.txt --check
+cd guard
+make web                  # http://127.0.0.1:8777（Chrome/Edge）
 ```
 
-## make 目标
+**上板**
+
+```powershell
+cd guard
+powershell -ExecutionPolicy Bypass -File tools\build_guard.ps1     # 出位流
+powershell -ExecutionPolicy Bypass -File tools\program_guard.ps1   # 烧板（断电即丢）
+python tools\serial_host.py -p COM9 --repl                         # 交互
+python tools\board_smoke.py                                        # 12 句自检
+```
+
+细节：[docs/board-bringup.md](docs/board-bringup.md)（手册）· [docs/board-uart.md](docs/board-uart.md)（设计）。
+
+## make 目标（常用）
 
 | 目标 | 作用 |
 |---|---|
-| `make test` | 全套：63 单测 + 1000 向量 + 43 边界 + 108 关键词 + 1000 脱敏 + 200 demo + **18 板级** + 257 摘要格式 |
-| `make golden` | 只跑 Python 单测 |
-| `make vectors` / `make sim` | 生成向量 / 回放比对（1000 例） |
-| `make edges` / `make kw` | 手工边界集 / 关键词匹配器 |
-| `make redact` / `make demo-check` | RTL 合并+替换一致性 / 检测+金标脱敏端到端（200 例） |
-| `make demo` | 端到端 demo（`examples/sample.txt` → 脱敏 + 审计 JSON） |
-| `make bench` | 吞吐基准（1 字节/拍） |
-| `make lint` | Verilator lint（规则层） |
-| `make board-vectors` / `make board-sim` | 板级向量 / 位级 UART 端到端（18 例） |
-| `make board-sim-3m` | 同一套 18 例跑 **3 Mbaud** 通路（8× 过采样） |
-| `make report-sim` | 审计摘要格式化穷举（0..255，257 例） |
-| `make board-lint` | Verilator lint（含板级桥 + PLL 仿真模型） |
-| `make clean` | 清 `build/` |
-
-> Verilator 并行度：默认 `JOBS=0`（全核）。受限机器或 Verilator 5.020 的线程池
-> bug 用 `make JOBS=2 test`（见 [docs/board-uart.md §10.5](docs/board-uart.md)）。
-
-## 依赖
-
-- PC 侧：`verilator >= 5.0`（本机 5.040；5.020 也可，见 docs/board-uart.md §10.5）、
-  `python3 >= 3.10`（本机 3.12，只用标准库）、`make`；
-- 上板侧：PDS 2025.2-SP3（`D:\Pango\PDS_2025.2-SP3-EN-ads`）、`pyserial`（只有上位机用）；
-- **不需要 torch**：L1 是纯规则；L2 的量化评估要单独装 torch（放仓库外工作区即可）。
+| `make test` | 全套 PC 回归（11 组） |
+| `make golden` / `vectors` / `sim` | 金标单测 / 生成向量 / 回放向量 |
+| `make demo` / `demo-check` | 端到端 / 200 例对账 |
+| `make board-sim` | 位级 UART 端到端（18 例，真实位定时） |
+| `make ner-check` / `ner-vectors` | NER 门槛 / 200 例向量 |
+| `make web` / `web-demos` | 起演示台 / 重新生成 `web/demos.js` |
 
 ## 文档
 
 | 文档 | 内容 |
 |---|---|
-| [docs/board-uart.md](docs/board-uart.md) | 上板设计与验证：串口协议、三个机制、资源时序、PDS 流程、这一轮修掉的问题 |
-| [docs/board-bringup.md](docs/board-bringup.md) | **上板操作手册**：出位流 → 烧写 → 串口第一测 → 验收 → 故障表 |
-| [TODO.md](TODO.md) | 按路线的任务清单与已知限制 |
-| [docs/l2-int4.md](docs/l2-int4.md) | L2 语义层 + NER 数据通路（窗口重叠、后处理、尺寸） |
-| [docs/ubuntu-ner.md](docs/ubuntu-ner.md) | NER 训练交接书（v4 要求 + 验收门槛） |
-| [web/README.md](web/README.md) | **浏览器演示台**：串口实时 / 板上实测回放 / 本地规则预览 |
+| [docs/board-bringup.md](docs/board-bringup.md) | 上板手册：出位流 → 烧写 → 第一测 → 验收 → 故障表 |
+| [docs/board-uart.md](docs/board-uart.md) | 板级设计：数据通路、帧边界、掩码策略、摘要行、资源、踩坑记录 |
+| [docs/l2-int4.md](docs/l2-int4.md) | L2 语义层 + NER 数据通路（窗口重叠、后处理过滤、模型文件） |
+| [docs/ubuntu-ner.md](docs/ubuntu-ner.md) | NER 训练交接书（规格、数据、16 条门槛、v5 请求） |
+| [web/README.md](web/README.md) | 浏览器演示台（三条数据来源、协议、文件职责） |
+| [TODO.md](TODO.md) | 下一步与已知限制 |
 
 ## 目录
 
 ```
 guard/
-├── Makefile              # 见上表；board-* / report-sim 是板级新增
-├── TODO.md               # 按路线的任务清单（勾选式）
-├── docs/                 # plan / m1 / m2 / board-uart / board-bringup
-├── rtl/l1/               # 规则层 RTL
-│   ├── l1_digit_engine.sv    # 数字类（身份证/手机/银行卡）
-│   ├── l1_text_engines.sv    # 邮箱 / IPv4 / USCC / 车牌
-│   ├── l1_keyword_match.sv   # 关键词提示（并行比较器）
-│   ├── l1_engine.sv          # 顶层（5 引擎同流并行）
-│   └── l1_redact.sv          # 合并 + mask 替换 + 审计
-├── rtl/board/            # 板级：串口桥（不进 PC 回环）
-│   ├── guard_uart_baud.sv    # 分数分频波特率（8× 过采样）
-│   ├── guard_uart_rx.sv / guard_uart_tx.sv
-│   ├── guard_fifo.sv         # 8 位同步 FIFO（FWFT）
-│   ├── guard_report.sv       # 审计摘要格式化（BCD 比较树）
-│   ├── guard_uart_core.sv    # 帧边界 / 流控 / 帧间软复位 / TX 整形
-│   ├── guard_pll.v           # PDS：GTP_GPLL 27 MHz → 25 MHz
-│   ├── guard_pll_sim.sv      # 同端口的行为级模型（Verilator 用）
-│   └── guard_board_top.sv    # 引脚、复位同步、LED
-├── fpga/pango/           # PDS 流程
-│   ├── flow_guard.tcl        # compile → synthesize → dev_map → pnr → 位流
-│   ├── guard_board.fdc       # 引脚 + 生成时钟约束（uart_rx=B24）
-│   └── program_guard.tcl     # JTAG 下载（ASCII-only，端口 60000）
-├── sim/                  # tb_l1_engine / tb_l1_bench / tb_l1_keywords /
-│                         # tb_l1_redact / tb_guard_uart / tb_guard_report
-├── host/
-│   ├── golden/           # 金标：规则 + 红action/审计 + 关键词 + CLI + 板级协议
-│   └── corpus/           # 合成 PII 语料
-├── tools/
-│   ├── gen_vectors.py / gen_edges.py / gen_keyword_vectors.py
-│   ├── gen_board_vectors.py  # 板级向量（.in/.exp/.pace）
-│   ├── gen_keywords.py       # 关键词表 → SV package
-│   ├── build_guard.ps1 / program_guard.ps1   # 上板：出位流 / 烧写
-│   ├── serial_host.py        # 上位机：发文本、收结果、--check
-│   └── guard_cli.py / guard_server.py / demo.py / verify_demo.py
-├── run.sh                # 本地入口（自动构建 → tools/guard_cli.py；serial 子命令直通）
-├── web/                  # 控制台：工作台 / 数据链路 / 规则矩阵 / 系统状态（无构建）
-├── examples/             # sample.txt（含 PII）/ clean.txt（无 PII）
-├── tests/                # 金标单测（unittest）
-└── vendor/               # ARES core / miniTensor 拷贝，见 PROVENANCE.md
+├── rtl/l1/     规则层 + 合并 + 替换器
+├── rtl/l2/     语义层（miniTensor）+ 实体层（规则 / NER）
+├── rtl/board/  串口、摘要、顶层、PLL
+├── host/       金标（纯 Python/numpy）+ 板级协议
+├── tools/      构建、烧写、训练、评测、串口上位机、网页数据生成
+├── sim/        Verilator testbench
+├── tests/      单测
+├── data/ models/  NER 语料与 INT8 模型
+├── web/        浏览器演示台（无构建）
+└── vendor/     第三方（ARES 核等），来源见 PROVENANCE.md
 ```
 
 ## 四条硬约定
 
-1. **金标与 RTL 一一对应**：判定写在 `host/golden/pii_rules.py` 和 `rtl/l1/*.sv` 两处，
-   任何一侧改规则，另一侧必须同步；`make test` 会用同一批向量把两边拉齐。
-2. **坐标按字节**：span 的 `start/len` 是 UTF-8 字节偏移，和 RTL 字符流天然一致。
-3. **一致性靠向量**：语料随机合成，期望值由金标生成；RTL 必须在全部用例上逐条对齐。
-   新增规则先加金标单测，再加向量。
-4. **板上与 PC 同一份 RTL + 同一份金标**：`make board-sim` 把真实 UART 位定时打在
-   `guard_board_top` 上，期望值来自 `host/golden/board_proto.py`，和
-   `serial_host.py --check` 是同一份实现 —— 仿真 PASS ⇔ 板上 PASS。
+1. **数字可复现**：`make test` / `make ner-check` / `tools/board_smoke.py` 三条命令给出全部结论；
+2. **RTL 只用可综合子集**：`logic` / `always_ff` / `always_comb` / 函数，不用 interface/struct/动态数组；
+3. **金标与 RTL 逐字节一致**，不一致优先信金标并补测试；
+4. **脱敏 1:1**：输出字节数必须等于输入，掩码按字符给星也靠这个（一个汉字 3 个 `*`）。
 
 ## L1 当前判定的边界（都已写进测试）
 
-- 数字游程：`' '`、`'-'` 在游程内透明（`138 0013 8000` 是 13 字节的 span）；尾部透明字符不计入；
-- `X`/`x` 只在前 17 位之后作为身份证校验位；
-- 位数 > 19 的游程整段作废；
-- 优先级 ID18 > ID15 > 手机 > 银行卡（18 位走身份证分支，不做银行卡回退）；
-- 出生日期按"能被 4 整除即闰年"判断（忽略世纪规则），日上限按月份区分。
-- **板级**：mask 策略只有 1:1 长度；token（`[MOBILE_1]`）仍在 host 侧；输出把 LF 补成
-  CRLF；上位机必须按回读节奏发（`serial_host.py` 自带 pace），否则 `ovf=001`。
+| 规则 | 认什么 | 不认什么 |
+|---|---|---|
+| 身份证 18/15 | 校验位正确、出生日期合法 | 校验位错的号码（**故意不遮**） |
+| 手机 | 1[3-9] 开头的 11 位，允许空格/横线分段 | 座机（`0571…`，暂未覆盖） |
+| 银行卡 | 13~19 位 + **Luhn** 校验 | Luhn 不过的数字串 |
+| 邮箱 | 常规 RFC 子集 | 无 @ 的 "a.b.c" |
+| IPv4 / USCC / 车牌 | 严格格式 + 校验位 | 近似写法 |

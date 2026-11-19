@@ -19,14 +19,15 @@
 
 ```powershell
 cd guard
-make test                  # 本机：金标 + Verilator（11 组，全绿）
-make ner-check             # NER 模型 16 条门槛（尺寸/整数一致/可复现/召回/长文档）
+make test                     # 本机：11 组回归
+make ner-check                # NER：16 条门槛
 
-.\tools\build_guard.ps1    # 出位流（Windows + PDS 2025.2-SP3）
-.\tools\program_guard.ps1  # JTAG 烧板（掉电即丢，重新上电要再烧）
+.\tools\build_guard.ps1       # 出位流（约 1 分钟）
+.\tools\program_guard.ps1     # JTAG 烧板（断电即丢，上电要重烧）
 
-python tools\serial_host.py -p COM9 --repl                 # 交互
-python tools\serial_host.py -p COM9 --file examples\demo09_mixed.txt   # 跑样例
+python tools\serial_host.py -p COM9 --repl                        # 交互
+python tools\serial_host.py -p COM9 --file examples\demo1_offer.txt   # 跑样例
+make web                      # 浏览器演示台 http://127.0.0.1:8777
 ```
 
 ## 板上实测（当前位流）
@@ -45,11 +46,11 @@ python tools\serial_host.py -p COM9 --file examples\demo09_mixed.txt   # 跑样�
 |---|---|
 | [guard/README.md](guard/README.md) | guard 总览：状态、怎么跑、目录、硬约定 |
 | [guard/TODO.md](guard/TODO.md) | 下一步与已知限制 |
-| [guard/docs/board-bringup.md](guard/docs/board-bringup.md) | 上板手册：烧写、串口第一测、排障 |
-| [guard/docs/board-uart.md](guard/docs/board-uart.md) | 板级设计：协议、掩码策略、资源、bug 日志 |
-| [guard/docs/l2-int4.md](guard/docs/l2-int4.md) | L2 语义层 + NER 数据通路与模型 |
-| [guard/docs/ubuntu-ner.md](guard/docs/ubuntu-ner.md) | NER 训练交接书（v4 要求、验收门槛） |
-| [guard/web/README.md](guard/web/README.md) | 浏览器演示台（串口实时 / 实测回放 / 本地预览） |
+| [guard/docs/board-bringup.md](guard/docs/board-bringup.md) | 上板手册：烧写、串口第一测、故障表 |
+| [guard/docs/board-uart.md](guard/docs/board-uart.md) | 板级设计：协议、掩码策略、资源、踩坑记录 |
+| [guard/docs/l2-int4.md](guard/docs/l2-int4.md) | L2 语义层 + NER 数据通路 |
+| [guard/docs/ubuntu-ner.md](guard/docs/ubuntu-ner.md) | NER 训练交接书 |
+| [guard/web/README.md](guard/web/README.md) | 浏览器演示台 |
 
 ## 分工
 
@@ -57,15 +58,15 @@ python tools\serial_host.py -p COM9 --file examples\demo09_mixed.txt   # 跑样�
 |---|---|
 | `guard/rtl` | 可综合 RTL：`l1/` 规则与替换、`l2/` 语义与 NER、`board/` 串口/摘要/顶层 |
 | `guard/host` | 金标（纯 Python/numpy）：规则、合并、掩码、NER 整数推理、板级协议 |
-| `guard/tools` | 构建、烧写、训练、评测、串口上位机 |
-| `guard/sim` | Verilator testbench |
-| `guard/tests` | 单测（pytest/unittest） |
+| `guard/tools` | 构建、烧写、训练、评测、串口上位机、网页数据生成 |
+| `guard/sim`、`guard/tests` | Verilator testbench / 单测 |
 | `guard/data`、`guard/models` | NER 语料与 INT8 模型产物 |
+| `guard/web` | 浏览器演示台（纯静态，无构建） |
 | `guard/vendor` | 第三方（ARES 核等），来源见 `PROVENANCE.md` |
 
 ## 约定
 
-- 数字必须可复现：`make test` / `make ner-check` / `tools/board_smoke.py` 三条命令给出所有结论；
-- RTL 只写可综合子集（`logic` / `always_ff` / `always_comb` / 函数），不用 interface/struct/动态数组；
-- 金标与 RTL 必须逐字节一致，不一致优先信金标并补测试；
-- 位流是 JTAG 灌 SRAM，**断电即丢**。
+- 数字必须可复现：`make test` / `make ner-check` / `tools/board_smoke.py`；
+- RTL 只写可综合子集（`logic` / `always_ff` / `always_comb` / 函数）；
+- 金标与 RTL 逐字节一致，不一致优先信金标；
+- 脱敏 1:1（输出字节数 = 输入），位流 JTAG 灌 SRAM，**断电即丢**。

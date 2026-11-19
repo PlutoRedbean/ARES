@@ -1,229 +1,103 @@
-# L2 INT4 语义层（用 miniTensor 的 MXU）
+# L2 语义层与 NER 实体层
 
-> 目的：给 L1 规则层补"**上下文语义**"——同一个 18 位数字，前面写着"身份证"还是
-> 写着"订单号"，含义完全不同。L1 只看校验位/结构，L2 看上下文。
->
-> 这一层**真的用到了 vendor/minitensor**：矩阵乘就是它的 4×4 INT8 脉动阵列
-> （`tensor_gemm_core` → `tensor_systolic_array` → 16 个 `tensor_pe`），不是另写的。
+> 这一篇讲**板上的两个"会思考"的层**：L2 语义层（miniTensor 上的 INT4 分类器）和
+> L2b 实体层（字符级 INT8 CNN，v4）。规则层（L1）见 [board-uart.md](board-uart.md)。
 
-## 1. 做什么
+## 1. 为什么分三层
 
-输入字节流 → 每个数字游程给一个类别：
-
-| class | 含义 | 例子 |
+| 层 | 能干什么 | 不能干什么 |
 |---|---|---|
-| 0 | none | `号码 330203300422240391`（前面没有 PII 关键词） |
-| 1 | id18 | `身份证 330203300422240391`（哪怕校验位是错的） |
-| 2 | bank | `银行卡 6222020000000000001` |
-| 3 | mobile | `手机号 13800138000` |
+| **L1 规则** | 身份证/手机/卡号/邮箱/IPv4/车牌/USCC，带完整校验位，**零误报** | 认不出裸人名、裸地址 |
+| **L2 语义** | 对数字游程做二次判读（"这串数字像不像账号"） | 只有 4×4 MAC，容量有限 |
+| **L2b 实体** | 人名、地址 | 会误标，需要过滤器兜底 |
 
-**分数是学出来的权重**，不是 if-else：8 个特征 × INT4 权重 → 4 个类别的点积。
+三层是**并集**关系：任何一层给出 span，合并器都会采纳。
 
-## 2. 特征（INT8）与权重（INT4）
+## 2. L2 语义层（miniTensor）
 
-| # | 特征 | 说明 |
+- 硬件：`tensor_gemm_core`，**4×4 INT8 阵列**，一次算 16 个乘加；
+- 模型：INT4 线性分类器，权重由 `tools/train_l2.py` 从语料训练；
+- 用途：把"看起来像 11 位数字"的游程分成"像手机号 / 像订单号"；
+- 验收：12 例 / 14 个游程对金标。
+
+## 3. L2b 实体层：两条实现，软件选
+
+| 实现 | 参数 | 用途 |
 |---|---|---|
-| f0..f3 | 窗口内出现过 身份证 / 银行卡 / 手机号 / 其它 PII 关键词 | 0/1 |
-| f4 | 关键词结束到游程开始的距离档 | 0(≤2) 1(≤5) 2(≤12) 3(更远) |
-| f5 | 游程 11..19 位 | 0/1 |
-| f6 | 前一个字节是 `:` 或 `=` | 0/1 |
-| f7 | 偏置 | 恒 1 |
+| `l2_entity.sv`（规则版） | 64 姓氏 + 线索词 + 职务 | **仿真回归**（金标算得出） |
+| `l2_ner.sv`（神经网络版） | v4：6,307 参数 / 105 KB INT8 | **板上默认**（`USE_NER=1`） |
 
-权重（`W4`，-8..7）**不再是手调的**：由 [tools/train_l2.py](../tools/train_l2.py)
-在带标签样本上训练、量化到 INT4、再用整数坐标下降微调到 RTL 的精确语义，最后由
-[tools/gen_l2_weights_sv.py](../tools/gen_l2_weights_sv.py) 生成
-`build/gen/l2_weights_pkg.sv`（金标与 RTL 共用同一张表）。
+`l1_engine #(.USE_NER(...))` 用 generate 二选一；两者输出同一套 span 接口。
 
-当前这张表（4000 训练 / 2000 留出，INT4 量化后 **train 1.000 / holdout 1.000**）：
+### 3.1 NER v4 结构
 
 ```
-         k_id k_bank k_mob k_other dist len colon bias
-none   [   0,     0,    0,     1,     2,  -5,   0,   3]
-id18   [   4,    -2,   -2,     0,    -1,   2,   0,  -1]
-bank   [  -2,     4,   -2,     0,    -1,   2,   0,  -1]
-mobile [  -2,    -2,    4,     0,    -1,   2,   0,  -1]
-```
-
-模型自己学出来的三条规律：
-
-1. **位数是硬门**：`len` 列 none 给 −5、PII 类给 +2 —— 短数字（<11 位）再靠近关键词也判 none，
-   这和 L1 兜底的"11..19 位才认"一致；
-2. **关键词定类型**：k_id/k_bank/k_mob 在各自类别上 +4，其它类别 −2；
-3. **距离惩罚弱化**：`dist` 只给 −1（手调版是 −2）—— 训练数据里"关键词近但数字远"很少见，
-   模型更愿意相信关键词。
-
-直觉：关键词给对应类别 +6；距离越远扣得越多（`-2×档`），远到 3 档时只剩 1 分、
-低于 none 的 2 分 → 判 none。
-
-## 3. 怎么用 miniTensor
-
-```
-l2_semantic_top
-├── l1_keyword_match          关键词窗口（L1 复用）
-├── l2_features               8 个 INT8 特征
-└── l2_int4_gemm
-    └── tensor_gemm_core      ← miniTensor 的 MXU（4×4 INT8 阵列 + 自己的 FSM）
-```
-
-K=8 超过阵列的 K=4，所以做**两次 GEMM 并串联 acc**：
-
-```
-C1 = W[:,0:4] · x[0:4]
-C2 = W[:,4:8] · x[4:8] + C1     ← acc_init 就是 C1
-y_c = C2[c][0]                  ← 四列相同，取第 0 列
-class = argmax(y)，全非正 → none
-```
-
-一次推理约 24 个核心时钟（两次 10 拍 GEMM + 握手）。
-
-## 4. 验证与数字
-
-```
-make l2-vectors    # 金标生成 12 例 / 14 个游程
-make l2-sim        # Verilator 位级仿真，与金标逐个游程比对 class + span
-```
-
-- 金标：`host/golden/l2_int4.py`（`scores/classify/features_from_hits/semantic_scan`）
-- RTL 与金标**同一套权重、同一套整数运算**；`make test` 里跑（12 例 0 错）
-- 单元测试：`tests/test_l2_int4.py`（权重范围、关键词→类别、窗口边界、无命中）
-
-综合（`fpga/pango/flow_l2.tcl`，PG2L200H，25 MHz）：
-
-| 资源 | 用量 |
-|---|---|
-| LUT | **889**（0.56%） |
-| FF | **954**（0.30%） |
-| APM / DRM | 0 / 0（8×8 乘法走 LUT） |
-| WNS | **+30.3 ns**（路径 ≈9.7 ns，远快于 25 MHz） |
-
-## 5. 还没做
-
-1. ~~没接进板级位流~~（2026-11-17 已接）：`l2_semantic_top` 与 L1 并行挂在同一字符流上，
-   摘要行加 `l2=`（判成 PII 的游程数）/`l2m=`（类别位图，bit1=id18 bit2=bank bit3=mobile）。
-   整板 5,444 LUT / 3,278 FF / WNS +5.4 ns；板上 `sample.txt --check` **PASS 1460 B**（含 name=/addr= 的 153 B 摘要行），
-   实测 `身份证 …卡… 手机号 …` 一帧 → `l2=3 l2m=14`，无关键词 → `l2=0`。
-2. **特征只有 8 个、权重是手调的**：还没训练。要真"学"，下一步是
-   用 `host/corpus` 标注数据训一个小线性模型，导出 INT4 权重直接替换这张表。
-3. **没有 DDR3 / 大模型**：现在的 MXU 用量 889 LUT，离"跑 0.5B"差三个数量级；
-   miniTensor 的 UB/DMA/controller 还没用上（那是 M3 后续）。
-
-## 6. 复现
-
-```bash
-cd guard
-make l2-vectors l2-sim         # 功能
-python3 tools/train_l2.py                    # 重新训练（写 host/golden/l2_weights.py）
-python3 tools/gen_l2_weights_sv.py build/gen/l2_weights_pkg.sv   # 生成 RTL 权重包
-# 面积/时序（Windows + PDS）：
-pds_shell -file fpga/pango/flow_l2.tcl -project_name l2_res
-```
-
-## 7. L2b 实体层：人名 / 地址
-
-规则式（词典 + 上下文线索），**不是语义理解**——语义改写要走模型路线（见 [ubuntu-ner.md](ubuntu-ner.md)）。
-
-| 类型 | 规则 | 例子 |
-|---|---|---|
-| `name`（type 9） | 姓氏表（64 个常见姓）+ 1~2 个汉字；要求 12 字节内有名字线索（叫/姓名/联系人/收件人/户名/本人/给/找/致），或"姓+职务"（先生/女士/老师/同学/经理/主任/医生/律师） | `联系人张三`、`姓名：李四`、`王经理` |
-| `addr`（type 10） | 线索（地址/住址/住在/位于/收货地址）或锚点字（省/市/区/县/路/街/号）起头，累积汉字+数字，6..48 字节且含锚点 | `地址：北京市朝阳区建国路88号`、`我住在杭州市西湖区文三路100号` |
-
-遮法与结构化 PII 不同：号码保留后 4 位（可核对），**人名/地址整段涂掉**——留 4 位等于把名字泄一半。
-
-### 7.1 RTL 模块（已写、已单独验证）
-
-`rtl/l2/l2_entity.sv`：UTF-8 三字节流式解码 + 4 字符线索窗口 + 姓氏/锚点/职务/线索表。
-表由 `tools/gen_entity_tables_sv.py` 从 `host/golden/entities.py` **生成**（两侧同源）：
-
-```bash
-make entity-sim        # 16 例 / 14 span，RTL 与金标逐字节一致
-```
-
-```
-entity cases=16 errors=0
-PASS: L2b entity layer matches golden
-```
-
-金标侧单独测：`tests/test_entities.py`（9 个用例），合成 500 句带标签：
-recall **500/500 = 1.000**、误报 **0/500**。
-
-### 7.2 host 侧已可用
-
-```bash
-python3 tools/demo.py --in 某文件.txt --policy mask --entities
-```
-
-### 7.3 还没做：接进板级替换通路（踩到的问题已定位）
-
-把实体 span 送进 `l1_merge`（5→6 路源）+ `l1_redactor`（type≥9 整段遮）+ 摘要行
-`name=`/`addr=`，本轮的实现**已经跑通到"板上能出报告"**，但还有一处没对齐：
-实体在 `in_last` 那一拍才吐"帧尾收尾"的 span，合并器同拍开始 flush，这个 span 会
-落到替换器出队指针之后（漏遮 + `done` 卡死）。已定位的两个具体修复点：
-
-1. `l1_redact_top` 里把 `in_last` 延迟 2 拍再给合并器（本轮试过，能解决卡死，
-   但帧中段的地址 span 仍偶尔与出队指针错位，需要把"span 入队时校验 start ≥ 出队指针"
-   做成显式丢弃并计入 `dropped`）；
-2. `guard_report` 的字段计数器必须 5 位（17 个字段，4 位会在 15 回绕——这个已修，
-   是"报告永远发不完"的根因）。
-
-结论：**这块要在下一轮专门做**（半天），本轮已把"单独可仿真验证的模块 + 同源表 +
-金标"全部落地，没有把半成品烧进板子。
-## 8. NER 上板（字符级 INT8 CNN）
-
-实体层的"规则版"只认有线索的名字（联系人/姓名…）。要认 `刘德华`、`孙悦` 这种裸名字，
-板上跑的是 **v4** 的字符级 CNN（`models/ner`，6,307 参数 / 3090 词表 / 105 KB INT8）：
-
-```
-64 字节窗口 → 分词（858 项词表，线性扫描）→ embedding(32) → conv1(k3,32) → conv2(k3,32)
-            → head(3) → argmax → span（同标签 ≥2 字符）
+64 字节窗口 → 逐字符 token（vocab 3090）→ emb 32 维
+           → 2 × (k3 conv 32→32, INT8, requant s=28)
+           → 1×1 head + bias → argmax{0=none, 1=name, 2=addr}
+           → 同标签连续 token 合成 span
 ```
 
 | 项 | 值 |
 |---|---|
-| 权重来源 | `models/ner/weights_int8.npz`（v4，3090 词表）→ `tools/gen_ner_rom.py` → `build/gen/l2_ner_*.sv`（`$readmemh`） |
-| 定点 | s=28：m1=281,423 / m2=384,084（整数参考与金标 logits 60/60 完全相同） |
-| 节拍 | 1 MAC/拍，约 18 ms / 64 字节窗口（速度不是目标） |
-| 验证 | `build/ner_vectors` **200/200 span 完全一致**（`make ner-sim` 的 TB 手工跑） |
-| 反压 | `l2_ner.busy` → `l1_redact_top` → `guard_uart_core` 停收数据；帧尾 flush 等 busy 落下 |
-| 资源 | 整板 20,663 LUT / 3,813 FF / 6.0 DRM（96 KB embedding 推断成 BRAM） |
+| 参数量 / 体积 | 6,307 / 105 KB INT8 |
+| MAC / 窗口 | 399,360 |
+| 吞吐 | 1 MAC/拍 ≈ **18 ms / 64 字节窗口**（串口侧靠 `busy` 反压） |
+| 词表 | 3,090（0=`<pad>`、1=`<unk>`，其余按 3000 个名字用字 + 训练字频） |
+| 训练 | Ubuntu，见 [ubuntu-ner.md](ubuntu-ner.md) |
 
-板上实测：
+### 3.2 窗口重叠（跨窗不断句）
 
-```
-刘德华的演唱会在上海        → *********的演唱会在上海     name=1
-请把文件发给杨帆            → 请把文件发给*******        name=1
-金额还需复核，方向明天再确认 → 不变                        n=0
-```
+64 字节窗口按 **32 字节**滑动：`S_DONE` 把 `ch_buf[32..64)` 搬到 `[0..32)`，下一窗从这 32
+字节接着填。跨越窗口边界的名字/地址会在后一窗里**完整出现一次**，合并器取并集。
 
-**模型输出还要过一道确定性过滤**（模型在真人写的长文上会胡猜）：
+### 3.3 模型输出还要过三道确定性过滤
 
-| 类型 | 过滤规则 |
-|---|---|
-| 人名 | 必须以**姓氏表**（64 个常见姓）开头，且 2~3 个字符 |
-| 地址 | 必须包含 `省/市/区/县/路/街/号` 之一 |
+模型在真人长文上会有误标，所以硬件不接受它的"原话"：
 
-不满足的 span 直接丢掉（`l2_ner.sv` 的 `S_SPAN`）。代价是姓氏表外的名字会漏；
-表在 `build/gen/l2_entity_tables.sv`，加姓改一行。
-
-**仿真与板上用的是两个实体层**：`make test` 里 `USE_NER=0`（规则版，金标可算），
-`guard_board_top` 默认 `USE_NER=1`（模型）。
-### 8.y 窗口滑动与后处理（v4 之后的改动）
-
-| 机制 | 做法 | 目的 |
+| 过滤 | 规则 | 挡掉的例子 |
 |---|---|---|
-| 窗口重叠 | 64 字节窗口按 **32 字节**滑动，保留上一窗后 32 字节（`S_DONE` 里搬 `ch_buf[32..64) → [0..32)`） | 跨窗的名字/地址在后一窗里完整出现，`l1_merge` 取并集 |
-| 标点/控制字符排除 | 写 `lab[]` 前判 `is_punct()`：控制字节、空格、全角 `EF BC/BD`、`E3 80`、非字母数字的 ASCII → 标签 0 | 模型会把 `（` 并进名字，遮完括号就没了 |
-| 人名过滤 | 必须以姓氏表（`l2_entity_tables`）里的姓开头，且 2~3 个字符 | 挡掉 `明（` `ng_` `于2` 这类误标 |
-| 地址过滤 | 必须包含 `省/市/区/县/路/街/号` 之一（`run_anchor_q` 在扫描时累积） | 挡掉 `近三个月` `（深` |
-| 露姓氏 | 人名 span 的前 3 字节（或 1 字节）原样输出（`keep_q`） | `周杰伦` → `周＊＊` |
+| 标点/控制字符 | 控制字节、空格、全角 `EF BC/BD`、`E3 80`、非字母数字 ASCII → 标签 0 | `（` 被并进名字 |
+| 人名 | 必须以**姓氏表**里的姓开头、2~3 字、且**不含 ASCII** | `明（` `ng_` `于2` |
+| 地址 | 必须含 `省市区县路街号镇乡村巷弄院楼室栋层幢` 之一 | `近三个月` `园区` |
 
-### 8.x 模型文件说明
+代价：姓氏表（64 个）之外的名字会漏。表在 `build/gen/l2_entity_tables.sv`，加姓改一行数据。
 
-| 文件 | 说明 |
+### 3.4 掩码策略
+
+| 类型 | 遮法 |
 |---|---|
-| `models/ner/config.json` | 结构参数：64 字节窗口、vocab 3090、emb 32、32 通道、3 类 |
-| `models/ner/vocab.json` | 3,090 项：0=`<pad>`、1=`<unk>`，其余按 name_chars + 训练字频 |
+| 人名 | 保留**第一个字符**（姓氏），其余遮 → `周杰伦` = `周＊＊` |
+| 地址 | 整段遮 |
+
+结构化 PII（身份证、卡号…）走 L1，策略是"保留后 4 字节"，与这里无关。
+
+## 4. 模型文件与验证
+
+| 文件 | 内容 |
+|---|---|
+| `models/ner/config.json` | 结构参数（窗口 64、vocab 3090、emb 32、32 通道、3 类） |
+| `models/ner/vocab.json` | 3,090 项词表 |
 | `models/ner/weights_int8.npz` | INT8 权重（emb / conv1 / conv2 / head + bias） |
 | `models/ner/quant.json` | 每层 scale/zp、两级 requant 乘数 |
-| `models/ner/eval.json` | 14 条门槛的实测数字（heldout / hard / unseen_names / addr_digits / longdoc / size） |
+| `models/ner/eval.json` | 各项门槛的实测数字 |
 
-生成 RTL 常量：`tools/gen_ner_rom.py` → `build/gen/l2_ner_cfg.sv`、`l2_ner_rom.sv`、`l2_ner_vocab.sv`（`$readmemh` 的 hex 在同目录）。
+生成 RTL 常量：`tools/gen_ner_rom.py` → `build/gen/l2_ner_cfg.sv` / `l2_ner_rom.sv` /
+`l2_ner_vocab.sv`（`$readmemh` 的 hex 在同目录）。
+
+**验收命令**：
+
+```bash
+make ner-check      # 16 条门槛：尺寸、整数一致、同 seed 复现、召回、长文档
+make ner-vectors    # 200 例向量
+```
+
+v4 的实测：长文档 200 篇 P/R/F1 = 1.000；未见过的名字召回 0.998；含数字地址整段命中 1.000。
+
+## 5. 已知限制
+
+| 现象 | 原因 | 下一步 |
+|---|---|---|
+| 真人长文偶发 1 字节误标（`2026年`→`*026年` 已修，仍有零星） | 训练数据是生成的 | v5 用真人语料，见 [ubuntu-ner.md](ubuntu-ner.md) §14 |
+| 生僻姓氏漏遮 | 姓氏表只有 64 个 | 扩表（数据文件，一行） |
+| 18 ms / 窗口 | 1 MAC/拍 | 内层 32 路并行 → ~0.6 ms |
