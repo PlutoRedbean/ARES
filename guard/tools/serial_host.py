@@ -263,8 +263,16 @@ def send_frames(ser, data: bytes, *, baud: int, pace: bool) -> tuple[bytes, list
     for i, piece in enumerate(split_frames(data), 1):
         wait_quiet(ser)
         raw = send_and_collect(ser, piece, baud=baud, pace=pace, expect=None)
-        txt, reps = split_stream(raw)
-        body += txt.rstrip(b"\r\n")
+        # 审计行紧跟回显；多等一小会儿，别把它漏掉
+        extra = b""
+        deadline = time.monotonic() + 0.5
+        while b"[guard]" not in extra and time.monotonic() < deadline:
+            chunk = ser.read(64)
+            if chunk:
+                extra += chunk
+        txt, reps = split_stream(raw + extra)
+        # 逐帧渲染（1:1 对齐才能把一个汉字收成一个 ＊）
+        body += render_mask(txt.rstrip(b"\r\n"), piece).encode("utf-8")
         reports += reps
     return bytes(body), reports
 
