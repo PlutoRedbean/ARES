@@ -269,10 +269,12 @@ def send_frames(ser, data: bytes, *, baud: int, pace: bool) -> tuple[bytes, list
     return bytes(body), reports
 
 
-def wait_quiet(ser, gap: float = 0.25) -> None:
+def wait_quiet(ser, gap: float = 0.25, cap: float = 2.0) -> None:
+    """等线路安静；最多等 cap 秒，避免板子一直吐数据时卡死。"""
     ser.reset_input_buffer()
+    stop_at = time.monotonic() + cap
     until = time.monotonic() + gap
-    while time.monotonic() < until:
+    while time.monotonic() < until and time.monotonic() < stop_at:
         if ser.read(64):
             until = time.monotonic() + gap
 
