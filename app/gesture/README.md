@@ -5,6 +5,8 @@ INT8 协处理器**跑 4 层 INT8 CNN，串口以 10 Hz 输出手势，由 `web/
 gesture-bridge 转成指令驱动 Three.js 全息页面。语言模型工程（`../llm`）与本工程
 共用同一份 `rtl/`。
 
+AMP+HDMI 的 PC 识别入口位于 `pc/run.py`。采集卡提供彩色视频，可选 UART 提供运动位图，支持实时识别和离线回放。[构建、运行与标定](../../docs/gesture_pc_cv.md#运行与回放)
+
 ## 平台与口径
 
 | 项目 | 本工程实现 |
