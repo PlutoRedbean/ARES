@@ -9,10 +9,27 @@
 <title>ARES GUARD · 隐私守门人控制台</title>
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="fx.css?v=9">
+<script>
+  /* 视觉层标记：只影响 fx.css 的初始揭示状态；fx.js 没跑起来时 3 秒后自动解除。 */
+  document.documentElement.classList.add("fx-js");
+  window.setTimeout(function () {
+    if (!window.__fxReady) document.documentElement.classList.remove("fx-js");
+  }, 3000);
+</script>
 </head>
 <body>
 
 <noscript><div style="position:fixed;inset:0;z-index:999;display:grid;place-items:center;background:#07090d;color:#e8eef7;font:14px sans-serif;text-align:center;padding:24px">ARES GUARD 控制台需要 JavaScript。<br>请用 Chrome / Edge 打开，或运行 <code>cd guard &amp;&amp; make web</code>。</div></noscript>
+
+<!-- ── 视觉层（纯装饰，不参与业务） ─────────────────────────────────────── -->
+<canvas class="fx-canvas" id="fxCanvas" aria-hidden="true"></canvas>
+<div class="fx-scan" aria-hidden="true"></div>
+<div class="fx-noise" aria-hidden="true"></div>
+<div class="fx-spotlight" id="fxSpotlight" aria-hidden="true"></div>
+<div class="fx-progress" id="fxProgress" aria-hidden="true"></div>
+<div class="fx-curtain" id="fxCurtain" aria-hidden="true"></div>
+<div class="fx-hud" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
 
 <!-- ── 图标 ─────────────────────────────────────────────────────────────── -->
 <svg class="sprite" aria-hidden="true" focusable="false">
@@ -145,7 +162,7 @@
 
     <!-- ══ 工作台 ═══════════════════════════════════════════════════════════ -->
     <section class="view" id="view-workbench" data-view="workbench">
-      <header class="page-head">
+      <header class="page-head fx-reveal">
         <div class="page-head-main">
           <div class="eyebrow"><span class="eyebrow-rule"></span>WORKBENCH / 本地工作台</div>
           <h1>脱敏工作台</h1>
@@ -156,9 +173,9 @@
         </div>
       </header>
 
-      <div class="stat-strip" id="stats" aria-label="本次运行统计"></div>
+      <div class="stat-strip fx-reveal" id="stats" aria-label="本次运行统计"></div>
 
-      <div class="sample-wrap">
+      <div class="sample-wrap fx-reveal">
         <div class="rail-head">
           <span class="rail-title">板上样例 <em>BOARD-VERIFIED</em></span>
         </div>
@@ -166,7 +183,7 @@
       </div>
 
       <div class="work-grid">
-        <article class="card input-card">
+        <article class="card input-card fx-reveal">
           <header class="card-head">
             <div class="card-title">
               <span class="card-kicker">INPUT · 待脱敏</span>
@@ -206,7 +223,7 @@
           </footer>
         </article>
 
-        <article class="card result-card" id="resultCard">
+        <article class="card result-card fx-reveal" id="resultCard">
           <header class="card-head">
             <div class="card-title">
               <span class="card-kicker">OUTPUT · 脱敏后</span>
@@ -267,7 +284,7 @@
       </div>
 
       <div class="detail-grid">
-        <article class="card frames-card">
+        <article class="card frames-card fx-reveal">
           <header class="card-head">
             <div class="card-title">
               <span class="card-kicker">FRAMES · 分帧</span>
@@ -287,7 +304,7 @@
           </div>
         </article>
 
-        <article class="card history-card">
+        <article class="card history-card fx-reveal">
           <header class="card-head">
             <div class="card-title">
               <span class="card-kicker">SESSION · 会话</span>
@@ -304,7 +321,7 @@
         </article>
       </div>
 
-      <footer class="view-foot">
+      <footer class="view-foot fx-reveal">
         <span>数字来自 2026-11-19 的板级实测与 <code>make test</code> 回归。</span>
         <span class="view-foot-right"><svg class="ico"><use href="#i-info"></use></svg>回放结果 = 板上实测回显；编辑后的文本 = 本地规则预览，不含 NER / L2。</span>
       </footer>
@@ -312,7 +329,7 @@
 
     <!-- ══ 数据链路 ═════════════════════════════════════════════════════════ -->
     <section class="view" id="view-link" data-view="link" hidden>
-      <header class="page-head">
+      <header class="page-head fx-reveal">
         <div class="page-head-main">
           <div class="eyebrow"><span class="eyebrow-rule"></span>LINK / 数据链路</div>
           <h1>串口与数据通路</h1>
@@ -323,10 +340,10 @@
         </div>
       </header>
 
-      <div class="stat-strip" id="linkStats" aria-label="链路统计"></div>
+      <div class="stat-strip fx-reveal" id="linkStats" aria-label="链路统计"></div>
 
       <div class="link-grid">
-        <article class="card connect-card">
+        <article class="card connect-card fx-reveal">
           <header class="card-head">
             <div class="card-title">
               <span class="card-kicker">SERIAL · 串口</span>
@@ -372,7 +389,7 @@
           </dl>
         </article>
 
-        <article class="card pipeline-card">
+        <article class="card pipeline-card fx-reveal">
           <header class="card-head">
             <div class="card-title">
               <span class="card-kicker">DATAPATH · 数据通路</span>
@@ -407,7 +424,7 @@
           </div>
         </article>
 
-        <article class="card monitor-card">
+        <article class="card monitor-card fx-reveal">
           <header class="card-head">
             <div class="card-title">
               <span class="card-kicker">MONITOR · 帧</span>
@@ -423,7 +440,7 @@
           </div>
         </article>
 
-        <article class="card log-card">
+        <article class="card log-card fx-reveal">
           <header class="card-head">
             <div class="card-title">
               <span class="card-kicker">LOG · 事件</span>
@@ -443,7 +460,7 @@
 
       </div>
 
-      <footer class="view-foot">
+      <footer class="view-foot fx-reveal">
         <span>帧边界：收到 LF 立即结束；无 LF 时空闲 300000 位时间（≈2.6 s）兜底。</span>
         <span class="view-foot-right"><svg class="ico"><use href="#i-alert"></use></svg>长帧 &gt;64 B 会被提前收帧，上位机按标点分帧规避。</span>
       </footer>
@@ -451,7 +468,7 @@
 
     <!-- ══ RTT 控制台 ══════════════════════════════════════════════════════ -->
     <section class="view" id="view-rtt" data-view="rtt" hidden>
-      <header class="page-head">
+      <header class="page-head fx-reveal">
         <div class="page-head-main">
           <div class="eyebrow"><span class="eyebrow-rule"></span>RTT / CONSOLE</div>
           <h1>RTT 控制台</h1>
@@ -463,7 +480,7 @@
       </header>
 
       <div class="rtt-grid">
-        <article class="card rtt-main">
+        <article class="card rtt-main fx-reveal">
           <header class="card-head">
             <div class="card-title">
               <span class="card-kicker">RTT · 终端</span>
@@ -516,7 +533,7 @@
           <p class="log-note">终端显示实际发送的命令和板子原始回读；Guard 会话期间 MSH 按钮锁定。</p>
         </article>
 
-        <aside class="rtt-side">
+        <aside class="rtt-side fx-reveal">
           <article class="card">
             <header class="card-head">
               <div class="card-title"><span class="card-kicker">FLOW</span><h2>流程</h2></div>
@@ -566,7 +583,7 @@
 
     <!-- ══ IMU 手柄 ════════════════════════════════════════════════════════ -->
     <section class="view" id="view-imu" data-view="imu" hidden>
-      <header class="page-head">
+      <header class="page-head fx-reveal">
         <div class="page-head-main">
           <div class="eyebrow"><span class="eyebrow-rule"></span>IMU / TAKEOVER</div>
           <h1>IMU 手柄链路</h1>
@@ -578,10 +595,10 @@
         </div>
       </header>
 
-      <div class="stat-strip" id="imuStats" aria-label="IMU 链路统计"></div>
+      <div class="stat-strip fx-reveal" id="imuStats" aria-label="IMU 链路统计"></div>
 
       <div class="imu-grid">
-        <article class="card imu-control-card">
+        <article class="card imu-control-card fx-reveal">
           <header class="card-head">
             <div class="card-title">
               <span class="card-kicker">TAKEOVER · 接管</span>
@@ -640,7 +657,7 @@
           </dl>
         </article>
 
-        <article class="card imu-side">
+        <article class="card imu-side fx-reveal">
           <header class="card-head">
             <div class="card-title">
               <span class="card-kicker">CHAIN · 接管链路</span>
@@ -664,7 +681,7 @@
           </div>
         </article>
 
-        <article class="card imu-log-card">
+        <article class="card imu-log-card fx-reveal">
           <header class="card-head">
             <div class="card-title">
               <span class="card-kicker">LOG · xbox-controller</span>
@@ -682,14 +699,14 @@
         </article>
       </div>
 
-      <footer class="view-foot">
+      <footer class="view-foot fx-reveal">
         <span>串口是独占资源：Web Serial、串口助手和 xbox-controller 同一时间只能有一个。</span>
         <span class="view-foot-right"><svg class="ico"><use href="#i-alert"></use></svg>接管会结束占口进程并退出 Guard 会话；正在跑的 CoreMark / 自检请先等它结束。</span>
       </footer>
     </section>
 
     <section class="view" id="view-rules" data-view="rules" hidden>
-      <header class="page-head">
+      <header class="page-head fx-reveal">
         <div class="page-head-main">
           <div class="eyebrow"><span class="eyebrow-rule"></span>RULES / 规则矩阵</div>
           <h1>规则与判读</h1>
@@ -701,9 +718,9 @@
         </div>
       </header>
 
-      <div class="layer-grid" id="layerGrid"></div>
+      <div class="layer-grid fx-reveal" id="layerGrid"></div>
 
-      <article class="card rule-table-card">
+      <article class="card rule-table-card fx-reveal">
         <header class="card-head">
           <div class="card-title">
             <span class="card-kicker">DETECTORS · 检测器</span>
@@ -729,7 +746,7 @@
       </article>
 
       <div class="rules-lower">
-        <article class="card policy-card">
+        <article class="card policy-card fx-reveal">
           <header class="card-head">
             <div class="card-title">
               <span class="card-kicker">POLICY · 掩码</span>
@@ -741,7 +758,7 @@
           <p class="policy-note">板上只有 mask（长度 1:1）。token 策略（<code>[MOBILE_1]</code>）需要变长输出与反压，仍在 host 侧。</p>
         </article>
 
-        <article class="card keyword-card">
+        <article class="card keyword-card fx-reveal">
           <header class="card-head">
             <div class="card-title">
               <span class="card-kicker">KEYWORDS · 上下文</span>
@@ -761,7 +778,7 @@
           <p class="policy-note">关键词只回答「出现过没有」，不单独判 PII；它给 L2 和上下文兜底提供先验。</p>
         </article>
 
-        <article class="card limits-card">
+        <article class="card limits-card fx-reveal">
           <header class="card-head">
             <div class="card-title">
               <span class="card-kicker">EDGES · 边界</span>
@@ -772,7 +789,7 @@
         </article>
       </div>
 
-      <footer class="view-foot">
+      <footer class="view-foot fx-reveal">
         <span>规则与金标必须逐条对齐：改一侧，另一侧同步，<code>make test</code> 用同一批向量拉齐。</span>
         <span class="view-foot-right"><svg class="ico"><use href="#i-info"></use></svg>坐标按 UTF-8 字节计，span = start + length。</span>
       </footer>
@@ -780,7 +797,7 @@
 
     <!-- ══ 系统状态 ═════════════════════════════════════════════════════════ -->
     <section class="view" id="view-system" data-view="system" hidden>
-      <header class="page-head">
+      <header class="page-head fx-reveal">
         <div class="page-head-main">
           <div class="eyebrow"><span class="eyebrow-rule"></span>SYSTEM / 系统状态</div>
           <h1>板卡实现与实测</h1>
@@ -793,7 +810,7 @@
       </header>
 
       <div class="sys-grid">
-        <article class="card resource-card">
+        <article class="card resource-card fx-reveal">
           <header class="card-head">
             <div class="card-title">
               <span class="card-kicker">RESOURCES · 资源</span>
@@ -808,7 +825,7 @@
           <div class="resource-list" id="resourceList"></div>
         </article>
 
-        <article class="card timing-card">
+        <article class="card timing-card fx-reveal">
           <header class="card-head">
             <div class="card-title">
               <span class="card-kicker">TIMING · 时序</span>
@@ -835,7 +852,7 @@
         </article>
       </div>
 
-      <article class="card verify-card verify-card-wide">
+      <article class="card verify-card verify-card-wide fx-reveal">
         <header class="card-head">
           <div class="card-title">
             <span class="card-kicker">VERIFY · 验收</span>
@@ -847,7 +864,7 @@
         <div class="verify-foot"><span class="dot on"></span>同一批向量贯穿 PC / Verilator / 真板 —— 三处 PASS 互为证据</div>
       </article>
 
-      <footer class="view-foot">
+      <footer class="view-foot fx-reveal">
         <span>硬件：盘古 200Pro+ · PG2L200H-6IFBB676 · 27 MHz 晶振 → GTP_GPLL → 25 MHz 核心。</span>
         <span class="view-foot-right"><svg class="ico"><use href="#i-alert"></use></svg>位流掉电即丢，重新上电要再烧一次。</span>
       </footer>
@@ -875,5 +892,6 @@
 <script src="data.js"></script>
 <script src="engine.js"></script>
 <script src="app.js"></script>
+<script src="fx.js?v=9"></script>
 </body>
 </html>

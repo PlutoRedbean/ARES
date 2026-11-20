@@ -36,13 +36,18 @@ py -3.11 tools/board_server.py --port 8788
 
 | 文件 | 作用 |
 |---|---|
-| `index.html` | 页面结构（SVG 板卡图：PG2L200H / ARES core / miniTensor / NER / L1） |
-| `style.css` | 全部视觉：旋转 logo、电流走线、芯片脉冲、流水线跑马、逐字揭示 |
+| `index.html` | 页面结构（SVG 板卡图：PG2L200H / ARES core / miniTensor / NER / L1 / IMU） |
+| `style.css` | 基础视觉：布局、配色、组件与既有动画 |
+| `fx.css` | 视觉增强层：极光背景、HUD 边角、流光卡片边框、扫描线、时序雷达、IMU 链路 |
+| `fx.js` | 视觉动效：背景粒子与电路脉冲、指针光斑、滚动进度、入场揭示、按钮涟漪、数字滚动、脱敏结果逐字打字 |
 | `app.js` | 控制面：串口收发、分帧、审计解析、动画调度、数字渲染、IMU 接管 |
 | `engine.js` | 浏览器版 L1 + 词典实体层（与 `host/golden` 逐条对齐，**不含 NER**） |
 | `data.js` | 静态资料：板卡参数、资源占用、分层说明（改板子后要同步） |
 | `demos.js` | **生成物**：`tools/gen_web_demos.py` 从 `examples/demo*.txt` 生成 |
 | `favicon.svg` | 图标 |
+
+> `fx.css` / `fx.js` 是纯装饰层：只改外观和动效，不读写业务状态；删掉这两个文件
+> 页面仍能正常工作。`prefers-reduced-motion: reduce` 下会自动关闭全部动画和粒子背景。
 
 ## 串口协议（与 `tools/serial_host.py` 一致）
 
