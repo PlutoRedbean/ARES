@@ -13,7 +13,7 @@ module tb_pipeline_shell (
 `ifdef ARES_RTOS_AMP
     reg pclk = 0, vsync = 0, href = 0;
     reg [7:0] dvp = 0;
-    pipeline_rtos_amp_board_top dut (.clk_27m(clk_27m), .rst_n(rst_n),
+    pipeline_rtos_amp_board_top #(.MOTION_STATS(1)) dut (.clk_27m(clk_27m), .rst_n(rst_n),
                                      .uart_rx(rx), .uart_tx(tx), .led(led),
                                      .cmos1_pclk(pclk), .cmos1_vsync(vsync),
                                      .cmos1_href(href), .cmos1_data(dvp),
@@ -21,13 +21,18 @@ module tb_pipeline_shell (
     // Place the known model patch into the sensor coordinates sampled by
     // trk_patch. The first and last crop pixels serve as geometry sentinels.
     reg [15:0] gesture_patch [0:1023];
-    initial if ($test$plusargs("camera")) begin
-        $readmemh("build/rtos_amp/camera_patch.hex", gesture_patch);
+    bit motion_pattern;
+    initial motion_pattern = $test$plusargs("motion");
+    initial if ($test$plusargs("camera") || $test$plusargs("motion")) begin
+        if ($test$plusargs("camera"))
+            $readmemh("build/rtos_amp/camera_patch.hex", gesture_patch);
         forever #6 pclk = ~pclk;
     end
-    initial if ($test$plusargs("camera")) begin
+    bit bright;
+    initial if ($test$plusargs("camera") || $test$plusargs("motion")) begin
         wait (rst_n);
         forever begin
+            bright = !bright;
             @(negedge pclk);
             vsync = 1;
             repeat (12) @(negedge pclk);
@@ -41,6 +46,9 @@ module tb_pipeline_shell (
                         bgr = gesture_patch[((((y - 190) / 2 + 1) * 32 - 1) / 130) * 32 + (((x - 494) / 2 + 1) * 32 - 1) / 130];
                     if (x == 320 && y == 120) bgr = 16'h001f;
                     if (x == 958 && y == 598) bgr = 16'hf800;
+                    if (motion_pattern)
+                        bgr = bright && ((x < 80 && y < 80) || (x >= 1200 && y >= 640))
+                              ? 16'hffff : 0;
                     @(negedge pclk);
                     href = 1;
                     dvp = bgr[15:8];

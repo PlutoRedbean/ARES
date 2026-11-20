@@ -339,15 +339,7 @@ module pipeline_amp_video #(
     // --------------------------------------------------------------- HDMI TX
     video_hdmi_wrap #(
         .USE_EXT_DE (1),
-        // Fixed gesture guide window from the standalone demo:
-        //   x 520..760, y 254..404, 2 px green border.
-        .OSD_BOX   (1),
-        .OSD_X0    (12'd520),
-        .OSD_Y0    (12'd254),
-        .OSD_X1    (12'd760),
-        .OSD_Y1    (12'd404),
-        .OSD_THICK (12'd2),
-        .OSD_COLOR (16'h07E0)
+        .OSD_BOX    (0)  // Feed the capture card the full, clean color image.
     ) u_hdmi (
         .pix_clk        (clk_pix),
         .pix_rst        (rst_pix),

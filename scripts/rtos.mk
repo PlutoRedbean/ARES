@@ -146,3 +146,15 @@ pipeline-guard-mmio-test: guard-tables
 .PHONY: pipeline-rtos-guard-test
 pipeline-rtos-guard-test: pipeline-rtos-amp-build
 	@python3 scripts/test_rtos_guard.py
+
+.PHONY: pipeline-gesture-motion-test
+pipeline-gesture-motion-test:
+	@python3 scripts/test_gesture_motion.py
+	@CCACHE_DISABLE=1 verilator --binary --timing -j 4 --top-module tb_gesture_motion \
+	    rtl/pipeline/soc/pango/pipeline_cdc.v rtl/pipeline/soc/amp/pipeline_amp_motion.sv \
+	    rtl/pipeline/test/tb_gesture_motion.sv --Mdir build/gesture_motion/model -o run
+	@build/gesture_motion/model/run
+
+.PHONY: pipeline-gesture-uart-test
+pipeline-gesture-uart-test: pipeline-rtos-amp-build
+	@python3 scripts/test_gesture_uart.py

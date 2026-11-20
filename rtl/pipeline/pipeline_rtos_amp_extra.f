@@ -22,6 +22,7 @@ app/gesture/rtl/soc/mt/mt_cluster.sv
 rtl/pipeline/soc/amp/pipeline_amp_minitensor.sv
 rtl/pipeline/board/pipeline_uart_rx_fifo.v
 rtl/pipeline/board/pipeline_rtos_amp_board_top.sv
+rtl/pipeline/soc/amp/pipeline_amp_motion.sv
 rtl/pipeline/soc/amp/pipeline_amp_camera.sv
 rtl/video/video_capture_wrap.v
 rtl/video/video_dvp_rgb565.v

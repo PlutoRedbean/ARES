@@ -34,7 +34,9 @@ module pipeline_amp_top #(
     parameter         RTOS_AI           = 1'b0,
     parameter bit     GUARD_NER         = 1,
     parameter         HART0_IROM_FILE   = "build/rtos_amp/irom.hex",
-    parameter         HART0_DRAM_FILE   = "build/rtos_amp/dram.hex"
+    parameter         HART0_DRAM_FILE   = "build/rtos_amp/dram.hex",
+    parameter bit     MOTION_STATS      = 0,
+    parameter [7:0]   MOTION_THRESHOLD  = 12
 ) (
     input  wire                     clk,
     input  wire                     rst,
@@ -106,7 +108,11 @@ module pipeline_amp_top #(
             wire [31:0] mt_addr, mt_wdata, mt_rdata;
             wire [3:0] mt_wstrb;
             if (HOST) begin : g_mt
+                wire motion_sel = (mt_addr & 32'hffff_ffe0) == 32'hd000_3020;
                 wire camera_sel = mt_addr[31:28] == 4'hd;
+                wire crop_sel = camera_sel && !motion_sel;
+                wire [31:0] motion_rdata;
+                reg motion_read_q, motion_read_r2;
                 wire guard_sel = mt_addr[31:4] == 28'he000100;
                 wire tensor_ready, guard_ready;
                 wire [31:0] guard_rdata;
@@ -115,10 +121,14 @@ module pipeline_amp_top #(
                 reg camera_read_q, camera_read_r2;
 
                 assign mt_ready = camera_sel ? !hart_rst : guard_sel ? guard_ready : tensor_ready;
-                assign mt_rdata = camera_read_r2 ? camera_rdata : guard_read_r2 ? guard_rdata : tensor_rdata;
+                assign mt_rdata = motion_read_r2 ? motion_rdata :
+                                  camera_read_r2 ? camera_rdata :
+                                  guard_read_r2  ? guard_rdata : tensor_rdata;
 
                 always @(posedge clk) begin
-                    camera_read_q <= !hart_rst && mt_valid && mt_ready && !mt_write && camera_sel;
+                    motion_read_q <= !hart_rst && mt_valid && mt_ready && !mt_write && motion_sel;
+                    motion_read_r2 <= motion_read_q;
+                    camera_read_q <= !hart_rst && mt_valid && mt_ready && !mt_write && crop_sel;
                     camera_read_r2 <= camera_read_q;
                     guard_read_q <= !hart_rst && mt_valid && mt_ready && !mt_write && guard_sel;
                     guard_read_r2 <= guard_read_q;
@@ -137,10 +147,21 @@ module pipeline_amp_top #(
                     .cpu_wdata(mt_wdata), .cpu_wstrb(mt_wstrb), .cpu_rdata(tensor_rdata)
                 );
 
+                if (MOTION_STATS) begin : g_motion
+                    pipeline_amp_motion #(.THRESHOLD(MOTION_THRESHOLD)) u_motion (
+                        .pixel_clk(pixel_clk), .pixel_rst(pixel_rst), .pixel_vsync(pixel_vsync),
+                        .pixel_de(pixel_de), .pixel_rgb565(pixel_rgb565), .clk(clk), .rst(rst),
+                        .cpu_valid(mt_valid && mt_ready && motion_sel), .cpu_write(mt_write),
+                        .cpu_offset(mt_addr[4:0]), .cpu_rdata(motion_rdata)
+                    );
+                end else begin : g_no_motion
+                    assign motion_rdata = 0;
+                end
+
                 pipeline_amp_camera u_camera (
                     .pixel_clk(pixel_clk), .pixel_rst(pixel_rst),
                     .pixel_vsync(pixel_vsync), .pixel_de(pixel_de), .pixel_rgb565(pixel_rgb565),
-                    .clk(clk), .rst(rst), .cpu_valid(mt_valid && mt_ready && camera_sel),
+                    .clk(clk), .rst(rst), .cpu_valid(mt_valid && mt_ready && crop_sel),
                     .cpu_write(mt_write), .cpu_addr(mt_addr), .cpu_rdata(camera_rdata)
                 );
             end else begin : g_no_mt

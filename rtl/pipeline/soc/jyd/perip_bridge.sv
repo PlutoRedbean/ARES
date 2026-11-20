@@ -308,6 +308,7 @@ module perip_bridge #(
                              perip_addr[31:5] == 27'h7000000 ||
                              perip_addr[31:4] == 28'he000100 ||
                              perip_addr == 32'hD000_3000 ||
+                             (perip_addr & 32'hffff_ffe0) == 32'hD000_3020 ||
                              (perip_addr >= 32'hD010_0000 && perip_addr < 32'hD014_B000));
     assign mt_req_valid = perip_valid && mt_hit && store_empty && !bram_write_valid_q;
     assign mt_req_write = perip_wen;

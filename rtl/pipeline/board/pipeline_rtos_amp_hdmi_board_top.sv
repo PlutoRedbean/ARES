@@ -12,9 +12,11 @@
 //   * camera:     one video_capture_wrap shared by the AI and the framebuf
 //   * framebuf:   vendor fram_buf + DDR3 I_ips_ddr_top
 //
-// The existing pipeline_rtos_amp_board_top is intentionally left untouched.
+// Full-field motion statistics and the legacy CNN crop both tap the decoded pixels.
 //=============================================================================
-module pipeline_rtos_amp_hdmi_board_top (
+module pipeline_rtos_amp_hdmi_board_top #(
+    parameter [7:0] MOTION_THRESHOLD = 12
+) (
     input  wire       clk_27m,
     input  wire       rst_n,
     input  wire       uart_rx,
@@ -134,9 +136,17 @@ module pipeline_rtos_amp_hdmi_board_top (
         .CLKOUT (pixel_clk)
     );
 
+    // Hold SoC camera history in reset through the first pixel clocks even
+    // when the camera divider was stopped during a board reset.
+    wire soc_pixel_rst;
+    pipeline_cdc_reset_sync u_soc_pixel_reset (
+        .clk(pixel_clk), .rst_in(cpu_rst | pixel_rst), .rst_out(soc_pixel_rst)
+    );
+
     // --------------------------------------------------------------- AMP SoC
     pipeline_amp_top #(
         .CORES(4), .ICACHE_LINES(512), .RTOS_AI(1'b1),
+        .MOTION_STATS(1'b1), .MOTION_THRESHOLD(MOTION_THRESHOLD),
         .IROM_INIT_FILE("build/rtos_amp/worker_irom.hex"),
         .DRAM_INIT_FILE("build/rtos_amp/worker_dram.hex")
     ) u_soc (
@@ -148,7 +158,7 @@ module pipeline_rtos_amp_hdmi_board_top (
         .retire_valid(retire_valid), .retire_is_ebreak(retire_is_ebreak),
         .retire_pc(), .retire_pc_next(), .retire_rd_wen(), .retire_rd(), .retire_wdata(),
         .led(soc_led),
-        .pixel_clk(pixel_clk), .pixel_rst(pixel_rst), .pixel_vsync(pixel_vsync),
+        .pixel_clk(pixel_clk), .pixel_rst(soc_pixel_rst), .pixel_vsync(pixel_vsync),
         .pixel_de(pixel_de), .pixel_rgb565(pixel_rgb565)
     );
 

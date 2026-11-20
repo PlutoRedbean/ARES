@@ -41,7 +41,7 @@ $(OUT)/amp_imu.o: CFLAGS += -I$(WIRE_DIR)/include
 BENCH := core_main core_util core_list_join core_matrix core_state crc_hw core_list_array matrix_hw state_hw
 BENCH_OBJECTS := $(addprefix $(OUT)/bench_,$(addsuffix .o,$(BENCH))) $(OUT)/amp_core_portme.o
 OBJECTS += $(BENCH_OBJECTS) $(OUT)/amp_app.o $(OUT)/amp_guard.o $(OUT)/amp_printf.o $(OUT)/amp_gesture.o \
- $(OUT)/amp_imu.o $(OUT)/wire.o \
+ $(OUT)/amp_motion.o $(OUT)/amp_imu.o $(OUT)/wire.o \
  $(addprefix $(OUT)/gesture_,mt.o mt_net.o mt_detect.o mt_track.o)
 TARGETS += $(OUT)/worker.elf
 endif

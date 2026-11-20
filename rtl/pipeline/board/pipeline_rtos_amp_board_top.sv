@@ -1,6 +1,8 @@
 `timescale 1ns/1ps
 
-module pipeline_rtos_amp_board_top (
+module pipeline_rtos_amp_board_top #(
+    parameter bit MOTION_STATS = 0
+) (
     input  wire       clk_27m,
     input  wire       rst_n,
     input  wire       uart_rx,
@@ -45,7 +47,7 @@ module pipeline_rtos_amp_board_top (
     );
 
     pipeline_amp_top #(
-        .CORES(4), .ICACHE_LINES(512), .RTOS_AI(1'b1),
+        .CORES(4), .ICACHE_LINES(512), .RTOS_AI(1'b1), .MOTION_STATS(MOTION_STATS),
         .IROM_INIT_FILE("build/rtos_amp/worker_irom.hex"),
         .DRAM_INIT_FILE("build/rtos_amp/worker_dram.hex")
     ) u_soc (
