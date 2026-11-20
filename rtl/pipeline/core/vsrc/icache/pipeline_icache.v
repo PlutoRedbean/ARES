@@ -10,8 +10,7 @@
 // without SystemVerilog types/interfaces or vendor IP.
 //
 // Geometry defaults to 32 sets x 4 ways x 32 B, matching the IROM refill
-// adapter.  The word select is generate-based; the refill packing assumes
-// 32-bit instruction words.
+// adapter's 32-bit instruction beats.
 //=============================================================================
 module pipeline_icache #(
     parameter integer ADDR_WIDTH = 32,
@@ -57,12 +56,10 @@ module pipeline_icache #(
     localparam integer WAY_IDX_W    = (NR_WAYS > 1) ? $clog2(NR_WAYS) : 1;     // 2
     localparam integer AGE_W        = (NR_WAYS > 1) ? $clog2(NR_WAYS) : 1;     // 2
     localparam integer NR_INSTS     = LINE_BYTES / 4;                   // 8
-    localparam integer LINE_BITS    = LINE_BYTES * 8;                   // 256
     localparam integer NR_BEATS     = LINE_BYTES / BEAT_BYTES;          // 8
     localparam integer BEAT_CNT_W   = $clog2(NR_BEATS + 1);             // 4
     localparam integer BEAT_SEL_W   = (NR_BEATS > 1) ? $clog2(NR_BEATS) : 1; // 3
     localparam integer WORD_OFF_W   = (NR_INSTS > 1) ? $clog2(NR_INSTS) : 1; // 3
-    localparam integer DATA_IDX_W   = INDEX_WIDTH + WAY_IDX_W;          // 7
 
     localparam [2:0] S_IDLE   = 3'd0;
     localparam [2:0] S_LOOK   = 3'd1;
@@ -102,9 +99,8 @@ module pipeline_icache #(
 
     // Age (pseudo-LRU) update is applied one cycle after the hit commits, from
     // these registers instead of from hit_way/req_index_r directly.  Juggling
-    // 4 ways of 2-bit age per set on the tag-compare result put the whole
-    // hit_way fanout (also the way-select mux for the data array) plus the
-    // age mux tree plus the age_mem write enable into a single cycle, which
+    // 4 ways of 2-bit age per set on the tag-compare result put hit_way,
+    // the age mux tree and the age_mem write enable into a single cycle, which
     // was the second-worst cone in the PnR report (12.7 ns, 68% route).  A
     // hit is never followed by an eviction on the next cycle, so the extra
     // cycle of age staleness is unobservable.
@@ -125,34 +121,12 @@ module pipeline_icache #(
         end
     end
 
-    //-------------------------------------------------------------------------
-    // Refill staging (declared before the data array because the fill write
-    // consumes the packed line)
-    //-------------------------------------------------------------------------
-    reg [DATA_WIDTH-1:0] refill_buf [0:NR_BEATS-1];
     reg [BEAT_CNT_W-1:0] beat_issue;
     reg [BEAT_CNT_W-1:0] beat_rsp;
 
-    wire [LINE_BITS-1:0] refill_line;
-    genvar gb;
-    generate
-        for (gb = 0; gb < NR_BEATS; gb = gb + 1) begin : g_refill_pack
-            assign refill_line[gb*DATA_WIDTH + DATA_WIDTH - 1 : gb*DATA_WIDTH] =
-                refill_buf[gb];
-        end
-    endgenerate
-
     //-------------------------------------------------------------------------
-    // Data array: one line per {way,set}, single synchronous read port.
-    //
-    // The way is resolved before the RAM read: a combinational tag check on
-    // the live request selects the read address.  This keeps one data copy
-    // per way without reading all four ways in parallel.
+    // Directory lookup runs in parallel with the synchronous data banks.
     //-------------------------------------------------------------------------
-    (* ram_style = "block" *)
-    reg [LINE_BITS-1:0] data_mem [0:NR_SETS*NR_WAYS-1];
-    reg [LINE_BITS-1:0] data_r;
-
     reg [NR_WAYS-1:0]   pre_hit_vec;
     reg [WAY_IDX_W-1:0] pre_hit_way;
 
@@ -171,7 +145,7 @@ module pipeline_icache #(
         end
     end
 
-    // Response slot / request handshake.  Declared before rd_index because
+    // Response slot / request handshake. Declared before the bank reads because
     // PIPE_HITS can accept the next request in the same cycle a hit response
     // is committed.
     reg                  rsp_valid_r;
@@ -185,42 +159,37 @@ module pipeline_icache #(
     wire req_fire      = req_valid && req_ready_w;
 
     wire relook = state == S_RELOOK;
-    wire [DATA_IDX_W-1:0] rd_index = relook ? {miss_way, miss_index} :
-                                              {pre_hit_way, req_index};
-
-    // The data-array write and the directory install below happen on the same
-    // cycle under the same condition, so a flush or reset on the S_FILL cycle
-    // can never leave a tag pointing at another line's data.
+    wire [INDEX_WIDTH+WORD_OFF_W-1:0] rd_addr =
+        relook ? {miss_index, req_word_off_r} : {req_index, req_word_off};
+    wire store_beat = refill_rsp_valid && refill_rsp_ready && !flush && !rst;
     wire fill_we = (state == S_FILL) && !rst;
 
-    // Capture the directory decision alongside its synchronous RAM read.
-    // S_LOOK drives ready from the registered hit even on back-to-back hits.
-    // A refill already knows its installed way. During backpressure all three
-    // registers hold the same request until its response can be committed.
+    // Keep the tag result aligned with the bank outputs through stalls/relook.
     always @(posedge clk) begin
         if (req_fire || relook) begin
-            data_r <= data_mem[rd_index];
             hit <= relook || (|pre_hit_vec);
             hit_way <= relook ? miss_way : pre_hit_way;
         end
     end
 
-    always @(posedge clk) begin
-        if (fill_we)
-            data_mem[{miss_way, miss_index}] <= refill_line;
-    end
-
-    // Word select: one DATA_WIDTH slice per instruction in the line.
-    wire [DATA_WIDTH-1:0] word_sel [0:NR_INSTS-1];
-    genvar gw;
+    wire [DATA_WIDTH-1:0] way_word [0:NR_WAYS-1];
+    genvar way;
     generate
-        for (gw = 0; gw < NR_INSTS; gw = gw + 1) begin : g_word_sel
-            assign word_sel[gw] =
-                data_r[gw*DATA_WIDTH + DATA_WIDTH - 1 : gw*DATA_WIDTH];
+        for (way = 0; way < NR_WAYS; way = way + 1) begin : g_data_way
+            (* syn_ramstyle = "block_ram", ram_style = "block" *)
+            reg [DATA_WIDTH-1:0] data_mem [0:NR_SETS*NR_INSTS-1];
+            reg [DATA_WIDTH-1:0] word_q;
+            always @(posedge clk) begin
+                if (req_fire || relook)
+                    word_q <= data_mem[rd_addr];
+                if (store_beat && miss_way == way)
+                    data_mem[{miss_index, beat_rsp[BEAT_SEL_W-1:0]}] <= refill_rsp_data;
+            end
+            assign way_word[way] = word_q;
         end
     endgenerate
 
-    wire [DATA_WIDTH-1:0] selected_word = word_sel[req_word_off_r];
+    wire [DATA_WIDTH-1:0] selected_word = way_word[hit_way];
 
     assign refill_req_valid = (state == S_REFILL) &&
                               (beat_issue < NR_BEATS);
@@ -282,7 +251,7 @@ module pipeline_icache #(
         end else if (flush) begin
             // Drop any in-flight request/response; keep cached lines.  A line
             // whose last beat has arrived (S_FILL) is still installed below:
-            // all of its words are in refill_buf and IROM is read-only.
+            // all of its words are in the bank and IROM is read-only.
             state       <= S_IDLE;
             rsp_valid_r <= 1'b0;
             beat_issue  <= {BEAT_CNT_W{1'b0}};
@@ -364,7 +333,6 @@ module pipeline_icache #(
                         beat_issue <= beat_issue + 1'b1;
 
                     if (refill_rsp_valid && refill_rsp_ready) begin
-                        refill_buf[beat_rsp[BEAT_SEL_W-1:0]] <= refill_rsp_data;
                         beat_rsp <= beat_rsp + 1'b1;
                         if (beat_rsp == (NR_BEATS-1))
                             state <= S_FILL;
@@ -388,10 +356,11 @@ module pipeline_icache #(
             endcase
         end
 
-        // Fill: install the line and update tag/valid/age.  Outside the flush
-        // branch so the directory always follows the data-array write.
+        // The first write evicts the old line. An interrupted refill stays
+        // invalid; a flush in S_FILL can still install the complete new line.
+        if ((store_beat && beat_rsp == 0) || fill_we)
+            valid_mem[miss_index*NR_WAYS + miss_way] <= fill_we;
         if (fill_we) begin
-            valid_mem[miss_index*NR_WAYS + miss_way] <= 1'b1;
             tag_mem[miss_index*NR_WAYS + miss_way]   <= miss_tag;
             refill_count_r <= refill_count_r + 64'd1;
             for (age_i = 0; age_i < NR_WAYS; age_i = age_i + 1) begin

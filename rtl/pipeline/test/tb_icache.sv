@@ -5,8 +5,8 @@
 // A scoreboard checks every response against the address it was requested
 // for.  The refill side models pipeline_irom_passthrough: one-cycle in-order
 // responses, with pending beats dropped on flush.  Directed cases cover four
-// resident lines in one set, LRU replacement and a flush or reset landing on
-// the S_FILL cycle; a random phase then mixes back-pressure, flushes and resets.
+// resident lines in one set, LRU replacement and a flush or reset during
+// refill or installation. A random phase mixes back-pressure, flushes and resets.
 module tb_icache #(
     parameter integer NR_SETS = 32, LINE_BYTES = 32, PIPE_HITS = 1
 );
@@ -151,16 +151,18 @@ module tb_icache #(
         end
     endtask
 
-    // Fill one set with four lines, miss on a fifth so the LRU line (way of
-    // BASE) is the victim, and hit the S_FILL cycle with flush or reset.  The
-    // cache must stay consistent: every later fetch returns its own data.
-    task automatic install_race(input use_reset);
+    // Interrupt replacement after one word or at directory installation.
+    // Fetching the old and new tags must never return the other line's words.
+    task automatic install_race(input use_reset, input partial);
         integer i;
         begin
             for (i = 0; i < 4; i = i + 1)
                 fetch(BASE + i * SET_STRIDE);
             issue(BASE + 4 * SET_STRIDE);
-            while (dut.state !== S_FILL) @(negedge clk);
+            if (partial)
+                while (!(refill_rsp_ready && dut.beat_rsp == 1)) @(negedge clk);
+            else
+                while (dut.state !== S_FILL) @(negedge clk);
             if (use_reset) rst = 1'b1; else flush = 1'b1;
             @(negedge clk);
             rst = 1'b0;
@@ -184,8 +186,10 @@ module tb_icache #(
         for (cyc = 0; cyc < 64; cyc = cyc + 1) fetch(BASE + 32'h4000 + cyc * 4);
         for (cyc = 0; cyc < 64; cyc = cyc + 1) fetch(BASE + 32'h4000 + cyc * 4);
 
-        install_race(1'b0);
-        install_race(1'b1);
+        install_race(1'b0, 1'b0);
+        install_race(1'b1, 1'b0);
+        install_race(1'b0, 1'b1);
+        install_race(1'b1, 1'b1);
 
         // Warm four different ways of one set, then change way on every
         // cycle. A registered directory decision must not insert a bubble.
