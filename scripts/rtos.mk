@@ -125,14 +125,15 @@ pipeline-rtos-amp-pango-lint: pipeline-rtos-amp-pango-prep
 	    rtl/pipeline/pipeline_amp_pango.f > build/rtos_amp/pango_lint.f
 	@verilator --lint-only --timing -U__VERILATOR__ -DARES_FPGA -Wno-fatal \
 	    --top-module pipeline_rtos_amp_board_top -f build/rtos_amp/pango_lint.f \
-	    -f build/rtos_amp/pango_extra.f rtl/video/sim/GTP_IOCLKDIV_E2.v rtl/video/sim/GTP_CLKBUFG.v
+	    -f build/rtos_amp/pango_extra.f rtl/video/sim/GTP_IOCLKDIV_E2.v rtl/video/sim/GTP_CLKBUFG.v rtl/video/sim/GTP_DFF.v
 
 .PHONY: pipeline-guard-mmio-test pipeline-sccb-test
 pipeline-sccb-test:
 	@mkdir -p build/rtos_amp
 	@iverilog -g2012 -Irtl/video -s tb_sccb_config -o build/rtos_amp/tb_sccb_config \
 	    rtl/video/test/tb_sccb_config.sv rtl/video/video_capture_wrap.v rtl/video/video_dvp_rgb565.v \
-	    rtl/video/legacy/power_on_delay.v rtl/video/legacy/reg_config.v rtl/video/legacy/i2c_com.v rtl/video/sim/GTP_IOCLKDIV_E2.v
+	    rtl/video/legacy/power_on_delay.v rtl/video/legacy/reg_config.v rtl/video/legacy/i2c_com.v \
+	    rtl/video/sim/GTP_IOCLKDIV_E2.v rtl/video/sim/GTP_DFF.v
 	@vvp build/rtos_amp/tb_sccb_config
 
 pipeline-guard-mmio-test: guard-tables

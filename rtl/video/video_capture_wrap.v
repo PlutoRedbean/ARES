@@ -66,14 +66,19 @@ module video_capture_wrap #(
         .initial_en   (initial_en_unused)
     );
 
-    // The power sequencer holds reset for milliseconds on clk_27m.
-    (* ASYNC_REG = "TRUE" *) reg [1:0] cam_release = 2'b00;
-    always @(posedge clk_cam)
-        cam_release <= {cam_release[0], cam_reset_i};
+    // The 27 MHz sequencer holds reset for milliseconds. Use discrete flops
+    // so PDS keeps both sampling stages and the first D pin is addressable.
+    wire cam_release_meta, cam_release;
+    (* ASYNC_REG = "TRUE" *) GTP_DFF #(.INIT(1'b0)) u_cam_release_meta (
+        .CLK(clk_cam), .D(cam_reset_i), .Q(cam_release_meta)
+    );
+    (* ASYNC_REG = "TRUE" *) GTP_DFF #(.INIT(1'b0)) u_cam_release_sync (
+        .CLK(clk_cam), .D(cam_release_meta), .Q(cam_release)
+    );
 
     reg_config u_reg_config (
         .clk_25M      (clk_cam),
-        .camera_rstn  (cam_release[1]),
+        .camera_rstn  (cam_release),
         .initial_en   (1'b1),
         .reg_conf_done(cam_init_done_i),
         .i2c_sclk     (cam_scl),

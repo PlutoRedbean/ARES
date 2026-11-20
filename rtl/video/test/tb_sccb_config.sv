@@ -27,12 +27,21 @@ module tb_sccb_config;
         if (scl !== 1) $fatal(1, "missing SCCB STOP");
     endtask
 
+    // After a sensor reset transition, SCCB must see the old level through
+    // the first sampling edge and the new level after the second.
+    task automatic check_reset_crossing(input bit level);
+        @(posedge clk_cam);
+        @(negedge clk_cam);
+        if (dut.u_reg_config.camera_rstn !== !level) $fatal(1, "SCCB reset changed early");
+        @(negedge clk_cam);
+        if (dut.u_reg_config.camera_rstn !== level) $fatal(1, "SCCB reset missed second edge");
+    endtask
+
     initial begin
         repeat (8) @(negedge clk_sys);
         rst = 0;
         @(posedge cam_reset_n);
-        @(negedge clk_cam);
-        while (!dut.cam_release[1]) @(negedge clk_cam);
+        check_reset_crossing(1);
         repeat (1249) begin
             @(negedge clk_cam);
             if (dut.u_reg_config.clock_20k !== 0) $fatal(1, "early SCCB divider edge");
@@ -45,10 +54,13 @@ module tb_sccb_config;
         @(negedge sda);
         repeat (4) @(posedge scl);
         @(negedge clk_sys); rst = 1;
+        @(negedge cam_reset_n);
+        check_reset_crossing(0);
         repeat (12) @(negedge clk_sys);
         if (cam_reset_n !== 0 || scl !== 1 || sda !== 1) $fatal(1, "SCCB reset");
         rst = 0;
         @(posedge cam_reset_n);
+        check_reset_crossing(1);
         check_write(32'h78310311);
         $display("SCCB clock enable, pin sequence and restart PASS");
         $finish;

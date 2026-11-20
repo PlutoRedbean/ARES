@@ -7,6 +7,9 @@ create_generated_clock -name gesture_sccb_clk -source [get_pins {u_clk_reset/u_p
 set_clock_groups -asynchronous \
     -group [get_clocks {cmos1_pclk gesture_pixel_clk}] \
     -group [get_clocks {sys_clk cpu_clk periph_clk gesture_sccb_clk}]
+# Camera power-up is a stable level sampled by two clk_cam flops. Only the
+# first D pin is a CDC endpoint; the path between the two flops is timed.
+set_false_path -from [get_clocks {sys_clk}] -to [get_pins {u_capture/u_cam_release_meta/D}]
 set_false_path -from [get_ports {cmos1_scl cmos1_sda}]
 
 define_attribute {p:cmos1_data[7]} {PAP_IO_DIRECTION} {INPUT}
