@@ -30,7 +30,9 @@ ai stop
 ai selftest
 ```
 
-`ai start` 开始实时识别，`ai stop` 停止识别。串口输出 `hand: rock`、`hand: paper`、`hand: scissors` 或 `hand: none`，兼容原有 gesture-bridge。有效类别需要连续三帧确认，串口按 RT-Thread tick 限制在约 10 Hz。相机端将中心 640×480 裁剪为 320×240 灰度，通过两个片上缓冲向 hart0 交接完整帧。AI 复制固定 ROI 后释放帧缓冲。
+`ai start` 开始实时识别，`ai stop` 停止识别。当前 AMP 固件以 `G` 行输出稳定类别、原始类别、三个分数、分差和标志位。类别为 `0 idle`、`1 defense`、`2 point`，`-1` 表示未知或无效。有效类别需要连续三帧确认，串口按 RT-Thread tick 限制在约 10 Hz。相机端将中心 640×480 区域降采样为 320×240 灰度，通过两个片上缓冲向 hart0 交接完整帧。AI 复制固定 ROI 后释放帧缓冲。
+
+计划中的 PC 识别路径沿用上述动作，在 FPGA 侧新增全视野 320×180 亮度统计。分工、接口和验收步骤见 [ARES 手势识别的 FPGA 与 PC 分工实施方案](gesture_pc_cv.md)。
 
 ## Pango 板级流程
 
