@@ -1,0 +1,4 @@
+# Shell entry points must keep LF: Git Bash / WSL read the shebang before any
+# CRLF conversion, and a trailing \r makes `#!/usr/bin/env bash\r` fail.
+run.sh text eol=lf
+run.ps1 text eol=lf

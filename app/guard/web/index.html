@@ -102,6 +102,10 @@
         <span class="nav-ico"><svg class="ico"><use href="#i-terminal"></use></svg></span>
         <span class="nav-text"><b>RTT 控制台</b><em>Console</em></span>
       </button>
+      <button class="nav-item" data-nav="imu" type="button">
+        <span class="nav-ico"><svg class="ico"><use href="#i-zap"></use></svg></span>
+        <span class="nav-text"><b>IMU 手柄</b><em>Gamepad</em></span>
+      </button>
       <button class="nav-item" data-nav="rules" type="button">
         <span class="nav-ico"><svg class="ico"><use href="#i-layers"></use></svg></span>
         <span class="nav-text"><b>规则矩阵</b><em>Rules</em></span>
@@ -558,6 +562,130 @@
           </article>
         </aside>
       </div>
+    </section>
+
+    <!-- ══ IMU 手柄 ════════════════════════════════════════════════════════ -->
+    <section class="view" id="view-imu" data-view="imu" hidden>
+      <header class="page-head">
+        <div class="page-head-main">
+          <div class="eyebrow"><span class="eyebrow-rule"></span>IMU / TAKEOVER</div>
+          <h1>IMU 手柄链路</h1>
+          <p class="page-lede">把串口从浏览器、Guard 会话和串口助手里收回来，切到 IMU 遥测，再交给 xbox-controller。整个过程用一条链路走完，板子不需要重新上电。</p>
+        </div>
+        <div class="page-head-side">
+          <div class="mode-note"><span class="dot" id="imuHeadDot"></span><span id="imuHeadMode">待机</span></div>
+          <div class="head-note">WT61C → ESP32 → FPGA → USB-UART → PC</div>
+        </div>
+      </header>
+
+      <div class="stat-strip" id="imuStats" aria-label="IMU 链路统计"></div>
+
+      <div class="imu-grid">
+        <article class="card imu-control-card">
+          <header class="card-head">
+            <div class="card-title">
+              <span class="card-kicker">TAKEOVER · 接管</span>
+              <h2>一键接管串口</h2>
+            </div>
+            <span class="source-badge" id="imuBadge">待机</span>
+          </header>
+
+          <div class="imu-form">
+            <div class="field">
+              <span>板子串口</span>
+              <div class="imu-select-row">
+                <input id="imuPortInput" list="imuPortList" placeholder="COM9" autocomplete="off" spellcheck="false" aria-label="板子串口">
+                <datalist id="imuPortList"></datalist>
+                <button class="icon-btn sm" id="btnImuRefresh" type="button" title="刷新串口与占口进程" aria-label="刷新串口">
+                  <svg class="ico"><use href="#i-refresh"></use></svg>
+                </button>
+              </div>
+              <p class="support-note imu-port-hint" id="imuPortHint">正在枚举串口…</p>
+            </div>
+
+            <label class="field">
+              <span>IMU 映射</span>
+              <select id="imuProfileSelect" aria-label="IMU 映射 profile"></select>
+            </label>
+
+            <label class="imu-check">
+              <input type="checkbox" id="imuDryRun">
+              <span><b>dry-run</b>：只打印摇杆/按键状态，不写 ViGEmBus；先验证链路时勾选。</span>
+            </label>
+            <label class="imu-check">
+              <input type="checkbox" id="imuKill" checked>
+              <span>结束占用该 COM 的进程（串口助手、RT-Thread Guard、旧 xbox-controller）。</span>
+            </label>
+            <label class="imu-check">
+              <input type="checkbox" id="imuForce" checked>
+              <span>连“疑似串口程序”也结束（进程名前缀匹配；名单见服务端 <code>--kill-names</code>）。</span>
+            </label>
+
+            <div class="imu-actions">
+              <button class="btn primary lg" id="btnImuTakeover" type="button">
+                <svg class="ico"><use href="#i-zap"></use></svg><span>一键接管</span>
+              </button>
+              <button class="btn ghost" id="btnImuStop" type="button" disabled>停止手柄</button>
+              <button class="btn subtle" id="btnImuRelease" type="button">仅释放串口</button>
+            </div>
+
+            <p class="support-note" id="imuNote">正在检查本地服务…</p>
+          </div>
+
+          <dl class="fact-list imu-facts">
+            <div><dt>页面串口</dt><dd id="imuBrowserSerial">未连接</dd></div>
+            <div><dt>控制器</dt><dd id="imuControllerState">未运行</dd></div>
+            <div><dt>端口</dt><dd id="imuPortState">—</dd></div>
+            <div><dt>本地服务</dt><dd id="imuServerState">—</dd></div>
+          </dl>
+        </article>
+
+        <article class="card imu-side">
+          <header class="card-head">
+            <div class="card-title">
+              <span class="card-kicker">CHAIN · 接管链路</span>
+              <h2>谁拿着串口</h2>
+            </div>
+            <span class="frame-count" id="imuHolderCount">—</span>
+          </header>
+
+          <ol class="imu-steps" id="imuSteps">
+            <li data-step="browser"><b>浏览器 Web Serial</b><span>断开本页独占</span></li>
+            <li data-step="holders"><b>其它程序</b><span>串口助手 / Guard / 旧宿主</span></li>
+            <li data-step="release"><b>释放串口</b><span>端口可打开</span></li>
+            <li data-step="guard"><b>板端 Guard 会话</b><span>Ctrl+] 回 MSH</span></li>
+            <li data-step="ai"><b>AI 手势流</b><span>ai stop</span></li>
+            <li data-step="imu"><b>IMU 遥测</b><span>imu start</span></li>
+            <li data-step="controller"><b>xbox-controller</b><span>--imu-port 接管</span></li>
+          </ol>
+
+          <div class="imu-holders" id="imuHolders">
+            <div class="list-empty">点“刷新串口”后扫描占口进程。</div>
+          </div>
+        </article>
+
+        <article class="card imu-log-card">
+          <header class="card-head">
+            <div class="card-title">
+              <span class="card-kicker">LOG · xbox-controller</span>
+              <h2>宿主输出</h2>
+            </div>
+            <div class="card-tools">
+              <button class="icon-btn xs" id="btnImuCopyLog" type="button" title="复制日志" aria-label="复制日志">
+                <svg class="ico"><use href="#i-copy"></use></svg>
+              </button>
+              <button class="btn subtle xs" id="btnImuClearLog" type="button">清空</button>
+            </div>
+          </header>
+          <pre id="imuLog" class="imu-log" aria-live="polite">等待接管…</pre>
+          <p class="log-note"><svg class="ico"><use href="#i-lock"></use></svg>日志来自本地 xbox-controller 进程；dry-run 时每帧状态变化都会打印。按 F12 急停，按 F11 重标零点。</p>
+        </article>
+      </div>
+
+      <footer class="view-foot">
+        <span>串口是独占资源：Web Serial、串口助手和 xbox-controller 同一时间只能有一个。</span>
+        <span class="view-foot-right"><svg class="ico"><use href="#i-alert"></use></svg>接管会结束占口进程并退出 Guard 会话；正在跑的 CoreMark / 自检请先等它结束。</span>
+      </footer>
     </section>
 
     <section class="view" id="view-rules" data-view="rules" hidden>

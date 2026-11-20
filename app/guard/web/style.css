@@ -1285,3 +1285,91 @@ kbd {
 .flash-row { margin-bottom: 8px; }
 .flash-row select { width: 100%; padding: 8px 9px; border-radius: 8px; border: 1px solid rgba(120,160,200,.25); background: rgba(10,16,24,.6); color: inherit; font-size: 11px; }
 #btnFlash { width: 100%; }
+
+/* IMU 手柄 / 串口接管 */
+.imu-grid { display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(0, .92fr); gap: 16px; align-items: start; }
+.imu-control-card { display: flex; flex-direction: column; }
+.imu-side { display: flex; flex-direction: column; }
+.imu-log-card { grid-column: 1 / -1; display: flex; flex-direction: column; }
+.imu-form { display: flex; flex-direction: column; gap: 12px; padding: 0 17px 15px; }
+.imu-select-row { display: flex; gap: 8px; align-items: center; }
+.imu-select-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  background: #0c131c;
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-size: 12px;
+  outline: 0;
+}
+.imu-select-row input:focus { border-color: rgba(53, 227, 169, .45); }
+.imu-port-hint { margin: 6px 0 0; }
+.imu-select-row .icon-btn { flex: none; }
+.imu-check { display: flex; align-items: flex-start; gap: 8px; font-size: 10px; line-height: 1.55; color: var(--dim); cursor: pointer; }
+.imu-check input { flex: none; margin: 2px 0 0; accent-color: var(--mint); }
+.imu-check b { color: var(--ink-2); font-weight: 600; }
+.imu-check code { font-size: 9px; color: #81a9d8; }
+.imu-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
+.imu-actions .btn.primary { flex: 1 1 190px; }
+.imu-facts { margin-top: auto; }
+.imu-steps { list-style: none; margin: 0; padding: 6px 17px 12px; display: flex; flex-direction: column; gap: 6px; }
+.imu-steps li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid rgba(120, 160, 200, .16);
+  border-radius: 8px;
+  opacity: .58;
+  transition: opacity .16s, border-color .16s, background .16s;
+}
+.imu-steps li b { font-size: 11.5px; font-weight: 550; color: var(--ink-2); }
+.imu-steps li span { font-family: var(--mono); font-size: 8.5px; color: var(--faint); text-align: right; }
+.imu-steps li.is-running { opacity: 1; border-color: rgba(80, 200, 255, .5); background: rgba(80, 200, 255, .05); }
+.imu-steps li.is-done { opacity: 1; border-color: rgba(53, 227, 169, .5); }
+.imu-steps li.is-done span { color: #8fd9c0; }
+.imu-steps li.is-error { opacity: 1; border-color: rgba(255, 110, 110, .55); background: rgba(255, 110, 110, .04); }
+.imu-steps li.is-error span { color: #ffb3b3; }
+.imu-steps li.is-warn { opacity: 1; border-color: rgba(244, 193, 93, .45); background: rgba(244, 193, 93, .04); }
+.imu-steps li.is-warn span { color: #ffd899; }
+.imu-holders { flex: 1 1 auto; max-height: 245px; overflow-y: auto; padding: 0 17px 14px; display: flex; flex-direction: column; gap: 6px; }
+.imu-holder {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 3px 8px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .014);
+}
+.imu-holder.is-strong { border-color: rgba(255, 122, 122, .28); background: rgba(255, 122, 122, .035); }
+.imu-holder-name { min-width: 0; font-size: 10.5px; font-weight: 550; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.imu-holder-pid { font-family: var(--mono); font-size: 8.5px; color: var(--faint); }
+.imu-holder-tag { font-family: var(--mono); font-size: 8px; color: var(--amber); white-space: nowrap; }
+.imu-holder.is-strong .imu-holder-tag { color: var(--coral); }
+.imu-holder-cmd { grid-column: 1 / -1; font-family: var(--mono); font-size: 8px; color: #52627a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.imu-log {
+  margin: 12px 17px 0;
+  padding: 12px 14px;
+  height: 300px;
+  overflow: auto;
+  border: 1px solid rgba(120, 160, 200, .18);
+  border-radius: 10px;
+  background: #0a0e14;
+  color: #d7e7fa;
+  font: 11.5px/1.6 var(--mono);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.imu-log-card .log-note { margin-top: 10px; }
+.imu-log-empty { color: var(--faint); }
+@media (max-width: 1020px) {
+  .imu-grid { grid-template-columns: 1fr; }
+  .imu-log-card { grid-column: auto; }
+  .imu-holders { max-height: 200px; }
+}
