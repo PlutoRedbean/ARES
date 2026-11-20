@@ -42,7 +42,7 @@ IFU (Mundus)  <->  pipeline_icache  <->  pipeline_irom_passthrough  <->  IROM_BM
 | Sets / ways | 32 / 4 |
 | Tag / index / offset | `PC[31:10]` / `PC[9:5]` / `PC[4:0]` |
 | Replacement | age-based LRU (ages stay a permutation; victim = age `NR_WAYS-1`) |
-| Data array | one 256-bit line per `{way,set}`, single read port, inferred BRAM |
+| Data array | one synchronous 32-bit bank per way, addressed by set and word offset |
 | Directory | flattened valid/tag/age arrays, FF/LUTRAM |
 | Refill beat | 32-bit, 8 beats per line |
 | Hit latency | 2 cycles |
@@ -50,11 +50,10 @@ IFU (Mundus)  <->  pipeline_icache  <->  pipeline_irom_passthrough  <->  IROM_BM
 | In-flight requests | 2 (one response slot + one lookup) |
 | Response width | 1 instruction |
 
-The way is resolved before the RAM read: a combinational tag check on the live
-request selects `{way,set}` for the synchronous data read.  This avoids four
-parallel data copies and keeps the data array at the logical 4 KiB size.  The
-original 4-wide/line-B datapath from `rtl/frontend` was removed because a
-single-issue core never needs cross-line stitching.
+Each accepted request reads one word from each bank while the directory
+compares the tags. The registered hit way selects the returning instruction.
+Each cached word occupies one bank. The HDMI board uses 128 sets and 64-byte
+lines, giving four 2,048-word banks per hart.
 
 ## Interfaces
 
@@ -79,7 +78,9 @@ preserving the original out-of-window alias behaviour.  A future L2/DRAM
 adapter only has to implement the same refill contract.
 
 `flush` is asserted on every backend redirect.  The cache aborts the in-flight
-request/refill, clears its response slot, and keeps cached lines.  The IFU
+request/refill and clears its response slot. If a refill already overwrote
+part of its victim, that way stays invalid until a complete line is installed.
+The IFU
 clears the metadata-queue occupancy (`metaCount`) so stale responses can never
 be delivered to the new PC; the stale entries themselves are unreachable.
 
@@ -117,15 +118,15 @@ cycle.  This recovers most of the cache-induced CoreMark loss without the
 
 ```text
 S_IDLE   : accept a request when no unconsumed response is held
-S_LOOK   : tag compare; hit -> commit response and (PIPE_HITS=1) accept the
+S_LOOK   : registered hit -> commit response and (PIPE_HITS=1) accept the
            next request in the same cycle; miss -> S_REFILL
-S_REFILL : issue 8 word beats / capture responses
-S_FILL   : write data RAM + tag/valid/age
+S_REFILL : issue word requests and write accepted beats to the victim bank
+S_FILL   : install tag/valid/age after the last word has been written
 S_RELOOK : one cycle for the synchronous data read
 S_RESP   : hold the response until rsp_ready; then commit and accept the next
            request in the same cycle
 flush    : any state -> S_IDLE, drop response/refill state; a line already
-           in S_FILL is still installed (data and directory together)
+           in S_FILL is still installed
 ```
 
 With `ICACHE_PIPE_HITS=0`, `req_ready` is asserted only in `S_IDLE`, exactly
@@ -173,12 +174,9 @@ not be compared as a regression.
 
 ## Limitations / next steps
 
-- The data-array write and the tag/valid/age install share one enable,
-  `fill_we = (state == S_FILL) && !rst`.  A flush on the install cycle still
-  installs the complete line; a reset on it installs nothing.  Before this,
-  the data write ignored flush/reset while the directory update did not, which
-  could leave an old valid tag over new data (`make pipeline-icache-test`
-  reproduces that case).
+- The first accepted refill beat clears the victim's valid bit. A flush during
+  a partial overwrite can cost a later miss on the old address. A flush in
+  `S_FILL` installs the complete line. Reset in that cycle leaves it invalid.
 - Ordinary reset retains valid/tag/data; valid-bit power-up initialization remains
   to be verified for the target implementation.
 
