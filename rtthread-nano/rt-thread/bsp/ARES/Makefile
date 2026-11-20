@@ -31,13 +31,17 @@ LINKER := linker.ld
 TARGETS := $(OUT)/ares-rtos.elf
 ifeq ($(PROFILE),amp)
 AMP_CFLAGS := -DARES_RTOS_AMP -DARES_MT_CORES=4 -DMAIN_HAS_NOARGC=1 \
+ -DCOREMARK_CLOCK_HZ=70000000 \
  -I$(OUT)/src_port/include -I$(ARES_HOME)/tests/abstract-machine/am/src/riscv/ares/include
 CFLAGS += $(AMP_CFLAGS)
 LINKER := amp/host.ld
 GESTURE := $(ARES_HOME)/app/gesture/firmware
+WIRE_DIR ?= $(ARES_HOME)/app/imu/esp32/components/wire
+$(OUT)/amp_imu.o: CFLAGS += -I$(WIRE_DIR)/include
 BENCH := core_main core_util core_list_join core_matrix core_state crc_hw core_list_array matrix_hw state_hw
 BENCH_OBJECTS := $(addprefix $(OUT)/bench_,$(addsuffix .o,$(BENCH))) $(OUT)/amp_core_portme.o
 OBJECTS += $(BENCH_OBJECTS) $(OUT)/amp_app.o $(OUT)/amp_guard.o $(OUT)/amp_printf.o $(OUT)/amp_gesture.o \
+ $(OUT)/amp_imu.o $(OUT)/wire.o \
  $(addprefix $(OUT)/gesture_,mt.o mt_net.o mt_detect.o mt_track.o)
 TARGETS += $(OUT)/worker.elf
 endif
@@ -86,6 +90,8 @@ $(OUT)/amp_core_portme.o: $(ARES_HOME)/scripts/coremark_mt_pipe/core_portme.c $(
 	$(CC) $(CFLAGS) -c $< -o $@
 $(OUT)/amp_%.o: amp/%.c | $(OUT)
 	$(CC) $(CFLAGS) -c $< -o $@
+$(OUT)/wire.o: $(WIRE_DIR)/wire.c | $(OUT)
+	$(CC) $(CFLAGS) -I$(WIRE_DIR)/include -c $< -o $@
 $(OUT)/gesture_%.o: $(GESTURE)/app/%.c | $(OUT)
 	$(CC) $(CFLAGS) -DRPS_WEIGHTS -I$(GESTURE)/common -c $< -o $@
 $(OUT)/amp_app.o $(OUT)/amp_gesture.o: CFLAGS += -DRPS_WEIGHTS -I$(GESTURE)/app -I$(GESTURE)/common

@@ -346,6 +346,8 @@
             <div class="connect-actions">
               <button class="btn primary" id="btnConnect2" type="button"><svg class="ico"><use href="#i-usb"></use></svg>选择串口并连接</button>
               <button class="btn ghost" id="btnDisconnect" type="button" disabled>断开</button>
+              <button class="btn ghost" id="btnGuardEnter" type="button" disabled title="发送 guard start，接管串口进入 Guard 会话">进入 Guard</button>
+              <button class="btn ghost" id="btnGuardExit" type="button" disabled title="发送 Ctrl+]（0x1D）退出 Guard，然后释放串口">退出 Guard 并断开</button>
             </div>
             <p class="support-note" id="serialSupport">正在检查 Web Serial 支持…</p>
             <button class="btn subtle link-cta" id="btnGoWorkbench" type="button">
