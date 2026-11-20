@@ -53,7 +53,7 @@ pnr -gplace_seed 2 -groute_seed 2 -gplace_times 1 -groute_times 1
 puts "RTOS_AMP_HDMI_PNR_PLACE_DONE"
 
 puts "RTOS_AMP_HDMI_PNR_REPORT_START"
-report_timing -max_path 20
+report_timing -max_path 200
 puts "RTOS_AMP_HDMI_PNR_REPORT_DONE"
 
 puts "RTOS_AMP_HDMI_PNR_BITSTREAM_START"
