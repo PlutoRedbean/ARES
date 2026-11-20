@@ -105,7 +105,7 @@ pipeline-rtos-amp-build: rtos-amp-image guard-tables
 	@CCACHE_DISABLE=1 verilator --cc --exe --build --timing -j 6 -U__VERILATOR__ \
 	    -DARES_RTOS_AMP -DVIDEO_SIM -Wno-fatal --top-module tb_pipeline_shell \
 	    -f build/rtos_amp/sim.f -f rtl/pipeline/pipeline_rtos_amp_extra.f \
-	    rtl/video/sim/GTP_IOCLKDIV_E2.v rtl/video/sim/GTP_CLKBUFG.v \
+	    rtl/video/sim/GTP_IOCLKDIV_E2.v rtl/video/sim/GTP_CLKBUFG.v rtl/video/sim/GTP_DFF.v \
 	    rtl/pipeline/test/tb_pipeline_shell.sv $(ARES_HOME)/rtl/pipeline/test/sim_shell_main.cpp \
 	    --Mdir $(ARES_HOME)/build/rtos_amp/model -o run
 

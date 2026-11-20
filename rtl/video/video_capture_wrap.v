@@ -108,9 +108,19 @@ module video_capture_wrap #(
 
     wire [15:0] pixel_bgr565;
 
+    // The SCCB completion level crosses once into the DVP byte clock.
+    // Keep a discrete first-stage D pin for the PDS timing exception.
+    wire cap_init_meta, cap_init_done;
+    (* ASYNC_REG = "TRUE" *) GTP_DFF #(.INIT(1'b0)) u_cap_init_meta (
+        .CLK(cam_pclk), .D(cam_init_done_i), .Q(cap_init_meta)
+    );
+    (* ASYNC_REG = "TRUE" *) GTP_DFF #(.INIT(1'b0)) u_cap_init_sync (
+        .CLK(cam_pclk), .D(cap_init_meta), .Q(cap_init_done)
+    );
+
     video_dvp_rgb565 u_dvp (
         .pclk      (cam_pclk),
-        .rst_n     (cam_init_done_i),
+        .rst_n     (cap_init_done),
         .de_i      (cam_href_d0),
         .pdata_i   (cam_data_d0),
         .vs_i      (cam_vsync_d0),
@@ -135,22 +145,19 @@ module video_capture_wrap #(
     end
     assign pixel_vsync = vsync_sync[1];
 
-    // ------------------------------------------ S2 pixel-domain reset/vsync
-    // pixel_vsync above stays on pixel_clk_i for the S2 framebuf.  The S1
-    // counters deliberately run on cam_pclk (84 MHz) so their sys_clk status
-    // synchronizer is covered by the cmos1_pclk/sys_clk async group and no
-    // generated-clock CDC path is timed.
-    reg [1:0] init_sync;
-    wire pixel_rst_i = ~init_sync[1];
-
-    always @(posedge pixel_clk_i) begin
-        init_sync <= {init_sync[0], cam_init_done_i};
+    // The divider can stop before another pixel edge when the camera is
+    // reconfigured. Assert reset while stopped and release on two pixel edges.
+    reg [1:0] init_sync = 2'b00;
+    always @(posedge pixel_clk_i or negedge cap_init_done) begin
+        if (!cap_init_done)
+            init_sync <= 2'b00;
+        else
+            init_sync <= {init_sync[0], 1'b1};
     end
 
-    assign pixel_rst = pixel_rst_i;
+    assign pixel_rst = ~init_sync[1];
 
     // -------------------------------------------- capture counters (pclk)
-    reg [1:0]  cap_init_sync;
     reg [1:0]  cam_vsync_sync;
     reg        vsync_d;
     reg        de_d;
@@ -160,10 +167,9 @@ module video_capture_wrap #(
     reg [31:0] pixel_cnt;
     reg [31:0] pclk_cnt;
 
-    wire cap_rst = ~cap_init_sync[1];
+    wire cap_rst = ~cap_init_done;
 
     always @(posedge cam_pclk) begin
-        cap_init_sync  <= {cap_init_sync[0], cam_init_done_i};
         cam_vsync_sync <= {cam_vsync_sync[0], cam_vsync};
     end
 

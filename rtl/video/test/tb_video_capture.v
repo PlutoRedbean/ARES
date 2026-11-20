@@ -122,15 +122,35 @@ module tb_video_capture;
             errors = errors + 1;
         end
 
-        if (errors == 0) $display("*** TB_VIDEO_CAPTURE PASS ***");
-        else             $display("*** TB_VIDEO_CAPTURE FAILED %0d ***", errors);
+        // Reconfigure while the divider is running, then restart it on VSYNC.
+        @(negedge cam_pclk);
+        force u_dut.cam_init_done_i = 1'b0;
+        @(negedge cam_pclk);
+        if (u_dut.u_dvp.rst_n !== 1'b1) $fatal(1, "DVP reset changed on first byte edge");
+        @(negedge cam_pclk);
+        if (u_dut.u_dvp.rst_n !== 1'b0 || pixel_rst !== 1'b1)
+            $fatal(1, "Capture reset missed second byte edge");
+        repeat (4) @(negedge cam_pclk);
+        release u_dut.cam_init_done_i;
+        @(negedge cam_pclk);
+        if (u_dut.u_dvp.rst_n !== 1'b0) $fatal(1, "Early DVP release");
+        @(negedge cam_pclk);
+        if (u_dut.u_dvp.rst_n !== 1'b1 || pixel_clk !== 1'b0 || pixel_rst !== 1'b1)
+            $fatal(1, "Pixel reset released before divider restart");
+        cam_vsync = 1'b1;
+        @(posedge pixel_clk); #1;
+        if (pixel_rst !== 1'b1) $fatal(1, "Early pixel release");
+        @(posedge pixel_clk); #1;
+        if (pixel_rst !== 1'b0) $fatal(1, "Pixel reset missed second pixel edge");
+
+        if (errors) $fatal(1, "TB_VIDEO_CAPTURE FAILED %0d", errors);
+        $display("*** TB_VIDEO_CAPTURE PASS ***");
         $finish;
     end
 
     initial begin
         #50_000_000;
-        $display("*** TB_VIDEO_CAPTURE TIMEOUT ***");
-        $finish;
+        $fatal(1, "TB_VIDEO_CAPTURE TIMEOUT");
     end
 
     /* verilator lint_off UNUSEDSIGNAL */

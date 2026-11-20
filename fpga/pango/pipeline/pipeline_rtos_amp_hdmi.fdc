@@ -1004,6 +1004,9 @@ create_generated_clock -name pixel_clk -source [get_ports {cmos1_pclk}] \
     [get_nets {pixel_clk_io}] -master_clock [get_clocks {cmos1_pclk}] \
     -multiply_by 1 -divide_by 2
 
+# SCCB configuration completion is sampled by two DVP byte-clock flops.
+set_false_path -from [get_clocks {cam_clk}] -to [get_pins {u_capture/u_cap_init_meta/D}]
+
 set_false_path -from [get_clocks {pixel_clk}] -to [get_clocks {ddrphy_sysclk}]
 set_false_path -from [get_clocks {ddrphy_sysclk}] -to [get_clocks {pixel_clk}]
 set_false_path -from [get_clocks {pixel_clk}] -to [get_clocks {pix_clk}]
