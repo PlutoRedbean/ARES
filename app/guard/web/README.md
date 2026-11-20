@@ -1,15 +1,15 @@
 # guard/web —— 浏览器演示台
 
 接线面板式的单页应用：左边选样例，中间发文本看板子处理，右边看脱敏结果与审计行。
-**纯静态**（无构建、无后端），由 `python -m http.server` 直接托管。
+页面本身是纯静态的；**烧写和串口由本地 `tools/board_server.py` 托管**（浏览器不能直接调 `cdt_cfg`）。
 
 ```powershell
-cd guard
-make web            # 生成 demos.js + 起 http://127.0.0.1:8777
+python app/guard/tools/board_server.py --port 8788
 ```
 
-浏览器打开 **http://127.0.0.1:8777**，用 **Chrome / Edge**（Web Serial 只在这两个里可用；
-`http://127.0.0.1` 属于安全上下文，可以直接开串口）。
+浏览器打开 **http://127.0.0.1:8788**，用 **Chrome / Edge**（Web Serial 只在这两个里可用；
+`http://127.0.0.1` 属于安全上下文，可以直接开串口）。只做回放、不烧写时，也可以用
+`make web` / `python -m http.server` 托管。
 
 ## 三条数据来源
 
@@ -43,11 +43,33 @@ make web            # 生成 demos.js + 起 http://127.0.0.1:8777
 > 为什么要切帧：板子对 **>64 字节**的帧会提前收帧（摘要行插进正文），这是 RTL 侧待修的
 > 问题，见 `../TODO.md`。切帧是上位机的规避手段，不是协议要求。
 
-## 进入 / 退出 Guard
+## 烧写
 
-连接串口后页面会自动发送 `guard start`，等 `GUARD READY` 后进入 Guard 会话；如果失败，点「进入 Guard」重试。
-页面上的「退出 Guard 并断开」会先向板子发送 `0x1D`（Ctrl+]），等 700 ms 再释放串口，板子回到 `msh >`。
-直接关闭标签页不会发送退出字节，板子会停在 Guard 会话里；此时需要从终端补一个 `0x1D`。
+RTT 控制台右侧的 **FLASH / 烧写** 卡会从 `/api/board/bitstreams` 列出 `build/` 和 `prj_tasks/` 下的
+`.sbit`，默认选最新的一份。点「烧写位流」后：
+
+1. 如果串口已连接，先断开；
+2. `POST /api/board/program`；
+3. `board_server.py` 调用 `tools/program_guard.ps1`（`cdt_js` + `cdt_cfg`）；
+4. 烧写日志和 `The done bit is 1` 直接回显在 RTT 终端里。
+
+浏览器不能自己调 `cdt_cfg`，所以这个按钮必须通过本地 `board_server.py` 才能用；用
+`python -m http.server` 打开时烧写卡会提示“本地烧写服务未启动”。
+
+## RTT 控制台
+
+导航栏的「RTT 控制台」是独立页面。连接串口后停在 `msh >`，不会自动进入 Guard。页面提供：
+
+- **一键全流程**：`ps` → `ai selftest` → `coremark start 2000` → `guard selftest` → 进入 Guard，右侧流程条逐步点亮；
+- MSH：`ps`、`tick`、`irq`、LED；
+- AI：`ai status/selftest/start/stop`；
+- CoreMark：quick / 20k per hart / validation，完整报告直接进终端，右侧同时解析 `Total ticks` / `Iterations` / `CoreMark/MHz` / PASS；
+- Guard：`guard status/selftest`、「进入 Guard」、「退出 Guard 回 MSH」；
+- 任意命令输入框（如 `imu status`）。
+
+终端区显示**实际发送的命令**和板子的**原始回读**，包括 CoreMark 的全部行。所有按钮只在 MSH 模式可用；进入 Guard 后 MSH 按钮锁定，退出后恢复。
+
+「进入 Guard」发送 `guard start`，等 `GUARD READY`；「退出 Guard 回 MSH」发送 `0x1D`（Ctrl+]），等 `GUARD EXIT` / `msh >`，**串口保持连接**。直接关闭标签页不会发送退出字节，板子会停在 Guard 会话里。
 
 ## 已知边界
 

@@ -1254,3 +1254,34 @@ kbd {
   }
   .result-text .mk { animation-delay: 0ms !important; }
 }
+
+/* RTT 控制台 */
+.rtt-card { grid-column: 1 / -1; }
+.rtt-toolbar { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: flex-start; margin-top: 4px; }
+.rtt-group { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.rtt-group b { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; opacity: .6; margin-right: 2px; }
+.rtt-term { margin: 12px 0 0; padding: 12px 14px; height: 340px; overflow: auto; background: #0a0e14; color: #d7e7fa; border-radius: 10px; border: 1px solid rgba(120,160,200,.18); font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; word-break: break-word; }
+.rtt-input { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.rtt-input input { flex: 1 1 320px; min-width: 0; padding: 9px 11px; border-radius: 8px; border: 1px solid rgba(120,160,200,.25); background: rgba(10,16,24,.6); color: inherit; font: 13px ui-monospace, SFMono-Regular, Consolas, monospace; }
+
+/* RTT dedicated view */
+.rtt-grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
+.rtt-main { display: flex; flex-direction: column; min-height: 72vh; }
+.rtt-term-main { flex: 1 1 auto; height: auto; min-height: 420px; }
+.rtt-side { display: flex; flex-direction: column; gap: 14px; }
+.rtt-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.rtt-steps li { border: 1px solid rgba(120,160,200,.16); border-radius: 8px; padding: 8px 10px; display: flex; justify-content: space-between; gap: 8px; opacity: .55; }
+.rtt-steps li b { font-size: 12px; }
+.rtt-steps li span { font-size: 11px; opacity: .7; }
+.rtt-steps li.is-running { opacity: 1; border-color: rgba(80,200,255,.5); }
+.rtt-steps li.is-done { opacity: 1; border-color: rgba(53,227,169,.5); }
+.rtt-steps li.is-error { opacity: 1; border-color: rgba(255,110,110,.6); }
+.cm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.cm-grid div { border: 1px solid rgba(120,160,200,.14); border-radius: 8px; padding: 8px; }
+.cm-grid span { display: block; font-size: 10px; opacity: .6; }
+.cm-grid b { display: block; font-size: 13px; margin-top: 3px; }
+@media (max-width: 980px) { .rtt-grid { grid-template-columns: 1fr; } .rtt-main { min-height: auto; } }
+
+.flash-row { margin-bottom: 8px; }
+.flash-row select { width: 100%; padding: 8px 9px; border-radius: 8px; border: 1px solid rgba(120,160,200,.25); background: rgba(10,16,24,.6); color: inherit; font-size: 11px; }
+#btnFlash { width: 100%; }
