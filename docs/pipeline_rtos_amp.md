@@ -57,7 +57,19 @@ guard start
 
 看到 `GUARD READY` 后再发送正文。例：发送测试行 `13800138000` 和 LF，返回 `*******8000` 以及含 `mobile=001` 的一行审计。FinSH 在会话期间等待，Guard 直接按字节读写 UART。会话需要独占串口，若实时 AI 已开启，先执行 `ai stop`；等待已有的推理自检或 CoreMark 完成后再进入。帧以 LF 结束，没有 LF 时从最后一个输入字节起空闲 2.6 秒提交。每帧收到完整的 `[guard] … mode=1` 后再发下一帧。帧边界按 Ctrl+]（单字节 `0x1D`）返回 MSH，随后可执行 `ai selftest`。
 
-上位机沿用 `app/guard/tools/serial_host.py` 或 `app/guard/web/` 的协议。先在 MSH 进入会话，再把串口交给上位机；每次板卡复位后重新进入。上位机默认按标点切成至多 56 字节的短帧，适用于独立位流和统一位流。掩码保留原始字节长度，UART 层将 LF 输出为 CRLF。姓名、地址使用 NER，结果依赖输入上下文。
+上位机沿用 `app/guard/tools/serial_host.py` 或 `app/guard/web/` 的协议。手工流程是先在 MSH 进入会话，再把串口交给上位机；网页流程见下一节，按钮会自动完成这一步。
+
+### 浏览器控制台（RTT 终端 + 按钮）
+
+`app/guard/web` 导航栏新增独立的 **RTT 控制台**页面：连接 COM9 后停在 `msh >`，页面上直接点 `ps`、`ai selftest`、`coremark start`、`guard status/selftest`，也可以输入任意 MSH 命令。终端区同时显示实际发送的命令和板子的原始回读，包括 CoreMark 的完整报告；右侧流程条和 CoreMark 卡片会同步解析 `Total ticks`、`Iterations`、`CoreMark/MHz` 和 PASS。
+
+「一键全流程」按 `ps → ai selftest → coremark start 2000 → guard selftest → 进入 Guard` 顺序执行，所有中间输出都留在终端里。
+
+右侧 **FLASH / 烧写** 卡通过本地 `tools/board_server.py` 的 `/api/board/program` 调 `cdt_js`/`cdt_cfg`，把 `.sbit` 烧进 FPGA；烧写日志和 `The done bit is 1` 同样回显在 RTT 终端。浏览器不能直接执行 `cdt_cfg`，所以页面必须由 `python app/guard/tools/board_server.py --port 8788` 托管，而不是裸 `http.server`。
+
+「进入 Guard」发送 `guard start` 并等待 `GUARD READY`；「退出 Guard 回 MSH」发送 `0x1D`，等 `GUARD EXIT` / `msh >`，串口保持连接。Guard 会话期间 MSH 按钮锁定，退出后恢复。因此 `guard start` 不需要手工输入，但仍是网页和固件之间切换会话的协议入口，不能从固件删除。
+
+网页仍按标点切成至多 56 字节的短帧；掩码保留原始字节长度，UART 层将 LF 输出为 CRLF。姓名、地址使用 NER，结果依赖输入上下文。
 
 ### 构建与验证
 

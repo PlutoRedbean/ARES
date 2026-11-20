@@ -98,6 +98,10 @@
         <span class="nav-ico"><svg class="ico"><use href="#i-activity"></use></svg></span>
         <span class="nav-text"><b>数据链路</b><em>Link</em></span>
       </button>
+      <button class="nav-item" data-nav="rtt" type="button">
+        <span class="nav-ico"><svg class="ico"><use href="#i-terminal"></use></svg></span>
+        <span class="nav-text"><b>RTT 控制台</b><em>Console</em></span>
+      </button>
       <button class="nav-item" data-nav="rules" type="button">
         <span class="nav-ico"><svg class="ico"><use href="#i-layers"></use></svg></span>
         <span class="nav-text"><b>规则矩阵</b><em>Rules</em></span>
@@ -346,12 +350,13 @@
             <div class="connect-actions">
               <button class="btn primary" id="btnConnect2" type="button"><svg class="ico"><use href="#i-usb"></use></svg>选择串口并连接</button>
               <button class="btn ghost" id="btnDisconnect" type="button" disabled>断开</button>
-              <button class="btn ghost" id="btnGuardEnter" type="button" disabled title="发送 guard start，接管串口进入 Guard 会话">进入 Guard</button>
-              <button class="btn ghost" id="btnGuardExit" type="button" disabled title="发送 Ctrl+]（0x1D）退出 Guard，然后释放串口">退出 Guard 并断开</button>
             </div>
             <p class="support-note" id="serialSupport">正在检查 Web Serial 支持…</p>
             <button class="btn subtle link-cta" id="btnGoWorkbench" type="button">
               <span>去工作台输入文本</span><svg class="ico"><use href="#i-arrow"></use></svg>
+            </button>
+            <button class="btn subtle link-cta" id="btnGoRtt" type="button">
+              <span>打开 RTT 控制台</span><svg class="ico"><use href="#i-arrow"></use></svg>
             </button>
           </div>
 
@@ -430,6 +435,8 @@
           </div>
           <p class="log-note"><svg class="ico"><use href="#i-lock"></use></svg>日志只记字节数与摘要，不写正文。</p>
         </article>
+
+
       </div>
 
       <footer class="view-foot">
@@ -438,7 +445,121 @@
       </footer>
     </section>
 
-    <!-- ══ 规则矩阵 ═════════════════════════════════════════════════════════ -->
+    <!-- ══ RTT 控制台 ══════════════════════════════════════════════════════ -->
+    <section class="view" id="view-rtt" data-view="rtt" hidden>
+      <header class="page-head">
+        <div class="page-head-main">
+          <div class="eyebrow"><span class="eyebrow-rule"></span>RTT / CONSOLE</div>
+          <h1>RTT 控制台</h1>
+        </div>
+        <div class="page-head-side">
+          <div class="mode-note"><span class="dot" id="rttHeadDot"></span><span id="rttHeadMode">未连接</span></div>
+          <div class="head-note">MSH · AI · CoreMark · Guard</div>
+        </div>
+      </header>
+
+      <div class="rtt-grid">
+        <article class="card rtt-main">
+          <header class="card-head">
+            <div class="card-title">
+              <span class="card-kicker">RTT · 终端</span>
+              <h2>MSH / App 全流程</h2>
+            </div>
+            <div class="card-tools">
+              <span class="source-badge" id="rttState">未连接</span>
+              <button class="btn primary xs" id="btnRttConnect" type="button">连接串口</button>
+              <button class="btn ghost xs" id="btnRttDisconnect" type="button" disabled>断开</button>
+            </div>
+          </header>
+
+          <div class="rtt-toolbar">
+            <div class="rtt-group"><b>总流程</b>
+              <button class="btn primary xs" id="btnRunAll" type="button" disabled>一键全流程</button>
+            </div>
+            <div class="rtt-group"><b>MSH</b>
+              <button class="btn subtle xs" type="button" data-rtt="ps">ps</button>
+              <button class="btn subtle xs" type="button" data-rtt="tick">tick</button>
+              <button class="btn subtle xs" type="button" data-rtt="irq">irq</button>
+              <button class="btn subtle xs" type="button" data-rtt="led 1">led 1</button>
+              <button class="btn subtle xs" type="button" data-rtt="led 0">led 0</button>
+            </div>
+            <div class="rtt-group"><b>AI</b>
+              <button class="btn subtle xs" type="button" data-rtt="ai status">status</button>
+              <button class="btn subtle xs" type="button" data-rtt="ai selftest">selftest</button>
+              <button class="btn subtle xs" type="button" data-rtt="ai start">start</button>
+              <button class="btn subtle xs" type="button" data-rtt="ai stop">stop</button>
+            </div>
+            <div class="rtt-group"><b>CoreMark</b>
+              <button class="btn subtle xs" type="button" data-rtt="coremark start 2000">quick</button>
+              <button class="btn subtle xs" type="button" data-rtt="coremark start">20k/hart</button>
+              <button class="btn subtle xs" type="button" data-rtt="coremark start 20000 validation">validation</button>
+            </div>
+            <div class="rtt-group"><b>Guard</b>
+              <button class="btn subtle xs" type="button" data-rtt="guard status">status</button>
+              <button class="btn subtle xs" type="button" data-rtt="guard selftest">selftest</button>
+              <button class="btn ghost xs" id="btnGuardEnter" type="button" disabled>进入 Guard</button>
+              <button class="btn ghost xs" id="btnGuardExit" type="button" disabled>退出 Guard 回 MSH</button>
+            </div>
+          </div>
+
+          <pre id="rttTerm" class="rtt-term rtt-term-main" aria-live="polite">等待连接 COM9…</pre>
+
+          <div class="rtt-input">
+            <input id="rttCmd" type="text" autocomplete="off" spellcheck="false" placeholder="直接输入 MSH 命令，回车发送（如 imu status）" />
+            <button class="btn primary xs" id="btnRttSend" type="button">发送</button>
+            <button class="btn subtle xs" id="btnRttClear" type="button">清空</button>
+          </div>
+          <p class="log-note">终端显示实际发送的命令和板子原始回读；Guard 会话期间 MSH 按钮锁定。</p>
+        </article>
+
+        <aside class="rtt-side">
+          <article class="card">
+            <header class="card-head">
+              <div class="card-title"><span class="card-kicker">FLOW</span><h2>流程</h2></div>
+            </header>
+            <ol class="rtt-steps" id="rttSteps">
+              <li data-step="msh"><b>MSH</b><span>ps / 控制台</span></li>
+              <li data-step="ai"><b>AI</b><span>selftest</span></li>
+              <li data-step="coremark"><b>CoreMark</b><span>4 hart</span></li>
+              <li data-step="guard"><b>Guard</b><span>selftest</span></li>
+              <li data-step="session"><b>Guard 会话</b><span>进入 / 退出</span></li>
+            </ol>
+          </article>
+
+          <article class="card">
+            <header class="card-head">
+              <div class="card-title"><span class="card-kicker">COREMARK</span><h2>结果</h2></div>
+            </header>
+            <div class="cm-grid">
+              <div><span>Total ticks</span><b id="cmTicks">—</b></div>
+              <div><span>Iterations</span><b id="cmIter">—</b></div>
+              <div><span>CoreMark/MHz</span><b id="cmMHz">—</b></div>
+              <div><span>结果</span><b id="cmPass">—</b></div>
+            </div>
+            <p class="log-note">运行 CoreMark 后自动从终端回读解析。</p>
+          </article>
+
+          <article class="card">
+            <header class="card-head">
+              <div class="card-title"><span class="card-kicker">FLASH</span><h2>烧写</h2></div>
+            </header>
+            <div class="flash-row">
+              <select id="sbitSelect" aria-label="选择位流"></select>
+            </div>
+            <button class="btn primary xs" id="btnFlash" type="button" disabled>烧写位流</button>
+            <p class="support-note" id="flashState">正在检查本地烧写服务…</p>
+          </article>
+
+          <article class="card">
+            <header class="card-head">
+              <div class="card-title"><span class="card-kicker">LINK</span><h2>连接</h2></div>
+            </header>
+            <p class="support-note" id="rttConnText">未连接 · 点上方「连接串口」选 COM 口。</p>
+          </article>
+        </aside>
+      </div>
+    </section>
+
     <section class="view" id="view-rules" data-view="rules" hidden>
       <header class="page-head">
         <div class="page-head-main">

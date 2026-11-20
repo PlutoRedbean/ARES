@@ -19,10 +19,11 @@
 
   const enc = new TextEncoder();
   const dec = new TextDecoder("utf-8", { fatal: false });
+  const termDec = new TextDecoder("utf-8", { fatal: false });
   const TYPES = ["id18", "id15", "mobile", "bank", "email", "ipv4", "uscc", "plate", "name", "addr"];
   const TYPE_LABEL = DATA.typeLabels || {};
   const TYPE_TONE = DATA.typeTones || {};
-  const VIEWS = ["workbench", "link", "rules", "system"];
+  const VIEWS = ["workbench", "link", "rtt", "rules", "system"];
   const MAX_FRAMES = 8;
 
   const SOURCE = {
@@ -61,6 +62,11 @@
     connected: false,
     connecting: false,
     guardActive: false,
+    rttMode: "off",
+    rttBusy: false,
+    flashing: false,
+    bitstreams: [],
+    cmText: "",
     portLabel: "—",
   };
 
@@ -79,6 +85,31 @@
   const pad3 = (n) => String(Math.max(0, Math.min(255, Math.round(Number(n) || 0)))).padStart(3, "0");
   const nbytes = (s) => enc.encode(s).length;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  function termAppend(text) {
+    const el = $("#rttTerm");
+    if (!el) return;
+    el.textContent += text;
+    if (el.textContent.length > 200000) el.textContent = el.textContent.slice(-150000);
+    el.scrollTop = el.scrollHeight;
+    if (text) {
+      state.cmText = (state.cmText + text).slice(-20000);
+      if (state.cmText.includes("Total ticks") || state.cmText.includes("CoreMark/MHz")) {
+        renderCoreMark();
+      }
+    }
+  }
+
+  function termReset() {
+    const el = $("#rttTerm");
+    if (el) el.textContent = "";
+    state.cmText = "";
+    renderCoreMark();
+    resetSteps();
+    try {
+      termDec.decode();
+    } catch (e) { /* ignore */ }
+  }
   const round1 = (n) => Math.round(n * 10) / 10;
   const normalizeText = (t) => String(t == null ? "" : t).replace(/[\r\n]+$/, "");
   const countTotal = (counts) => TYPES.reduce((a, t) => a + (counts[t] || 0), 0);
@@ -894,7 +925,10 @@
         break;
       }
       if (res.done) break;
-      if (res.value && res.value.length) appendRx(res.value);
+      if (res.value && res.value.length) {
+        appendRx(res.value);
+        termAppend(termDec.decode(res.value, { stream: true }));
+      }
     }
     if (S.reading && state.connected && state.serial === S) {
       disconnectSerial({ silent: true });
@@ -1211,10 +1245,55 @@
     btn.innerHTML = state.running
       ? '<svg class="ico is-spin"><use href="#i-refresh"></use></svg><span>运行中…</span>'
       : '<svg class="ico"><use href="#i-play"></use></svg><span>运行脱敏</span>';
+    updateRttUI();
+  }
+
+  function updateRttUI() {
+    const st = $("#rttState");
+    if (st) {
+      st.textContent = state.flashing
+        ? "烧写中…"
+        : !state.connected
+        ? "未连接"
+        : state.rttBusy
+        ? "执行中…"
+        : state.rttMode === "guard"
+        ? "Guard 会话"
+        : "MSH";
+      st.className = "source-badge " + (state.connected ? "is-ok" : "");
+    }
+    const msh = state.connected && state.rttMode === "msh" && !state.rttBusy && !state.running;
+    $$("[data-rtt]").forEach((b) => {
+      b.disabled = !msh;
+    });
     const ge = $("#btnGuardEnter");
-    if (ge) ge.disabled = state.running || !state.connected || state.connecting || state.guardActive;
+    if (ge) ge.disabled = !msh;
     const gx = $("#btnGuardExit");
-    if (gx) gx.disabled = state.running || !state.connected || state.connecting || !state.guardActive;
+    if (gx) gx.disabled = !state.connected || state.rttMode !== "guard" || state.rttBusy || state.running;
+    const send = $("#btnRttSend");
+    if (send) send.disabled = !msh;
+    const input = $("#rttCmd");
+    if (input) input.disabled = !msh;
+    const rc = $("#btnRttConnect");
+    if (rc) rc.disabled = state.connected || state.connecting;
+    const rd = $("#btnRttDisconnect");
+    if (rd) rd.disabled = !state.connected || state.connecting;
+    const ra = $("#btnRunAll");
+    if (ra) ra.disabled = !msh;
+    const head = $("#rttHeadMode");
+    if (head) head.textContent = !state.connected ? "未连接" : state.rttMode === "guard" ? "Guard 会话" : "MSH";
+    const hdot = $("#rttHeadDot");
+    if (hdot) hdot.className = "dot " + (state.connected ? "live" : "");
+    const fl = $("#btnFlash");
+    if (fl) fl.disabled = state.flashing || !state.bitstreams.length;
+    const ss = $("#sbitSelect");
+    if (ss) ss.disabled = state.flashing;
+    const conn = $("#rttConnText");
+    if (conn) {
+      conn.textContent = state.connected
+        ? state.portLabel + " · " + state.serial.baud + " 8N1 · " + (state.rttMode === "guard" ? "Guard 会话" : "MSH")
+        : "未连接 · 点上方「连接串口」选 COM 口。";
+    }
   }
 
   function updateModeUI() {
@@ -1258,13 +1337,7 @@
     if (b2) b2.disabled = live || state.connecting;
     const disc = $("#btnDisconnect");
     if (disc) disc.disabled = !live || state.connecting;
-    const ge = $("#btnGuardEnter");
-    if (ge) {
-      ge.disabled = !live || state.connecting || state.running || state.guardActive;
-      ge.textContent = state.guardActive ? "已在 Guard" : "进入 Guard";
-    }
-    const gx = $("#btnGuardExit");
-    if (gx) gx.disabled = !live || state.connecting || state.running || !state.guardActive;
+    updateRttUI();
     const baud = $("#baudSelect");
     if (baud) baud.disabled = live || state.connecting;
     const portInfo = $("#portInfo");
@@ -1333,12 +1406,31 @@
       state.connecting = false;
       state.mode = "live";
       state.abortRun = false;
+      state.rttMode = "msh";
+      state.guardActive = false;
+      state.rttBusy = false;
+      termReset();
       updateModeUI();
       log("sys", `串口已连接 · ${state.portLabel} · ${baud} 8N1`);
       toast(`串口已连接 · ${baud} 8N1`);
-      go("link", true);
+      if (state.view !== "rtt") go("link", true);
       pumpReader();
-      await enterGuard();
+
+      // Probe the current console: MSH prints a prompt, Guard returns an audit line.
+      state.serial.buf = new Uint8Array(0);
+      await state.serial.writer.write(new Uint8Array([0x0a]));
+      const probe = await waitForAny(["msh >", "[guard]"], 2500);
+      if (probe === "[guard]") {
+        state.rttMode = "guard";
+        state.guardActive = true;
+        termAppend("\r\n[已连接到进行中的 Guard 会话]\r\n");
+      } else if (probe === "msh >") {
+        termAppend("\r\n[MSH 就绪]\r\n");
+      } else {
+        termAppend("\r\n[没有收到 msh >：确认位流已加载、PLL 锁定、COM 正确]\r\n");
+      }
+      state.serial.buf = new Uint8Array(0);
+      updateRttUI();
     } catch (e) {
       state.connecting = false;
       updateModeUI();
@@ -1384,9 +1476,16 @@
     state.connected = false;
     state.connecting = false;
     state.guardActive = false;
+    state.rttMode = "off";
+    state.rttBusy = false;
     state.mode = "replay";
     state.portLabel = "—";
+    state.cmText = "";
+    renderCoreMark();
+    resetSteps();
+    termAppend("\r\n[串口已断开]\r\n");
     updateModeUI();
+    updateRttUI();
     log("sys", "串口已断开 · 回到回放模式");
     if (!opts.silent) toast("串口已断开");
   }
@@ -1402,68 +1501,249 @@
     return null;
   }
 
-  async function enterGuard() {
+  function optsForCommand(cmd) {
+    if (cmd === "guard start") return { expect: "GUARD READY", timeout: 10000, guard: true };
+    if (cmd === "ai selftest") return { expect: "AI selftest PASS", timeout: 90000 };
+    if (cmd === "guard selftest") return { expect: "Guard selftest PASS", timeout: 90000 };
+    if (cmd.startsWith("coremark start")) {
+      return { expect: "AMP CoreMark PASS", timeout: cmd === "coremark start 2000" ? 45000 : 180000 };
+    }
+    return {};
+  }
+
+  async function runMsh(cmd, opts = {}) {
     const S = state.serial;
     if (!state.connected || !S.writer) {
       toast("先连接串口", "warn");
       return false;
     }
-    if (state.guardActive) return true;
-    if (state.running) {
-      toast("正在运行，等本轮结束", "warn");
+    if (state.rttBusy) {
+      toast("上一条命令还在执行", "warn");
       return false;
     }
+    if (state.running) {
+      toast("脱敏运行中，等本轮结束", "warn");
+      return false;
+    }
+    if (state.rttMode !== "msh") {
+      toast("Guard 会话中，先点『退出 Guard 回 MSH』", "warn");
+      return false;
+    }
+    state.rttBusy = true;
+    if (cmd.startsWith("coremark start")) {
+      state.cmText = "";
+      renderCoreMark();
+    }
+    updateRttUI();
     S.buf = new Uint8Array(0);
+    termAppend("\r\n» " + cmd + "\r\n");
     try {
-      await S.writer.write(enc.encode("guard start\n"));
-      log("sys", "已发送 guard start · 等待 GUARD READY");
-      const hit = await waitForAny(
-        ["GUARD READY", "[guard]", "Guard needs the console", "usage: guard"],
-        5000
-      );
-      if (hit === "GUARD READY" || hit === "[guard]") {
+      await S.writer.write(enc.encode(cmd + "\n"));
+      const expect = opts.expect || "msh >";
+      const timeout = opts.timeout || 15000;
+      const hit = await waitForAny([expect], timeout);
+      if (!hit) throw new Error("等待 " + expect + " 超时");
+      if (opts.guard) {
+        state.rttMode = "guard";
         state.guardActive = true;
         S.buf = new Uint8Array(0);
-        log("sys", "Guard 会话已就绪");
-        toast("已进入 Guard，可以开始测试");
+        termAppend("\r\n[Guard 会话已接管串口]\r\n");
         return true;
       }
-      const tail = dec.decode(S.buf).trim().slice(-180);
-      throw new Error(
-        hit ? hit + " " + tail : "没有收到 GUARD READY，确认板子在 msh > 且没有 AI/CoreMark 在跑"
-      );
+      if (expect !== "msh >") {
+        await waitForAny(["msh >"], 8000);
+      }
+      S.buf = new Uint8Array(0);
+      termAppend("\r\n[完成]\r\n");
+      return true;
     } catch (e) {
-      log("err", "进入 Guard 失败：" + (e.message || e));
-      toast("进入 Guard 失败：" + (e.message || e), "error");
+      termAppend("\r\n[错误] " + (e.message || e) + "\r\n");
+      toast("命令失败：" + (e.message || e), "error");
       return false;
     } finally {
+      state.rttBusy = false;
+      updateRttUI();
       updateModeUI();
     }
   }
 
-  async function exitGuardAndDisconnect() {
+  async function enterGuard() {
+    if (state.guardActive) return true;
+    return runMsh("guard start", { expect: "GUARD READY", timeout: 10000, guard: true });
+  }
+
+  async function exitGuard() {
     const S = state.serial;
     if (!state.connected || !S.writer) {
       toast("先连接串口", "warn");
-      return;
+      return false;
     }
-    if (state.running) {
-      toast("正在运行，等本轮结束再退出", "warn");
-      return;
+    if (state.rttBusy || state.running) {
+      toast("命令或脱敏运行中，稍后再退出", "warn");
+      return false;
     }
+    if (state.rttMode !== "guard" && !state.guardActive) {
+      toast("当前不在 Guard 会话", "warn");
+      return false;
+    }
+    state.rttBusy = true;
+    updateRttUI();
+    S.buf = new Uint8Array(0);
+    termAppend("\r\n» Ctrl+] (0x1D)\r\n");
     try {
-      if (state.guardActive) {
-        await S.writer.write(new Uint8Array([0x1d]));
-        log("sys", "已发送 Ctrl+]（0x1D）· 正在退出 Guard 会话");
-        toast("已发送退出 Guard");
-        await new Promise((r) => setTimeout(r, 700));
+      await S.writer.write(new Uint8Array([0x1d]));
+      const hit = await waitForAny(["GUARD EXIT"], 5000);
+      if (!hit) throw new Error("没有收到 GUARD EXIT");
+      await waitForAny(["msh >"], 5000);
+      state.rttMode = "msh";
+      state.guardActive = false;
+      S.buf = new Uint8Array(0);
+      termAppend("\r\n[已回到 MSH]\r\n");
+      return true;
+    } catch (e) {
+      termAppend("\r\n[错误] " + (e.message || e) + "\r\n");
+      toast("退出 Guard 失败：" + (e.message || e), "error");
+      return false;
+    } finally {
+      state.rttBusy = false;
+      updateRttUI();
+      updateModeUI();
+    }
+  }
+
+  async function loadBitstreams() {
+    const sel = $("#sbitSelect");
+    const note = $("#flashState");
+    if (!sel) return;
+    try {
+      const r = await fetch("/api/board/bitstreams", { cache: "no-store" });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const j = await r.json();
+      const items = j.bitstreams || [];
+      state.bitstreams = items;
+      sel.innerHTML = "";
+      if (!items.length) {
+        if (note) note.textContent = "没有找到 .sbit；先出位流。";
+        updateRttUI();
+        return;
+      }
+      for (const item of items) {
+        const opt = document.createElement("option");
+        opt.value = item.path;
+        opt.textContent = item.path.split("/").pop() + " · " + (item.size / 1048576).toFixed(2) + " MB";
+        sel.appendChild(opt);
+      }
+      if (note) note.textContent = "默认选最新位流；烧写会先断开串口。";
+      updateRttUI();
+    } catch (e) {
+      if (note) note.textContent = "本地烧写服务未启动：python app/guard/tools/board_server.py --port 8788";
+      updateRttUI();
+    }
+  }
+
+  async function flashBitstream() {
+    if (state.flashing) return;
+    const sel = $("#sbitSelect");
+    const note = $("#flashState");
+    const path = sel ? sel.value : "";
+    if (!path) {
+      toast("没有可烧写的位流", "warn");
+      return;
+    }
+    if (!window.confirm("烧写位流？\n" + path + "\n\n板子会重启，当前串口会先断开。")) return;
+    if (state.connected) await disconnectSerial({ silent: true });
+    state.flashing = true;
+    updateRttUI();
+    if (note) note.textContent = "烧写中…（约 10–20 s）";
+    termAppend("\r\n=== JTAG 烧写 ===\r\n" + path + "\r\n");
+    try {
+      const r = await fetch("/api/board/program", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ bitstream: path }),
+      });
+      const j = await r.json();
+      if (j.log) termAppend(j.log);
+      if (j.ok) {
+        if (note) note.textContent = "烧写成功 · done bit 1 · 现在连接串口";
+        termAppend("\r\n[烧写成功]\r\n");
+        toast("烧写成功，板子已重启");
+      } else {
+        if (note) note.textContent = "烧写失败：" + (j.error || "see log");
+        termAppend("\r\n[烧写失败]\r\n");
+        toast("烧写失败", "error");
       }
     } catch (e) {
-      log("err", "发送 0x1D 失败：" + (e.message || e));
+      if (note) note.textContent = "烧写请求失败：" + (e.message || e);
+      termAppend("\r\n[烧写请求失败] " + (e.message || e) + "\r\n");
+    } finally {
+      state.flashing = false;
+      updateRttUI();
     }
-    state.guardActive = false;
-    await disconnectSerial({ silent: true });
-    toast("已断开 · 板子应回到 msh >");
+  }
+
+  function renderCoreMark() {
+    const text = state.cmText || "";
+    const last = (re) => {
+      const all = [...text.matchAll(re)];
+      return all.length ? all[all.length - 1][1] : null;
+    };
+    const ticks = last(/Total ticks\s*:\s*(\d+)/g);
+    const iter = last(/Iterations\s*:\s*(\d+)/g);
+    const mhz = last(/CoreMark\/MHz\s*:\s*([\d.]+)/g);
+    const elTicks = $("#cmTicks");
+    const elIter = $("#cmIter");
+    const elMHz = $("#cmMHz");
+    const elPass = $("#cmPass");
+    if (elTicks) elTicks.textContent = ticks ? Number(ticks).toLocaleString("en-US") : "—";
+    if (elIter) elIter.textContent = iter ? Number(iter).toLocaleString("en-US") : "—";
+    if (elMHz) elMHz.textContent = mhz || "—";
+    if (elPass) elPass.textContent = /AMP CoreMark PASS/.test(text) ? "PASS" : /CoreMark PASS/.test(text) ? "PASS" : "—";
+  }
+
+  function markStep(name, status) {
+    const li = document.querySelector('.rtt-steps [data-step="' + name + '"]');
+    if (!li) return;
+    li.classList.remove("is-running", "is-done", "is-error");
+    if (status) li.classList.add("is-" + status);
+  }
+
+  function resetSteps() {
+    $$(".rtt-steps [data-step]").forEach((li) => li.classList.remove("is-running", "is-done", "is-error"));
+  }
+
+  async function runAll() {
+    if (!state.connected || state.rttMode !== "msh") {
+      toast("先连接串口并停在 msh >", "warn");
+      return;
+    }
+    if (state.rttBusy || state.running) {
+      toast("当前有任务在跑，等结束再试", "warn");
+      return;
+    }
+    resetSteps();
+    state.cmText = "";
+    renderCoreMark();
+    termAppend("\r\n=== 一键全流程 ===\r\n");
+    const plan = [
+      ["msh", "ps", {}],
+      ["ai", "ai selftest", { expect: "AI selftest PASS", timeout: 90000 }],
+      ["coremark", "coremark start 2000", { expect: "AMP CoreMark PASS", timeout: 45000 }],
+      ["guard", "guard selftest", { expect: "Guard selftest PASS", timeout: 90000 }],
+    ];
+    for (const [name, cmd, opts] of plan) {
+      markStep(name, "running");
+      const ok = await runMsh(cmd, opts);
+      markStep(name, ok ? "done" : "error");
+      if (!ok) {
+        toast("全流程中断：" + cmd, "warn");
+        return;
+      }
+    }
+    markStep("session", "running");
+    const ok = await enterGuard();
+    markStep("session", ok ? "done" : "error");
+    if (ok) toast("全流程完成：已进入 Guard，去工作台测样例");
   }
 
   /* ── navigation / palette ──────────────────────────────────────────────── */
@@ -1493,6 +1773,7 @@
     const viewMeta = {
       workbench: { icon: "grid", title: "脱敏工作台", sub: "输入文本 · 回放或本地规则" },
       link: { icon: "activity", title: "数据链路", sub: "串口连接、数据通路与会话日志" },
+      rtt: { icon: "terminal", title: "RTT 控制台", sub: "MSH、AI、CoreMark、Guard 全流程" },
       rules: { icon: "layers", title: "规则矩阵", sub: "10 类检测器、掩码策略与关键词" },
       system: { icon: "cpu", title: "系统状态", sub: "资源、时序、验收与限制" },
     };
@@ -1811,8 +2092,34 @@
     });
     $("#btnConnect2").addEventListener("click", connectSerial);
     $("#btnDisconnect").addEventListener("click", () => disconnectSerial());
+    $("#btnGoRtt").addEventListener("click", () => go("rtt", true));
+    $("#btnRttConnect").addEventListener("click", connectSerial);
+    $("#btnRttDisconnect").addEventListener("click", () => disconnectSerial());
+    $("#btnRunAll").addEventListener("click", runAll);
+    $("#btnFlash").addEventListener("click", flashBitstream);
     $("#btnGuardEnter").addEventListener("click", enterGuard);
-    $("#btnGuardExit").addEventListener("click", exitGuardAndDisconnect);
+    $("#btnGuardExit").addEventListener("click", exitGuard);
+
+    $$("[data-rtt]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const cmd = btn.dataset.rtt;
+        runMsh(cmd, optsForCommand(cmd));
+      });
+    });
+    $("#btnRttSend").addEventListener("click", () => {
+      const input = $("#rttCmd");
+      const cmd = input.value.trim();
+      if (!cmd) return;
+      input.value = "";
+      runMsh(cmd, optsForCommand(cmd));
+    });
+    $("#rttCmd").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        $("#btnRttSend").click();
+      }
+    });
+    $("#btnRttClear").addEventListener("click", termReset);
     $("#btnGoWorkbench").addEventListener("click", () => {
       go("workbench", true);
       $("#input").focus();
@@ -1888,6 +2195,7 @@
   function boot() {
     renderStatic();
     wire();
+    loadBitstreams();
     go(viewFromHash(), false);
 
     log("sys", "控制台就绪 · 回放模式");
