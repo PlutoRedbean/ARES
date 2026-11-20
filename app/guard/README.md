@@ -66,12 +66,19 @@ make ner-check            # NER 16 条门槛
 ./run.sh serve            # 本机工作台 http://127.0.0.1:8766
 ```
 
-**浏览器演示台**（接线面板，能连板子）
+**浏览器演示台 + IMU 手柄**（接线面板，能连板子、接管串口）
 
 ```powershell
-cd guard
-make web                  # http://127.0.0.1:8777（Chrome/Edge）
+cd app/guard
+bash run.sh web           # http://127.0.0.1:8788，自动开浏览器；Chrome/Edge
+.\run.ps1 web             # PowerShell 原生入口（内部调 run.sh）
+bash run.sh web --no-browser --port 8788
+make web                  # 只起静态回放页 http://127.0.0.1:8777（无烧写/IMU 接管）
 ```
+
+「IMU 手柄」页可以一键断开页面串口、结束串口助手 / RT-Thread Guard 等占口进程，
+把板子切到 `imu start`，再启动 `app/imu/xbox-controller` 接管虚拟手柄。详见
+[web/README.md](web/README.md#imu-手柄--一键接管串口)。
 
 **上板**
 
@@ -94,7 +101,8 @@ python tools\board_smoke.py                                        # 12 句自�
 | `make demo` / `demo-check` | 端到端 / 200 例对账 |
 | `make board-sim` | 位级 UART 端到端（18 例，真实位定时） |
 | `make ner-check` / `ner-vectors` | NER 门槛 / 200 例向量 |
-| `make web` / `web-demos` | 起演示台 / 重新生成 `web/demos.js` |
+| `make web` / `web-demos` | 起静态演示台 / 重新生成 `web/demos.js` |
+| `bash run.sh web` | 起带烧写与 IMU 接管的完整网页（8788） |
 
 ## 文档
 

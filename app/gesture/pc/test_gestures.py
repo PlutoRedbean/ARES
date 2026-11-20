@@ -1,6 +1,8 @@
 import unittest
+from types import SimpleNamespace
 
-from gestures import DEFENSE, IDLE, POINT, UNKNOWN, Confirmation, classify
+from gestures import (DEFENSE, DRINK, IDLE, POINT, UNKNOWN, Confirmation, classify,
+                      defense_hand, pointing)
 from motion import MotionFeed, parse
 from score import measure
 
@@ -22,38 +24,69 @@ def hand():
     return pts
 
 
+def fist():
+    pts = hand()
+    # Index bent like the other three; thumb remains tucked at the palm.
+    pts[5:9] = [(1, 0, 0), (1, 1, 0), (1, 1, 1), (1, 0, 1)]
+    return pts
+
+
 class Gestures(unittest.TestCase):
     def test_held_point_and_rotation(self):
         pts = hand()
+        pts[4] = (8, 1, 0)  # pointing thumb is abducted, not tucked
         side = [(-y, x, z) for x, y, z in pts]
         for h in (pts, side):
+            self.assertTrue(pointing(h))
             self.assertEqual(classify([], [h]), POINT)
             confirm = Confirmation()
             self.assertEqual([confirm.update(classify([], [h])) for _ in range(8)],
                              [UNKNOWN, UNKNOWN] + [POINT] * 6)
-        pts[4] = (8, 1, 0)
-        self.assertEqual(classify([], [pts]), UNKNOWN)
+        bent = hand()
+        bent[4] = (8, 1, 0)
+        bent[5:9] = [(1, 0, 0), (1, 1, 0), (1, 1, 1), (1, 0, 1)]
+        low = [(0.5, 0.6, 0)] * 21
+        self.assertEqual(classify([], [bent], "either", [low]), UNKNOWN)
         pts = hand()
-        pts[9:13] = [(0, y, 0) for y in range(4)]
+        pts[4] = (8, 1, 0)
+        for base in (9, 13, 17):
+            pts[base:base + 4] = [(0, y, 0) for y in range(4)]
         self.assertEqual(classify([], [pts]), UNKNOWN)
 
-    def test_visible_arms_and_conflict(self):
-        joints = pose()
-        self.assertEqual(classify(joints, []), IDLE)
-        joints[16] = (320, 110, .9)
-        self.assertEqual(classify(joints, []), DEFENSE)
-        self.assertEqual(classify(joints, [], "left"), UNKNOWN)
-        self.assertEqual(classify(joints, [hand()]), UNKNOWN)
-        joints[12] = (350, 100, .2)
-        self.assertEqual(classify(joints, []), UNKNOWN)
+    def test_hand_only_defense_and_point(self):
+        self.assertEqual(classify([], [fist()]), DEFENSE)
+        palm = hand()
+        palm[4] = (8, 1, 0)
+        self.assertEqual(classify([], [palm]), POINT)
+        self.assertEqual(classify([], [palm, fist()]), UNKNOWN)
         self.assertEqual(classify([], []), UNKNOWN)
+        # Pose/shoulders are intentionally ignored now.
+        self.assertEqual(classify(pose(), []), UNKNOWN)
+
+    def test_open_hand_is_not_defense(self):
+        straight = hand()
+        for base in (5, 9, 13, 17):
+            straight[base:base + 4] = [(0, 0, 0), (0, 1, 0), (0, 2, 0), (0, 3, 0)]
+        self.assertFalse(defense_hand(straight))
+        self.assertNotEqual(classify([], [straight]), DEFENSE)
+
+    def test_drink_uses_mediapipe_landmark_objects(self):
+        curled = fist()
+        curled[4] = (8, 1, 0)  # thumb abducted
+        image = [SimpleNamespace(y=0.20) for _ in range(21)]
+        self.assertEqual(classify([], [curled], "either", [image]), DRINK)
 
     def test_confirmation_release_and_recovery(self):
         seq = ([DEFENSE] * 5 + [IDLE, POINT] + [IDLE] * 3 +
                [UNKNOWN] + [DEFENSE] * 3)
-        confirm = Confirmation()
+        confirm = Confirmation(defense_hold=3)
         self.assertEqual([confirm.update(raw) for raw in seq],
                          [-1, -1, 1, 1, 1, -1, -1, -1, -1, 0, -1, -1, -1, 1])
+
+    def test_default_defense_hold_is_longer(self):
+        confirm = Confirmation()
+        self.assertEqual([confirm.update(DEFENSE) for _ in range(8)],
+                         [-1] * 7 + [DEFENSE])
 
     def test_motion_wire_order_and_expiry(self):
         wire = b"M1 4294967295 1 3 2 01" + b"00" * 16 + b"80\r\n"

@@ -1,11 +1,12 @@
 /* ARES GUARD · control surface
  *
- * 数据来源有三条：
+ * 数据来源有四条：
  *   1. 板上实测回放 —— demos.js（tools/gen_web_demos.py 生成），5 条样例的真板回显；
  *   2. 本地规则预览 —— engine.js（L1 + 词典实体），任意文本、不需要板子；
- *   3. 串口实时 —— Web Serial，按标点分帧、逐帧等回读、汇总审计行。
+ *   3. 串口实时 —— Web Serial，按标点分帧、逐帧等回读、汇总审计行；
+ *   4. IMU 接管 —— 本地 board_server.py 释放串口、切 IMU 遥测、拉起 xbox-controller。
  *
- * 面板上所有数字都来自这三条路径，没有随机生成的“气氛数据”。
+ * 面板上所有数字都来自这四条路径，没有随机生成的“气氛数据”。
  */
 "use strict";
 
@@ -23,7 +24,7 @@
   const TYPES = ["id18", "id15", "mobile", "bank", "email", "ipv4", "uscc", "plate", "name", "addr"];
   const TYPE_LABEL = DATA.typeLabels || {};
   const TYPE_TONE = DATA.typeTones || {};
-  const VIEWS = ["workbench", "link", "rtt", "rules", "system"];
+  const VIEWS = ["workbench", "link", "rtt", "imu", "rules", "system"];
   const MAX_FRAMES = 8;
 
   const SOURCE = {
@@ -68,6 +69,28 @@
     bitstreams: [],
     cmText: "",
     portLabel: "—",
+    imu: {
+      status: null,
+      controller: null,
+      ports: [],
+      profiles: [],
+      holders: [],
+      openable: null,
+      portState: null,
+      steps: null,
+      busy: false,
+      timer: null,
+      serverError: "",
+      logPid: null,
+      serverLogCount: 0,
+      lastPort: "",
+    },
+    gesture: {
+      status: null,
+      busy: false,
+      serverError: "",
+      timer: null,
+    },
   };
 
   let pipelineTimer = null;
@@ -76,6 +99,7 @@
   let paletteIndex = 0;
   let paletteFiltered = [];
   let lastFocus = null;
+  let serialChannel = null;
 
   /* ── helpers ───────────────────────────────────────────────────────────── */
   const esc = (s) =>
@@ -1296,6 +1320,885 @@
     }
   }
 
+  /* ── IMU / 串口接管 ────────────────────────────────────────────────────── */
+
+  function imuPort() {
+    const el = $("#imuPortInput");
+    return el ? el.value.trim() : "";
+  }
+
+  function imuDryRun() {
+    const el = $("#imuDryRun");
+    return !!(el && el.checked);
+  }
+
+  function imuProfile() {
+    const el = $("#imuProfileSelect");
+    return el ? el.value : "";
+  }
+
+  function profileShort(p) {
+    return String(p || "")
+      .replace(/^profiles[\\/]/, "")
+      .replace(/\.ya?ml$/i, "");
+  }
+
+  async function imuApi(path, options = {}) {
+    const r = await fetch(path, { cache: "no-store", ...options });
+    let j = null;
+    try {
+      j = await r.json();
+    } catch (e) {
+      j = null;
+    }
+    if (!r.ok) throw new Error((j && j.error) || "HTTP " + r.status);
+    if (!j) throw new Error("空响应 · HTTP " + r.status);
+    return j;
+  }
+
+  function aggregateImuSteps(steps) {
+    const agg = {};
+    for (const s of steps || []) {
+      const id = s.id === "port" ? "release" : s.id;
+      if (!agg[id]) agg[id] = { ok: true, details: [] };
+      if (s.detail) agg[id].details.push(s.detail);
+      // 释放串口是一串重试：最后一次的结果才算数。
+      if (id === "release") agg[id].ok = !!s.ok;
+      else if (!s.ok) agg[id].ok = false;
+    }
+    for (const id of Object.keys(agg)) {
+      agg[id].detail = agg[id].details.filter(Boolean).join("；");
+    }
+    return agg;
+  }
+
+  function fillImuPorts(ports) {
+    state.imu.ports = Array.isArray(ports) ? ports : [];
+    const list = $("#imuPortList");
+    if (list) {
+      list.innerHTML = state.imu.ports
+        .map((p) => {
+          const label = p.device + (p.description ? " · " + p.description : "");
+          return `<option value="${esc(p.device)}">${esc(label)}</option>`;
+        })
+        .join("");
+    }
+    const input = $("#imuPortInput");
+    if (input && !input.value.trim()) {
+      const maxPriority = state.imu.ports.reduce((m, p) => Math.max(m, Number(p.priority) || 0), 0);
+      const top = state.imu.ports.filter((p) => (Number(p.priority) || 0) === maxPriority);
+      // 只有一个最高优先级候选时才自动选；多个 CP210x/CH340 时让用户自己挑。
+      if (state.imu.ports.length === 1 || top.length === 1) {
+        input.value = top[0].device;
+      }
+    }
+  }
+
+  function renderImuPortHint() {
+    const el = $("#imuPortHint");
+    if (!el) return;
+    const ports = state.imu.ports || [];
+    const current = imuPort();
+    const found = ports.find((p) => p.device === current);
+    if (!ports.length) {
+      el.className = "support-note imu-port-hint is-warn";
+      el.textContent = "没有检测到串口：检查 USB-UART 驱动，或换一根能传数据的 USB 线。";
+      return;
+    }
+    if (!current) {
+      el.className = "support-note imu-port-hint";
+      el.textContent = `检测到 ${ports.length} 个串口：${ports.map((p) => p.device).join(" / ")}。板子通常是 CP210x / CH340。`;
+      return;
+    }
+    if (!found) {
+      el.className = "support-note imu-port-hint is-warn";
+      el.textContent = `${current} 不在当前列表里；点刷新重新枚举。`;
+      return;
+    }
+    el.className = "support-note imu-port-hint is-ok";
+    el.textContent = `${found.device} · ${found.description || "串口"}`;
+  }
+
+  function fillImuProfiles(controller) {
+    const profiles = (controller && controller.profiles) || [];
+    state.imu.profiles = profiles;
+    const sel = $("#imuProfileSelect");
+    if (!sel) return;
+    const current = sel.value;
+    sel.innerHTML = profiles.length
+      ? profiles.map((p) => `<option value="${esc(p)}">${esc(profileShort(p))}</option>`).join("")
+      : '<option value="">（没有 profile）</option>';
+    const preferred = "profiles/imu_telemetry.yaml";
+    if (current && profiles.includes(current)) sel.value = current;
+    else if (profiles.includes(preferred)) sel.value = preferred;
+    else if (profiles.length) sel.value = profiles[0];
+  }
+
+  async function refreshImuHolders(silent) {
+    const port = imuPort();
+    if (!port) {
+      state.imu.holders = [];
+      state.imu.openable = null;
+      state.imu.portState = null;
+      if (!silent) renderImu();
+      return;
+    }
+    try {
+      const j = await imuApi("/api/serial/holders?port=" + encodeURIComponent(port));
+      state.imu.holders = j.holders || [];
+      state.imu.openable = !!j.openable;
+      state.imu.portState = j.state || (j.openable ? "open" : "busy");
+      state.imu.holderError = j.openable ? "" : j.error || "";
+    } catch (e) {
+      state.imu.holders = [];
+      state.imu.openable = null;
+      state.imu.portState = "error";
+      state.imu.holderError = e.message || String(e);
+    }
+    if (!silent) renderImu();
+  }
+
+  async function loadImuPorts() {
+    try {
+      const j = await imuApi("/api/serial/ports");
+      state.imu.serverError = "";
+      state.imu.controller = j.controller || state.imu.controller;
+      fillImuPorts(j.ports || []);
+      fillImuProfiles(j.controller || state.imu.controller);
+      await refreshImuHolders(true);
+    } catch (e) {
+      state.imu.serverError = e.message || String(e);
+    }
+    renderImu();
+  }
+
+  function imuUptime(seconds) {
+    const s = Number(seconds || 0);
+    if (s < 60) return `${Math.round(s)} s`;
+    const m = Math.floor(s / 60);
+    return `${m} min ${Math.round(s % 60)} s`;
+  }
+
+  function imuPortStateLabel() {
+    const s = state.imu.portState;
+    if (s === "open") return "空闲";
+    if (s === "busy") return "被占用";
+    if (s === "missing") return "不存在";
+    if (s === "error") return "打不开";
+    if (s === "controller") return "控制器占用";
+    return state.imu.openable === true ? "空闲" : state.imu.openable === false ? "被占用" : "未扫描";
+  }
+
+  function renderImuStats() {
+    const host = $("#imuStats");
+    if (!host) return;
+    const s = state.imu.status || {};
+    const meta = s.meta || {};
+    const holders = state.imu.holders || [];
+    const port = imuPort() || meta.port || "—";
+    const portState = imuPortStateLabel();
+    const holderNames = holders
+      .slice(0, 3)
+      .map((h) => h.name)
+      .join("、");
+    const running = !!s.running;
+    const cards = [
+      {
+        tone: "mint",
+        kicker: "串口",
+        en: "PORT",
+        value: port,
+        unit: "",
+        sub: `${portState}${holders.length ? ` · ${holders.length} 个进程` : ""}`,
+      },
+      {
+        tone: "amber",
+        kicker: "占口",
+        en: "HOLDERS",
+        value: holders.length ? String(holders.length) : "—",
+        unit: holders.length ? "个" : "",
+        sub: holderNames || (state.imu.openable === true ? "没有其它程序占着" : "点刷新扫描"),
+      },
+      {
+        tone: "violet",
+        kicker: "控制器",
+        en: "CONTROLLER",
+        value: running ? "运行中" : s.exit != null ? "已退出" : "停止",
+        unit: "",
+        sub: running ? `pid ${s.pid} · ${imuUptime(s.uptime)}` : s.exit != null ? `exit ${s.exit}` : "未启动",
+      },
+      {
+        tone: "blue",
+        kicker: "模式",
+        en: "MODE",
+        value: meta.dry_run ? "dry-run" : "ViGEmBus",
+        unit: "",
+        sub: profileShort(meta.profile || imuProfile()) || "IMU 映射",
+      },
+    ];
+    host.innerHTML = cards
+      .map(
+        (c) => `<div class="stat-card" data-tone="${c.tone}">
+          <div class="stat-kicker">${esc(c.kicker)} <em>${esc(c.en)}</em></div>
+          <div class="stat-val"><b>${esc(c.value)}</b>${c.unit ? `<span>${esc(c.unit)}</span>` : ""}</div>
+          <div class="stat-sub">${esc(c.sub)}</div>
+        </div>`,
+      )
+      .join("");
+  }
+
+  function renderImuSteps() {
+    const s = state.imu.status || {};
+    const steps = state.imu.steps || {};
+    const running = !!s.running;
+    const label = imuPortStateLabel();
+    const browserFallback = state.connected
+      ? { ok: false, warn: true, detail: "Web Serial 占用中" }
+      : { ok: true, detail: "未连接" };
+    const holdersFallback = (state.imu.holders || []).length
+      ? { ok: false, warn: true, detail: `${state.imu.holders.length} 个占口进程` }
+      : label === "空闲"
+        ? { ok: true, detail: "串口空闲" }
+        : label === "控制器占用"
+          ? { ok: true, detail: "控制器已接管" }
+          : { pending: true, detail: label };
+    const releaseFallback =
+      label === "空闲"
+        ? { ok: true, detail: "可打开" }
+        : label === "控制器占用"
+          ? { ok: true, detail: "控制器接管中" }
+          : label === "被占用" || label === "打不开"
+            ? { ok: false, warn: true, detail: label }
+            : label === "不存在"
+              ? { ok: false, detail: "串口不存在" }
+              : { pending: true, detail: "等待扫描" };
+    const controllerFallback = running
+      ? { ok: true, detail: `运行中 · pid ${s.pid}` }
+      : s.exit != null
+        ? { ok: false, detail: `已退出 · exit ${s.exit}` }
+        : { pending: true, detail: "未启动" };
+    const map = {
+      browser: steps.browser || browserFallback,
+      holders: steps.holders || holdersFallback,
+      release: steps.release || releaseFallback,
+      guard: steps.guard || { pending: true, detail: "等待接管" },
+      ai: steps.ai || { pending: true, detail: "等待接管" },
+      imu: steps.imu || { pending: true, detail: "等待接管" },
+      controller: steps.controller || controllerFallback,
+    };
+    $$("#imuSteps li").forEach((li) => {
+      const st = map[li.dataset.step] || {};
+      li.classList.remove("is-running", "is-done", "is-error", "is-warn");
+      if (state.imu.busy && st.running) li.classList.add("is-running");
+      else if (st.ok === true) li.classList.add("is-done");
+      else if (st.ok === false) li.classList.add(st.warn ? "is-warn" : "is-error");
+      const sub = li.querySelector("span");
+      if (sub && st.detail) sub.textContent = st.detail;
+    });
+  }
+
+  function renderImuHolders() {
+    const host = $("#imuHolders");
+    if (!host) return;
+    const holders = state.imu.holders || [];
+    const count = $("#imuHolderCount");
+    if (count) count.textContent = `${holders.length} 个占口进程`;
+    const scroll = host.scrollTop;
+    if (!holders.length) {
+      const label = imuPortStateLabel();
+      const msg =
+        label === "空闲"
+          ? "串口空闲，没有其它程序占着它。"
+          : label === "控制器占用"
+            ? "xbox-controller 正在使用这个串口；停止手柄后会释放。"
+            : label === "不存在"
+              ? "串口不存在：确认板子已插好、USB-UART 驱动正常，或换一个 COM 号。"
+              : label === "打不开"
+                ? "串口打不开：" + (state.imu.holderError || "驱动/权限问题") + "。"
+                : label === "被占用"
+                  ? "没有识别到占口进程；多半是 Web Serial（本页/其它标签页）还开着。先点顶部「断开」，再接管。"
+                  : "还没有扫描；选好串口后点刷新。";
+      host.innerHTML = `<div class="list-empty">${esc(msg)}</div>`;
+      return;
+    }
+    host.innerHTML = holders
+      .map(
+        (h) => `<div class="imu-holder${h.strong ? " is-strong" : ""}">
+          <span class="imu-holder-name" title="${esc(h.name)}">${esc(h.name)}</span>
+          <span class="imu-holder-pid">pid ${h.pid}</span>
+          <span class="imu-holder-tag">${h.strong ? "明确占用" : "疑似"}</span>
+          <span class="imu-holder-cmd" title="${esc(h.cmdline || h.reason)}">${esc(h.cmdline || h.reason || "")}</span>
+        </div>`,
+      )
+      .join("");
+    host.scrollTop = scroll;
+  }
+
+  function renderImuFacts() {
+    const s = state.imu.status || {};
+    const meta = s.meta || {};
+    const running = !!s.running;
+    const browser = $("#imuBrowserSerial");
+    if (browser) browser.textContent = state.connected ? `${state.portLabel} · ${state.serial.baud}` : "未连接";
+    const controller = $("#imuControllerState");
+    if (controller) {
+      controller.textContent = running
+        ? `运行中 · pid ${s.pid}`
+        : s.exit != null
+          ? `已退出 · exit ${s.exit}`
+          : "未运行";
+    }
+    const port = $("#imuPortState");
+    if (port) {
+      const p = imuPort() || meta.port || "—";
+      const baud = parseInt($("#baudSelect").value, 10) || 115200;
+      port.textContent = `${p} · ${imuPortStateLabel()} · ${baud}`;
+    }
+    const server = $("#imuServerState");
+    if (server) {
+      server.textContent = state.imu.serverError
+        ? "离线"
+        : s.server
+          ? `${s.server.host}:${s.server.port}`
+          : "在线";
+    }
+  }
+
+  function renderImuNote() {
+    const el = $("#imuNote");
+    if (!el) return;
+    const ctrl = (state.imu.status && state.imu.status.controller) || state.imu.controller || {};
+    const running = !!(state.imu.status && state.imu.status.running);
+    let text = "";
+    let kind = "";
+    if (state.imu.serverError) {
+      const err = state.imu.serverError;
+      text = /fetch|network|failed to load|HTTP 404/i.test(err)
+        ? "本地服务未启动：在 PowerShell 里运行 bash run.sh web（或 py -3.11 app/guard/tools/board_server.py --port 8788）。"
+        : "本地服务出错：" + err;
+      kind = "is-warn";
+    } else if (state.imu.busy) {
+      text = "接管中：断开页面串口 → 结束占口进程 → 退出 Guard → imu start → 启动 xbox-controller…";
+      kind = "is-ok";
+    } else if (!state.imu.status && !state.imu.controller) {
+      text = "正在检查本地服务…";
+    } else if (!ctrl.available) {
+      text = "找不到 xbox-controller/run.py；检查 app/imu/xbox-controller 是否存在。";
+      kind = "is-warn";
+    } else if (!ctrl.serial || !ctrl.yaml) {
+      text = "运行 xbox-controller 的 Python 缺 pyserial / PyYAML：py -3.11 -m pip install -r app/imu/xbox-controller/requirements.txt。";
+      kind = "is-warn";
+    } else if (!ctrl.vgamepad && !imuDryRun()) {
+      text = "这个 Python 里 import vgamepad 失败：先勾 dry-run 验证链路，装好 ViGEmBus 后再正式接管。";
+      kind = "is-warn";
+    } else if (state.imu.portState === "controller" && running) {
+      text = `xbox-controller 正在占用 ${imuPort() || "COM"}；需要把串口交还 MSH 时点「停止手柄」。`;
+      kind = "is-ok";
+    } else if (state.imu.portState === "missing") {
+      text = "串口不存在：确认板子已插好、USB-UART 驱动正常，或换一个 COM 号（刷新列表）。";
+      kind = "is-warn";
+    } else if (state.imu.portState === "error") {
+      text = "串口打不开：" + (state.imu.holderError || "驱动/权限问题") + "。";
+      kind = "is-warn";
+    } else if (state.imu.portState === "busy" && !(state.imu.holders || []).length) {
+      text = "串口被占用但没识别到进程：多半是本页或其它标签页的 Web Serial 还开着。先点顶部「断开」（或关掉 RTT 控制台标签页），再点「一键接管」。";
+      kind = "is-warn";
+    } else {
+      text = "服务在线 · 接管会先断开本页 Web Serial，再结束占口进程并把板子切到 IMU 遥测。";
+      kind = "is-ok";
+    }
+    el.className = "support-note " + kind;
+    el.textContent = text;
+  }
+
+  function appendImuLog(text) {
+    const el = $("#imuLog");
+    if (!el || !text) return;
+    const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 28;
+    if (el.textContent === "等待接管…") el.textContent = "";
+    el.textContent += text;
+    if (el.textContent.length > 160000) el.textContent = el.textContent.slice(-120000);
+    if (atBottom) el.scrollTop = el.scrollHeight;
+  }
+
+  function pumpImuLog(status) {
+    const log = (status && status.log) || [];
+    const pid = status ? status.pid : null;
+    if (state.imu.logPid !== pid) {
+      state.imu.logPid = pid;
+      state.imu.serverLogCount = 0;
+      const el = $("#imuLog");
+      if (el && pid != null) el.textContent = "";
+    }
+    const start = Math.min(state.imu.serverLogCount, log.length);
+    const chunk = log.slice(start);
+    if (chunk.length) appendImuLog(chunk.map((line) => line + "\n").join(""));
+    state.imu.serverLogCount = log.length;
+  }
+
+  async function refreshImuStatus(silent) {
+    try {
+      const s = await imuApi("/api/imu/status");
+      state.imu.status = s;
+      state.imu.serverError = "";
+      state.imu.controller = s.controller || state.imu.controller;
+      if (!s.running && state.imu.portState === "controller") state.imu.portState = null;
+      if (!state.imu.profiles.length) fillImuProfiles(s.controller);
+      if (!state.imu.ports.length) fillImuPorts(s.ports || []);
+      pumpImuLog(s);
+      renderImu();
+    } catch (e) {
+      state.imu.serverError = e.message || String(e);
+      renderImu();
+    }
+  }
+
+  function renderImu() {
+    const s = state.imu.status || {};
+    const running = !!s.running;
+    const badge = $("#imuBadge");
+    if (badge) {
+      if (state.imu.busy) {
+        badge.className = "source-badge is-local";
+        badge.textContent = "接管中…";
+      } else if (state.imu.serverError) {
+        badge.className = "source-badge";
+        badge.textContent = "服务异常";
+      } else if (running) {
+        badge.className = "source-badge is-ok";
+        badge.textContent = "运行中";
+      } else {
+        badge.className = "source-badge";
+        badge.textContent = "待机";
+      }
+    }
+    const dot = $("#imuHeadDot");
+    if (dot) dot.className = "dot " + (running ? "live" : state.imu.busy ? "busy" : "");
+    const head = $("#imuHeadMode");
+    if (head) head.textContent = running ? "xbox-controller 运行中" : state.imu.serverError ? "服务异常" : "待机";
+
+    renderImuStats();
+    renderImuSteps();
+    renderImuHolders();
+    renderImuFacts();
+    renderImuPortHint();
+    renderImuNote();
+    renderGesture();
+
+    const busy = state.imu.busy;
+    const port = imuPort();
+    const portBad = state.imu.portState === "missing" || state.imu.portState === "error";
+    const takeover = $("#btnImuTakeover");
+    if (takeover) takeover.disabled = busy || !port || !!state.imu.serverError || portBad;
+    const stop = $("#btnImuStop");
+    if (stop) stop.disabled = busy || !port || portBad;
+    const release = $("#btnImuRelease");
+    if (release) release.disabled = busy || !port || portBad;
+    const refresh = $("#btnImuRefresh");
+    if (refresh) refresh.disabled = busy;
+  }
+
+  async function takeoverImu() {
+    if (state.imu.busy) return;
+    const port = imuPort();
+    if (!port) {
+      toast("先选串口（例如 COM9）", "warn");
+      return;
+    }
+    let holders = state.imu.holders || [];
+    try {
+      const h = await imuApi("/api/serial/holders?port=" + encodeURIComponent(port));
+      holders = h.holders || [];
+      state.imu.holders = holders;
+      state.imu.openable = !!h.openable;
+      state.imu.portState = h.state || (h.openable ? "open" : "busy");
+      state.imu.holderError = h.openable ? "" : h.error || "";
+      renderImu();
+      if (state.imu.portState === "missing") {
+        toast(`串口 ${port} 不存在：插好板子/检查驱动，或换一个 COM 号`, "error");
+        return;
+      }
+      if (state.imu.portState === "error") {
+        toast(`串口 ${port} 打不开：${state.imu.holderError || "驱动/权限问题"}`, "error");
+        return;
+      }
+    } catch (e) {
+      state.imu.serverError = e.message || String(e);
+      renderImu();
+      toast("本地服务不可用：" + (e.message || e), "error");
+      return;
+    }
+    const names = holders.map((h) => `${h.name}(${h.pid})`).join("、");
+    if (state.connected || names || state.imu.portState === "busy" || state.imu.portState === "controller") {
+      const lines = [`一键接管 ${port}？`, ""];
+      if (state.connected) lines.push("• 断开本页 Web Serial，并通知其它 ARES 标签页释放串口");
+      if (names) lines.push("• 结束占口进程：" + names);
+      if (state.imu.portState === "controller") lines.push("• 先停掉当前正在运行的 xbox-controller");
+      lines.push("• 板端：退出 Guard → ai stop → imu start");
+      lines.push(`• 启动 xbox-controller${imuDryRun() ? "（dry-run）" : ""} --imu-port ${port}`);
+      if (!window.confirm(lines.join("\n"))) return;
+    }
+
+    state.imu.busy = true;
+    state.imu.steps = {
+      browser: state.connected ? { running: true, detail: "正在断开…" } : { ok: true, detail: "未连接" },
+      holders: { running: true, detail: "正在结束占口进程…" },
+    };
+    renderImu();
+    try {
+      if (serialChannel) serialChannel.postMessage({ type: "release-serial" });
+      if (state.connected) await disconnectSerial({ silent: true });
+      await sleep(350);
+      const baud = parseInt($("#baudSelect").value, 10) || 115200;
+      const j = await imuApi("/api/imu/takeover", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          port,
+          profile: imuProfile() || null,
+          dry_run: imuDryRun(),
+          baud,
+          kill_holders: $("#imuKill").checked,
+          force_names: $("#imuForce").checked,
+          exit_guard: true,
+          stop_ai: true,
+          start_imu: true,
+        }),
+      });
+      state.imu.steps = aggregateImuSteps(j.steps);
+      state.imu.status = j.status || state.imu.status;
+      state.imu.holders = j.ok ? [] : (j.holders || state.imu.holders);
+      state.imu.serverError = "";
+      if (j.ok && j.status && j.status.running) state.imu.portState = "controller";
+      const el = $("#imuLog");
+      if (el) el.textContent = "";
+      state.imu.logPid = (j.status && j.status.pid) || null;
+      state.imu.serverLogCount = 0;
+      appendImuLog(`=== 接管 ${port} ===\n`);
+      if (j.transcript) appendImuLog(String(j.transcript).trim() + "\n");
+      (j.warnings || []).forEach((w) => appendImuLog("[warn] " + w + "\n"));
+      if (j.status) pumpImuLog(j.status);
+      if (j.ok) {
+        const warns = (j.warnings || []).length;
+        toast(warns ? `xbox-controller 已启动 ${port}（有警告，看日志）` : `xbox-controller 已接管 ${port}`);
+      } else {
+        appendImuLog("[error] " + (j.error || "接管失败") + "\n");
+        toast(j.error || "接管失败", "error");
+      }
+      renderImu();
+    } catch (e) {
+      state.imu.serverError = e.message || String(e);
+      state.imu.steps = { ...(state.imu.steps || {}), holders: { ok: false, detail: e.message || "接管失败" } };
+      renderImu();
+      toast("接管失败：" + (e.message || e), "error");
+    } finally {
+      state.imu.busy = false;
+      renderImu();
+      refreshImuStatus(true);
+      refreshGestureStatus();
+    }
+  }
+
+  async function stopImuController() {
+    if (state.imu.busy) return;
+    const s = state.imu.status || {};
+    const running = !!s.running;
+    const port = imuPort();
+    if (!running && !port) {
+      toast("先选串口（或先接管一次）", "warn");
+      return;
+    }
+    const msg = running
+      ? "停止 xbox-controller，并向板子发送 imu stop？"
+      : `xbox-controller 当前没有运行；向 ${port} 补发 imu stop 吗？`;
+    if (!window.confirm(msg)) return;
+    state.imu.busy = true;
+    renderImu();
+    try {
+      const j = await imuApi("/api/imu/stop", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ port, stop_imu: true }),
+      });
+      state.imu.steps = aggregateImuSteps(j.steps);
+      state.imu.status = j.status || state.imu.status;
+      (j.warnings || []).forEach((w) => appendImuLog("[warn] " + w + "\n"));
+      appendImuLog("[stop] " + (running ? "xbox-controller 已停止" : "已发送 imu stop") + "\n");
+      toast(running ? "xbox-controller 已停止" : "已发送 imu stop");
+    } catch (e) {
+      toast("停止失败：" + (e.message || e), "error");
+    } finally {
+      state.imu.busy = false;
+      state.imu.portState = null;
+      renderImu();
+      await refreshImuHolders(true);
+      refreshImuStatus(true);
+    }
+  }
+
+  async function releaseImuPort() {
+    if (state.imu.busy) return;
+    const port = imuPort();
+    if (!port) {
+      toast("先选串口", "warn");
+      return;
+    }
+    const names = (state.imu.holders || []).map((h) => `${h.name}(${h.pid})`).join("、");
+    const running = !!(state.imu.status && state.imu.status.running);
+    const lines = [];
+    if (names) lines.push("会结束这些占口进程：" + names);
+    if (running) lines.push("正在运行的 xbox-controller 也会先停掉");
+    if (lines.length && !window.confirm(`释放 ${port}？\n\n${lines.join("\n")}`)) return;
+    state.imu.busy = true;
+    renderImu();
+    try {
+      const j = await imuApi("/api/serial/release", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          port,
+          kill_holders: $("#imuKill").checked,
+          force_names: $("#imuForce").checked,
+        }),
+      });
+      state.imu.steps = aggregateImuSteps(j.steps);
+      state.imu.holders = j.ok ? [] : (j.holders || []);
+      state.imu.openable = !!j.ok;
+      if (j.ok) toast(`${port} 已释放`);
+      else toast(j.error || "释放失败", "error");
+    } catch (e) {
+      toast("释放失败：" + (e.message || e), "error");
+    } finally {
+      state.imu.busy = false;
+      renderImu();
+      await refreshImuHolders(true);
+      refreshImuStatus(true);
+    }
+  }
+
+  function clearImuLog() {
+    const el = $("#imuLog");
+    if (el) el.textContent = "";
+    const s = state.imu.status || {};
+    state.imu.logPid = s.pid;
+    state.imu.serverLogCount = ((s.log) || []).length;
+  }
+
+  /* ── PC 摄像头手势 → 虚拟手柄 ──────────────────────────────────────────── */
+  function gestureCamera() {
+    const el = $("#gestureCamera");
+    const n = parseInt(el ? el.value : "0", 10);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  function gestureDryRun() {
+    const el = $("#gestureDryRun");
+    return !!(el && el.checked);
+  }
+
+  function gestureWithImu() {
+    const el = $("#gestureWithImu");
+    return !!(el && el.checked);
+  }
+
+  function gestureShowWindow() {
+    const el = $("#gestureShowWindow");
+    return !!(el && el.checked);
+  }
+
+  function renderGesture() {
+    const badge = $("#gestureBadge");
+    const note = $("#gestureNote");
+    const log = $("#gestureLog");
+    const s = state.gesture.status || {};
+    const g = s.gesture || {};
+    const running = !!s.running;
+    const bad = state.gesture.serverError;
+
+    if (badge) {
+      if (state.gesture.busy) {
+        badge.className = "source-badge is-local";
+        badge.textContent = "启动中…";
+      } else if (bad) {
+        badge.className = "source-badge";
+        badge.textContent = "服务异常";
+      } else if (running) {
+        const dry = !!(s.meta && s.meta.dry_run);
+        badge.className = "source-badge " + (dry ? "is-local" : "is-ok");
+        badge.textContent = dry ? "dry-run" : "运行中";
+      } else {
+        badge.className = "source-badge";
+        badge.textContent = "未启动";
+      }
+    }
+
+    if (note) {
+      let text = "";
+      let kind = "";
+      if (bad) {
+        text = /fetch|network|HTTP 404/i.test(bad)
+          ? "本地服务未启动：用 bash run.sh web 启动 8788。"
+          : "本地服务出错：" + bad;
+        kind = "is-warn";
+      } else if (!s.gesture) {
+        text = "正在检查 PC 手势依赖…";
+      } else if (!g.available) {
+        text = "找不到 app/gesture/pc/run.py 或 gamepad.py。";
+        kind = "is-warn";
+      } else {
+        const missing = ["cv2", "mediapipe", "numpy"].filter((m) => !g[m]);
+        if (missing.length) {
+          text = "当前 Python 缺 " + missing.join(" / ") + "：py -3.11 -m pip install -r app/gesture/pc/requirements.txt";
+          kind = "is-warn";
+        } else if (!g.vgamepad && !gestureDryRun()) {
+          text = "当前 Python 缺 vgamepad：先勾 dry-run，或安装 ViGEmBus + vgamepad。";
+          kind = "is-warn";
+        } else if (running) {
+          const meta = s.meta || {};
+          if (meta.dry_run) {
+            text = "dry-run：只打印 LB/R3，不会创建虚拟手柄，游戏收不到。取消勾选后点「停止」再「启动」。";
+            kind = "is-warn";
+          } else if (meta.mode === "combined" || s.mode === "combined") {
+            text = `运行中 · IMU ${meta.imu_port || "COM"} + camera ${meta.camera} · ${meta.shield_side}${meta.show_window ? " · 窗口 ARES HDMI" : ""}`;
+            kind = "is-ok";
+          } else {
+            text = `运行中 · camera ${meta.camera} · ${meta.shield_side}${meta.show_window ? " · 窗口 ARES HDMI" : ""}`;
+            kind = "is-ok";
+          }
+        } else if (gestureWithImu() && !imuPort()) {
+          text = "已勾选「叠加 IMU」，但上方 IMU 卡还没有串口；先选 COM5，再启动。";
+          kind = "is-warn";
+        } else {
+          text = "camera 0 通常是笔记本摄像头，1 通常是采集卡；勾选叠加 IMU 会用一个虚拟手柄同时输出摇杆和 LB/R3。";
+          kind = "is-ok";
+        }
+      }
+      note.className = "support-note " + kind;
+      note.textContent = text;
+    }
+
+    const start = $("#btnGestureStart");
+    const stop = $("#btnGestureStop");
+    if (start) {
+      const missing = s.gesture ? ["cv2", "mediapipe", "numpy"].some((m) => !g[m]) : true;
+      const noPort = gestureWithImu() && !imuPort();
+      start.disabled = state.gesture.busy || !!bad || missing || !g.available || noPort;
+    }
+    if (stop) stop.disabled = state.gesture.busy || !running;
+
+    if (log) {
+      const text = (s.log || []).length ? s.log.join("\n") : "等待启动…";
+      if (log.textContent !== text) {
+        const atBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 24;
+        log.textContent = text;
+        if (atBottom) log.scrollTop = log.scrollHeight;
+      }
+    }
+  }
+
+  async function refreshGestureStatus() {
+    try {
+      const s = await imuApi("/api/gesture/status");
+      state.gesture.status = s;
+      state.gesture.serverError = "";
+      renderGesture();
+    } catch (e) {
+      state.gesture.serverError = e.message || String(e);
+      renderGesture();
+    }
+  }
+
+  async function startGesture() {
+    if (state.gesture.busy) return;
+    const camera = gestureCamera();
+    if (camera < 0 || camera > 9) {
+      toast("摄像头编号必须在 0..9", "warn");
+      return;
+    }
+    const withImu = gestureWithImu();
+    const port = imuPort();
+    if (withImu && !port) {
+      toast("勾选了叠加 IMU，但上方 IMU 卡还没有串口；先选 COM5", "warn");
+      return;
+    }
+    state.gesture.busy = true;
+    renderGesture();
+    try {
+      if (withImu) {
+        if (serialChannel) serialChannel.postMessage({ type: "release-serial" });
+        if (state.connected) await disconnectSerial({ silent: true });
+        await sleep(350);
+      }
+      const j = await imuApi("/api/gesture/start", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          camera,
+          shield_side: "either",
+          dry_run: gestureDryRun(),
+          show_window: gestureShowWindow(),
+          with_imu: withImu,
+          imu_port: withImu ? port : null,
+          imu_profile: withImu ? imuProfile() : null,
+          baud: parseInt($("#baudSelect").value, 10) || 115200,
+        }),
+      });
+      state.gesture.status = j.status || state.gesture.status;
+      if (j.ok) {
+        toast(`PC 手势已启动 · camera ${camera}${withImu ? " · IMU " + port : ""}`);
+      } else {
+        toast(j.error || "PC 手势启动失败", "error");
+      }
+      (j.warnings || []).forEach((w) => toast(w, "warn"));
+    } catch (e) {
+      toast("PC 手势启动失败：" + (e.message || e), "error");
+    } finally {
+      state.gesture.busy = false;
+      renderGesture();
+      refreshImuStatus(true);
+      refreshGestureStatus();
+    }
+  }
+
+  async function stopGesture() {
+    if (state.gesture.busy) return;
+    state.gesture.busy = true;
+    renderGesture();
+    try {
+      const j = await imuApi("/api/gesture/stop", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      });
+      state.gesture.status = j.status || state.gesture.status;
+      toast("PC 手势已停止");
+    } catch (e) {
+      toast("停止 PC 手势失败：" + (e.message || e), "error");
+    } finally {
+      state.gesture.busy = false;
+      renderGesture();
+      refreshImuStatus(true);
+      refreshGestureStatus();
+    }
+  }
+
+  function startImuPolling() {
+    if (state.imu.timer) return;
+    refreshImuStatus(true);
+    refreshGestureStatus();
+    state.imu.timer = setInterval(() => {
+      if (state.view === "imu") {
+        refreshImuStatus(true);
+        refreshGestureStatus();
+      }
+    }, 2000);
+  }
+
+  function stopImuPolling() {
+    if (state.imu.timer) clearInterval(state.imu.timer);
+    state.imu.timer = null;
+  }
+
   function updateModeUI() {
     const live = state.connected;
     const busy = state.connecting || (state.running && live);
@@ -1356,6 +2259,7 @@
       }
     }
     renderLinkStats();
+    if (state.view === "imu") renderImu();
   }
 
   function describePort(info) {
@@ -1755,6 +2659,12 @@
   function go(view, push) {
     const v = VIEWS.includes(view) ? view : "workbench";
     state.view = v;
+    if (v === "imu") {
+      loadImuPorts();
+      startImuPolling();
+    } else {
+      stopImuPolling();
+    }
     $$(".view").forEach((el) => {
       el.hidden = el.dataset.view !== v;
     });
@@ -1774,6 +2684,7 @@
       workbench: { icon: "grid", title: "脱敏工作台", sub: "输入文本 · 回放或本地规则" },
       link: { icon: "activity", title: "数据链路", sub: "串口连接、数据通路与会话日志" },
       rtt: { icon: "terminal", title: "RTT 控制台", sub: "MSH、AI、CoreMark、Guard 全流程" },
+      imu: { icon: "zap", title: "IMU 手柄", sub: "一键接管串口、启动 xbox-controller" },
       rules: { icon: "layers", title: "规则矩阵", sub: "10 类检测器、掩码策略与关键词" },
       system: { icon: "cpu", title: "系统状态", sub: "资源、时序、验收与限制" },
     };
@@ -2005,6 +2916,20 @@
   function wire() {
     state.serial.supported = "serial" in navigator;
 
+    if ("BroadcastChannel" in window) {
+      try {
+        serialChannel = new BroadcastChannel("ares-guard-serial");
+        serialChannel.onmessage = (ev) => {
+          if (ev.data && ev.data.type === "release-serial" && state.connected) {
+            disconnectSerial({ silent: true });
+            toast("另一个 ARES 标签页接管了串口，本页已断开", "warn");
+          }
+        };
+      } catch (e) {
+        serialChannel = null;
+      }
+    }
+
     $$(".nav-item").forEach((btn) => {
       btn.addEventListener("click", () => go(btn.dataset.nav, true));
     });
@@ -2128,6 +3053,31 @@
       state.serial.baud = parseInt($("#baudSelect").value, 10) || 115200;
       updateModeUI();
     });
+
+    $("#btnImuRefresh").addEventListener("click", () => loadImuPorts());
+    $("#imuPortInput").addEventListener("change", () => {
+      state.imu.steps = null;
+      refreshImuHolders(false);
+    });
+    $("#imuPortInput").addEventListener("input", renderImuPortHint);
+    $("#imuProfileSelect").addEventListener("change", renderImu);
+    $("#imuDryRun").addEventListener("change", renderImu);
+    $("#imuKill").addEventListener("change", renderImu);
+    $("#imuForce").addEventListener("change", renderImu);
+    $("#btnImuTakeover").addEventListener("click", takeoverImu);
+    $("#btnImuStop").addEventListener("click", stopImuController);
+    $("#btnImuRelease").addEventListener("click", releaseImuPort);
+    $("#btnImuClearLog").addEventListener("click", clearImuLog);
+    $("#btnImuCopyLog").addEventListener("click", () => {
+      copyText($("#imuLog").textContent, "宿主日志");
+    });
+
+    $("#btnGestureStart").addEventListener("click", startGesture);
+    $("#btnGestureStop").addEventListener("click", stopGesture);
+    $("#gestureCamera").addEventListener("change", renderGesture);
+    $("#gestureDryRun").addEventListener("change", renderGesture);
+    $("#gestureWithImu").addEventListener("change", renderGesture);
+    $("#gestureShowWindow").addEventListener("change", renderGesture);
 
     $("#btnPalette").addEventListener("click", () => (state.paletteOpen ? closePalette() : openPalette()));
     $("#palette").addEventListener("mousedown", (e) => {

@@ -1,37 +1,53 @@
 # guard/web —— 浏览器演示台
 
 接线面板式的单页应用：左边选样例，中间发文本看板子处理，右边看脱敏结果与审计行。
-页面本身是纯静态的；**烧写和串口由本地 `tools/board_server.py` 托管**（浏览器不能直接调 `cdt_cfg`）。
+页面本身是纯静态的；**烧写、串口占用和 IMU 接管由本地 `tools/board_server.py` 托管**
+（浏览器不能直接调 `cdt_cfg`，也不能结束别的进程）。
 
 ```powershell
-python app/guard/tools/board_server.py --port 8788
+# 推荐：run.sh 自动选 Windows / WSL / Git Bash 的 Python，并打开浏览器
+cd app/guard
+bash run.sh web
+
+# PowerShell 原生入口（内部还是调 run.sh）
+.\run.ps1 web
+
+# 或者只起服务、不自动开浏览器
+bash run.sh web --no-browser --port 8788
+py -3.11 tools/board_server.py --port 8788
 ```
 
 浏览器打开 **http://127.0.0.1:8788**，用 **Chrome / Edge**（Web Serial 只在这两个里可用；
 `http://127.0.0.1` 属于安全上下文，可以直接开串口）。只做回放、不烧写时，也可以用
-`make web` / `python -m http.server` 托管。
+`make web` / `python -m http.server` 托管；但 IMU 接管和烧写会提示本地服务未启动。
 
-## 三条数据来源
+## 四条数据来源
 
 | 模式 | 数据来源 | 需要板子 | 说明 |
 |---|---|---|---|
 | **串口实时** | Web Serial → 板子 | ✅ | 点「连接串口」选 COM 口（115200），再点发送 |
 | **板上实测回放** | `demos.js` | ❌ | 5 条样例的真板回显，演示动画用 |
 | **本地规则预览** | `engine.js` | ❌ | 浏览器里的 L1 规则 + 词典实体层，任意文本即时预览 |
+| **IMU 手柄** | 本地服务 → xbox-controller | ✅ | 一键收串口、切 IMU 遥测、拉起虚拟手柄 |
 
-面板上的数字全部来自这三条路径，没有随机生成的“气氛数据”。
+面板上的数字全部来自这四条路径，没有随机生成的“气氛数据”。
 
 ## 文件
 
 | 文件 | 作用 |
 |---|---|
-| `index.html` | 页面结构（SVG 板卡图：PG2L200H / ARES core / miniTensor / NER / L1） |
-| `style.css` | 全部视觉：旋转 logo、电流走线、芯片脉冲、流水线跑马、逐字揭示 |
-| `app.js` | 控制面：串口收发、分帧、审计解析、动画调度、数字渲染 |
+| `index.html` | 页面结构（SVG 板卡图：PG2L200H / ARES core / miniTensor / NER / L1 / IMU） |
+| `style.css` | 基础视觉：布局、配色、组件与既有动画 |
+| `fx.css` | 视觉增强层：极光背景、HUD 边角、流光卡片边框、扫描线、时序雷达、IMU 链路 |
+| `fx.js` | 视觉动效：背景粒子与电路脉冲、指针光斑、滚动进度、入场揭示、按钮涟漪、数字滚动、脱敏结果逐字打字 |
+| `app.js` | 控制面：串口收发、分帧、审计解析、动画调度、数字渲染、IMU 接管 |
 | `engine.js` | 浏览器版 L1 + 词典实体层（与 `host/golden` 逐条对齐，**不含 NER**） |
 | `data.js` | 静态资料：板卡参数、资源占用、分层说明（改板子后要同步） |
 | `demos.js` | **生成物**：`tools/gen_web_demos.py` 从 `examples/demo*.txt` 生成 |
 | `favicon.svg` | 图标 |
+
+> `fx.css` / `fx.js` 是纯装饰层：只改外观和动效，不读写业务状态；删掉这两个文件
+> 页面仍能正常工作。`prefers-reduced-motion: reduce` 下会自动关闭全部动画和粒子背景。
 
 ## 串口协议（与 `tools/serial_host.py` 一致）
 
@@ -71,6 +87,71 @@ RTT 控制台右侧的 **FLASH / 烧写** 卡会从 `/api/board/bitstreams` 列�
 
 「进入 Guard」发送 `guard start`，等 `GUARD READY`；「退出 Guard 回 MSH」发送 `0x1D`（Ctrl+]），等 `GUARD EXIT` / `msh >`，**串口保持连接**。直接关闭标签页不会发送退出字节，板子会停在 Guard 会话里。
 
+## IMU 手柄 / 一键接管串口
+
+导航栏的「IMU 手柄」把串口从浏览器、Guard 会话和串口助手里收回来，交给
+`app/imu/xbox-controller`：
+
+1. **断开本页 Web Serial**，并通过 `BroadcastChannel("ares-guard-serial")` 通知其它 ARES 标签页一起释放；
+2. `board_server.py` 扫描 Windows 进程：命令行里明确带该 COM 口、或进程名属于已知串口工具（`sscom` / PuTTY / RT-Thread / 旧 xbox-controller …）的进程会被结束；
+3. 打开串口：板子在 Guard 会话就发 `0x1D` 退出，再发 `ai stop`、`imu start`；
+4. 以 `--imu-port <port> --stdin-cmd` 启动 `app/imu/xbox-controller/run.py`，日志实时回显；
+5. 「停止手柄」先借宿主串口发 `imu stop`，再结束进程；「仅释放串口」只清占口程序，不启动手柄。
+
+页面上的 **dry-run** 只打印摇杆/按键状态，不写 ViGEmBus，适合先验证链路。占口扫描
+只在这个 COM **确实存在且被占用**时才做；COM 不存在时一个进程都不会结束。接管沿用
+「数据链路」页的波特率（板子默认 115200；3 Mbaud 只用于仿真通路）。
+
+多个串口时页面优先选 **CP210x / CH340**（盘古板的 USB-UART 常见型号），并在输入框
+下方显示完整描述，例如 `COM5 · Silicon Labs CP210x USB to UART Bridge`。如果页面
+提示“被占用但没识别到进程”，通常是本页或其它标签页的 Web Serial 还开着，先点顶部
+「断开」或关闭 RTT 控制台标签页。
+
+### 同一页的 PC 手势卡
+
+「IMU 手柄」页底部还有 **PC VISION / 摄像头手势** 卡，有两种启动方式：
+
+```text
+# 叠加 IMU（勾选“叠加 IMU”，默认）：一个虚拟手柄
+COM5 IMU + camera → xbox_serial --imu-port COM5 --gesture-camera 1
+                    └─ 摇杆/IMU 按键 + 手势 LB/R3 合并到同一个 Controller
+
+# 只做手势（取消勾选）：独立的 PC 手势手柄
+camera → run.py（MediaPipe） → gamepad.py → 虚拟 Xbox 手柄
+```
+
+- 摄像头编号：`0` 通常是笔记本摄像头，`1` 通常是 USB 采集卡；采集卡要确认 HDMI 有信号。
+- Windows 下 `run.py` 用 DirectShow、默认 1280×720；只有 640×480 的采集卡才需要手动
+  `--width 0 --height 0`。分类只看**手部关键点**，不依赖肩/肘/腕；画面暗时先补光并让手完整入镜。
+- 手形：**defense** 是拇指贴掌的拳/半握拳；**point** 是食指相对其他手指明显更长、拇指外张；
+  **drink** 是四指蜷曲、拇指外张且手靠近画面顶部（嘴）。drink 输出一次 Xbox 方向键下。
+  左右手不区分，也没有「举盾手」选项了。
+- **dry-run** 勾选时只打印 `LB`/`R3`，不写 ViGEmBus；徽标会显示 `dry-run`，游戏收不到。
+- 勾选 **叠加 IMU** 时使用上方 IMU 卡的串口（如 COM5），只创建一个虚拟手柄；
+  取消勾选则是纯手势手柄，启动时会停掉 IMU 手柄。叠加模式启动前会释放串口、退出
+  Guard 会话、发 `ai stop` 和 `imu start`，再启动宿主；如果 `imu status` 的
+  `frames` 不增长，先复位 ESP32/IMU 桥接板，而不是继续调手势阈值。
+- **显示识别窗口** 默认勾选：启动后先出现 OpenCV 窗口 **ARES HDMI** 的等待画面，
+  第一帧到达后显示摄像头和手部/姿态关键点；按 `q` 或 `ESC` 关闭。取消勾选则跑
+  headless，不弹窗。窗口先出，MediaPipe 模型/采集卡初始化慢不会让人误以为没启动。
+- `unknown` 不按 LB/R3，只释放已经按住的键；0.5 s 没有 JSON 时全部释放。
+
+| 接口 | 作用 |
+|---|---|
+| `GET /api/serial/ports` | 列串口 + xbox-controller 环境（Python / pyserial / PyYAML / vgamepad / profiles） |
+| `GET /api/serial/holders?port=COM9` | 端口状态 `open/busy/missing/error` + 疑似占口进程 |
+| `POST /api/serial/release` | 只结束占口进程并验证端口可打开 |
+| `GET /api/imu/status` | 控制器进程、pid、运行时长、日志尾部、串口列表 |
+| `POST /api/imu/takeover` | 一键接管：释放串口 → 退出 Guard → `ai stop` → `imu start` → 启动宿主 |
+| `POST /api/imu/stop` | 停止宿主，并向板子补发 `imu stop` |
+| `GET /api/gesture/status` | PC 手势进程、mode（combined/standalone）、camera/shield/dry-run、日志 |
+| `POST /api/gesture/start` | 启动手势；`with_imu=true` 时同时启动 IMU 合并宿主，body 另带 `imu_port` / `imu_profile` / `baud` |
+| `POST /api/gesture/stop` | 停止 PC 手势（合并模式会连 IMU 宿主一起停）和它创建的虚拟手柄 |
+
+占口进程的判定在服务端：**浏览器、终端、系统进程永远不会被结束**，启动本服务的
+祖先进程也会被排除；已知串口工具名单可以用 `--kill-names "sscom,putty,rtthread"` 覆盖。
+不在名单里的自定义工具，只要命令行里带 `--port COM9` / `-p COM9` 也会被识别。
+
 ## 已知边界
 
 | 现象 | 原因 |
@@ -78,6 +159,10 @@ RTT 控制台右侧的 **FLASH / 烧写** 卡会从 `/api/board/bitstreams` 列�
 | 本地预览认不出裸人名/裸地址 | `engine.js` 没有 NER（浏览器里不跑 CNN） |
 | 页面连上串口后，命令行工具打不开 COM9 | Web Serial 独占端口；点「断开」或用完关页面 |
 | 逐字节的 `*` 会显示成一个 `＊` | 前端按字符折叠，和 `serial_host.py` 的渲染规则一致 |
+| IMU 接管提示“串口不存在” | 板子/驱动没枚举出该 COM；先刷新列表，别手填错号 |
+| 接管后提示“没有看到 imu started” | 当前位流没有 IMU 线程（或板子还在跑自检）；换 AMP 位流，等自检结束 |
+| 另一个浏览器标签页占着串口 | 它不会收到本页的 Web Serial；关掉那个标签页，或让页面由同一个 `board_server.py` 托管 |
+| xbox-controller 运行时 RTT 控制台连不上 | 预期：虚拟手柄宿主独占 COM；先在 IMU 页「停止手柄」 |
 
 ## 改完东西要做什么
 
