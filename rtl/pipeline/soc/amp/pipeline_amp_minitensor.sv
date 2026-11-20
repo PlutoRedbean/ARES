@@ -15,6 +15,7 @@ module pipeline_amp_minitensor (
     logic [127:0] dma_wdata, dma_rdata;
     logic [15:0] dma_wstrb;
     logic [31:0] status, result_data, perf_dma, perf_mma;
+    logic dma_grant_q;
 
     wire regs_sel = cpu_addr[31:28] == 4'he;
     wire [2:0] reg_idx = cpu_addr[4:2];
@@ -35,8 +36,10 @@ module pipeline_amp_minitensor (
     (* syn_ramstyle = "block_ram", ram_style = "block" *)
     logic [127:0] scratch [0:4095];
 
-    assign dma_ready = !rst && !dma_pending && !dma_rsp_valid;
-    assign cpu_ready = !rst && (regs_sel || !dma_fire);
+    // Reserve the next RAM cycle. The DMA holds valid and its payload until
+    // ready; CPU register accesses use a separate port even in that cycle.
+    assign dma_ready = !rst && dma_grant_q;
+    assign cpu_ready = !rst && (regs_sel || !dma_grant_q);
 
     always_ff @(posedge clk) begin
         if (dma_fire || cpu_mem) begin
@@ -49,10 +52,12 @@ module pipeline_amp_minitensor (
 
     always_ff @(posedge clk) begin
         if (rst) begin
+            dma_grant_q <= 1'b0;
             dma_pending <= 1'b0;
             dma_rsp_valid <= 1'b0;
             cpu_pending <= 1'b0;
         end else begin
+            dma_grant_q <= dma_valid && !dma_grant_q && !dma_pending && !dma_rsp_valid;
             dma_pending <= dma_fire;
             if (dma_pending) begin
                 dma_rdata <= ram_rdata_q;

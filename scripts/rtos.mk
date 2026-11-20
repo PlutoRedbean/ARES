@@ -127,7 +127,14 @@ pipeline-rtos-amp-pango-lint: pipeline-rtos-amp-pango-prep
 	    --top-module pipeline_rtos_amp_board_top -f build/rtos_amp/pango_lint.f \
 	    -f build/rtos_amp/pango_extra.f rtl/video/sim/GTP_IOCLKDIV_E2.v rtl/video/sim/GTP_CLKBUFG.v rtl/video/sim/GTP_DFF.v
 
-.PHONY: pipeline-guard-mmio-test pipeline-sccb-test
+.PHONY: pipeline-guard-mmio-test pipeline-sccb-test pipeline-minitensor-scratch-test
+pipeline-minitensor-scratch-test: guard-tables
+	@mkdir -p build/rtos_amp
+	@CCACHE_DISABLE=1 verilator --binary --timing -j 4 -Wno-fatal --top-module tb_minitensor_scratch \
+	    -f rtl/pipeline/pipeline_rtos_amp_extra.f rtl/pipeline/test/tb_minitensor_scratch.sv \
+	    --Mdir build/rtos_amp/scratch_test -o run
+	@build/rtos_amp/scratch_test/run
+
 pipeline-sccb-test:
 	@mkdir -p build/rtos_amp
 	@iverilog -g2012 -Irtl/video -s tb_sccb_config -o build/rtos_amp/tb_sccb_config \
