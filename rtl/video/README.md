@@ -98,13 +98,14 @@ DVP 采集单元测试：
 ```bash
 mkdir -p sim/build/video/tb_video_capture
 verilator --binary --timing --assert -Wall -DVIDEO_SIM \
+    -Wno-PROCASSINIT \
     -Wno-DECLFILENAME -Wno-TIMESCALEMOD -Wno-BLKSEQ -Wno-SIDEEFFECT \
     -Wno-WIDTHTRUNC -Wno-WIDTHEXPAND -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM \
     -Wno-CASEINCOMPLETE -Wno-EOFNEWLINE -Wno-SYNCASYNCNET \
     -Irtl/video --top-module tb_video_capture \
     -Mdir sim/build/video/tb_video_capture -o tb_video_capture \
     rtl/video/video_capture_wrap.v rtl/video/video_dvp_rgb565.v \
-    rtl/video/sim/GTP_IOCLKDIV_E2.v rtl/video/test/tb_video_capture.v
+    rtl/video/sim/GTP_DFF.v rtl/video/sim/GTP_IOCLKDIV_E2.v rtl/video/test/tb_video_capture.v
 ./sim/build/video/tb_video_capture/tb_video_capture
 ```
 
