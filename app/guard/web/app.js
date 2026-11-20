@@ -85,6 +85,12 @@
       serverLogCount: 0,
       lastPort: "",
     },
+    gesture: {
+      status: null,
+      busy: false,
+      serverError: "",
+      timer: null,
+    },
   };
 
   let pipelineTimer = null;
@@ -1777,6 +1783,7 @@
     renderImuFacts();
     renderImuPortHint();
     renderImuNote();
+    renderGesture();
 
     const busy = state.imu.busy;
     const port = imuPort();
@@ -1888,6 +1895,7 @@
       state.imu.busy = false;
       renderImu();
       refreshImuStatus(true);
+      refreshGestureStatus();
     }
   }
 
@@ -1976,11 +1984,213 @@
     state.imu.serverLogCount = ((s.log) || []).length;
   }
 
+  /* ── PC 摄像头手势 → 虚拟手柄 ──────────────────────────────────────────── */
+  function gestureCamera() {
+    const el = $("#gestureCamera");
+    const n = parseInt(el ? el.value : "0", 10);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  function gestureDryRun() {
+    const el = $("#gestureDryRun");
+    return !!(el && el.checked);
+  }
+
+  function gestureWithImu() {
+    const el = $("#gestureWithImu");
+    return !!(el && el.checked);
+  }
+
+  function gestureShowWindow() {
+    const el = $("#gestureShowWindow");
+    return !!(el && el.checked);
+  }
+
+  function renderGesture() {
+    const badge = $("#gestureBadge");
+    const note = $("#gestureNote");
+    const log = $("#gestureLog");
+    const s = state.gesture.status || {};
+    const g = s.gesture || {};
+    const running = !!s.running;
+    const bad = state.gesture.serverError;
+
+    if (badge) {
+      if (state.gesture.busy) {
+        badge.className = "source-badge is-local";
+        badge.textContent = "启动中…";
+      } else if (bad) {
+        badge.className = "source-badge";
+        badge.textContent = "服务异常";
+      } else if (running) {
+        const dry = !!(s.meta && s.meta.dry_run);
+        badge.className = "source-badge " + (dry ? "is-local" : "is-ok");
+        badge.textContent = dry ? "dry-run" : "运行中";
+      } else {
+        badge.className = "source-badge";
+        badge.textContent = "未启动";
+      }
+    }
+
+    if (note) {
+      let text = "";
+      let kind = "";
+      if (bad) {
+        text = /fetch|network|HTTP 404/i.test(bad)
+          ? "本地服务未启动：用 bash run.sh web 启动 8788。"
+          : "本地服务出错：" + bad;
+        kind = "is-warn";
+      } else if (!s.gesture) {
+        text = "正在检查 PC 手势依赖…";
+      } else if (!g.available) {
+        text = "找不到 app/gesture/pc/run.py 或 gamepad.py。";
+        kind = "is-warn";
+      } else {
+        const missing = ["cv2", "mediapipe", "numpy"].filter((m) => !g[m]);
+        if (missing.length) {
+          text = "当前 Python 缺 " + missing.join(" / ") + "：py -3.11 -m pip install -r app/gesture/pc/requirements.txt";
+          kind = "is-warn";
+        } else if (!g.vgamepad && !gestureDryRun()) {
+          text = "当前 Python 缺 vgamepad：先勾 dry-run，或安装 ViGEmBus + vgamepad。";
+          kind = "is-warn";
+        } else if (running) {
+          const meta = s.meta || {};
+          if (meta.dry_run) {
+            text = "dry-run：只打印 LB/R3，不会创建虚拟手柄，游戏收不到。取消勾选后点「停止」再「启动」。";
+            kind = "is-warn";
+          } else if (meta.mode === "combined" || s.mode === "combined") {
+            text = `运行中 · IMU ${meta.imu_port || "COM"} + camera ${meta.camera} · ${meta.shield_side}${meta.show_window ? " · 窗口 ARES HDMI" : ""}`;
+            kind = "is-ok";
+          } else {
+            text = `运行中 · camera ${meta.camera} · ${meta.shield_side}${meta.show_window ? " · 窗口 ARES HDMI" : ""}`;
+            kind = "is-ok";
+          }
+        } else if (gestureWithImu() && !imuPort()) {
+          text = "已勾选「叠加 IMU」，但上方 IMU 卡还没有串口；先选 COM5，再启动。";
+          kind = "is-warn";
+        } else {
+          text = "camera 0 通常是笔记本摄像头，1 通常是采集卡；勾选叠加 IMU 会用一个虚拟手柄同时输出摇杆和 LB/R3。";
+          kind = "is-ok";
+        }
+      }
+      note.className = "support-note " + kind;
+      note.textContent = text;
+    }
+
+    const start = $("#btnGestureStart");
+    const stop = $("#btnGestureStop");
+    if (start) {
+      const missing = s.gesture ? ["cv2", "mediapipe", "numpy"].some((m) => !g[m]) : true;
+      const noPort = gestureWithImu() && !imuPort();
+      start.disabled = state.gesture.busy || !!bad || missing || !g.available || noPort;
+    }
+    if (stop) stop.disabled = state.gesture.busy || !running;
+
+    if (log) {
+      const text = (s.log || []).length ? s.log.join("\n") : "等待启动…";
+      if (log.textContent !== text) {
+        const atBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 24;
+        log.textContent = text;
+        if (atBottom) log.scrollTop = log.scrollHeight;
+      }
+    }
+  }
+
+  async function refreshGestureStatus() {
+    try {
+      const s = await imuApi("/api/gesture/status");
+      state.gesture.status = s;
+      state.gesture.serverError = "";
+      renderGesture();
+    } catch (e) {
+      state.gesture.serverError = e.message || String(e);
+      renderGesture();
+    }
+  }
+
+  async function startGesture() {
+    if (state.gesture.busy) return;
+    const camera = gestureCamera();
+    if (camera < 0 || camera > 9) {
+      toast("摄像头编号必须在 0..9", "warn");
+      return;
+    }
+    const withImu = gestureWithImu();
+    const port = imuPort();
+    if (withImu && !port) {
+      toast("勾选了叠加 IMU，但上方 IMU 卡还没有串口；先选 COM5", "warn");
+      return;
+    }
+    state.gesture.busy = true;
+    renderGesture();
+    try {
+      if (withImu) {
+        if (serialChannel) serialChannel.postMessage({ type: "release-serial" });
+        if (state.connected) await disconnectSerial({ silent: true });
+        await sleep(350);
+      }
+      const j = await imuApi("/api/gesture/start", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          camera,
+          shield_side: "either",
+          dry_run: gestureDryRun(),
+          show_window: gestureShowWindow(),
+          with_imu: withImu,
+          imu_port: withImu ? port : null,
+          imu_profile: withImu ? imuProfile() : null,
+          baud: parseInt($("#baudSelect").value, 10) || 115200,
+        }),
+      });
+      state.gesture.status = j.status || state.gesture.status;
+      if (j.ok) {
+        toast(`PC 手势已启动 · camera ${camera}${withImu ? " · IMU " + port : ""}`);
+      } else {
+        toast(j.error || "PC 手势启动失败", "error");
+      }
+      (j.warnings || []).forEach((w) => toast(w, "warn"));
+    } catch (e) {
+      toast("PC 手势启动失败：" + (e.message || e), "error");
+    } finally {
+      state.gesture.busy = false;
+      renderGesture();
+      refreshImuStatus(true);
+      refreshGestureStatus();
+    }
+  }
+
+  async function stopGesture() {
+    if (state.gesture.busy) return;
+    state.gesture.busy = true;
+    renderGesture();
+    try {
+      const j = await imuApi("/api/gesture/stop", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      });
+      state.gesture.status = j.status || state.gesture.status;
+      toast("PC 手势已停止");
+    } catch (e) {
+      toast("停止 PC 手势失败：" + (e.message || e), "error");
+    } finally {
+      state.gesture.busy = false;
+      renderGesture();
+      refreshImuStatus(true);
+      refreshGestureStatus();
+    }
+  }
+
   function startImuPolling() {
     if (state.imu.timer) return;
     refreshImuStatus(true);
+    refreshGestureStatus();
     state.imu.timer = setInterval(() => {
-      if (state.view === "imu") refreshImuStatus(true);
+      if (state.view === "imu") {
+        refreshImuStatus(true);
+        refreshGestureStatus();
+      }
     }, 2000);
   }
 
@@ -2861,6 +3071,13 @@
     $("#btnImuCopyLog").addEventListener("click", () => {
       copyText($("#imuLog").textContent, "宿主日志");
     });
+
+    $("#btnGestureStart").addEventListener("click", startGesture);
+    $("#btnGestureStop").addEventListener("click", stopGesture);
+    $("#gestureCamera").addEventListener("change", renderGesture);
+    $("#gestureDryRun").addEventListener("change", renderGesture);
+    $("#gestureWithImu").addEventListener("change", renderGesture);
+    $("#gestureShowWindow").addEventListener("change", renderGesture);
 
     $("#btnPalette").addEventListener("click", () => (state.paletteOpen ? closePalette() : openPalette()));
     $("#palette").addEventListener("mousedown", (e) => {

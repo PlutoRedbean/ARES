@@ -1309,6 +1309,35 @@ kbd {
 .imu-select-row input:focus { border-color: rgba(53, 227, 169, .45); }
 .imu-port-hint { margin: 6px 0 0; }
 .imu-select-row .icon-btn { flex: none; }
+.gesture-card { margin-top: 16px; display: flex; flex-direction: column; }
+.gesture-form {
+  display: grid;
+  grid-template-columns: 150px 230px minmax(0, 1fr);
+  gap: 12px 16px;
+  align-items: end;
+  padding: 0 17px 15px;
+}
+.gesture-form .field input {
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  background: #0c131c;
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-size: 12px;
+  outline: 0;
+}
+.gesture-form .field input:focus { border-color: rgba(53, 227, 169, .45); }
+.gesture-dry { grid-column: 1 / -1; }
+.gesture-with-imu { grid-column: 1 / -1; }
+.gesture-window { grid-column: 1 / -1; }
+.gesture-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; }
+.gesture-form .support-note { grid-column: 1 / -1; margin: 0; }
+.gesture-log { margin: 0 17px 15px; height: 220px; }
+@media (max-width: 1020px) {
+  .gesture-form { grid-template-columns: 1fr 1fr; }
+}
 .imu-check { display: flex; align-items: flex-start; gap: 8px; font-size: 10px; line-height: 1.55; color: var(--dim); cursor: pointer; }
 .imu-check input { flex: none; margin: 2px 0 0; accent-color: var(--mint); }
 .imu-check b { color: var(--ink-2); font-weight: 600; }

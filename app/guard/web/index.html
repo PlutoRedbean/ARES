@@ -699,6 +699,45 @@
         </article>
       </div>
 
+      <article class="card gesture-card" id="gestureCard">
+        <header class="card-head">
+          <div class="card-title">
+            <span class="card-kicker">PC VISION · 摄像头手势</span>
+            <h2>MediaPipe → 虚拟手柄</h2>
+          </div>
+          <span class="source-badge" id="gestureBadge">未启动</span>
+        </header>
+
+        <div class="gesture-form">
+          <label class="field">
+            <span>摄像头编号</span>
+            <input id="gestureCamera" type="number" min="0" max="9" value="0" step="1" aria-label="摄像头编号">
+          </label>
+          <label class="imu-check gesture-dry">
+            <input type="checkbox" id="gestureDryRun" checked>
+            <span><b>dry-run</b>：只打印 LB/R3，不写 ViGEmBus；确认链路后再取消。</span>
+          </label>
+          <label class="imu-check gesture-with-imu">
+            <input type="checkbox" id="gestureWithImu" checked>
+            <span><b>叠加 IMU</b>：用上方 IMU 串口，一个虚拟手柄同时输出摇杆和 LB/R3（推荐）。</span>
+          </label>
+          <label class="imu-check gesture-window">
+            <input type="checkbox" id="gestureShowWindow" checked>
+            <span><b>显示识别窗口</b>：打开 OpenCV “ARES HDMI” 预览，按 q / ESC 关闭。</span>
+          </label>
+          <div class="gesture-actions">
+            <button class="btn primary" id="btnGestureStart" type="button">
+              <svg class="ico"><use href="#i-play"></use></svg><span>启动 PC 手势</span>
+            </button>
+            <button class="btn ghost" id="btnGestureStop" type="button" disabled>停止</button>
+          </div>
+          <p class="support-note" id="gestureNote">正在检查 PC 手势依赖…</p>
+        </div>
+
+        <pre id="gestureLog" class="imu-log gesture-log" aria-live="polite">等待启动…</pre>
+        <p class="log-note"><svg class="ico"><use href="#i-info"></use></svg>勾选「叠加 IMU」时先停掉旧 IMU-only，再启动一个合并手柄；<code>unknown</code> 只释放，不按下 LB/R3。</p>
+      </article>
+
       <footer class="view-foot fx-reveal">
         <span>串口是独占资源：Web Serial、串口助手和 xbox-controller 同一时间只能有一个。</span>
         <span class="view-foot-right"><svg class="ico"><use href="#i-alert"></use></svg>接管会结束占口进程并退出 Guard 会话；正在跑的 CoreMark / 自检请先等它结束。</span>

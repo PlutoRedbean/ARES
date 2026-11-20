@@ -107,6 +107,35 @@ RTT 控制台右侧的 **FLASH / 烧写** 卡会从 `/api/board/bitstreams` 列�
 提示“被占用但没识别到进程”，通常是本页或其它标签页的 Web Serial 还开着，先点顶部
 「断开」或关闭 RTT 控制台标签页。
 
+### 同一页的 PC 手势卡
+
+「IMU 手柄」页底部还有 **PC VISION / 摄像头手势** 卡，有两种启动方式：
+
+```text
+# 叠加 IMU（勾选“叠加 IMU”，默认）：一个虚拟手柄
+COM5 IMU + camera → xbox_serial --imu-port COM5 --gesture-camera 1
+                    └─ 摇杆/IMU 按键 + 手势 LB/R3 合并到同一个 Controller
+
+# 只做手势（取消勾选）：独立的 PC 手势手柄
+camera → run.py（MediaPipe） → gamepad.py → 虚拟 Xbox 手柄
+```
+
+- 摄像头编号：`0` 通常是笔记本摄像头，`1` 通常是 USB 采集卡；采集卡要确认 HDMI 有信号。
+- Windows 下 `run.py` 用 DirectShow、默认 1280×720；只有 640×480 的采集卡才需要手动
+  `--width 0 --height 0`。分类只看**手部关键点**，不依赖肩/肘/腕；画面暗时先补光并让手完整入镜。
+- 手形：**defense** 是拇指贴掌的拳/半握拳；**point** 是食指相对其他手指明显更长、拇指外张；
+  **drink** 是四指蜷曲、拇指外张且手靠近画面顶部（嘴）。drink 输出一次 Xbox 方向键下。
+  左右手不区分，也没有「举盾手」选项了。
+- **dry-run** 勾选时只打印 `LB`/`R3`，不写 ViGEmBus；徽标会显示 `dry-run`，游戏收不到。
+- 勾选 **叠加 IMU** 时使用上方 IMU 卡的串口（如 COM5），只创建一个虚拟手柄；
+  取消勾选则是纯手势手柄，启动时会停掉 IMU 手柄。叠加模式启动前会释放串口、退出
+  Guard 会话、发 `ai stop` 和 `imu start`，再启动宿主；如果 `imu status` 的
+  `frames` 不增长，先复位 ESP32/IMU 桥接板，而不是继续调手势阈值。
+- **显示识别窗口** 默认勾选：启动后先出现 OpenCV 窗口 **ARES HDMI** 的等待画面，
+  第一帧到达后显示摄像头和手部/姿态关键点；按 `q` 或 `ESC` 关闭。取消勾选则跑
+  headless，不弹窗。窗口先出，MediaPipe 模型/采集卡初始化慢不会让人误以为没启动。
+- `unknown` 不按 LB/R3，只释放已经按住的键；0.5 s 没有 JSON 时全部释放。
+
 | 接口 | 作用 |
 |---|---|
 | `GET /api/serial/ports` | 列串口 + xbox-controller 环境（Python / pyserial / PyYAML / vgamepad / profiles） |
@@ -115,6 +144,9 @@ RTT 控制台右侧的 **FLASH / 烧写** 卡会从 `/api/board/bitstreams` 列�
 | `GET /api/imu/status` | 控制器进程、pid、运行时长、日志尾部、串口列表 |
 | `POST /api/imu/takeover` | 一键接管：释放串口 → 退出 Guard → `ai stop` → `imu start` → 启动宿主 |
 | `POST /api/imu/stop` | 停止宿主，并向板子补发 `imu stop` |
+| `GET /api/gesture/status` | PC 手势进程、mode（combined/standalone）、camera/shield/dry-run、日志 |
+| `POST /api/gesture/start` | 启动手势；`with_imu=true` 时同时启动 IMU 合并宿主，body 另带 `imu_port` / `imu_profile` / `baud` |
+| `POST /api/gesture/stop` | 停止 PC 手势（合并模式会连 IMU 宿主一起停）和它创建的虚拟手柄 |
 
 占口进程的判定在服务端：**浏览器、终端、系统进程永远不会被结束**，启动本服务的
 祖先进程也会被排除；已知串口工具名单可以用 `--kill-names "sscom,putty,rtthread"` 覆盖。

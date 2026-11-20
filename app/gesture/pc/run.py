@@ -23,9 +23,11 @@ class Frame:
 
 class LiveCamera:
     """Only the capture thread touches VideoCapture. Keep one newest frame."""
-    def __init__(self, index):
+    def __init__(self, index, width=1280, height=720):
         self.origin = monotonic()
         self.index = index
+        self.width = int(width or 0)
+        self.height = int(height or 0)
         self.changed = Condition()
         self.stop = Event()
         self.frame = None
@@ -33,13 +35,18 @@ class LiveCamera:
 
     def capture(self):
         import cv2
+        backend = cv2.CAP_DSHOW if sys.platform == "win32" else cv2.CAP_ANY
         number = 0
         while not self.stop.is_set():
-            cap = cv2.VideoCapture(self.index)
+            cap = cv2.VideoCapture(self.index, backend)
             try:
                 if cap.isOpened():
-                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+                    # Default is the card's native mode.  Forcing 720p on a
+                    # 640x480 USB HDMI capture card can make read() block
+                    # forever; only set a size when the caller asked for one.
+                    if self.width and self.height:
+                        cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
+                        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
                     cap.set(cv2.CAP_PROP_FPS, 30)
                     cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
                 last = None
@@ -132,9 +139,9 @@ def infer(frame, hands, pose, shield_side, draw, log_landmarks):
               for p in pose_lms.landmark] if pose_lms else []
     hand_points = [[(p.x, p.y, p.z) for p in h.landmark]
                    for h in hand_result.multi_hand_world_landmarks or []]
-    raw = classify(joints, hand_points, shield_side)
-
     hand_images = hand_result.multi_hand_landmarks or []
+    raw = classify(joints, hand_points, shield_side, hand_images)
+
     if draw:
         drawing = mp.solutions.drawing_utils
         if pose_lms:
@@ -165,16 +172,49 @@ def display(image, stable, raw, motion):
     return (cv2.waitKey(1) & 255) in (27, ord("q"))
 
 
+_RECORD = None
+
+
 def emit(frame, seconds, raw, stable, event, **details):
-    print(json.dumps(dict(frame=frame, t=round(seconds, 6), raw=raw, stable=stable,
-                          event=event, **details), separators=(",", ":")), flush=True)
+    line = json.dumps(dict(frame=frame, t=round(seconds, 6), raw=raw, stable=stable,
+                           event=event, **details), separators=(",", ":"))
+    print(line, flush=True)
+    if _RECORD is not None:
+        _RECORD.write(line + "\n")
+        _RECORD.flush()
 
 
 def run(args):
+    global _RECORD
     import cv2
-    import mediapipe as mp
     import numpy as np
-    camera = LiveCamera(args.camera) if args.video is None else None
+
+    if args.record:
+        try:
+            _RECORD = open(args.record, "w", encoding="utf-8", buffering=1)
+        except OSError as error:
+            raise OSError(f"无法写入 --record {args.record}：{error}") from error
+
+    # Show the window before MediaPipe/model initialization.  A capture card
+    # with no HDMI signal (or a slow first model load) can otherwise leave the
+    # process sitting with no visible window for a long time.
+    if not args.headless:
+        try:
+            splash = np.zeros((360, 640, 3), np.uint8)
+            label = f"camera {args.camera} starting..." if args.video is None else "loading video..."
+            cv2.putText(splash, label, (24, 180), cv2.FONT_HERSHEY_SIMPLEX,
+                        0.8, (255, 255, 255), 2, cv2.LINE_AA)
+            cv2.putText(splash, "waiting for first frame / model", (24, 220),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, (180, 180, 180), 1, cv2.LINE_AA)
+            cv2.namedWindow("ARES HDMI", cv2.WINDOW_NORMAL)
+            cv2.imshow("ARES HDMI", splash)
+            cv2.waitKey(1)
+        except cv2.error as exc:
+            print(f"OpenCV window unavailable, fallback to headless: {exc}", file=sys.stderr)
+            args.headless = True
+
+    import mediapipe as mp
+    camera = LiveCamera(args.camera, args.width, args.height) if args.video is None else None
     source = camera.frames() if camera else replay(args.video)
     motion = MotionFeed()
     serial_thread = motion.start(args.serial) if args.serial else None
@@ -232,17 +272,24 @@ def run(args):
             serial_thread.join(timeout=1)
         if not args.headless:
             cv2.destroyAllWindows()
+        if _RECORD is not None:
+            _RECORD.close()
+            _RECORD = None
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     source = parser.add_mutually_exclusive_group()
     source.add_argument("--camera", type=int, default=0, help="USB capture device index")
+    parser.add_argument("--width", type=int, default=1280, help="capture width; 0 = driver default")
+    parser.add_argument("--height", type=int, default=720, help="capture height; 0 = driver default")
     source.add_argument("--video", help="recording to replay in source order")
     parser.add_argument("--serial", help="optional MSH port for M1 debug overlay")
     parser.add_argument("--shield-side", choices=("left", "right", "either"), default="right",
-                        help="Pose arm in mirrored input, default is the Immersive reference arm")
+                        help="legacy option; the hand-only classifier ignores it")
     parser.add_argument("--landmarks", action="store_true", help="include keypoints in JSONL stdout")
+    parser.add_argument("--record", metavar="PATH",
+                        help="同时把 JSONL 逐帧写入 UTF-8 文件（可与窗口一起用）")
     parser.add_argument("--headless", action="store_true", help="disable the OpenCV window")
     args = parser.parse_args()
     try:
